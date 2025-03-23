@@ -43,8 +43,3 @@ def dynamic_prompt_with_wikipedia(question):
     except OutputParserException as e:
         print("解析 LLM 输出时失败!")
         print("LLM 原始输出：", e.llm_output)
-
-    # run and get the response
-    response = agent.run(question)    
-    print(response)
-    return response
