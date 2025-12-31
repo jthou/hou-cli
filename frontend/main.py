@@ -1,4 +1,5 @@
 """CLI 主入口（前端主程序）"""
+import asyncio
 import click
 from rich.console import Console
 from frontend.client.ipc_client import IPCClient
@@ -12,9 +13,25 @@ def cli():
     """LLM Agent CLI Tool"""
     pass
 
+async def _stream_chat(client: IPCClient, message: str):
+    """流式聊天（异步）"""
+    console.print("[bold cyan]Agent: [/bold cyan]", end="")
+    full_response = ""
+    
+    try:
+        async for chunk in client.stream_send(message):
+            console.print(chunk, end="", style="white")
+            full_response += chunk
+        console.print()  # 换行
+        return full_response
+    except Exception as e:
+        console.print(f"\n[bold red]错误: {e}[/bold red]")
+        return None
+
 @cli.command()
 @click.argument('message', required=False)
-def chat(message):
+@click.option('--stream/--no-stream', default=True, help='是否使用流式响应')
+def chat(message, stream):
     """与 Agent 对话"""
     try:
         client = IPCClient()
@@ -24,9 +41,15 @@ def chat(message):
         return
     
     if message:
+        # 单次对话
         try:
-            response = client.send(message)
-            console.print(ChatPanel(response))
+            if stream:
+                # 流式响应
+                asyncio.run(_stream_chat(client, message))
+            else:
+                # 非流式响应
+                response = client.send(message)
+                console.print(ChatPanel(response))
         except Exception as e:
             console.print(f"[bold red]错误: {e}[/bold red]")
     else:
@@ -43,8 +66,13 @@ def chat(message):
                 if not msg.strip():
                     continue
                 
-                response = client.send(msg)
-                console.print(ChatPanel(response))
+                if stream:
+                    # 流式响应
+                    asyncio.run(_stream_chat(client, msg))
+                else:
+                    # 非流式响应
+                    response = client.send(msg)
+                    console.print(ChatPanel(response))
                 console.print()  # 空行
             except KeyboardInterrupt:
                 break

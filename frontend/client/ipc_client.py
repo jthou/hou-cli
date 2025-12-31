@@ -1,9 +1,10 @@
 """IPC 客户端 (TCP Localhost)"""
+import json
 import httpx
 from pathlib import Path
 import platform
 import time
-from typing import Optional
+from typing import Optional, AsyncIterator
 
 class IPCClient:
     """跨平台 IPC 客户端"""
@@ -14,6 +15,7 @@ class IPCClient:
         self.port = None
         self.base_url = None
         self.client = None
+        self.async_client = None
         self._connect()
     
     def _get_port_file(self) -> Path:
@@ -49,6 +51,7 @@ class IPCClient:
         self.port = self._load_port()
         self.base_url = f"http://127.0.0.1:{self.port}"
         self.client = httpx.Client(timeout=30.0)
+        self.async_client = httpx.AsyncClient(timeout=30.0)
         
         # 验证连接
         if not self.health_check():
@@ -63,7 +66,7 @@ class IPCClient:
             return False
     
     def send(self, message: str) -> str:
-        """发送消息"""
+        """发送消息（非流式）"""
         try:
             response = self.client.post(
                 f"{self.base_url}/api/chat",
@@ -83,8 +86,64 @@ class IPCClient:
         except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
+    async def stream_send(self, message: str) -> AsyncIterator[str]:
+        """发送消息（流式 SSE）"""
+        # 确保异步客户端存在
+        if not self.async_client:
+            self.async_client = httpx.AsyncClient(timeout=60.0)
+        
+        url = f"{self.base_url}/api/chat/stream"
+        try:
+            async with self.async_client.stream(
+                "POST",
+                url,
+                json={"message": message},
+                timeout=60.0
+            ) as response:
+                # 检查状态码
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    raise Exception(f"HTTP 错误 {response.status_code}: {error_text.decode('utf-8', errors='ignore')}")
+                
+                buffer = ""
+                async for chunk in response.aiter_bytes():
+                    buffer += chunk.decode('utf-8', errors='ignore')
+                    
+                    # 处理 SSE 格式：data: {json}\n\n
+                    while "\n\n" in buffer:
+                        line, buffer = buffer.split("\n\n", 1)
+                        if line.startswith("data: "):
+                            try:
+                                data = json.loads(line[6:])  # 跳过 "data: "
+                                if data.get("status") == "streaming":
+                                    yield data.get("content", "")
+                                elif data.get("status") == "done":
+                                    return
+                                elif data.get("status") == "error":
+                                    raise Exception(data.get("error", "未知错误"))
+                            except json.JSONDecodeError:
+                                continue
+        
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            error_text = ""
+            try:
+                if hasattr(e.response, 'text'):
+                    error_text = e.response.text
+            except:
+                pass
+            raise Exception(f"HTTP 错误 {e.response.status_code}: {error_text}")
+    
     def close(self):
         """关闭客户端"""
         if self.client:
             self.client.close()
+        # async_client 会在使用完毕后自动关闭，或者通过 async with 管理
+        # 这里不主动关闭，避免事件循环问题
+    
+    async def aclose(self):
+        """异步关闭客户端"""
+        if self.async_client:
+            await self.async_client.aclose()
 
