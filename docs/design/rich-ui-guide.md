@@ -1,0 +1,392 @@
+# Rich UI 使用指南
+
+## 概述
+
+本项目使用 [Rich](https://github.com/Textualize/rich) 库来提供终端内的富文本用户界面。Rich 是一个强大的 Python 库，可以在终端中渲染美观的文本、表格、进度条等组件。
+
+## 为什么使用 Rich UI？
+
+### 优势
+
+1. **提升用户体验**
+   - 美观的表格和面板
+   - 实时进度显示
+   - 语法高亮和 Markdown 支持
+   - 丰富的颜色和样式
+
+2. **无需前后端分离**
+   - 在终端内直接渲染
+   - 单进程运行
+   - 不需要 HTTP 服务器
+   - 不需要 WebSocket 连接
+
+3. **简单易用**
+   - Python 原生库
+   - 丰富的组件
+   - 良好的文档
+   - 活跃的社区
+
+## 安装
+
+```bash
+pip install rich
+```
+
+## 核心概念
+
+### Rich UI 不是 Web 前端
+
+**重要区别**：
+
+| 特性 | Rich UI | Web 前端 |
+|------|---------|---------|
+| 运行环境 | 终端/控制台 | 浏览器 |
+| 渲染方式 | 直接输出 ANSI 转义码 | HTML/CSS/JavaScript |
+| 进程模型 | 单进程（Python） | 前后端分离 |
+| 通信方式 | 函数调用 | HTTP/WebSocket |
+| 部署方式 | 本地安装 | 需要服务器 |
+
+**结论**：Rich UI 是 CLI 工具的用户界面层，不是独立的前端应用。
+
+## 常用组件
+
+### 1. Console - 控制台输出
+
+```python
+from rich.console import Console
+
+console = Console()
+
+# 基本输出
+console.print("Hello, World!")
+
+# 带样式的输出
+console.print("[bold red]错误[/bold red]")
+console.print("[green]成功[/green]")
+console.print("[yellow]警告[/yellow]")
+```
+
+### 2. Panel - 面板容器
+
+```python
+from rich.panel import Panel
+from rich.console import Console
+
+console = Console()
+
+# 基本面板
+console.print(Panel("内容"))
+
+# 带标题的面板
+console.print(Panel("内容", title="标题"))
+
+# 带边框样式的面板
+console.print(Panel("内容", border_style="green"))
+
+# 自适应宽度
+console.print(Panel.fit("内容"))
+```
+
+### 3. Table - 表格
+
+```python
+from rich.table import Table
+from rich.console import Console
+
+console = Console()
+
+table = Table(title="数据表")
+table.add_column("列1", style="cyan")
+table.add_column("列2", style="magenta")
+table.add_column("列3", style="green")
+
+table.add_row("值1", "值2", "值3")
+table.add_row("值4", "值5", "值6")
+
+console.print(table)
+```
+
+### 4. Progress - 进度条
+
+```python
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.console import Console
+import time
+
+console = Console()
+
+with Progress(
+    SpinnerColumn(),
+    TextColumn("[progress.description]{task.description}"),
+    BarColumn(),
+    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    console=console
+) as progress:
+    task = progress.add_task("处理中...", total=100)
+    for i in range(100):
+        time.sleep(0.01)
+        progress.update(task, advance=1)
+```
+
+### 5. Markdown - Markdown 渲染
+
+```python
+from rich.markdown import Markdown
+from rich.console import Console
+
+console = Console()
+
+markdown_text = """
+# 标题
+
+这是一个 **粗体** 文本和 *斜体* 文本。
+
+- 列表项 1
+- 列表项 2
+"""
+
+console.print(Markdown(markdown_text))
+```
+
+### 6. Syntax - 代码语法高亮
+
+```python
+from rich.syntax import Syntax
+from rich.console import Console
+
+console = Console()
+
+code = """
+def hello():
+    print("Hello, World!")
+"""
+
+syntax = Syntax(code, "python", theme="monokai", line_numbers=True)
+console.print(syntax)
+```
+
+### 7. Prompt - 交互式提示
+
+```python
+from rich.prompt import Prompt, Confirm
+
+# 文本输入
+name = Prompt.ask("请输入你的名字")
+
+# 选择
+choice = Prompt.ask("选择", choices=["选项1", "选项2", "选项3"])
+
+# 确认
+if Confirm.ask("是否继续？"):
+    print("继续")
+```
+
+### 8. Live - 实时更新界面
+
+```python
+from rich.live import Live
+from rich.table import Table
+from rich.console import Console
+import time
+
+console = Console()
+
+def generate_table():
+    table = Table()
+    table.add_column("时间")
+    table.add_column("状态")
+    table.add_row(time.strftime("%H:%M:%S"), "运行中")
+    return table
+
+with Live(generate_table(), refresh_per_second=4) as live:
+    for _ in range(10):
+        time.sleep(1)
+        live.update(generate_table())
+```
+
+## 在项目中的应用示例
+
+### 示例 1：LLM 问答界面
+
+```python
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.markdown import Markdown
+from archived.server.src.dynamic_prompt import dynamic_prompt
+
+console = Console()
+
+def ask_question(question: str):
+    # 显示问题面板
+    console.print(Panel.fit(
+        f"[bold cyan]问题:[/bold cyan]\n{question}",
+        border_style="cyan"
+    ))
+    
+    # 显示思考进度
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+        task = progress.add_task("思考中...", total=None)
+        response = dynamic_prompt(question)
+        progress.update(task, completed=True)
+    
+    # 显示回答（支持 Markdown）
+    console.print(Panel(
+        Markdown(response),
+        title="[bold green]回答[/bold green]",
+        border_style="green"
+    ))
+```
+
+### 示例 2：PDF 处理进度
+
+```python
+from rich.console import Console
+from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+from rich.panel import Panel
+
+console = Console()
+
+def process_pdf(file_path: str):
+    console.print(f"[yellow]正在处理: {file_path}[/yellow]")
+    
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console
+    ) as progress:
+        # 模拟处理步骤
+        steps = ["加载PDF", "提取文本", "向量化", "生成摘要"]
+        for i, step in enumerate(steps):
+            task = progress.add_task(step, total=100)
+            # 处理逻辑...
+            progress.update(task, completed=100)
+    
+    console.print(Panel("[green]处理完成![/green]", border_style="green"))
+```
+
+### 示例 3：数据展示表格
+
+```python
+from rich.table import Table
+from rich.console import Console
+
+console = Console()
+
+def show_model_info():
+    table = Table(title="模型信息", show_header=True, header_style="bold magenta")
+    table.add_column("模型名称", style="cyan")
+    table.add_column("状态", style="green")
+    table.add_column("版本")
+    
+    table.add_row("deepseek-r1:14b", "✅ 可用", "v1.0")
+    table.add_row("nomic-embed-text", "✅ 可用", "v1.0")
+    
+    console.print(table)
+```
+
+## 最佳实践
+
+### 1. 统一使用 Console 实例
+
+```python
+# 推荐：创建全局 console 实例
+from rich.console import Console
+
+console = Console()
+
+# 不推荐：每次都创建新实例
+# console = Console()  # 在函数中重复创建
+```
+
+### 2. 合理使用颜色和样式
+
+```python
+# 推荐：使用语义化的样式
+console.print("[error]错误信息[/error]")
+console.print("[success]成功信息[/success]")
+console.print("[warning]警告信息[/warning]")
+
+# 或者使用标准颜色
+console.print("[red]错误[/red]")
+console.print("[green]成功[/green]")
+console.print("[yellow]警告[/yellow]")
+```
+
+### 3. 处理长文本
+
+```python
+from rich.text import Text
+
+# 自动换行
+console.print("很长的文本...", overflow="fold")
+
+# 截断
+console.print("很长的文本...", overflow="ellipsis")
+```
+
+### 4. 错误处理
+
+```python
+from rich.console import Console
+from rich.traceback import install
+
+# 安装 Rich 的 traceback 处理器
+install(show_locals=True)
+
+console = Console()
+
+try:
+    # 可能出错的代码
+    pass
+except Exception as e:
+    console.print_exception()  # 美观的错误显示
+```
+
+## 性能考虑
+
+1. **避免频繁创建对象**
+   ```python
+   # 不推荐：在循环中创建
+   for i in range(1000):
+       table = Table()  # 每次都创建新对象
+   
+   # 推荐：复用对象
+   table = Table()
+   for i in range(1000):
+       table.add_row(...)
+   ```
+
+2. **使用 Live 组件进行实时更新**
+   ```python
+   # 适合实时更新的场景
+   with Live(generate_content(), refresh_per_second=4) as live:
+       # 更新内容
+       live.update(new_content)
+   ```
+
+3. **大量数据考虑分页**
+   ```python
+   # 对于大量数据，考虑分页显示
+   from rich.pager import Pager
+   
+   with Pager() as pager:
+       pager.print(large_content)
+   ```
+
+## 总结
+
+Rich UI 为 CLI 工具提供了强大的终端界面能力，同时保持了单进程架构的简单性。它**不是传统的前后端分离架构**，而是 CLI 工具的用户界面层，直接在终端中渲染，无需网络通信。
+
+## 参考资源
+
+- [Rich 官方文档](https://rich.readthedocs.io/)
+- [Rich GitHub 仓库](https://github.com/Textualize/rich)
+- [Rich 示例](https://github.com/Textualize/rich/tree/master/examples)
+

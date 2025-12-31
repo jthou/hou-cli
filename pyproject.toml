@@ -1,0 +1,144 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hou-cli"
+version = "0.1.0"
+description = "LLM Agent CLI Tool with Rich UI and Multi-Agent Collaboration"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["llm", "agent", "cli", "ai", "assistant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "rich>=13.7.0",
+    "click>=8.1.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+    "openai>=1.0.0",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.20",
+    "langchain-core>=0.1.0",
+    "langchain-ollama>=0.1.0",
+    "chromadb>=0.4.0",
+    "pypdf>=3.17.0",
+    "pdfplumber>=0.10.0",
+    "psutil>=5.9.0",
+    "pyyaml>=6.0.1",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+    "pyinstaller>=6.0.0",
+    "pre-commit>=3.5.0",
+]
+
+[project.scripts]
+hou-cli = "frontend.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/hou-cli"
+Documentation = "https://github.com/yourusername/hou-cli/docs"
+Repository = "https://github.com/yourusername/hou-cli"
+Issues = "https://github.com/yourusername/hou-cli/issues"
+
+[tool.setuptools]
+packages = ["backend", "frontend", "shared"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["backend", "frontend", "shared"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "chromadb.*",
+    "langchain.*",
+    "langchain_community.*",
+    "langchain_ollama.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = [
+    "--cov=backend",
+    "--cov=frontend",
+    "--cov=shared",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.coverage.run]
+source = ["backend", "frontend", "shared"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+

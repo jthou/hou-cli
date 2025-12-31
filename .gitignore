@@ -1,1 +1,165 @@
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+MANIFEST
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# 环境变量和配置
+.env
+.env.local
+.env.*.local
+*.env
+
+# 测试和覆盖率
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.pytest_cache/
+coverage.xml
+*.cover
+
+# 类型检查
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.mypy_cache/
+
+# 打包和分发
+*.spec
+*.app
+*.dmg
+*.exe
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+*.whl
+wheelhouse/
+
+# 日志文件
+*.log
+logs/
+*.log.*
+
+# 数据目录（运行时创建）
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# 进程 PID 文件
+*.pid
+.backend.pid
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+.cache/
+tmp/
+temp/
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# 项目特定的临时文件
+*.pid
+.backend.pid
+port.txt
+*.lock
+
+# ChromaDB 数据
+chroma_db/
+*.chroma
+
+# 知识库临时文件
+knowledge_base/
+*.index
+*.faiss
+
+# 工作流临时文件
+workflows/.cache/
+workflows/*.tmp
+
+# 执行结果临时文件
+execution_results/
+sandbox/
+
+# 会话和上下文临时文件
+sessions/
+context_cache/
