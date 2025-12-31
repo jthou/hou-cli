@@ -8,6 +8,8 @@ from pathlib import Path
 import signal
 import atexit
 import argparse
+import httpx
+from shared.platform_utils import get_app_data_dir, load_port
 
 # 确保在项目根目录
 project_root = Path(__file__).parent
@@ -53,10 +55,14 @@ def start_backend(background=True):
     """启动后端进程"""
     # 检查是否已经运行
     if is_backend_running():
-        print("✅ 后端服务已在运行")
+        if not background:  # 只在非后台模式下提示
+            print("✅ 后端服务已在运行")
         return get_backend_pid()
     
-    print("🚀 启动后端服务...")
+    if background:
+        print("🚀 启动后端服务（后台）...")
+    else:
+        print("🚀 启动后端服务...")
     
     if background:
         # 后台运行
@@ -70,17 +76,30 @@ def start_backend(background=True):
             )
         else:
             # Unix/Linux/macOS
+            # 暂时保留 stderr 以便调试，生产环境可以改为 DEVNULL
             process = subprocess.Popen(
                 [sys.executable, "-m", "backend.main"],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,  # 保留 stderr 以便调试
                 start_new_session=True
             )
         
         save_pid(process.pid)
-        print(f"✅ 后端服务已在后台启动 (PID: {process.pid})")
-        print("   日志请查看后端输出")
-        time.sleep(2)  # 等待后端启动
+        
+        # 检查进程是否立即退出（启动失败）
+        time.sleep(0.5)
+        if process.poll() is not None:
+            # 进程已退出，说明启动失败
+            stderr = process.stderr.read().decode('utf-8', errors='ignore') if process.stderr else ""
+            error_msg = f"后端启动失败 (退出码: {process.returncode})"
+            if stderr:
+                error_msg += f"\n错误信息: {stderr[:200]}"
+            raise RuntimeError(error_msg)
+        
+        if not background:  # 只在非后台模式下显示详细信息
+            print(f"✅ 后端服务已在后台启动 (PID: {process.pid})")
+            print("   日志请查看后端输出")
+        # 不在这里等待，让调用者决定等待时间
         return process.pid
     else:
         # 前台运行（阻塞）
@@ -145,6 +164,12 @@ def main():
         action="store_true",
         help="前台运行后端（用于调试）"
     )
+    parser.add_argument(
+        "--wait",
+        "-w",
+        action="store_true",
+        help="等待后端启动完成（用于后续启动前端）"
+    )
     
     args = parser.parse_args()
     
@@ -166,16 +191,59 @@ def main():
         args.command = "start"
     
     if args.command == "start":
-        print("=" * 60)
-        print("🎯 LLM Agent CLI - 启动后端服务")
-        print("=" * 60)
+        if not args.wait:
+            print("=" * 60)
+            print("🎯 LLM Agent CLI - 启动后端服务")
+            print("=" * 60)
         
         check_venv()
         
         # 启动后端
-        start_backend(background=not args.foreground)
+        backend_was_running = is_backend_running()
+        pid = start_backend(background=not args.foreground)
         
-        if not args.foreground:
+        if args.wait and pid:
+            # 等待后端启动完成
+            if not backend_was_running:
+                print("⏳ 等待后端服务启动...")
+                # 先等待一下，让后端有时间启动
+                time.sleep(2)
+            else:
+                print("✅ 后端服务已在运行，跳过等待")
+                return
+            
+            max_retries = 20  # 增加重试次数
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    # 先检查端口文件是否存在
+                    port_file = get_app_data_dir() / "port.txt"
+                    if not port_file.exists():
+                        time.sleep(0.5)
+                        retry_count += 1
+                        continue
+                    
+                    port = load_port()
+                    # 检查端口是否为有效值（不是默认值8000，且大于1024）
+                    if port and port != 8000 and port > 1024:
+                        response = httpx.get(f"http://127.0.0.1:{port}/health", timeout=2.0)
+                        if response.status_code == 200:
+                            print("✅ 后端服务已就绪")
+                            return
+                except httpx.RequestError:
+                    # 连接错误，继续重试
+                    pass
+                except Exception:
+                    # 其他错误，继续重试
+                    pass
+                
+                time.sleep(0.5)
+                retry_count += 1
+            
+            print("⚠️  后端服务启动超时，但继续启动前端...")
+            print("   如果前端无法连接，请手动检查后端状态: make status-backend")
+        elif not args.foreground:
             print("\n💡 提示:")
             print("   - 后端已在后台运行")
             print("   - 启动前端: python -m frontend.main chat")

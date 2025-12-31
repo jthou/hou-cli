@@ -48,16 +48,9 @@ status-backend: ## 查看后端状态
 restart-backend: ## 重启后端服务
 	@bash -c "source venv/bin/activate && python cli.py restart"
 
-start: ## 一键启动后端（后台运行，推荐）
-	@bash -c "source venv/bin/activate && python cli.py start"
-	@echo ""
-	@echo "💡 提示:"
-	@echo "   - 启动前端: make run-frontend 或 ./start-frontend.sh"
-	@echo "   - 停止后端: make stop-backend 或 ./stop.sh"
-	@echo "   - 查看状态: make status-backend"
+start: ## 一键启动（后端+前端，推荐）
+	@bash -c "source venv/bin/activate && python cli.py start --wait && python -m frontend.main chat"
 
 run: ## 启动后端（后台）+ 前端（交互式，推荐）
-	@bash -c "source venv/bin/activate && python cli.py start"
-	@echo ""
-	@bash -c "source venv/bin/activate && python -m frontend.main chat"
+	@make start
 

@@ -3,6 +3,7 @@ import click
 from rich.console import Console
 from frontend.client.ipc_client import IPCClient
 from frontend.ui.panels import ChatPanel
+from frontend.ui.banner import show_banner
 
 console = Console()
 
@@ -30,7 +31,8 @@ def chat(message):
             console.print(f"[bold red]错误: {e}[/bold red]")
     else:
         # 交互式模式
-        console.print("[bold green]LLM Agent CLI[/bold green]")
+        # 显示启动画面
+        show_banner()
         console.print("[yellow]输入 'exit' 或 'quit' 退出[/yellow]\n")
         
         while True:
