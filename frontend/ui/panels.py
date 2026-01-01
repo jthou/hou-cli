@@ -1,9 +1,13 @@
 """面板组件"""
 from rich.panel import Panel
-from rich.markdown import Markdown
 from rich.console import Console
+from frontend.ui.renderer import RendererFactory
 
 console = Console()
+
+# 创建全局工厂实例
+_renderer_factory = RendererFactory()
+
 
 def ChatPanel(message: str, role: str = "assistant") -> Panel:
     """创建聊天面板"""
@@ -14,8 +18,12 @@ def ChatPanel(message: str, role: str = "assistant") -> Panel:
             title="[bold cyan]你[/bold cyan]"
         )
     else:
+        # 使用渲染器工厂渲染内容
+        renderer = _renderer_factory.get_renderer(message)
+        rendered = renderer.render(message)
+        
         return Panel(
-            Markdown(message),
+            rendered,
             border_style="green",
             title="[bold green]Agent[/bold green]"
         )

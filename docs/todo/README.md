@@ -31,6 +31,25 @@
 
 ---
 
+### TODO-003: Markdown 渲染模块设计与实现
+**状态**: 待开始  
+**优先级**: 高  
+**预计工时**: 2-3 天
+
+设计并实现一个完整的 Markdown 渲染模块，智能处理何时显示 Markdown 源码，何时渲染为格式化内容。解决当前前端在流式和非流式响应中 Markdown 显示不一致的问题。
+
+**主要内容**:
+- 内容渲染器（Markdown、纯文本、代码块）
+- 流式响应处理器
+- 智能内容识别和渲染策略
+- 统一的渲染接口
+
+**文档**: 
+- [003-markdown-renderer.md](./003-markdown-renderer.md) - 设计文档
+- [003-markdown-renderer-implementation.md](./003-markdown-renderer-implementation.md) - 详细实现步骤
+
+---
+
 ## 目录说明
 
 - **待办事项文档**: 编号从 001 开始，按优先级排序

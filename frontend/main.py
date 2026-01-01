@@ -9,6 +9,8 @@ from rich.console import Console
 from frontend.client.ipc_client import IPCClient
 from frontend.ui.panels import ChatPanel
 from frontend.ui.banner import show_banner
+from frontend.ui.renderer import RendererFactory
+from frontend.ui.stream_handler import StreamRenderer
 
 # 加载 .env 文件
 env_path = Path(__file__).parent.parent / '.env'
@@ -28,14 +30,22 @@ def cli():
 async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
     """流式聊天（异步）"""
     console.print("[bold cyan]Agent: [/bold cyan]", end="")
-    full_response = ""
     
     try:
-        async for chunk in client.stream_send(message, session_id=session_id):
-            console.print(chunk, end="", style="white")
-            full_response += chunk
+        # 创建渲染器
+        factory = RendererFactory()
+        stream_renderer = StreamRenderer(factory)
+        
+        # 创建流式数据生成器
+        async def stream_generator():
+            async for chunk in client.stream_send(message, session_id=session_id):
+                yield chunk
+        
+        # 使用 StreamRenderer 实时渲染
+        await stream_renderer.render_stream(stream_generator(), console)
         console.print()  # 换行
-        return full_response
+        
+        return True
     except Exception as e:
         console.print(f"\n[bold red]错误: {e}[/bold red]")
         return None
