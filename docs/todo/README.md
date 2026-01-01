@@ -5,10 +5,11 @@
 ## 任务列表
 
 ### TODO-001: DeepSeek 集成与主 Agent 数据流实现
-**状态**: ✅ 已完成  
+**状态**: ✅ 已完成并归档  
 **优先级**: 高  
 **预计工时**: 2-3 天  
-**完成时间**: 2025-12-31
+**完成时间**: 2025-12-31  
+**归档时间**: 2025-01-01
 
 完成 DeepSeek LLM 的基础集成，实现主 Agent（Orchestrator）与前端之间的数据流。遵循 MVP 原则，先实现核心功能，后续逐步迭代。
 
@@ -17,13 +18,20 @@
 - ✅ 主 Agent 与前端交互数据流（非流式和流式）
 - ✅ 上下文管理（会话 ID、对话历史）
 
-**主要内容**:
-- DeepSeek 基础集成（配置管理、错误处理、参数配置）
-- 主 Agent 与前端交互数据流（非流式和流式）
-- 简化的实现步骤和注意事项
-- 测试要求和验收标准
+**文档**: 已归档到 [archived/](./archived/) 目录
 
-**文档**: [001-deepseek-integration.md](./001-deepseek-integration.md)
+**相关文档**:
+- [主任务文档](./archived/001-deepseek-integration.md) - 已归档
+- [完成总结](./archived/001-summary.md) - 已归档
+- [状态总结](./archived/001-deepseek-integration-status.md) - 已归档
+- [完成总结](./archived/001-deepseek-integration-completion.md) - 已归档
+- [TDD 状态](./archived/001-deepseek-integration-tdd-status.md) - 已归档
+- [测试计划](./archived/001-deepseek-integration-test-plan.md) - 已归档
+- [测试报告](./archived/001-deepseek-integration-test-report.md) - 已归档
+- [使用指南](./archived/001-deepseek-integration-usage-guide.md) - 已归档
+- [端到端测试指南](./archived/001-deepseek-integration-e2e-test-guide.md) - 已归档
+- [改进分析](./archived/001-deepseek-integration-improvements.md) - 已归档
+- [审查报告](./archived/001-deepseek-integration-review.md) - 已归档
 
 **历史版本**: 
 - [v1.0 (原始版)](./archived/001-deepseek-integration-v1.md) - 已归档
@@ -32,10 +40,11 @@
 ---
 
 ### TODO-002: 前后端对话集成
-**状态**: ✅ 已完成  
+**状态**: ✅ 已完成并归档  
 **优先级**: 高  
 **预计工时**: 1-2 天  
-**完成时间**: 2025-01-01
+**完成时间**: 2025-01-01  
+**归档时间**: 2025-01-01
 
 完成前后端的完整集成，确保前端可以正常与后端通信，实现端到端的对话功能。
 
@@ -47,25 +56,20 @@
 - ✅ 会话 ID 管理测试
 - ✅ 自动化测试套件（7 个测试用例）
 
-**主要内容**:
-- 前后端通信机制（IPC TCP Localhost）
-- 非流式和流式对话功能
-- 多轮对话上下文管理
-- 错误处理和会话管理
-
-**文档**: 
-- [002-frontend-backend-integration.md](./002-frontend-backend-integration.md) - 集成文档
-- [002-integration-test-guide.md](./002-integration-test-guide.md) - 测试指南
+**文档**: 已归档到 [archived/](./archived/) 目录
+- [集成文档](./archived/002-frontend-backend-integration.md) - 已归档
+- [测试指南](./archived/002-integration-test-guide.md) - 已归档
 
 **自动化测试**: `tests/integration/test_e2e_chat.py`（7 个测试用例，全部通过）
 
 ---
 
 ### TODO-003: Markdown 渲染模块设计与实现
-**状态**: ✅ 已完成  
+**状态**: ✅ 已完成并归档  
 **优先级**: 高  
 **预计工时**: 2-3 天  
-**完成时间**: 2025-01-01
+**完成时间**: 2025-01-01  
+**归档时间**: 2025-01-01
 
 设计并实现一个完整的 Markdown 渲染模块，智能处理何时显示 Markdown 源码，何时渲染为格式化内容。解决当前前端在流式和非流式响应中 Markdown 显示不一致的问题。
 
@@ -77,16 +81,10 @@
 - ✅ 单元测试（39 个测试用例，覆盖率 > 90%）- 已完成
 - ✅ 集成测试（9 个测试用例）- 已完成
 
-**主要内容**:
-- 内容渲染器（Markdown、纯文本、代码块）
-- 流式响应处理器
-- 智能内容识别和渲染策略
-- 统一的渲染接口
-
-**文档**: 
-- [003-markdown-renderer.md](./003-markdown-renderer.md) - 设计文档
-- [003-markdown-renderer-implementation.md](./003-markdown-renderer-implementation.md) - 详细实现步骤
-- [003-markdown-renderer-issues.md](./003-markdown-renderer-issues.md) - 问题分析和修复方案
+**文档**: 已归档到 [archived/](./archived/) 目录
+- [设计文档](./archived/003-markdown-renderer.md) - 已归档
+- [详细实现步骤](./archived/003-markdown-renderer-implementation.md) - 已归档
+- [问题分析和修复方案](./archived/003-markdown-renderer-issues.md) - 已归档
 
 ---
 
@@ -108,6 +106,7 @@
 - **待开始**: 任务已创建，尚未开始
 - **进行中**: 任务正在执行
 - **已完成**: 任务已完成
+- **已完成并归档**: 任务已完成，文档已移动到 `archived/` 目录
 - **已取消**: 任务已取消
 - **已暂停**: 任务暂时暂停
 
