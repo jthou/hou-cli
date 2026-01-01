@@ -65,12 +65,25 @@ class IPCClient:
         except:
             return False
     
-    def send(self, message: str) -> str:
-        """发送消息（非流式）"""
+    def send(self, message: str, session_id: Optional[str] = None) -> str:
+        """
+        发送消息（非流式）
+        
+        Args:
+            message: 用户消息
+            session_id: 会话 ID（可选）
+            
+        Returns:
+            LLM 生成的回复
+        """
         try:
+            payload = {"message": message}
+            if session_id:
+                payload["session_id"] = session_id
+            
             response = self.client.post(
                 f"{self.base_url}/api/chat",
-                json={"message": message},
+                json=payload,
                 timeout=30.0
             )
             response.raise_for_status()
@@ -86,18 +99,31 @@ class IPCClient:
         except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
-    async def stream_send(self, message: str) -> AsyncIterator[str]:
-        """发送消息（流式 SSE）"""
+    async def stream_send(self, message: str, session_id: Optional[str] = None) -> AsyncIterator[str]:
+        """
+        发送消息（流式 SSE）
+        
+        Args:
+            message: 用户消息
+            session_id: 会话 ID（可选）
+            
+        Yields:
+            流式数据块
+        """
         # 确保异步客户端存在
         if not self.async_client:
             self.async_client = httpx.AsyncClient(timeout=60.0)
         
         url = f"{self.base_url}/api/chat/stream"
         try:
+            payload = {"message": message}
+            if session_id:
+                payload["session_id"] = session_id
+            
             async with self.async_client.stream(
                 "POST",
                 url,
-                json={"message": message},
+                json=payload,
                 timeout=60.0
             ) as response:
                 # 检查状态码

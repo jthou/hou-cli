@@ -1,22 +1,61 @@
 """路由定义"""
+import os
 import json
+from pathlib import Path
+from typing import Optional
+from dotenv import load_dotenv
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+# 加载 .env 文件（在导入 Orchestrator 之前）
+env_path = Path(__file__).parent.parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # 尝试从当前目录加载
+    load_dotenv()
+
 from backend.core.agent.orchestrator import Orchestrator
 
 router = APIRouter()
-orchestrator = Orchestrator()
+
+# 延迟创建 orchestrator，确保 .env 已加载
+_orchestrator = None
+
+def get_orchestrator():
+    """获取 Orchestrator 实例（单例模式）"""
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = Orchestrator()
+    return _orchestrator
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None  # 会话 ID（可选）
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """处理聊天请求（非流式）"""
     try:
-        response = await orchestrator.process(request.message)
-        return {"response": response, "status": "success"}
+        orchestrator = get_orchestrator()
+        context = {}
+        if request.session_id:
+            context["session_id"] = request.session_id
+        
+        response = await orchestrator.process(request.message, context=context)
+        
+        # 返回响应和会话 ID（如果是新会话）
+        result = {
+            "response": response,
+            "status": "success"
+        }
+        if not request.session_id:
+            # 如果是新会话，返回会话 ID（需要从 orchestrator 获取）
+            # 简化处理：前端可以自己管理会话 ID
+            pass
+        
+        return result
     except Exception as e:
         return {
             "response": None,
@@ -29,7 +68,12 @@ async def chat_stream(request: ChatRequest):
     """处理聊天请求（流式 SSE）"""
     async def generate():
         try:
-            async for chunk in orchestrator.stream_process(request.message):
+            orchestrator = get_orchestrator()
+            context = {}
+            if request.session_id:
+                context["session_id"] = request.session_id
+            
+            async for chunk in orchestrator.stream_process(request.message, context=context):
                 # SSE 格式：data: {json}\n\n
                 yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
             # 发送完成信号

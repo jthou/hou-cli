@@ -1,6 +1,19 @@
 """Agent 编排器"""
+import os
+from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
+from dotenv import load_dotenv
+
+# 加载 .env 文件（在导入 LLMService 之前）
+env_path = Path(__file__).parent.parent.parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # 尝试从当前目录加载
+    load_dotenv()
+
 from backend.core.agent.coordinator import AgentCoordinator
+from backend.core.agent.context_manager import ContextManager
 from backend.services.llm.llm_service import LLMService
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
@@ -11,6 +24,7 @@ class Orchestrator:
     def __init__(self):
         self.coordinator = AgentCoordinator()
         self.llm_service = LLMService()
+        self.context_manager = ContextManager(max_history=10)
         # self.workflow_identifier = WorkflowIdentifier()
         # self.workflow_engine = WorkflowEngine(self)
     
@@ -21,24 +35,99 @@ class Orchestrator:
         return await self.process_dynamic(task, context)
     
     async def process_dynamic(self, task: str, context: Optional[Dict] = None) -> str:
-        """动态编排执行"""
-        # TODO: 实现动态编排逻辑
-        # 暂时直接调用 LLM
+        """
+        动态编排执行
+        
+        Args:
+            task: 用户任务/消息
+            context: 上下文信息（可选，包含 session_id）
+            
+        Returns:
+            LLM 生成的回复
+        """
+        # 获取会话 ID（如果提供）
+        session_id = context.get("session_id") if context else None
+        
+        # 如果没有会话 ID，创建新会话
+        if not session_id:
+            session_id = self.context_manager.create_session()
+        
+        # 获取历史消息
+        history = self.context_manager.get_history_for_llm(session_id)
+        
+        # 构建消息列表
         system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
+        
+        # 构建 user_prompt（包含历史上下文）
+        user_prompt = task
+        if history:
+            # 将历史消息格式化为对话形式
+            history_text = "\n".join([
+                f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
+                for msg in history
+            ])
+            user_prompt = f"{history_text}\n用户: {task}"
+        else:
+            user_prompt = task
+        
         response = await self.llm_service.chat(
             system_prompt=system_prompt,
-            user_prompt=task
+            user_prompt=user_prompt
         )
+        
+        # 保存消息到历史
+        self.context_manager.add_message(session_id, "user", task)
+        self.context_manager.add_message(session_id, "assistant", response)
+        
         return response
     
     async def stream_process(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
-        """流式处理任务"""
-        # TODO: 实现流式编排逻辑
-        # 暂时直接调用 LLM 流式接口
+        """
+        流式处理任务
+        
+        Args:
+            task: 用户任务/消息
+            context: 上下文信息（可选，包含 session_id）
+            
+        Yields:
+            流式数据块
+        """
+        # 获取会话 ID（如果提供）
+        session_id = context.get("session_id") if context else None
+        
+        # 如果没有会话 ID，创建新会话
+        if not session_id:
+            session_id = self.context_manager.create_session()
+        
+        # 获取历史消息
+        history = self.context_manager.get_history_for_llm(session_id)
+        
+        # 构建消息
         system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
+        
+        # 构建 user_prompt（包含历史上下文）
+        if history:
+            # 将历史消息格式化为对话形式
+            history_text = "\n".join([
+                f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
+                for msg in history
+            ])
+            user_prompt = f"{history_text}\n用户: {task}"
+        else:
+            user_prompt = task
+        
+        # 收集完整响应
+        full_response = ""
+        
+        # 流式调用 LLM
         async for chunk in self.llm_service.stream_chat(
             system_prompt=system_prompt,
-            user_prompt=task
+            user_prompt=user_prompt
         ):
+            full_response += chunk
             yield chunk
+        
+        # 保存消息到历史
+        self.context_manager.add_message(session_id, "user", task)
+        self.context_manager.add_message(session_id, "assistant", full_response)
 

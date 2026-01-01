@@ -1,10 +1,22 @@
 """CLI 主入口（前端主程序）"""
+import os
 import asyncio
+import uuid
+from pathlib import Path
+from dotenv import load_dotenv
 import click
 from rich.console import Console
 from frontend.client.ipc_client import IPCClient
 from frontend.ui.panels import ChatPanel
 from frontend.ui.banner import show_banner
+
+# 加载 .env 文件
+env_path = Path(__file__).parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # 尝试从当前目录加载
+    load_dotenv()
 
 console = Console()
 
@@ -13,13 +25,13 @@ def cli():
     """LLM Agent CLI Tool"""
     pass
 
-async def _stream_chat(client: IPCClient, message: str):
+async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
     """流式聊天（异步）"""
     console.print("[bold cyan]Agent: [/bold cyan]", end="")
     full_response = ""
     
     try:
-        async for chunk in client.stream_send(message):
+        async for chunk in client.stream_send(message, session_id=session_id):
             console.print(chunk, end="", style="white")
             full_response += chunk
         console.print()  # 换行
@@ -40,15 +52,18 @@ def chat(message, stream):
         console.print("[yellow]提示: 请先启动后端服务 (python -m backend.main)[/yellow]")
         return
     
+    # 创建会话 ID（用于维护对话上下文）
+    session_id = str(uuid.uuid4())
+    
     if message:
         # 单次对话
         try:
             if stream:
                 # 流式响应
-                asyncio.run(_stream_chat(client, message))
+                asyncio.run(_stream_chat(client, message, session_id=session_id))
             else:
                 # 非流式响应
-                response = client.send(message)
+                response = client.send(message, session_id=session_id)
                 console.print(ChatPanel(response))
         except Exception as e:
             console.print(f"[bold red]错误: {e}[/bold red]")
@@ -56,7 +71,8 @@ def chat(message, stream):
         # 交互式模式
         # 显示启动画面
         show_banner()
-        console.print("[yellow]输入 'exit' 或 'quit' 退出[/yellow]\n")
+        console.print("[yellow]输入 'exit' 或 'quit' 退出[/yellow]")
+        console.print(f"[dim]会话 ID: {session_id}[/dim]\n")
         
         while True:
             try:
@@ -68,10 +84,10 @@ def chat(message, stream):
                 
                 if stream:
                     # 流式响应
-                    asyncio.run(_stream_chat(client, msg))
+                    asyncio.run(_stream_chat(client, msg, session_id=session_id))
                 else:
                     # 非流式响应
-                    response = client.send(msg)
+                    response = client.send(msg, session_id=session_id)
                     console.print(ChatPanel(response))
                 console.print()  # 空行
             except KeyboardInterrupt:

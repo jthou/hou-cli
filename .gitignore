@@ -32,6 +32,8 @@ ENV/
 .env.local
 .env.*.local
 *.env
+# 例外：.env.example 应该被提交到代码仓库
+!.env.example
 
 # 测试和覆盖率
 .pytest_cache/

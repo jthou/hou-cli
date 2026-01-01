@@ -4,12 +4,14 @@ import subprocess
 import sys
 import time
 import os
+import re
 from pathlib import Path
 import signal
 import atexit
 import argparse
 import httpx
-from shared.platform_utils import get_app_data_dir, load_port
+from typing import Optional
+from shared.platform_utils import get_app_data_dir, load_port, get_port_file
 
 # 确保在项目根目录
 project_root = Path(__file__).parent
@@ -51,13 +53,119 @@ def is_backend_running():
     except OSError:
         return False
 
+def find_process_by_port(port: int) -> Optional[int]:
+    """根据端口号查找进程 PID（跨平台）"""
+    try:
+        if sys.platform == "win32":
+            # Windows: 使用 netstat 和 findstr
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if f":{port}" in line and "LISTENING" in line:
+                        # 提取 PID（最后一列）
+                        parts = line.split()
+                        if parts:
+                            try:
+                                return int(parts[-1])
+                            except ValueError:
+                                continue
+        else:
+            # macOS/Linux: 使用 lsof
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    return int(result.stdout.strip().split('\n')[0])
+                except ValueError:
+                    pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+    return None
+
+def kill_process_by_port(port: int) -> bool:
+    """杀死占用指定端口的进程"""
+    pid = find_process_by_port(port)
+    if pid is None:
+        return False
+    
+    try:
+        # 先尝试优雅退出
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(1)
+        
+        # 检查是否还在运行
+        try:
+            os.kill(pid, 0)
+            # 还在运行，强制杀死
+            os.kill(pid, signal.SIGKILL)
+            time.sleep(0.5)
+        except ProcessLookupError:
+            # 进程已退出
+            pass
+        
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+def cleanup_environment():
+    """完全清理运行环境"""
+    print("🧹 清理运行环境...")
+    
+    # 1. 停止 PID 文件中的后端进程
+    pid = get_backend_pid()
+    if pid is not None:
+        try:
+            if is_backend_running():
+                print(f"   🛑 停止后端进程 (PID: {pid})...")
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(1)
+                if is_backend_running():
+                    os.kill(pid, signal.SIGKILL)
+                    time.sleep(0.5)
+        except (ProcessLookupError, OSError):
+            pass
+    
+    # 2. 读取端口文件，杀死占用该端口的进程
+    port_file = get_port_file()
+    if port_file.exists():
+        try:
+            port = int(port_file.read_text().strip())
+            pid_by_port = find_process_by_port(port)
+            if pid_by_port is not None:
+                # 如果端口进程和 PID 文件中的不同，杀死端口进程
+                if pid_by_port != pid:
+                    print(f"   🛑 停止占用端口 {port} 的进程 (PID: {pid_by_port})...")
+                    kill_process_by_port(port)
+        except (ValueError, Exception):
+            pass
+    
+    # 3. 清理 PID 文件
+    if PID_FILE.exists():
+        PID_FILE.unlink(missing_ok=True)
+        print("   ✅ 已清理 PID 文件")
+    
+    # 4. 清理端口文件
+    if port_file.exists():
+        port_file.unlink(missing_ok=True)
+        print("   ✅ 已清理端口文件")
+    
+    # 5. 等待一小段时间确保进程完全退出
+    time.sleep(0.5)
+    print("✅ 环境清理完成")
+
 def start_backend(background=True):
     """启动后端进程"""
-    # 检查是否已经运行
-    if is_backend_running():
-        if not background:  # 只在非后台模式下提示
-            print("✅ 后端服务已在运行")
-        return get_backend_pid()
+    # 先完全清理环境（强制重启）
+    cleanup_environment()
     
     if background:
         print("🚀 启动后端服务（后台）...")
