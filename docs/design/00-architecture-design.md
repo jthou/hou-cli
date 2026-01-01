@@ -184,7 +184,7 @@
 
 **实现方案：TCP Localhost**
 
-使用本地 TCP 连接，跨平台兼容性最好。详细实现请参考：[ipc-and-packaging.md](./ipc-and-packaging.md)
+使用本地 TCP 连接，跨平台兼容性最好。详细实现请参考：[02-ipc-and-packaging.md](./02-ipc-and-packaging.md)
 
 **选择理由**：
 - ✅ 跨平台兼容性最好（Windows、Mac、Linux）
@@ -194,7 +194,7 @@
 - ✅ 打包后稳定可靠
 - ✅ 无需额外的 IPC 库依赖
 
-详细实现请参考：[ipc-and-packaging.md](./ipc-and-packaging.md)
+详细实现请参考：[02-ipc-and-packaging.md](./02-ipc-and-packaging.md)
 
 ## 目录结构建议
 

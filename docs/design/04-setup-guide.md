@@ -233,7 +233,7 @@ pip install -e ".[dev]"
 
 ## 下一步
 
-- 查看 [依赖管理文档](./dependency-management.md) 了解更多细节
-- 查看 [架构设计文档](./architecture-design.md) 了解项目结构
-- 查看 [快速参考](./quick-reference.md) 了解核心概念
+- 查看 [依赖管理文档](./03-dependency-management.md) 了解更多细节
+- 查看 [架构设计文档](./00-architecture-design.md) 了解项目结构
+- 查看 [快速参考](./04-quick-reference.md) 了解核心概念
 

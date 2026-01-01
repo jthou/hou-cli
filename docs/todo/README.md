@@ -88,6 +88,124 @@
 
 ---
 
+### TODO-004: 上下文存储核心功能实现
+**状态**: ⏳ 待开始  
+**优先级**: P0（高优先级）  
+**预计工时**: 3-5 天  
+**创建时间**: 2025-01-01
+
+实现上下文存储和整理机制的核心功能，包括数据模型、存储后端接口、压缩策略接口和 ContextManager 统一接口。
+
+**任务文档**: [20260101210602-context-storage-core-implementation.md](./20260101210602-context-storage-core-implementation.md)
+
+**核心功能**:
+- Message 和 Session 数据模型
+- StorageBackend 接口和 FileStorageBackend 实现
+- CompressionStrategy 接口和 TimeWindowCompression 实现
+- ContextManager 统一接口
+- 基本使用示例
+
+---
+
+### TODO-005: 长期记忆基础实现
+**状态**: ⏳ 待开始  
+**优先级**: P0（高优先级）  
+**预计工时**: 2-3 天  
+**创建时间**: 2025-01-01
+
+实现长期记忆模块的基础功能，包括 Memory 数据模型、LongTermMemory 接口、FileLongTermMemory 实现（Memory Store + Index Store，无向量存储），以及 ContextManager 与长期记忆的集成。
+
+**前置任务**: TODO-004
+
+**任务文档**: [20260101210603-long-term-memory-basic-implementation.md](./20260101210603-long-term-memory-basic-implementation.md)
+
+**核心功能**:
+- Memory 数据模型和 MemoryType 枚举
+- LongTermMemory 接口
+- FileLongTermMemory 实现（JSON 文件存储）
+- ContextManager 与长期记忆集成
+- 关键词搜索实现
+
+---
+
+### TODO-006: 数据库存储后端实现
+**状态**: ⏳ 待开始  
+**优先级**: P1（中优先级）  
+**预计工时**: 1-2 天  
+**创建时间**: 2025-01-01
+
+实现 DatabaseStorageBackend（SQLite），提供数据库存储能力，支持 SQL 查询和事务。
+
+**前置任务**: TODO-004
+
+**任务文档**: [20260101210604-database-storage-backend-implementation.md](./20260101210604-database-storage-backend-implementation.md)
+
+**核心功能**:
+- DatabaseStorageBackend 实现（SQLite）
+- 数据库表结构和索引
+- 存储后端切换测试
+
+---
+
+### TODO-007: 高级压缩策略实现
+**状态**: ⏳ 待开始  
+**优先级**: P1（中优先级）  
+**预计工时**: 2-3 天  
+**创建时间**: 2025-01-01
+
+实现高级压缩策略：TokenLimitCompression 和 ImportanceScoringCompression，支持基于 token 限制和重要性评分的消息压缩。
+
+**前置任务**: TODO-004
+
+**任务文档**: [20260101210605-advanced-compression-strategies.md](./20260101210605-advanced-compression-strategies.md)
+
+**核心功能**:
+- TokenLimitCompression 实现
+- ImportanceScoringCompression 实现
+- 压缩策略性能测试
+
+---
+
+### TODO-008: 检索功能和语义搜索实现
+**状态**: ⏳ 待开始  
+**优先级**: P1（中优先级）  
+**预计工时**: 3-4 天  
+**创建时间**: 2025-01-01
+
+实现检索功能和语义搜索，包括 KeywordRetrievalEngine 完善、长期记忆语义搜索（Vector Store: Chroma）、向量嵌入生成和语义搜索集成。
+
+**前置任务**: TODO-004, TODO-005
+
+**任务文档**: [20260101210606-retrieval-and-semantic-search.md](./20260101210606-retrieval-and-semantic-search.md)
+
+**核心功能**:
+- KeywordRetrievalEngine 完善
+- Chroma 向量存储集成
+- 向量嵌入生成（Ollama 或 sentence-transformers）
+- VectorLongTermMemory 实现
+- 语义搜索集成
+
+---
+
+### TODO-009: 扩展功能实现
+**状态**: ⏳ 待开始  
+**优先级**: P3（低优先级，可选）  
+**预计工时**: 3-5 天  
+**创建时间**: 2025-01-01
+
+实现扩展功能，包括 VectorRetrievalEngine、LLMSummarizationCompression 和 RedisStorageBackend（如需要）。
+
+**前置任务**: TODO-004, TODO-008
+
+**任务文档**: [20260101210607-extension-features.md](./20260101210607-extension-features.md)
+
+**核心功能**:
+- VectorRetrievalEngine 实现（可选）
+- LLMSummarizationCompression 实现（可选）
+- RedisStorageBackend 实现（可选）
+
+---
+
 ## 目录说明
 
 - **待办事项文档**: 编号从 001 开始，按优先级排序

@@ -116,7 +116,7 @@ A: 后端会自动查找可用端口，端口号保存在应用数据目录的 `
 
 ## 获取帮助
 
-- 查看架构设计：`docs/design/architecture-design.md`
-- 查看快速参考：`docs/design/quick-reference.md`
-- 查看设置指南：`docs/design/setup-guide.md`
+- 查看架构设计：`docs/design/00-architecture-design.md`
+- 查看快速参考：`docs/design/04-quick-reference.md`
+- 查看设置指南：`docs/design/04-setup-guide.md`
 
