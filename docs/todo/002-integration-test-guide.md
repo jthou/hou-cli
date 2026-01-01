@@ -172,14 +172,33 @@ python -m frontend.main chat "测试"
 
 ## 测试检查清单
 
-- [ ] 后端服务可以正常启动
-- [ ] 前端可以成功连接到后端
-- [ ] 非流式对话功能正常
-- [ ] 流式对话功能正常
-- [ ] 交互式对话功能正常
-- [ ] 多轮对话上下文正常（Agent 能记住之前的对话）
-- [ ] 错误处理友好且明确
-- [ ] 会话 ID 正确显示（交互式模式）
+### 自动化测试（已实现）
+
+- [x] 后端服务可以正常启动 - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_backend_health_check`
+- [x] 前端可以成功连接到后端 - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_frontend_backend_integration_non_stream`
+- [x] 非流式对话功能正常 - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_frontend_backend_integration_non_stream`
+- [x] 流式对话功能正常 - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_frontend_backend_integration_stream`
+- [x] 多轮对话上下文正常（技术流程） - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_multi_turn_conversation`
+- [x] 错误处理友好且明确 - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_error_handling_backend_not_running`
+- [x] 会话 ID 管理 - ✅ 自动化测试：`tests/integration/test_e2e_chat.py::test_session_id_management`
+
+### 手动测试（可选，用于验证用户体验）
+
+- [ ] 交互式对话功能正常（需要手动输入）
+- [ ] 多轮对话上下文正常（Agent 能记住之前的对话，需要真实 LLM 响应）
+- [ ] 会话 ID 正确显示（交互式模式，需要手动验证）
+
+## 运行自动化测试
+
+```bash
+# 运行所有端到端集成测试
+pytest tests/integration/test_e2e_chat.py -v
+
+# 运行所有集成测试（包括基础集成测试）
+pytest tests/integration/ tests/test_integration.py -v
+```
+
+**注意**: 自动化测试会自动启动和清理后端服务，使用 Mock API Key，避免真实 API 调用。
 
 ---
 
