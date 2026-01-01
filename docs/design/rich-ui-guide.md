@@ -130,6 +130,8 @@ with Progress(
 
 ### 5. Markdown - Markdown 渲染
 
+**基础用法**:
+
 ```python
 from rich.markdown import Markdown
 from rich.console import Console
@@ -148,7 +150,42 @@ markdown_text = """
 console.print(Markdown(markdown_text))
 ```
 
+**项目中的智能渲染模块**:
+
+本项目实现了智能的 Markdown 渲染模块（`frontend/ui/renderer.py`），可以自动识别内容类型并选择合适的渲染器：
+
+```python
+from frontend.ui.renderer import RendererFactory
+from frontend.ui.stream_handler import StreamRenderer
+from rich.console import Console
+
+console = Console()
+factory = RendererFactory()
+
+# 自动识别并渲染内容
+content = "# 标题\n\n这是 **粗体** 文本"
+renderer = factory.get_renderer(content)
+rendered = renderer.render(content)
+console.print(rendered)
+
+# 流式渲染
+async def stream_generator():
+    yield "# 标题\n\n"
+    yield "这是 **粗体** 文本"
+
+stream_renderer = StreamRenderer(factory)
+await stream_renderer.render_stream(stream_generator(), console)
+```
+
+**特性**:
+- 自动识别 Markdown、代码块、纯文本
+- 代码块优先检测，避免误判
+- 流式响应实时渲染
+- 错误降级处理（Markdown 解析失败时降级到纯文本）
+
 ### 6. Syntax - 代码语法高亮
+
+**基础用法**:
 
 ```python
 from rich.syntax import Syntax
@@ -163,6 +200,19 @@ def hello():
 
 syntax = Syntax(code, "python", theme="monokai", line_numbers=True)
 console.print(syntax)
+```
+
+**项目中的代码块渲染**:
+
+通过 `CodeRenderer` 自动识别和渲染代码块：
+
+```python
+from frontend.ui.renderer import CodeRenderer
+
+renderer = CodeRenderer()
+code_block = "```python\nprint('hello')\n```"
+result = renderer.render(code_block)
+console.print(result)
 ```
 
 ### 7. Prompt - 交互式提示
@@ -206,17 +256,20 @@ with Live(generate_table(), refresh_per_second=4) as live:
 
 ## 在项目中的应用示例
 
-### 示例 1：LLM 问答界面
+### 示例 1：LLM 问答界面（使用智能渲染模块）
 
 ```python
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.markdown import Markdown
-from archived.server.src.dynamic_prompt import dynamic_prompt
+from frontend.ui.renderer import RendererFactory
+from frontend.ui.stream_handler import StreamRenderer
+from frontend.ui.panels import ChatPanel
 
 console = Console()
+factory = RendererFactory()
 
+# 非流式响应
 def ask_question(question: str):
     # 显示问题面板
     console.print(Panel.fit(
@@ -231,15 +284,28 @@ def ask_question(question: str):
         console=console
     ) as progress:
         task = progress.add_task("思考中...", total=None)
-        response = dynamic_prompt(question)
+        response = get_llm_response(question)  # 获取 LLM 响应
         progress.update(task, completed=True)
     
-    # 显示回答（支持 Markdown）
-    console.print(Panel(
-        Markdown(response),
-        title="[bold green]回答[/bold green]",
-        border_style="green"
+    # 使用 ChatPanel 自动渲染（支持 Markdown、代码块、纯文本）
+    console.print(ChatPanel(response))
+
+# 流式响应
+async def ask_question_stream(question: str):
+    console.print(Panel.fit(
+        f"[bold cyan]问题:[/bold cyan]\n{question}",
+        border_style="cyan"
     ))
+    
+    console.print("[bold green]回答:[/bold green] ", end="")
+    
+    # 使用 StreamRenderer 实时渲染流式响应
+    stream_renderer = StreamRenderer(factory)
+    async def stream_generator():
+        async for chunk in get_llm_stream(question):
+            yield chunk
+    
+    await stream_renderer.render_stream(stream_generator(), console)
 ```
 
 ### 示例 2：PDF 处理进度

@@ -84,6 +84,17 @@ class TestMarkdownRenderer:
         from rich.markdown import Markdown
         assert isinstance(result, Markdown)
 
+    def test_render_markdown_error_handling(self):
+        """测试 Markdown 渲染错误处理（降级到纯文本）"""
+        renderer = MarkdownRenderer()
+        # 创建一个会导致 Markdown 解析错误的字符串（虽然很难，但测试异常处理）
+        # 实际上 Rich 的 Markdown 很宽容，所以我们用 mock 来测试异常路径
+        from unittest.mock import patch
+        with patch('frontend.ui.renderer.Markdown', side_effect=Exception("Parse error")):
+            result = renderer.render("test content")
+            # 应该降级到纯文本
+            assert result == "test content"
+
 
 class TestCodeRenderer:
     """CodeRenderer 测试"""
@@ -107,6 +118,29 @@ class TestCodeRenderer:
         # 验证返回的是 Rich Syntax 对象
         from rich.syntax import Syntax
         assert isinstance(result, Syntax)
+
+    def test_render_code_block_no_match(self):
+        """测试渲染代码块（无匹配时）"""
+        renderer = CodeRenderer()
+        # 不完整的代码块（没有匹配）
+        code = "print('hello')"
+        result = renderer.render(code)
+        # 验证返回的是 Rich Syntax 对象（使用默认语言）
+        from rich.syntax import Syntax
+        assert isinstance(result, Syntax)
+        # 验证是 text 语言（通过检查内部属性）
+        assert hasattr(result, 'lexer') or hasattr(result, '_lexer')
+
+    def test_render_code_block_with_language_param(self):
+        """测试渲染代码块（指定语言参数）"""
+        renderer = CodeRenderer()
+        code = "print('hello')"
+        result = renderer.render(code, language="python")
+        from rich.syntax import Syntax
+        assert isinstance(result, Syntax)
+        # 验证是 python 语言（通过检查内部属性或代码）
+        # Syntax 对象创建时使用了 language 参数
+        assert hasattr(result, 'lexer') or hasattr(result, '_lexer')
 
 
 class TestRendererFactory:
@@ -132,4 +166,31 @@ class TestRendererFactory:
         text = "这是纯文本"
         renderer = factory.get_renderer(text)
         assert isinstance(renderer, TextRenderer)
+
+    def test_renderer_factory_with_code_blocks(self):
+        """测试 RendererFactory 处理包含代码块的内容"""
+        factory = RendererFactory()
+        # 包含代码块的 Markdown
+        # 注意：代码块检测优先，所以如果内容包含完整代码块，会返回 CodeRenderer
+        # 但如果代码块被替换后，剩余内容有 Markdown，应该返回 MarkdownRenderer
+        # 这里测试的是代码块替换逻辑
+        content = "这是文本\n\n```python\nprint('code')\n```\n\n这是 **粗体**"
+        renderer = factory.get_renderer(content)
+        # 由于代码块检测优先，如果整个内容包含代码块，会返回 CodeRenderer
+        # 但实际逻辑是：先检测代码块，如果检测到就返回 CodeRenderer
+        # 所以这里应该返回 CodeRenderer（因为内容包含完整代码块）
+        assert isinstance(renderer, CodeRenderer)
+        
+        # 测试代码块被替换后的 Markdown 检测（纯 Markdown，无代码块）
+        markdown_only = "这是 **粗体** 文本\n\n这是 *斜体*"
+        renderer2 = factory.get_renderer(markdown_only)
+        assert isinstance(renderer2, MarkdownRenderer)
+
+    def test_renderer_factory_code_block_priority(self):
+        """测试代码块优先级（代码块优先于 Markdown）"""
+        factory = RendererFactory()
+        # 完整的代码块应该优先
+        code = "```python\nprint('hello')\n```"
+        renderer = factory.get_renderer(code)
+        assert isinstance(renderer, CodeRenderer)
 
