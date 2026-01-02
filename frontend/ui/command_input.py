@@ -90,16 +90,14 @@ class CommandInput:
         self.console = console
         self.commands = commands
         
-        # 检测终端类型，macOS Terminal 优先使用 readline
-        import os
-        import sys
+        # 检测终端类型，macOS 优先使用 readline（更可靠）
         self.use_readline = False
         
-        # 在 macOS Terminal 上，readline 通常更可靠
-        if sys.platform == 'darwin' and os.getenv('TERM_PROGRAM') == 'Apple_Terminal':
-            # macOS Terminal，优先使用 readline
+        # 在 macOS 上，readline 通常更可靠（特别是 Terminal.app）
+        if sys.platform == 'darwin':
             try:
                 import readline
+                # macOS 上优先使用 readline，因为它更简单可靠
                 self.use_readline = True
             except ImportError:
                 pass
