@@ -11,6 +11,7 @@ from frontend.client.ipc_client import IPCClient
 from frontend.ui.banner import show_banner
 from frontend.ui.renderer import RendererFactory
 from frontend.ui.stream_handler import StreamRenderer
+from frontend.ui.command_handler import CommandHandler
 
 # 加载 .env 文件
 env_path = Path(__file__).parent.parent / '.env'
@@ -109,6 +110,9 @@ def chat(message, stream):
         console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
         # 会话 ID 在后台使用，不显示给用户
         
+        # 创建命令处理器
+        command_handler = CommandHandler(client=client, current_session_id=session_id)
+        
         while True:
             try:
                 msg = console.input("[dim cyan]▸[/dim cyan] ")
@@ -117,6 +121,15 @@ def chat(message, stream):
                 if not msg.strip():
                     continue
                 
+                # 检测命令模式（以 / 开头）
+                if msg.startswith('/'):
+                    result = command_handler.handle_command(msg)
+                    if result:
+                        console.print(result)
+                    console.print()  # 空行
+                    continue
+                
+                # 正常对话流程
                 if stream:
                     # 流式响应
                     asyncio.run(_stream_chat(client, msg, session_id=session_id))

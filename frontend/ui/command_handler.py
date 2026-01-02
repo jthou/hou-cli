@@ -1,0 +1,157 @@
+"""命令处理器（类似 Cursor Agent 的命令模式）"""
+from typing import List, Dict, Any, Optional
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+
+
+class CommandHandler:
+    """命令处理器"""
+    
+    def __init__(self, client=None, current_session_id: Optional[str] = None):
+        self.client = client
+        self.current_session_id = current_session_id
+        self.console = Console()
+        self.commands = [
+            ("list", "列出最近的会话", "[limit]"),
+            ("search", "搜索包含关键词的会话", "<keyword> [limit]"),
+            ("restore", "恢复会话（继续对话）", "[session_id]"),
+            ("show", "显示会话详情", "<session_id>"),
+            ("delete", "删除指定会话", "<session_id>"),
+            ("summary", "生成并显示会话摘要", "<session_id>"),
+            ("clear", "清除当前会话的所有消息", ""),
+            ("switch", "切换到指定会话", "<session_id>"),
+            ("help", "显示帮助信息", "[command]"),
+        ]
+    
+    def handle_command(self, input_text: str) -> Optional[str]:
+        """处理命令输入
+        
+        Returns:
+            如果处理了命令，返回结果字符串；如果不是命令，返回 None
+        """
+        if not input_text.startswith('/'):
+            return None  # 不是命令
+        
+        # 解析命令
+        parts = input_text[1:].strip().split()
+        if not parts:
+            # 单独的 '/'，显示命令提示
+            return self._show_command_hint()
+        
+        command = parts[0].lower()
+        args = parts[1:]
+        
+        # 路由到对应的命令处理函数
+        handlers = {
+            'list': self._handle_list,
+            'search': self._handle_search,
+            'restore': self._handle_restore,
+            'show': self._handle_show,
+            'delete': self._handle_delete,
+            'summary': self._handle_summary,
+            'clear': self._handle_clear,
+            'switch': self._handle_switch,
+            'help': self._handle_help,
+        }
+        
+        handler = handlers.get(command)
+        if handler:
+            try:
+                return handler(args)
+            except Exception as e:
+                return f"[red]错误: {e}[/red]"
+        else:
+            return f"[yellow]未知命令: {command}[/yellow]\n输入 /help 查看帮助"
+    
+    def _show_command_hint(self) -> str:
+        """显示命令提示菜单"""
+        hint_text = Text()
+        hint_text.append("可用命令:\n", style="dim")
+        
+        for cmd, desc, args in self.commands:
+            cmd_line = f"  [cyan]/{cmd}[/cyan]"
+            if args:
+                cmd_line += f" {args}"
+            cmd_line += f" - {desc}\n"
+            hint_text.append(cmd_line)
+        
+        hint_text.append("\n[dim]提示: 输入命令后按 Enter 执行，按 Tab 自动补全[/dim]")
+        
+        return Panel(
+            hint_text,
+            border_style="dim cyan",
+            title="[dim cyan]命令提示[/dim cyan]",
+            padding=(1, 2)
+        )
+    
+    def _handle_list(self, args: List[str]) -> str:
+        """处理 /list 命令"""
+        if not self.client:
+            return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        try:
+            limit = int(args[0]) if args else 10
+            # TODO: 调用后端 API
+            return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+        except ValueError:
+            return "[red]错误: limit 必须是数字[/red]"
+    
+    def _handle_search(self, args: List[str]) -> str:
+        """处理 /search 命令"""
+        if not args:
+            return "[red]错误: /search 需要关键词参数[/red]\n用法: /search <keyword> [limit]"
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_restore(self, args: List[str]) -> str:
+        """处理 /restore 命令"""
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_show(self, args: List[str]) -> str:
+        """处理 /show 命令"""
+        if not args:
+            return "[red]错误: /show 需要会话 ID 参数[/red]\n用法: /show <session_id>"
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_delete(self, args: List[str]) -> str:
+        """处理 /delete 命令"""
+        if not args:
+            return "[red]错误: /delete 需要会话 ID 参数[/red]\n用法: /delete <session_id>"
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_summary(self, args: List[str]) -> str:
+        """处理 /summary 命令"""
+        if not args:
+            return "[red]错误: /summary 需要会话 ID 参数[/red]\n用法: /summary <session_id>"
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_clear(self, args: List[str]) -> str:
+        """处理 /clear 命令"""
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_switch(self, args: List[str]) -> str:
+        """处理 /switch 命令"""
+        if not args:
+            return "[red]错误: /switch 需要会话 ID 参数[/red]\n用法: /switch <session_id>"
+        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    
+    def _handle_help(self, args: List[str]) -> str:
+        """处理 /help 命令"""
+        if args:
+            command = args[0].lower()
+            help_texts = {
+                'list': '/list [limit] - 列出最近的会话',
+                'search': '/search <keyword> [limit] - 搜索包含关键词的会话',
+                'restore': '/restore [session_id] - 恢复会话（继续对话）',
+                'show': '/show <session_id> - 显示会话详情',
+                'delete': '/delete <session_id> - 删除指定会话',
+                'summary': '/summary <session_id> - 生成并显示会话摘要',
+                'clear': '/clear - 清除当前会话的所有消息',
+                'switch': '/switch <session_id> - 切换到指定会话',
+                'help': '/help [command] - 显示帮助信息',
+            }
+            return help_texts.get(command, f"未知命令: {command}")
+        else:
+            return self._show_command_hint()
+
