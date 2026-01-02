@@ -14,9 +14,9 @@
 
 ### 2.2 安全要求
 - 使用 JWT (JSON Web Token) 进行 API 认证
-- 私钥存储在 `~/.ssh` 目录
-- 支持私钥文件路径配置
-- 实现安全的密钥读取和 JWT 生成
+- 私钥存储在 `.env` 文件中（已配置）
+- 公钥已存储完成
+- 实现安全的 JWT 生成
 
 ## 3. 技术方案
 
@@ -193,6 +193,8 @@ WEATHER_JWT_PRIVATE_KEY_PATH=~/.ssh/weather_jwt_private_key.pem
 # 和风天气 API 基础 URL
 QWEATHER_API_BASE_URL=https://devapi.qweather.com
 
+# 和风天气 API Key（如果需要）
+QWEATHER_API_KEY=your-api-key
 
 # JWT 过期时间（秒，默认 3600）
 WEATHER_JWT_EXPIRES_IN=3600
@@ -207,6 +209,7 @@ weather:
     expires_in: 3600
   api:
     base_url: https://devapi.qweather.com
+    api_key: your-api-key
 ```
 
 ## 5. 错误处理
