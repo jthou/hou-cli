@@ -63,15 +63,15 @@ class CommandCompleter(Completer):
             for cmd_name, desc, args in self.commands:
                 if cmd_name.startswith(partial):
                     # 计算需要替换的字符数
-                    # 如果输入是 "/l"，text = "/l"，command_part = "l"，partial = "l"
-                    # 光标在 "l" 后面，需要替换 "l"，所以 start_position = -1
-                    # 补全文本应该是完整的命令（包括 /），这样 "/l" 会变成 "/list"
+                    # 如果输入是 "/l"，光标在 "l" 后面
+                    # start_position = -1 表示替换光标前1个字符（即 "l"）
+                    # 补全文本应该是 "list"（不包括 "/"），这样 "/l" 会变成 "/list"
                     start_pos = -len(partial)
                     display_text = f"/{cmd_name}"
                     if args:
                         display_text += f" {args}"
                     yield Completion(
-                        f"/{cmd_name}",
+                        cmd_name,  # 补全文本不包括 "/"，只包含命令名
                         start_position=start_pos,
                         display=display_text,
                         display_meta=desc
