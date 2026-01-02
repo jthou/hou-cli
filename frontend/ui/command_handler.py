@@ -1,5 +1,5 @@
 """命令处理器（类似 Cursor Agent 的命令模式）"""
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -25,20 +25,20 @@ class CommandHandler:
             ("help", "显示帮助信息", "[command]"),
         ]
     
-    def handle_command(self, input_text: str) -> Optional[str]:
+    def handle_command(self, input_text: str) -> Tuple[Optional[str], Optional[str]]:
         """处理命令输入
         
         Returns:
-            如果处理了命令，返回结果字符串；如果不是命令，返回 None
+            (结果字符串, 新的会话ID) - 如果处理了命令，返回结果字符串和可选的会话ID；如果不是命令，返回 (None, None)
         """
         if not input_text.startswith('/'):
-            return None  # 不是命令
+            return (None, None)  # 不是命令
         
         # 解析命令
         parts = input_text[1:].strip().split()
         if not parts:
             # 单独的 '/'，显示命令提示
-            return self._show_command_hint()
+            return (self._show_command_hint(), None)
         
         command = parts[0].lower()
         args = parts[1:]
@@ -59,11 +59,16 @@ class CommandHandler:
         handler = handlers.get(command)
         if handler:
             try:
-                return handler(args)
+                result = handler(args)
+                # 如果返回的是元组 (message, session_id)，直接返回
+                if isinstance(result, tuple) and len(result) == 2:
+                    return result
+                # 否则返回 (message, None)
+                return (result, None)
             except Exception as e:
-                return f"[red]错误: {e}[/red]"
+                return (f"[red]错误: {e}[/red]", None)
         else:
-            return f"[yellow]未知命令: {command}[/yellow]\n输入 /help 查看帮助"
+            return (f"[yellow]未知命令: {command}[/yellow]\n输入 /help 查看帮助", None)
     
     def _show_command_hint(self) -> str:
         """显示命令提示菜单"""
@@ -171,11 +176,42 @@ class CommandHandler:
         """处理 /clear 命令"""
         return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
     
-    def _handle_switch(self, args: List[str]) -> str:
-        """处理 /switch 命令"""
+    def _handle_switch(self, args: List[str]) -> Tuple[str, Optional[str]]:
+        """处理 /switch 命令
+        
+        Returns:
+            (消息, 新的会话ID) - 如果切换成功，返回新的会话ID
+        """
         if not args:
-            return "[red]错误: /switch 需要会话 ID 参数[/red]\n用法: /switch <session_id>"
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+            return ("[red]错误: /switch 需要会话 ID 参数[/red]\n用法: /switch <session_id>", None)
+        
+        session_id = args[0]
+        
+        if not self.client:
+            return ("[yellow]命令功能尚未完全实现，请稍候[/yellow]", None)
+        
+        try:
+            # 验证会话是否存在（通过获取会话信息）
+            # 如果会话不存在，get_session_preview 会抛出异常
+            # 这里我们直接尝试获取会话，如果失败则说明不存在
+            # 由于没有直接的验证接口，我们通过 list_sessions 来检查
+            sessions = self.client.list_sessions(limit=1000)  # 获取所有会话
+            session_ids = [s.get("session_id") for s in sessions]
+            
+            if session_id not in session_ids:
+                # 尝试匹配部分会话 ID
+                matching = [sid for sid in session_ids if sid.startswith(session_id)]
+                if len(matching) == 1:
+                    session_id = matching[0]
+                elif len(matching) > 1:
+                    return (f"[yellow]找到多个匹配的会话，请使用完整的会话 ID[/yellow]\n匹配的会话: {', '.join(matching[:5])}", None)
+                else:
+                    return (f"[red]错误: 会话不存在: {session_id}[/red]", None)
+            
+            # 切换成功
+            return (f"[green]✓ 已切换到会话: {session_id}[/green]", session_id)
+        except Exception as e:
+            return (f"[red]错误: {e}[/red]", None)
     
     def _handle_help(self, args: List[str]) -> str:
         """处理 /help 命令"""

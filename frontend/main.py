@@ -123,9 +123,14 @@ def chat(message, stream):
                 
                 # 检测命令模式（以 / 开头）
                 if msg.startswith('/'):
-                    result = command_handler.handle_command(msg)
+                    result, new_session_id = command_handler.handle_command(msg)
                     if result:
                         console.print(result)
+                    # 如果命令返回了新的会话 ID，更新当前会话
+                    if new_session_id:
+                        session_id = new_session_id
+                        command_handler.current_session_id = session_id
+                        console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
                     console.print()  # 空行
                     continue
                 
