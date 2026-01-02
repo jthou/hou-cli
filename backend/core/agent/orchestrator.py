@@ -68,7 +68,7 @@ class Orchestrator:
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
         # 构建消息列表
-        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
+        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。"
         
         # 构建 user_prompt（包含历史上下文）
         # 过滤掉 system 消息，只保留 user 和 assistant 消息
