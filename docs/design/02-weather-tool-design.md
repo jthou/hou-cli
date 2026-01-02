@@ -22,10 +22,12 @@
 ### 3.1 API 选择
 
 **和风天气 API 端点：**
-- 实时天气：`https://devapi.qweather.com/v7/weather/now`
-- 天气预报：`https://devapi.qweather.com/v7/weather/{days}d`
-- 天气预警：`https://devapi.qweather.com/v7/warning/now`
-- 城市搜索：`https://devapi.qweather.com/v7/city/lookup`
+- 城市搜索：`https://devapi.qweather.com/v7/city/lookup` - 根据城市名称搜索，返回城市ID
+- 实时天气：`https://devapi.qweather.com/v7/weather/now?location={cityId}`
+- 天气预报：`https://devapi.qweather.com/v7/weather/{days}d?location={cityId}`
+- 天气预警：`https://devapi.qweather.com/v7/warning/now?location={cityId}`
+
+**注意：** 所有天气查询 API 都需要城市ID（cityId），因此需要先调用城市搜索API将城市名称转换为城市ID。
 
 **注意：** 和风天气 API 使用 JWT 认证，不需要 API Key。JWT token 通过 `Authorization: Bearer <jwt_token>` 请求头传递。
 
