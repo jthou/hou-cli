@@ -622,18 +622,33 @@ class CommandHandler:
         """处理 /help 命令"""
         if args:
             command = args[0].lower()
-            help_texts = {
-                'list': '/list [limit] - 列出最近的会话',
-                'search': '/search <keyword> [limit] - 搜索包含关键词的会话',
-                'restore': '/restore [session_id] - 恢复会话（继续对话）',
-                'show': '/show <session_id> - 显示会话详情',
-                'delete': '/delete <session_id> - 删除指定会话',
-                'summary': '/summary <session_id> - 生成并显示会话摘要',
-                'clear': '/clear - 清除当前会话的所有消息',
-                'switch': '/switch <session_id> - 切换到指定会话',
-                'help': '/help [command] - 显示帮助信息',
-            }
-            return help_texts.get(command, f"未知命令: {command}")
+            
+            if command == 'context':
+                return self._show_context_help()
+            
+            # 检查是否是上下文子命令
+            if command in self.context_commands:
+                desc, args_help = self.context_commands[command]
+                return f"/context {command} {args_help}\n{desc}"
+            
+            # 检查是否是顶级命令
+            if command in self.top_level_commands:
+                desc, _ = self.top_level_commands[command]
+                help_text = f"/{command}\n{desc}\n"
+                
+                # 如果是 context 命令，显示子命令
+                if command == 'context':
+                    help_text += "\n子命令:\n"
+                    for sub_cmd, (sub_desc, sub_args) in self.context_commands.items():
+                        sub_cmd_line = f"  /context {sub_cmd}"
+                        if sub_args:
+                            sub_cmd_line += f" {sub_args}"
+                        sub_cmd_line += f" - {sub_desc}\n"
+                        help_text += sub_cmd_line
+                
+                return help_text
+            
+            return f"未知命令: {command}\n输入 /help 查看帮助"
         else:
             return self._show_command_hint()
 
