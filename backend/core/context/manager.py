@@ -163,13 +163,17 @@ class ContextManager:
         
         Args:
             session_id: 会话 ID
-            max_messages: 最大消息数
-            max_tokens: 最大 token 数
+            max_messages: 最大消息数（None 表示不限制）
+            max_tokens: 最大 token 数（None 表示不限制）
             
         Returns:
             LLM 格式的消息列表
         """
-        messages = self.get_messages(session_id, max_messages, max_tokens)
+        # 如果 max_messages 和 max_tokens 都为 None，则不压缩，获取完整历史
+        if max_messages is None and max_tokens is None:
+            messages = self.get_messages(session_id, compressed=False)
+        else:
+            messages = self.get_messages(session_id, max_messages, max_tokens)
         return [
             {
                 "role": msg.role.value,
