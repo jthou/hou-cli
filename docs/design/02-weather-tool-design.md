@@ -193,9 +193,7 @@ WEATHER_JWT_PRIVATE_KEY_PATH=~/.ssh/weather_jwt_private_key.pem
 # 和风天气 API 基础 URL
 QWEATHER_API_BASE_URL=https://devapi.qweather.com
 
-# 和风天气 API Key（如果需要）
-QWEATHER_API_KEY=your-api-key
-
+# 和风天气 API 不需要 API Key，仅使用 JWT 认证
 # JWT 过期时间（秒，默认 3600）
 WEATHER_JWT_EXPIRES_IN=3600
 ```
@@ -209,7 +207,7 @@ weather:
     expires_in: 3600
   api:
     base_url: https://devapi.qweather.com
-    api_key: your-api-key
+    
 ```
 
 ## 5. 错误处理
@@ -308,4 +306,3 @@ weather:
 - [和风天气 API 文档](https://dev.qweather.com/docs/)
 - [JWT 规范 (RFC 7519)](https://tools.ietf.org/html/rfc7519)
 - [Python JWT 库 (PyJWT)](https://pyjwt.readthedocs.io/)
-
