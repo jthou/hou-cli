@@ -129,8 +129,8 @@ backend/core/agent/tools/
 class JWTAuth:
     """JWT 认证工具类"""
     
-    def __init__(self, private_key_path: str = None):
-        """初始化，加载私钥"""
+    def __init__(self):
+        """初始化，从环境变量加载私钥"""
         pass
     
     def generate_token(self, payload: Dict[str, Any]) -> str:
@@ -138,7 +138,7 @@ class JWTAuth:
         pass
     
     def _load_private_key(self) -> bytes:
-        """从文件加载私钥"""
+        """从环境变量加载私钥"""
         pass
 ```
 
