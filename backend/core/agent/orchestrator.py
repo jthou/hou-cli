@@ -59,9 +59,13 @@ class Orchestrator:
             session_id = self.context_manager.create_session()
             self.debug.log_context_operation("创建新会话", session_id)
         
-        # 获取历史消息
-        history = self.context_manager.get_messages_for_llm(session_id)
-        self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history)})
+        # 获取历史消息（不压缩，保留完整历史）
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,  # 不限制消息数量
+            max_tokens=None     # 不限制 token 数量
+        )
+        self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
         # 构建消息列表
         system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
@@ -74,8 +78,10 @@ class Orchestrator:
                 for msg in history
             ])
             user_prompt = f"{history_text}\n用户: {task}"
+            self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(history)})
         else:
             user_prompt = task
+            self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         
         # LLM 调用
         self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
