@@ -50,7 +50,7 @@
 #### 3.2.2 JWT 生成流程
 1. 从环境变量 `WEATHER_JWT_PRIVATE_KEY` 读取私钥（私钥已配置在 `.env` 文件中）
 2. 构建 JWT payload
-3. 使用 RS256 算法签名生成 JWT
+3. 使用 Ed25519 (EdDSA) 算法签名生成 JWT
 4. 将 JWT 添加到 HTTP 请求头：`Authorization: Bearer <jwt_token>`
 
 **注意：** 私钥和公钥已配置完成，无需额外配置。
@@ -269,7 +269,7 @@ class WeatherTool:
 
 ### 6.2 JWT 安全
 - JWT 设置合理的过期时间（默认 1 小时）
-- 使用 RS256 算法（非对称加密）
+- 使用 Ed25519 (EdDSA) 算法（非对称加密）
 - 不在日志中输出完整的 JWT token
 
 ### 6.3 API 安全
@@ -304,7 +304,7 @@ class WeatherTool:
 
 ### 8.2 建议的默认值
 - 私钥来源：环境变量 `WEATHER_JWT_PRIVATE_KEY`（已配置在 `.env` 文件中）
-- JWT 算法：`RS256`
+- JWT 算法：`Ed25519 (EdDSA)`
 - JWT 过期时间：`3600` 秒（1 小时）
 - API 基础 URL：`https://devapi.qweather.com`
 - 默认预报天数：`7` 天

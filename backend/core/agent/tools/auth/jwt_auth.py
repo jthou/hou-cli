@@ -108,8 +108,8 @@ class JWTAuth:
                 "sub": self.subject
             }
             
-            # 使用 RS256 算法签名
-            token = jwt.encode(payload, self.private_key, algorithm="RS256")
+            # 使用 Ed25519 (EdDSA) 算法签名
+            token = jwt.encode(payload, self.private_key, algorithm="EdDSA")
             
             # jwt.encode 在 PyJWT 2.0+ 返回字符串，旧版本返回 bytes
             if isinstance(token, bytes):
