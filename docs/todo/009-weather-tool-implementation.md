@@ -16,8 +16,8 @@
 ### 环境准备
 - [ ] 注册和风天气开发者账号，获取 API Key
 - [ ] 生成 RSA 私钥对（如果还没有）
-- [ ] 将私钥保存到 `~/.ssh/weather_jwt_private_key.pem`
-- [ ] 设置私钥文件权限为 600：`chmod 600 ~/.ssh/weather_jwt_private_key.pem`
+- [ ] 将私钥添加到 `.env` 文件中的 `WEATHER_JWT_PRIVATE_KEY` 变量
+- [ ] 确保 `.env` 文件已添加到 `.gitignore`（如果还没有）
 
 ## 阶段 1: 基础架构实现（P0）
 
