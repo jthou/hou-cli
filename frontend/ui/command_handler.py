@@ -13,17 +13,24 @@ class CommandHandler:
         self.client = client
         self.current_session_id = current_session_id
         self.console = Console()
-        self.commands = [
-            ("list", "列出最近的会话", "[limit]"),
-            ("search", "搜索包含关键词的会话", "<keyword> [limit]"),
-            ("restore", "恢复会话（继续对话）", "[session_id]"),
-            ("show", "显示会话详情", "<session_id>"),
-            ("delete", "删除指定会话", "<session_id>"),
-            ("summary", "生成并显示会话摘要", "<session_id>"),
-            ("clear", "清除当前会话的所有消息", ""),
-            ("switch", "切换到指定会话", "<session_id>"),
-            ("help", "显示帮助信息", "[command]"),
-        ]
+        
+        # 上下文管理子命令
+        self.context_commands = {
+            "list": ("列出最近的会话", "[limit]"),
+            "search": ("搜索包含关键词的会话", "<keyword> [limit]"),
+            "restore": ("恢复会话（继续对话）", "[session_id]"),
+            "show": ("显示会话详情", "<session_id>"),
+            "delete": ("删除指定会话", "<session_id>"),
+            "summary": ("生成并显示会话摘要", "<session_id>"),
+            "clear": ("清除当前会话的所有消息", ""),
+            "switch": ("切换到指定会话", "<session_id>"),
+        }
+        
+        # 顶级命令
+        self.top_level_commands = {
+            "context": ("上下文管理", "管理会话和上下文"),
+            "help": ("显示帮助信息", "[command]"),
+        }
     
     def handle_command(self, input_text: str) -> Tuple[Optional[str], Optional[str]]:
         """处理命令输入
@@ -43,31 +50,48 @@ class CommandHandler:
         command = parts[0].lower()
         args = parts[1:]
         
-        # 路由到对应的命令处理函数
-        handlers = {
-            'list': self._handle_list,
-            'search': self._handle_search,
-            'restore': self._handle_restore,
-            'show': self._handle_show,
-            'delete': self._handle_delete,
-            'summary': self._handle_summary,
-            'clear': self._handle_clear,
-            'switch': self._handle_switch,
-            'help': self._handle_help,
-        }
+        # 处理顶级命令
+        if command == 'context':
+            # /context 子命令
+            if not args:
+                # /context 单独输入，显示上下文命令帮助
+                return (self._show_context_help(), None)
+            
+            subcommand = args[0].lower()
+            sub_args = args[1:]
+            
+            # 上下文管理子命令处理器
+            context_handlers = {
+                'list': self._handle_list,
+                'search': self._handle_search,
+                'restore': self._handle_restore,
+                'show': self._handle_show,
+                'delete': self._handle_delete,
+                'summary': self._handle_summary,
+                'clear': self._handle_clear,
+                'switch': self._handle_switch,
+            }
+            
+            handler = context_handlers.get(subcommand)
+            if handler:
+                try:
+                    result = handler(sub_args)
+                    # 如果返回的是元组 (message, session_id)，直接返回
+                    if isinstance(result, tuple) and len(result) == 2:
+                        return result
+                    # 否则返回 (message, None)
+                    return (result, None)
+                except Exception as e:
+                    return (f"[red]错误: {e}[/red]", None)
+            else:
+                return (f"[yellow]未知的上下文命令: {subcommand}[/yellow]\n输入 /context 查看可用命令", None)
         
-        handler = handlers.get(command)
-        if handler:
-            try:
-                result = handler(args)
-                # 如果返回的是元组 (message, session_id)，直接返回
-                if isinstance(result, tuple) and len(result) == 2:
-                    return result
-                # 否则返回 (message, None)
-                return (result, None)
-            except Exception as e:
-                return (f"[red]错误: {e}[/red]", None)
+        elif command == 'help':
+            # /help 命令
+            return (self._handle_help(args), None)
+        
         else:
+            # 未知命令，提供帮助
             return (f"[yellow]未知命令: {command}[/yellow]\n输入 /help 查看帮助", None)
     
     def _show_command_hint(self) -> str:
@@ -75,19 +99,38 @@ class CommandHandler:
         hint_text = Text()
         hint_text.append("可用命令:\n", style="dim")
         
-        for cmd, desc, args in self.commands:
-            cmd_line = f"  [cyan]/{cmd}[/cyan]"
-            if args:
-                cmd_line += f" {args}"
-            cmd_line += f" - {desc}\n"
+        # 显示顶级命令
+        for cmd, (desc, _) in self.top_level_commands.items():
+            cmd_line = f"  [cyan]/{cmd}[/cyan] - {desc}\n"
             hint_text.append(cmd_line)
         
-        hint_text.append("\n[dim]提示: 输入命令后按 Enter 执行，按 Tab 自动补全[/dim]")
+        hint_text.append("\n[dim]提示: 输入 /help 查看详细帮助[/dim]")
         
         return Panel(
             hint_text,
             border_style="dim cyan",
             title="[dim cyan]命令提示[/dim cyan]",
+            padding=(1, 2)
+        )
+    
+    def _show_context_help(self) -> str:
+        """显示上下文管理命令帮助"""
+        hint_text = Text()
+        hint_text.append("上下文管理命令:\n", style="dim")
+        
+        for cmd, (desc, args) in self.context_commands.items():
+            cmd_line = f"  [cyan]/context {cmd}[/cyan]"
+            if args:
+                cmd_line += f" {args}"
+            cmd_line += f" - {desc}\n"
+            hint_text.append(cmd_line)
+        
+        hint_text.append("\n[dim]提示: 输入 /context <command> 执行命令[/dim]")
+        
+        return Panel(
+            hint_text,
+            border_style="dim cyan",
+            title="[dim cyan]上下文管理[/dim cyan]",
             padding=(1, 2)
         )
     
