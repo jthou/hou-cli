@@ -107,6 +107,16 @@ class CommandHandler:
         for cmd, (desc, _) in self.top_level_commands.items():
             cmd_line = f"  /{cmd} - {desc}\n"
             hint_text.append(cmd_line)
+            
+            # 如果是 context 命令，显示子命令
+            if cmd == 'context':
+                hint_text.append("\n  子命令:\n")
+                for sub_cmd, (sub_desc, sub_args) in self.context_commands.items():
+                    sub_cmd_line = f"    /context {sub_cmd}"
+                    if sub_args:
+                        sub_cmd_line += f" {sub_args}"
+                    sub_cmd_line += f" - {sub_desc}\n"
+                    hint_text.append(sub_cmd_line)
         
         hint_text.append("\n提示: 输入 /help 查看详细帮助")
         
