@@ -297,6 +297,30 @@ class IPCClient:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
+    def create_session(self) -> str:
+        """
+        创建新会话
+        
+        Returns:
+            新会话的 ID
+        """
+        try:
+            response = self.client.post(
+                f"{self.base_url}/api/sessions",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success"):
+                return result.get("session_id")
+            else:
+                raise Exception(result.get("error", "创建失败"))
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
+    
     def search_sessions(self, keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
         """
         搜索包含关键词的会话

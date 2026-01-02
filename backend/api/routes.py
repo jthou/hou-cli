@@ -230,6 +230,24 @@ async def search_sessions(keyword: str, limit: int = 10):
             "error": str(e)
         }
 
+@router.post("/sessions")
+async def create_session():
+    """创建新会话"""
+    try:
+        orchestrator = get_orchestrator()
+        session_id = orchestrator.context_manager.create_session()
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "message": f"新会话已创建: {session_id}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 @router.post("/sessions/{session_id}/summary")
 async def generate_session_summary(session_id: str):
     """生成会话摘要"""
