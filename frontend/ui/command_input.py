@@ -1,4 +1,5 @@
 """交互式命令输入（支持命令提示和自动补全）"""
+import sys
 from typing import List, Optional, Callable
 from rich.console import Console
 from rich.panel import Panel
