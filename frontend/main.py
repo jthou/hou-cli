@@ -12,7 +12,6 @@ from frontend.ui.banner import show_banner
 from frontend.ui.renderer import RendererFactory
 from frontend.ui.stream_handler import StreamRenderer
 from frontend.ui.command_handler import CommandHandler
-from frontend.ui.command_input import CommandInput
 
 # 加载 .env 文件
 env_path = Path(__file__).parent.parent / '.env'
@@ -114,12 +113,9 @@ def chat(message, stream):
         # 创建命令处理器
         command_handler = CommandHandler(client=client, current_session_id=session_id)
         
-        # 创建命令输入器（支持自动补全和提示）
-        command_input = CommandInput(console, command_handler.commands)
-        
         while True:
             try:
-                msg = command_input.input()
+                msg = console.input("[dim cyan]▸[/dim cyan] ")
                 if msg.lower() in ['exit', 'quit']:
                     break
                 if not msg.strip():
