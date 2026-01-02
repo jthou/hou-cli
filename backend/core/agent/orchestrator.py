@@ -13,7 +13,8 @@ else:
     load_dotenv()
 
 from backend.core.agent.coordinator import AgentCoordinator
-from backend.core.agent.context_manager import ContextManager
+from backend.core.context.manager import ContextManager as FullContextManager
+from backend.core.context.models import MessageRole
 from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
@@ -25,7 +26,7 @@ class Orchestrator:
     def __init__(self):
         self.coordinator = AgentCoordinator()
         self.llm_service = LLMService()
-        self.context_manager = ContextManager(max_history=10)
+        self.context_manager = FullContextManager()
         self.debug = DebugOutput()  # 调试输出
         # self.workflow_identifier = WorkflowIdentifier()
         # self.workflow_engine = WorkflowEngine(self)
@@ -59,7 +60,7 @@ class Orchestrator:
             self.debug.log_context_operation("创建新会话", session_id)
         
         # 获取历史消息
-        history = self.context_manager.get_history_for_llm(session_id)
+        history = self.context_manager.get_messages_for_llm(session_id)
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history)})
         
         # 构建消息列表
@@ -86,8 +87,8 @@ class Orchestrator:
         self.debug.log_llm_response(response, "deepseek-chat")
         
         # 保存消息到历史
-        self.context_manager.add_message(session_id, "user", task)
-        self.context_manager.add_message(session_id, "assistant", response)
+        self.context_manager.add_message(session_id, MessageRole.USER, task)
+        self.context_manager.add_message(session_id, MessageRole.ASSISTANT, response)
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
         
         self.debug.log_orchestrator_step("任务处理完成", {"response_length": len(response)})
@@ -116,7 +117,7 @@ class Orchestrator:
             self.debug.log_context_operation("创建新会话", session_id)
         
         # 获取历史消息
-        history = self.context_manager.get_history_for_llm(session_id)
+        history = self.context_manager.get_messages_for_llm(session_id)
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history)})
         
         # 构建消息
@@ -147,8 +148,8 @@ class Orchestrator:
         self.debug.log_llm_response(full_response, "deepseek-chat")
         
         # 保存消息到历史
-        self.context_manager.add_message(session_id, "user", task)
-        self.context_manager.add_message(session_id, "assistant", full_response)
+        self.context_manager.add_message(session_id, MessageRole.USER, task)
+        self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_response)
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
         
         self.debug.log_orchestrator_step("流式任务处理完成", {"response_length": len(full_response)})
