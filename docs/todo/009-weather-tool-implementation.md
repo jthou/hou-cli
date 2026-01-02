@@ -51,14 +51,14 @@
 - [ ] 创建 `backend/core/agent/tools/utils/` 目录
 - [ ] 创建 `backend/core/agent/tools/utils/key_loader.py`
 - [ ] 实现 `KeyLoader` 类
-- [ ] 实现 `load_private_key()` 方法
-- [ ] 实现 `validate_key_permissions()` 方法
-- [ ] 实现错误处理（文件不存在、权限错误等）
+- [ ] 实现 `load_private_key_from_env()` 方法（从环境变量读取）
+- [ ] 实现 `normalize_private_key()` 方法（规范化私钥格式，处理换行符）
+- [ ] 实现错误处理（环境变量未设置等）
 - [ ] 编写单元测试
 
 **验收标准：**
-- 可以正确加载私钥文件
-- 权限验证逻辑正确（文件权限应为 600）
+- 可以正确从环境变量加载私钥
+- 支持单行和多行私钥格式
 - 错误处理完善
 
 ## 阶段 2: JWT 认证实现（P0）
