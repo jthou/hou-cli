@@ -98,6 +98,8 @@ class CommandInput:
                 key_bindings=self.key_bindings,
                 complete_style='multi-column',  # 多列显示补全建议
                 complete_in_thread=True,  # 在后台线程中计算补全
+                enable_open_in_editor=False,  # 禁用编辑器模式
+                enable_system_prompt=False,  # 禁用系统提示
             )
         else:
             self.session = None
