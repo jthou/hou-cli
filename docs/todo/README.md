@@ -89,161 +89,84 @@
 ---
 
 ### TODO-004: 上下文存储核心功能实现
-**状态**: ✅ 已完成  
+**状态**: ⏳ 待开始  
 **优先级**: P0（高优先级）  
 **预计工时**: 3-5 天  
-**创建时间**: 2025-01-01  
-**完成时间**: 2025-01-02
+**创建时间**: 2025-01-01
 
 实现上下文存储和整理机制的核心功能，包括数据模型、存储后端接口、压缩策略接口和 ContextManager 统一接口。
 
-**任务文档**: [004-context-storage-core-implementation.md](./004-context-storage-core-implementation.md)  
-**完成审查**: [004-context-storage-completion-review.md](./004-context-storage-completion-review.md)
+**任务文档**: [004-context-storage-core-implementation.md](./004-context-storage-core-implementation.md)
 
 **核心功能**:
-- ✅ Message 和 Session 数据模型（测试: 9个通过，覆盖率 100%）
-- ✅ StorageBackend 接口和 FileStorageBackend 实现（测试: 8个通过，覆盖率 97%）
-- ✅ CompressionStrategy 接口和 TimeWindowCompression 实现（测试: 4个通过，覆盖率 100%）
-- ✅ ContextManager 统一接口（测试: 10个通过，覆盖率 98%）
-- ✅ 基本使用示例（examples.py）
-- ✅ 基础 KeywordRetrievalEngine（覆盖率 100%）
-
-**测试统计**: 84个测试全部通过，核心模块覆盖率 96.5%
-
-**额外完成**（超出任务范围）:
-- ✅ 高级压缩策略（TokenLimitCompression, ImportanceScoringCompression）
-- ✅ 数据库存储后端（DatabaseStorageBackend）
-- ✅ 长期记忆基础功能（FileLongTermMemory）
+- Message 和 Session 数据模型
+- StorageBackend 接口和 FileStorageBackend 实现
+- CompressionStrategy 接口和 TimeWindowCompression 实现
+- ContextManager 统一接口
+- 基本使用示例
 
 ---
 
 ### TODO-005: 长期记忆基础实现
-**状态**: ✅ 已完成  
+**状态**: ⏳ 待开始  
 **优先级**: P0（高优先级）  
 **预计工时**: 2-3 天  
-**创建时间**: 2025-01-01  
-**完成时间**: 2025-01-02
+**创建时间**: 2025-01-01
 
 实现长期记忆模块的基础功能，包括 Memory 数据模型、LongTermMemory 接口、FileLongTermMemory 实现（Memory Store + Index Store，无向量存储），以及 ContextManager 与长期记忆的集成。
 
-**前置任务**: TODO-004 ✅
+**前置任务**: TODO-004
 
-**任务文档**: [004-long-term-memory-basic-implementation.md](./004-long-term-memory-basic-implementation.md)  
-**完成审查**: [tasks-implementation-review.md](./tasks-implementation-review.md)
-
-**核心功能**:
-- ✅ Memory 数据模型和 MemoryType 枚举（测试通过）
-- ✅ LongTermMemory 接口（已实现）
-- ✅ FileLongTermMemory 实现（JSON 文件存储，覆盖率 95%）
-- ✅ ContextManager 与长期记忆集成（已集成）
-- ✅ 关键词搜索实现（已实现）
-
-**测试统计**: 15个测试全部通过
-
----
-
-### TODO-006: 前端 UI 改进实现
-**状态**: ✅ 已完成  
-**优先级**: P0（高优先级）  
-**预计工时**: 1-2 天  
-**创建时间**: 2025-01-02  
-**完成时间**: 2025-01-02
-
-根据设计文档和前端 UI 改进方案，实现与 Cursor Agent 风格对齐的简洁 UI。
-
-**任务文档**: [006-frontend-ui-improvements-implementation.md](./006-frontend-ui-improvements-implementation.md)  
-**完成审查**: [tasks-implementation-review.md](./tasks-implementation-review.md)
-
-**核心任务**:
-- ✅ 修复流式输出重复显示问题（使用 Rich Live 组件）
-- ✅ 简化 Agent 前缀（已移除）
-- ✅ 移除会话 ID 显示（已移除）
-- ✅ 简化 Banner（已简化）
-- ✅ 简化非流式响应显示（已移除 Panel）
-- ✅ 改进错误提示（已改进）
-- ✅ 改进用户输入提示（使用简洁符号 ▸）
-
-**前置任务**: 无
-
-**完成情况**: 所有功能 100% 完成，代码质量优秀
-
----
-
-### TODO-007: 调试日志和思考过程输出实现
-**状态**: ✅ 已完成  
-**优先级**: P0（高优先级）  
-**预计工时**: 1-2 天  
-**创建时间**: 2025-01-02  
-**完成时间**: 2025-01-02
-
-实现开发环境的调试输出功能，包括模型的思考过程输出、后端 debug 流程输出、上下文过程输出，并支持环境区分（开发环境默认开启，生产环境默认关闭）。
-
-**任务文档**: [007-debug-logging-implementation.md](./007-debug-logging-implementation.md)  
-**完成审查**: [007-debug-logging-completion-review.md](./007-debug-logging-completion-review.md)
+**任务文档**: [004-long-term-memory-basic-implementation.md](./004-long-term-memory-basic-implementation.md)
 
 **核心功能**:
-- ✅ 环境配置和调试工具（DEBUG/ENV 环境变量）
-- ✅ Orchestrator 流程调试输出
-- ✅ ContextManager 操作调试输出
-- ✅ LLM 请求/响应调试输出
-- ✅ 模型思考过程输出（如果支持）
-- ✅ 日志系统配置
-
-**前置任务**: 无
-
-**完成情况**: 所有功能 100% 完成，代码质量优秀
+- Memory 数据模型和 MemoryType 枚举
+- LongTermMemory 接口
+- FileLongTermMemory 实现（JSON 文件存储）
+- ContextManager 与长期记忆集成
+- 关键词搜索实现
 
 ---
 
-### TODO-008: 数据库存储后端实现
-**状态**: ✅ 已完成  
+### TODO-006: 数据库存储后端实现
+**状态**: ⏳ 待开始  
 **优先级**: P1（中优先级）  
 **预计工时**: 1-2 天  
-**创建时间**: 2025-01-01  
-**完成时间**: 2025-01-02
+**创建时间**: 2025-01-01
 
 实现 DatabaseStorageBackend（SQLite），提供数据库存储能力，支持 SQL 查询和事务。
 
-**前置任务**: TODO-004 ✅
+**前置任务**: TODO-004
 
-**任务文档**: [004-database-storage-backend-implementation.md](./004-database-storage-backend-implementation.md)  
-**完成审查**: [tasks-implementation-review.md](./tasks-implementation-review.md)
+**任务文档**: [004-database-storage-backend-implementation.md](./004-database-storage-backend-implementation.md)
 
 **核心功能**:
-- ✅ DatabaseStorageBackend 实现（SQLite，覆盖率 95%）
-- ✅ 数据库表结构和索引（已实现）
-- ✅ 存储后端切换测试（已实现）
-- ✅ 事务处理（已实现）
-- ✅ 所有 StorageBackend 接口方法（已实现）
-
-**测试统计**: 9个测试全部通过
+- DatabaseStorageBackend 实现（SQLite）
+- 数据库表结构和索引
+- 存储后端切换测试
 
 ---
 
-### TODO-009: 高级压缩策略实现
-**状态**: ✅ 已完成  
+### TODO-007: 高级压缩策略实现
+**状态**: ⏳ 待开始  
 **优先级**: P1（中优先级）  
 **预计工时**: 2-3 天  
-**创建时间**: 2025-01-01  
-**完成时间**: 2025-01-02
+**创建时间**: 2025-01-01
 
 实现高级压缩策略：TokenLimitCompression 和 ImportanceScoringCompression，支持基于 token 限制和重要性评分的消息压缩。
 
-**前置任务**: TODO-004 ✅
+**前置任务**: TODO-004
 
-**任务文档**: [004-advanced-compression-strategies.md](./004-advanced-compression-strategies.md)  
-**完成审查**: [004-context-storage-completion-review.md](./004-context-storage-completion-review.md)
+**任务文档**: [004-advanced-compression-strategies.md](./004-advanced-compression-strategies.md)
 
 **核心功能**:
-- ✅ TokenLimitCompression 实现（覆盖率 89%）
-- ✅ ImportanceScoringCompression 实现（覆盖率 100%）
-- ✅ 压缩策略性能测试（已实现）
-
-**说明**: 已在 TODO-004 中提前完成（超出任务范围）
+- TokenLimitCompression 实现
+- ImportanceScoringCompression 实现
+- 压缩策略性能测试
 
 ---
 
-### TODO-010: 检索功能和语义搜索实现
+### TODO-008: 检索功能和语义搜索实现
 **状态**: ⏳ 待开始  
 **优先级**: P1（中优先级）  
 **预计工时**: 3-4 天  
@@ -264,7 +187,27 @@
 
 ---
 
-### TODO-011: 扩展功能实现
+### TODO-009: 上下文检索和恢复机制实现
+**状态**: ⏳ 待开始  
+**优先级**: P0（高优先级）  
+**预计工时**: 2-3 天  
+**创建时间**: 2025-01-02
+
+实现上下文检索和恢复机制，允许用户查找、预览和恢复历史会话上下文。
+
+**前置任务**: TODO-004
+
+**任务文档**: [008-context-retrieval-and-restoration-implementation.md](./008-context-retrieval-and-restoration-implementation.md)
+
+**核心功能**:
+- ContextManager 扩展（会话搜索、预览、恢复）
+- ContextRetrievalService 实现
+- 后端 API 集成（会话列表、搜索、恢复）
+- 前端 CLI 命令（list, search, restore, show）
+
+---
+
+### TODO-010: 扩展功能实现
 **状态**: ⏳ 待开始  
 **优先级**: P3（低优先级，可选）  
 **预计工时**: 3-5 天  
