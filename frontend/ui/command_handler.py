@@ -145,20 +145,215 @@ class CommandHandler:
             return f"[red]错误: {e}[/red]"
     
     def _handle_search(self, args: List[str]) -> str:
-        """处理 /search 命令"""
+        """处理 /search 命令 - 搜索包含关键词的会话"""
         if not args:
             return "[red]错误: /search 需要关键词参数[/red]\n用法: /search <keyword> [limit]"
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+        
+        keyword = args[0]
+        limit = int(args[1]) if len(args) > 1 else 10
+        
+        if not self.client:
+            return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        try:
+            sessions = self.client.search_sessions(keyword, limit=limit)
+            
+            if not sessions:
+                return f"[yellow]没有找到包含 '{keyword}' 的会话[/yellow]"
+            
+            # 创建表格显示
+            table = Table(title=f"搜索结果: '{keyword}'")
+            table.add_column("序号", style="cyan", width=6)
+            table.add_column("会话 ID", style="green", width=12)
+            table.add_column("时间", style="yellow", width=16)
+            table.add_column("预览", style="white", width=50)
+            table.add_column("消息数", style="magenta", width=8)
+            
+            for i, session in enumerate(sessions, 1):
+                session_id = session.get("session_id", "N/A")
+                updated_at = session.get("updated_at")
+                if isinstance(updated_at, str):
+                    from datetime import datetime
+                    updated_at = datetime.fromisoformat(updated_at)
+                time_str = updated_at.strftime("%Y-%m-%d %H:%M") if updated_at else "N/A"
+                
+                preview = session.get("preview", "")
+                if len(preview) > 45:
+                    preview = preview[:45] + "..."
+                
+                message_count = session.get("message_count", 0)
+                
+                table.add_row(
+                    str(i),
+                    session_id[:8] + "..." if len(session_id) > 8 else session_id,
+                    time_str,
+                    preview,
+                    str(message_count)
+                )
+            
+            # 使用 StringIO 捕获表格输出
+            from io import StringIO
+            output = StringIO()
+            console = Console(file=output, width=120)
+            console.print(table)
+            return output.getvalue()
+        except ValueError:
+            return "[red]错误: limit 必须是数字[/red]"
+        except Exception as e:
+            return f"[red]错误: {e}[/red]"
     
-    def _handle_restore(self, args: List[str]) -> str:
-        """处理 /restore 命令"""
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+    def _handle_restore(self, args: List[str]) -> Tuple[str, Optional[str]]:
+        """处理 /restore 命令 - 恢复会话（继续对话）
+        
+        支持两种方式：
+        1. 使用序号：/restore 1 (从 /list 命令显示的序号)
+        2. 使用会话 ID：/restore <session_id> (完整或部分 ID)
+        
+        Returns:
+            (消息, 新的会话ID) - 如果恢复成功，返回新的会话ID
+        """
+        if not args:
+            # 如果没有参数，恢复当前会话（如果存在）
+            if self.current_session_id:
+                return (f"[green]✓ 当前会话: {self.current_session_id[:8]}...[/green]", None)
+            else:
+                return ("[yellow]没有活动会话，请使用 /restore <序号|session_id> 恢复会话[/yellow]", None)
+        
+        identifier = args[0]
+        
+        if not self.client:
+            return ("[yellow]命令功能尚未完全实现，请稍候[/yellow]", None)
+        
+        try:
+            # 获取所有会话
+            sessions = self.client.list_sessions(limit=1000)
+            
+            if not sessions:
+                return ("[yellow]没有可用的会话[/yellow]", None)
+            
+            # 尝试作为序号处理（数字）
+            try:
+                index = int(identifier)
+                if index < 1 or index > len(sessions):
+                    return (f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]", None)
+                # 序号从 1 开始，数组从 0 开始
+                session = sessions[index - 1]
+                session_id = session.get("session_id")
+            except ValueError:
+                # 不是数字，作为会话 ID 处理
+                session_id = identifier
+                session_ids = [s.get("session_id") for s in sessions]
+                
+                if session_id not in session_ids:
+                    # 尝试匹配部分会话 ID
+                    matching = [sid for sid in session_ids if sid.startswith(session_id)]
+                    if len(matching) == 1:
+                        session_id = matching[0]
+                    elif len(matching) > 1:
+                        return (f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}", None)
+                    else:
+                        return (f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号恢复，例如 /restore 1", None)
+            
+            # 恢复成功
+            return (f"[green]✓ 已恢复会话: {session_id[:8]}...[/green]\n[dim]可以继续对话了[/dim]", session_id)
+        except Exception as e:
+            return (f"[red]错误: {e}[/red]", None)
     
     def _handle_show(self, args: List[str]) -> str:
-        """处理 /show 命令"""
+        """处理 /show 命令 - 显示会话详情（消息列表）
+        
+        支持两种方式：
+        1. 使用序号：/show 1 (从 /list 命令显示的序号)
+        2. 使用会话 ID：/show <session_id> (完整或部分 ID)
+        """
         if not args:
-            return "[red]错误: /show 需要会话 ID 参数[/red]\n用法: /show <session_id>"
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+            return "[red]错误: /show 需要会话 ID 或序号参数[/red]\n用法: /show <序号|session_id>"
+        
+        identifier = args[0]
+        
+        if not self.client:
+            return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        try:
+            # 获取所有会话
+            sessions = self.client.list_sessions(limit=1000)
+            
+            if not sessions:
+                return "[yellow]没有可用的会话[/yellow]"
+            
+            # 尝试作为序号处理（数字）
+            try:
+                index = int(identifier)
+                if index < 1 or index > len(sessions):
+                    return f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]"
+                # 序号从 1 开始，数组从 0 开始
+                session = sessions[index - 1]
+                session_id = session.get("session_id")
+            except ValueError:
+                # 不是数字，作为会话 ID 处理
+                session_id = identifier
+                session_ids = [s.get("session_id") for s in sessions]
+                
+                if session_id not in session_ids:
+                    # 尝试匹配部分会话 ID
+                    matching = [sid for sid in session_ids if sid.startswith(session_id)]
+                    if len(matching) == 1:
+                        session_id = matching[0]
+                    elif len(matching) > 1:
+                        return f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}"
+                    else:
+                        return f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号查看，例如 /show 1"
+            
+            # 获取会话详情
+            detail = self.client.get_session_detail(session_id)
+            
+            if not detail.get("success"):
+                return f"[red]错误: {detail.get('error', '获取失败')}[/red]"
+            
+            session_info = detail.get("session", {})
+            messages = detail.get("messages", [])
+            
+            # 构建显示内容
+            from datetime import datetime
+            from rich.panel import Panel
+            from rich.text import Text
+            
+            # 会话信息
+            created_at = datetime.fromisoformat(session_info.get("created_at", ""))
+            updated_at = datetime.fromisoformat(session_info.get("updated_at", ""))
+            
+            info_text = Text()
+            info_text.append(f"会话 ID: {session_id}\n", style="cyan")
+            info_text.append(f"创建时间: {created_at.strftime('%Y-%m-%d %H:%M:%S')}\n", style="dim")
+            info_text.append(f"更新时间: {updated_at.strftime('%Y-%m-%d %H:%M:%S')}\n", style="dim")
+            info_text.append(f"消息数量: {len(messages)}\n", style="magenta")
+            
+            # 消息列表
+            if messages:
+                info_text.append("\n消息列表:\n", style="bold")
+                for i, msg in enumerate(messages, 1):
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    timestamp = datetime.fromisoformat(msg.get("timestamp", ""))
+                    
+                    role_color = "green" if role == "user" else "blue"
+                    info_text.append(f"  [{i}] ", style="dim")
+                    info_text.append(f"[{role}] ", style=role_color)
+                    info_text.append(f"{timestamp.strftime('%H:%M:%S')} ", style="dim")
+                    # 截断长内容
+                    preview = content[:60] + "..." if len(content) > 60 else content
+                    info_text.append(f"{preview}\n")
+            else:
+                info_text.append("\n[dim]暂无消息[/dim]\n")
+            
+            return Panel(
+                info_text,
+                border_style="cyan",
+                title=f"[cyan]会话详情[/cyan]",
+                padding=(1, 2)
+            )
+        except Exception as e:
+            return f"[red]错误: {e}[/red]"
     
     def _handle_delete(self, args: List[str]) -> str:
         """处理 /delete 命令
@@ -220,14 +415,94 @@ class CommandHandler:
             return f"[red]错误: {e}[/red]"
     
     def _handle_summary(self, args: List[str]) -> str:
-        """处理 /summary 命令"""
+        """处理 /summary 命令 - 生成并显示会话摘要
+        
+        支持两种方式：
+        1. 使用序号：/summary 1 (从 /list 命令显示的序号)
+        2. 使用会话 ID：/summary <session_id> (完整或部分 ID)
+        """
         if not args:
-            return "[red]错误: /summary 需要会话 ID 参数[/red]\n用法: /summary <session_id>"
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+            return "[red]错误: /summary 需要会话 ID 或序号参数[/red]\n用法: /summary <序号|session_id>"
+        
+        identifier = args[0]
+        
+        if not self.client:
+            return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        try:
+            # 获取所有会话
+            sessions = self.client.list_sessions(limit=1000)
+            
+            if not sessions:
+                return "[yellow]没有可用的会话[/yellow]"
+            
+            # 尝试作为序号处理（数字）
+            try:
+                index = int(identifier)
+                if index < 1 or index > len(sessions):
+                    return f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]"
+                # 序号从 1 开始，数组从 0 开始
+                session = sessions[index - 1]
+                session_id = session.get("session_id")
+            except ValueError:
+                # 不是数字，作为会话 ID 处理
+                session_id = identifier
+                session_ids = [s.get("session_id") for s in sessions]
+                
+                if session_id not in session_ids:
+                    # 尝试匹配部分会话 ID
+                    matching = [sid for sid in session_ids if sid.startswith(session_id)]
+                    if len(matching) == 1:
+                        session_id = matching[0]
+                    elif len(matching) > 1:
+                        return f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}"
+                    else:
+                        return f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号生成摘要，例如 /summary 1"
+            
+            # 生成摘要
+            from rich.panel import Panel
+            from rich.text import Text
+            
+            result = self.client.generate_session_summary(session_id)
+            
+            if not result.get("success"):
+                return f"[red]错误: {result.get('error', '生成失败')}[/red]"
+            
+            summary = result.get("summary", "")
+            message_count = result.get("message_count", 0)
+            
+            summary_text = Text()
+            summary_text.append(f"会话 ID: {session_id[:8]}...\n", style="cyan")
+            summary_text.append(f"消息数量: {message_count}\n\n", style="magenta")
+            summary_text.append("摘要:\n", style="bold")
+            summary_text.append(summary, style="white")
+            
+            return Panel(
+                summary_text,
+                border_style="green",
+                title="[green]会话摘要[/green]",
+                padding=(1, 2)
+            )
+        except Exception as e:
+            return f"[red]错误: {e}[/red]"
     
     def _handle_clear(self, args: List[str]) -> str:
-        """处理 /clear 命令"""
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+        """处理 /clear 命令 - 清除当前会话的所有消息"""
+        if not self.current_session_id:
+            return "[yellow]当前没有活动会话[/yellow]"
+        
+        if not self.client:
+            return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        try:
+            success = self.client.clear_session_messages(self.current_session_id)
+            
+            if success:
+                return f"[green]✓ 当前会话的消息已清除[/green]\n[dim]会话 ID: {self.current_session_id[:8]}...[/dim]"
+            else:
+                return "[red]错误: 清除失败[/red]"
+        except Exception as e:
+            return f"[red]错误: {e}[/red]"
     
     def _handle_switch(self, args: List[str]) -> Tuple[str, Optional[str]]:
         """处理 /switch 命令

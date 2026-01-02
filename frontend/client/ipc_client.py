@@ -238,4 +238,100 @@ class IPCClient:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
+    
+    def clear_session_messages(self, session_id: str) -> bool:
+        """
+        清除会话的所有消息
+        
+        Args:
+            session_id: 会话 ID
+            
+        Returns:
+            是否清除成功
+        """
+        try:
+            response = self.client.post(
+                f"{self.base_url}/api/sessions/{session_id}/clear",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success"):
+                return True
+            else:
+                raise Exception(result.get("error", "清除失败"))
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise Exception(f"会话不存在: {session_id}")
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
+    
+    def get_session_detail(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取会话详情（包含消息列表）
+        
+        Args:
+            session_id: 会话 ID
+            
+        Returns:
+            会话详情和消息列表
+        """
+        try:
+            response = self.client.get(
+                f"{self.base_url}/api/sessions/{session_id}",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success"):
+                return result
+            else:
+                raise Exception(result.get("error", "获取失败"))
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise Exception(f"会话不存在: {session_id}")
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
+    
+    def search_sessions(self, keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        搜索包含关键词的会话
+        
+        Args:
+            keyword: 搜索关键词
+            limit: 返回数量限制
+            
+        Returns:
+            匹配的会话列表
+        """
+        try:
+            response = self.client.get(
+                f"{self.base_url}/api/sessions/search",
+                params={"keyword": keyword, "limit": limit},
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if "error" in result:
+                raise Exception(result["error"])
+            
+            # 转换时间字符串为 datetime 对象
+            sessions = result.get("sessions", [])
+            for session in sessions:
+                from datetime import datetime
+                if isinstance(session.get("created_at"), str):
+                    session["created_at"] = datetime.fromisoformat(session["created_at"])
+                if isinstance(session.get("updated_at"), str):
+                    session["updated_at"] = datetime.fromisoformat(session["updated_at"])
+            
+            return sessions
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
 
