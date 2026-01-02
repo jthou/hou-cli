@@ -60,6 +60,10 @@ class CommandHandler:
             subcommand = args[0].lower()
             sub_args = args[1:]
             
+            # 处理 help 子命令
+            if subcommand == 'help':
+                return (self._show_context_help(), None)
+            
             # 上下文管理子命令处理器
             context_handlers = {
                 'list': self._handle_list,
@@ -84,7 +88,7 @@ class CommandHandler:
                 except Exception as e:
                     return (f"[red]错误: {e}[/red]", None)
             else:
-                return (f"[yellow]未知的上下文命令: {subcommand}[/yellow]\n输入 /context 查看可用命令", None)
+                return (f"[yellow]未知的上下文命令: {subcommand}[/yellow]\n输入 /context 或 /context help 查看可用命令", None)
         
         elif command == 'help':
             # /help 命令
