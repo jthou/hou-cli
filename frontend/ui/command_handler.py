@@ -161,10 +161,63 @@ class CommandHandler:
         return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
     
     def _handle_delete(self, args: List[str]) -> str:
-        """处理 /delete 命令"""
+        """处理 /delete 命令
+        
+        支持两种方式：
+        1. 使用序号：/delete 1 (从 /list 命令显示的序号)
+        2. 使用会话 ID：/delete <session_id> (完整或部分 ID)
+        """
         if not args:
-            return "[red]错误: /delete 需要会话 ID 参数[/red]\n用法: /delete <session_id>"
-        return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+            return "[red]错误: /delete 需要会话 ID 或序号参数[/red]\n用法: /delete <序号|session_id>"
+        
+        identifier = args[0]
+        
+        if not self.client:
+            return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        try:
+            # 获取所有会话
+            sessions = self.client.list_sessions(limit=1000)
+            
+            if not sessions:
+                return "[yellow]没有可用的会话[/yellow]"
+            
+            # 尝试作为序号处理（数字）
+            try:
+                index = int(identifier)
+                if index < 1 or index > len(sessions):
+                    return f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]"
+                # 序号从 1 开始，数组从 0 开始
+                session = sessions[index - 1]
+                session_id = session.get("session_id")
+            except ValueError:
+                # 不是数字，作为会话 ID 处理
+                session_id = identifier
+                session_ids = [s.get("session_id") for s in sessions]
+                
+                if session_id not in session_ids:
+                    # 尝试匹配部分会话 ID
+                    matching = [sid for sid in session_ids if sid.startswith(session_id)]
+                    if len(matching) == 1:
+                        session_id = matching[0]
+                    elif len(matching) > 1:
+                        return f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}"
+                    else:
+                        return f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号删除，例如 /delete 1"
+            
+            # 执行删除
+            success = self.client.delete_session(session_id)
+            
+            if success:
+                # 如果删除的是当前会话，提示用户
+                if self.current_session_id == session_id:
+                    return f"[green]✓ 会话已删除: {session_id[:8]}...[/green]\n[dim]提示: 当前会话已被删除，下次对话将创建新会话[/dim]"
+                else:
+                    return f"[green]✓ 会话已删除: {session_id[:8]}...[/green]"
+            else:
+                return f"[red]错误: 删除失败[/red]"
+        except Exception as e:
+            return f"[red]错误: {e}[/red]"
     
     def _handle_summary(self, args: List[str]) -> str:
         """处理 /summary 命令"""

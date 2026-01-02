@@ -209,4 +209,33 @@ class IPCClient:
             raise ConnectionError(f"连接错误：{str(e)}")
         except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
+    
+    def delete_session(self, session_id: str) -> bool:
+        """
+        删除指定会话
+        
+        Args:
+            session_id: 会话 ID
+            
+        Returns:
+            是否删除成功
+        """
+        try:
+            response = self.client.delete(
+                f"{self.base_url}/api/sessions/{session_id}",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success"):
+                return True
+            else:
+                raise Exception(result.get("error", "删除失败"))
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise Exception(f"会话不存在: {session_id}")
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
 

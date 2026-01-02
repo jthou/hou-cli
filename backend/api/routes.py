@@ -122,3 +122,20 @@ async def list_sessions(limit: int = 10):
             "error": str(e)
         }
 
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """删除指定会话"""
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.context_manager.clear_session(session_id)
+        
+        if result:
+            return {"success": True, "message": f"会话 {session_id} 已删除"}
+        else:
+            return {"success": False, "error": f"会话不存在或删除失败: {session_id}"}
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
