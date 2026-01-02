@@ -143,16 +143,47 @@ class CommandInput:
             except EOFError:
                 return "exit"
         else:
-            # 回退到简单的输入方式
-            text = self.console.input(prompt)
-            
-            # 如果输入的是单独的 '/'，显示命令提示
-            if text.strip() == '/':
-                self._show_command_hint()
-                # 重新输入
+            # 回退到简单的输入方式（使用 readline 如果可用）
+            try:
+                import readline
+                
+                # 设置命令补全
+                def complete(text, state):
+                    if not text.startswith('/'):
+                        return None
+                    # 提取命令部分
+                    cmd_part = text[1:].strip().split()[0] if text[1:].strip() else ""
+                    matches = []
+                    for cmd_name, _, _ in self.commands:
+                        if cmd_name.startswith(cmd_part.lower()):
+                            matches.append(f"/{cmd_name}")
+                    if state < len(matches):
+                        return matches[state]
+                    return None
+                
+                readline.set_completer(complete)
+                readline.parse_and_bind("tab: complete")
+                
                 text = self.console.input(prompt)
-            
-            return text
+                
+                # 如果输入的是单独的 '/'，显示命令提示
+                if text.strip() == '/':
+                    self._show_command_hint()
+                    # 重新输入
+                    text = self.console.input(prompt)
+                
+                return text
+            except ImportError:
+                # 没有 readline（Windows），使用最简版本
+                text = self.console.input(prompt)
+                
+                # 如果输入的是单独的 '/'，显示命令提示
+                if text.strip() == '/':
+                    self._show_command_hint()
+                    # 重新输入
+                    text = self.console.input(prompt)
+                
+                return text
     
     def input_simple(self, prompt: str = "[dim cyan]▸[/dim cyan] ") -> str:
         """
