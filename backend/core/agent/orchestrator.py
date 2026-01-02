@@ -115,8 +115,12 @@ class Orchestrator:
             session_id = self.context_manager.create_session()
             self.debug.log_context_operation("创建新会话", session_id)
         
-        # 获取历史消息
-        history = self.context_manager.get_messages_for_llm(session_id)
+        # 获取历史消息（不压缩，保留完整历史）
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,  # 不限制消息数量
+            max_tokens=None     # 不限制 token 数量
+        )
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history)})
         
         # 构建消息
