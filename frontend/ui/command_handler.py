@@ -129,7 +129,7 @@ class CommandHandler:
             cmd_line += f" - {desc}\n"
             hint_text.append(cmd_line)
         
-        hint_text.append("\n[dim]提示: 输入 /context <command> 执行命令[/dim]")
+        hint_text.append("\n[dim]提示: 输入 /context <command> 执行命令，或 /context help 查看此帮助[/dim]")
         
         return Panel(
             hint_text,
