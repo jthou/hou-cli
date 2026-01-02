@@ -39,29 +39,37 @@ class CommandCompleter(Completer):
         if not text.startswith('/'):
             return
         
-        # 提取当前输入的命令部分
-        parts = text[1:].strip().split()
+        # 提取当前输入的命令部分（去掉开头的 /）
+        command_part = text[1:].strip()
         
-        if len(parts) == 0:
+        if not command_part:
             # 输入了 / 但还没有命令名，显示所有命令
             for cmd_name, desc, args in self.commands:
                 display_text = f"/{cmd_name}"
                 if args:
                     display_text += f" {args}"
                 yield Completion(
-                    cmd_name,
-                    start_position=-len(text),
+                    f"/{cmd_name}",
+                    start_position=-1,  # 替换 / 后面的空内容
                     display=display_text,
                     display_meta=desc
                 )
-        elif len(parts) == 1:
-            # 输入了命令名，补全命令名
+        else:
+            # 输入了部分命令名，补全命令名
+            # 提取第一个词（命令名）
+            parts = command_part.split()
             partial = parts[0].lower()
+            
             for cmd_name, desc, args in self.commands:
                 if cmd_name.startswith(partial):
+                    # 计算需要替换的字符数
+                    # 如果输入是 "/l"，需要替换 "l"，所以 start_position = -1
+                    # 如果输入是 "/li"，需要替换 "li"，所以 start_position = -2
+                    start_pos = -len(partial)
+                    # 补全文本应该是完整的命令名（不包括 /）
                     yield Completion(
                         cmd_name,
-                        start_position=-len(partial),
+                        start_position=start_pos,
                         display=f"/{cmd_name}",
                         display_meta=desc
                     )
