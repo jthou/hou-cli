@@ -12,6 +12,12 @@ try:
     PROMPT_TOOLKIT_AVAILABLE = True
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
+    # 定义占位符以避免 NameError
+    Completer = object
+    Completion = object
+    PromptSession = None
+    KeyBindings = None
+    Keys = None
 
 
 class CommandCompleter(Completer):
