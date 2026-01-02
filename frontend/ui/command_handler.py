@@ -179,23 +179,43 @@ class CommandHandler:
     def _handle_switch(self, args: List[str]) -> Tuple[str, Optional[str]]:
         """处理 /switch 命令
         
+        支持两种方式：
+        1. 使用序号：/switch 1 (从 /list 命令显示的序号)
+        2. 使用会话 ID：/switch <session_id> (完整或部分 ID)
+        
         Returns:
             (消息, 新的会话ID) - 如果切换成功，返回新的会话ID
         """
         if not args:
-            return ("[red]错误: /switch 需要会话 ID 参数[/red]\n用法: /switch <session_id>", None)
+            return ("[red]错误: /switch 需要会话 ID 或序号参数[/red]\n用法: /switch <序号|session_id>", None)
         
-        session_id = args[0]
+        identifier = args[0]
         
         if not self.client:
             return ("[yellow]命令功能尚未完全实现，请稍候[/yellow]", None)
         
         try:
-            # 验证会话是否存在（通过获取会话信息）
-            # 如果会话不存在，get_session_preview 会抛出异常
-            # 这里我们直接尝试获取会话，如果失败则说明不存在
-            # 由于没有直接的验证接口，我们通过 list_sessions 来检查
-            sessions = self.client.list_sessions(limit=1000)  # 获取所有会话
+            # 获取所有会话
+            sessions = self.client.list_sessions(limit=1000)
+            
+            if not sessions:
+                return ("[yellow]没有可用的会话[/yellow]", None)
+            
+            # 尝试作为序号处理（数字）
+            try:
+                index = int(identifier)
+                if index < 1 or index > len(sessions):
+                    return (f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]", None)
+                # 序号从 1 开始，数组从 0 开始
+                session = sessions[index - 1]
+                session_id = session.get("session_id")
+                return (f"[green]✓ 已切换到会话 #{index}: {session_id[:8]}...[/green]", session_id)
+            except ValueError:
+                # 不是数字，作为会话 ID 处理
+                pass
+            
+            # 作为会话 ID 处理
+            session_id = identifier
             session_ids = [s.get("session_id") for s in sessions]
             
             if session_id not in session_ids:
@@ -204,12 +224,12 @@ class CommandHandler:
                 if len(matching) == 1:
                     session_id = matching[0]
                 elif len(matching) > 1:
-                    return (f"[yellow]找到多个匹配的会话，请使用完整的会话 ID[/yellow]\n匹配的会话: {', '.join(matching[:5])}", None)
+                    return (f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}", None)
                 else:
-                    return (f"[red]错误: 会话不存在: {session_id}[/red]", None)
+                    return (f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号切换，例如 /switch 1", None)
             
             # 切换成功
-            return (f"[green]✓ 已切换到会话: {session_id}[/green]", session_id)
+            return (f"[green]✓ 已切换到会话: {session_id[:8]}...[/green]", session_id)
         except Exception as e:
             return (f"[red]错误: {e}[/red]", None)
     
