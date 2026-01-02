@@ -15,4 +15,18 @@ class Config:
     
     # 其他配置
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    
+    # 调试配置
+    debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    env: str = os.getenv("ENV", "development")  # development/production
+    
+    @property
+    def is_development(self) -> bool:
+        """判断是否为开发环境"""
+        return self.env.lower() == "development" or self.debug
+    
+    @property
+    def is_production(self) -> bool:
+        """判断是否为生产环境"""
+        return not self.is_development
 

@@ -2,6 +2,7 @@
 from typing import Dict, List, Optional
 from collections import deque
 import uuid
+from shared.debug_utils import DebugOutput
 
 class ContextManager:
     """上下文管理器，管理会话和对话历史"""
@@ -16,6 +17,7 @@ class ContextManager:
         self.max_history = max_history
         # 会话存储：{session_id: deque([message1, message2, ...])}
         self.sessions: Dict[str, deque] = {}
+        self.debug = DebugOutput()  # 调试输出
     
     def create_session(self) -> str:
         """
@@ -26,6 +28,7 @@ class ContextManager:
         """
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = deque(maxlen=self.max_history)
+        self.debug.log_context_operation("创建会话", session_id)
         return session_id
     
     def add_message(self, session_id: str, role: str, content: str):
@@ -40,11 +43,20 @@ class ContextManager:
         if session_id not in self.sessions:
             # 如果会话不存在，自动创建
             self.sessions[session_id] = deque(maxlen=self.max_history)
+            self.debug.log_context_operation("自动创建会话", session_id)
         
         self.sessions[session_id].append({
             "role": role,
             "content": content
         })
+        
+        # 调试输出（截断长内容）
+        content_preview = content[:50] + "..." if len(content) > 50 else content
+        self.debug.log_context_operation(
+            "添加消息",
+            session_id,
+            {"role": role, "content_length": len(content), "preview": content_preview}
+        )
     
     def get_history(self, session_id: str) -> List[Dict[str, str]]:
         """
@@ -57,9 +69,16 @@ class ContextManager:
             历史消息列表
         """
         if session_id not in self.sessions:
+            self.debug.log_context_operation("获取历史", session_id, {"count": 0, "max_history": self.max_history})
             return []
         
-        return list(self.sessions[session_id])
+        history = list(self.sessions[session_id])
+        self.debug.log_context_operation(
+            "获取历史",
+            session_id,
+            {"count": len(history), "max_history": self.max_history}
+        )
+        return history
     
     def clear_session(self, session_id: str):
         """

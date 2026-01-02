@@ -5,6 +5,7 @@ import logging
 from typing import AsyncIterator, Optional
 from openai import AsyncOpenAI
 import httpx
+from shared.debug_utils import DebugOutput
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,16 @@ class LLMService:
         # 参数配置：验证和设置参数
         self.temperature = max(0.0, min(2.0, temperature))
         self.max_tokens = max(1, max_tokens)
+        
+        # 调试输出
+        self.debug = DebugOutput()
+        self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")  # 支持切换模型
+    
+    @property
+    def supports_thinking(self) -> bool:
+        """检测模型是否支持思考过程"""
+        # DeepSeek R1 模型支持思考过程
+        return "r1" in self.model.lower() or "reasoning" in self.model.lower()
     
     async def chat(self, system_prompt: str = "", user_prompt: str = "") -> str:
         """
@@ -55,6 +66,9 @@ class LLMService:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
         
+        # 调试输出：请求信息
+        self.debug.log_llm_request(system_prompt, user_prompt, self.model)
+        
         # 错误处理：重试机制（指数退避）
         max_retries = 3
         base_delay = 1.0  # 基础延迟（秒）
@@ -64,13 +78,28 @@ class LLMService:
         for attempt in range(max_retries):
             try:
                 response = await self.client.chat.completions.create(
-                    model="deepseek-chat",
+                    model=self.model,
                     messages=messages,
                     stream=False,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens
                 )
-                return response.choices[0].message.content
+                
+                # 处理思考过程（如果支持）
+                result = response.choices[0].message
+                content = result.content
+                
+                # 检查是否有思考过程（DeepSeek R1 格式）
+                # 注意：OpenAI SDK 可能不支持 reasoning_content，需要根据实际 API 响应调整
+                if self.supports_thinking and hasattr(result, 'reasoning_content'):
+                    thinking = result.reasoning_content
+                    if thinking:
+                        self.debug.log_llm_thinking(thinking)
+                
+                # 调试输出：响应信息
+                self.debug.log_llm_response(content, self.model)
+                
+                return content
                 
             except httpx.HTTPStatusError as e:
                 # 401 错误（认证失败）：不重试
@@ -150,10 +179,17 @@ class LLMService:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
         
+        # 调试输出：请求信息
+        self.debug.log_llm_request(system_prompt, user_prompt, self.model)
+        
+        # 收集思考过程（如果支持）
+        thinking_chunks = []
+        content_chunks = []
+        
         try:
             stream = await asyncio.wait_for(
                 self.client.chat.completions.create(
-                    model="deepseek-chat",
+                    model=self.model,
                     messages=messages,
                     stream=True,
                     temperature=self.temperature,
@@ -165,8 +201,18 @@ class LLMService:
             # 流式响应中断处理
             try:
                 async for chunk in stream:
+                    # 处理思考过程（DeepSeek R1 格式）
+                    if self.supports_thinking:
+                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                            thinking_chunk = chunk.choices[0].delta.reasoning_content
+                            if thinking_chunk:
+                                thinking_chunks.append(thinking_chunk)
+                    
+                    # 处理内容
                     if chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
+                        content_chunk = chunk.choices[0].delta.content
+                        content_chunks.append(content_chunk)
+                        yield content_chunk
             except KeyboardInterrupt:
                 # 优雅处理中断
                 logger.info("流式响应被用户中断")
@@ -174,6 +220,15 @@ class LLMService:
             except Exception as e:
                 logger.error(f"流式响应处理错误: {e}")
                 raise
+            
+            # 如果有思考过程，输出完整思考过程
+            if thinking_chunks:
+                thinking = "".join(thinking_chunks)
+                self.debug.log_llm_thinking(thinking)
+            
+            # 调试输出：响应信息
+            full_response = "".join(content_chunks)
+            self.debug.log_llm_response(full_response, self.model)
                 
         except asyncio.TimeoutError:
             logger.error(f"流式响应超时（{timeout} 秒）")
