@@ -319,17 +319,51 @@ class CommandHandler:
     def _handle_show(self, args: List[str]) -> str:
         """处理 /show 命令 - 显示会话详情（消息列表）
         
-        支持两种方式：
-        1. 使用序号：/show 1 (从 /list 命令显示的序号)
-        2. 使用会话 ID：/show <session_id> (完整或部分 ID)
+        支持三种方式：
+        1. 无参数：/show (显示当前会话)
+        2. 使用序号：/show 1 (从 /list 命令显示的序号)
+        3. 使用会话 ID：/show <session_id> (完整或部分 ID)
         """
-        if not args:
-            return "[red]错误: /show 需要会话 ID 或序号参数[/red]\n用法: /show <序号|session_id>"
-        
-        identifier = args[0]
-        
         if not self.client:
             return "[yellow]命令功能尚未完全实现，请稍候[/yellow]"
+        
+        # 如果没有参数，使用当前会话
+        if not args:
+            if not self.current_session_id:
+                return "[yellow]当前没有活动会话，请先开始对话或切换会话[/yellow]"
+            session_id = self.current_session_id
+        else:
+            identifier = args[0]
+            
+            try:
+                # 获取所有会话
+                sessions = self.client.list_sessions(limit=1000)
+                
+                if not sessions:
+                    return "[yellow]没有可用的会话[/yellow]"
+                
+                # 尝试作为序号处理（数字）
+                try:
+                    index = int(identifier)
+                    if index < 1 or index > len(sessions):
+                        return f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]"
+                    # 序号从 1 开始，数组从 0 开始
+                    session = sessions[index - 1]
+                    session_id = session.get("session_id")
+                except ValueError:
+                    # 不是数字，作为会话 ID 处理
+                    session_id = identifier
+                    session_ids = [s.get("session_id") for s in sessions]
+                    
+                    if session_id not in session_ids:
+                        # 尝试匹配部分会话 ID
+                        matching = [sid for sid in session_ids if sid.startswith(session_id)]
+                        if len(matching) == 1:
+                            session_id = matching[0]
+                        elif len(matching) > 1:
+                            return f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}"
+                        else:
+                            return f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号查看，例如 /show 1"
         
         try:
             # 获取所有会话

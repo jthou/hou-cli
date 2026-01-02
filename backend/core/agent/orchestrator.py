@@ -116,12 +116,13 @@ class Orchestrator:
             self.debug.log_context_operation("创建新会话", session_id)
         
         # 获取历史消息（不压缩，保留完整历史）
+        # 注意：当 max_messages 和 max_tokens 都为 None 时，get_messages_for_llm 会获取完整历史
         history = self.context_manager.get_messages_for_llm(
             session_id,
             max_messages=None,  # 不限制消息数量
             max_tokens=None     # 不限制 token 数量
         )
-        self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history)})
+        self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
         # 构建消息
         system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
