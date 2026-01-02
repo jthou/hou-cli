@@ -130,7 +130,8 @@ class WeatherTool:
             
             return response.json()
         except httpx.HTTPStatusError as e:
-            raise WeatherToolError(f"API request failed: {e.response.status_code}")
+            status_code = e.response.status_code if e.response else "unknown"
+            raise WeatherToolError(f"API request failed: {status_code}")
         except httpx.RequestError as e:
             raise WeatherToolError(f"Network error: {str(e)}")
         except Exception as e:
