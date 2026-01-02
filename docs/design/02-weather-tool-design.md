@@ -193,7 +193,9 @@ WEATHER_JWT_PRIVATE_KEY_PATH=~/.ssh/weather_jwt_private_key.pem
 # 和风天气 API 基础 URL
 QWEATHER_API_BASE_URL=https://devapi.qweather.com
 
-# 和风天气 API 不需要 API Key，仅使用 JWT 认证
+# 和风天气 API Key（如果需要）
+QWEATHER_API_KEY=your-api-key
+
 # JWT 过期时间（秒，默认 3600）
 WEATHER_JWT_EXPIRES_IN=3600
 ```
@@ -207,7 +209,7 @@ weather:
     expires_in: 3600
   api:
     base_url: https://devapi.qweather.com
-    
+    api_key: your-api-key
 ```
 
 ## 5. 错误处理
@@ -252,7 +254,7 @@ weather:
 
 ### 6.3 API 安全
 - 使用 HTTPS 传输
-- 不在错误信息中暴露 API Key
+- 不在错误信息中暴露 JWT token
 - 实现请求频率限制
 
 ## 7. 测试策略
@@ -278,8 +280,7 @@ weather:
 1. **JWT 认证方式：** 和风天气 API 是否支持 JWT 认证？如果不支持，是否需要自定义认证服务器？
 2. **JWT Payload：** 具体的 payload 结构是什么？需要包含哪些字段？
 3. **私钥格式：** 私钥是 RSA 还是其他格式？是否需要公钥？
-4. **API Key：** 是否需要将和风天气 API Key 包含在 JWT 中，还是单独传递？
-5. **城市 ID：** 如何获取城市 ID？是否需要实现城市搜索功能？
+4. **城市 ID：** 如何获取城市 ID？是否需要实现城市搜索功能？
 
 ### 8.2 建议的默认值
 - 私钥路径：`~/.ssh/weather_jwt_private_key.pem`
@@ -306,3 +307,4 @@ weather:
 - [和风天气 API 文档](https://dev.qweather.com/docs/)
 - [JWT 规范 (RFC 7519)](https://tools.ietf.org/html/rfc7519)
 - [Python JWT 库 (PyJWT)](https://pyjwt.readthedocs.io/)
+
