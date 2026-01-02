@@ -1,5 +1,6 @@
 """CLI 主入口（前端主程序）"""
 import os
+import sys
 import asyncio
 import uuid
 from pathlib import Path
@@ -113,9 +114,44 @@ def chat(message, stream):
         # 创建命令处理器
         command_handler = CommandHandler(client=client, current_session_id=session_id)
         
+        # 设置命令历史（使用 readline）
+        try:
+            import readline
+            # 设置历史文件路径
+            import os
+            from pathlib import Path
+            
+            # 创建历史文件目录
+            if sys.platform == "Windows":
+                history_dir = Path.home() / "AppData" / "Local" / "hou-cli"
+            elif sys.platform == "Darwin":  # macOS
+                history_dir = Path.home() / "Library" / "Application Support" / "hou-cli"
+            else:  # Linux
+                history_dir = Path.home() / ".local" / "share" / "hou-cli"
+            
+            history_dir.mkdir(parents=True, exist_ok=True)
+            history_file = history_dir / "history.txt"
+            
+            # 加载历史记录
+            try:
+                readline.read_history_file(str(history_file))
+            except FileNotFoundError:
+                pass
+            
+            # 设置历史记录长度
+            readline.set_history_length(1000)
+        except ImportError:
+            # readline 不可用（Windows），跳过
+            readline = None
+            history_file = None
+        
         while True:
             try:
                 msg = console.input("[dim cyan]▸[/dim cyan] ")
+                
+                # 保存到历史记录
+                if readline and msg.strip():
+                    readline.add_history(msg.strip())
                 if msg.lower() in ['exit', 'quit']:
                     break
                 if not msg.strip():
