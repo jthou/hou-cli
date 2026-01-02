@@ -181,18 +181,20 @@ class WeatherTool:
 
 #### 4.3.1 环境变量
 ```bash
-# JWT 私钥路径（可选，默认 ~/.ssh/weather_jwt_private_key.pem）
-WEATHER_JWT_PRIVATE_KEY_PATH=~/.ssh/weather_jwt_private_key.pem
+# JWT 私钥（RSA 私钥，PEM 格式，可以是单行或多行）
+# 注意：如果私钥是多行的，可以使用 \n 转义，或者直接换行
+WEATHER_JWT_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----
 
 # 和风天气 API 基础 URL
 QWEATHER_API_BASE_URL=https://devapi.qweather.com
 
-# 和风天气 API Key（如果需要）
-QWEATHER_API_KEY=your-api-key
-
 # JWT 过期时间（秒，默认 3600）
 WEATHER_JWT_EXPIRES_IN=3600
 ```
+
+**注意：** 如果私钥是多行格式，在 `.env` 文件中可以：
+1. 使用 `\n` 转义换行符（单行）
+2. 使用引号包裹多行内容（某些 .env 解析器支持）
 
 ## 5. 错误处理
 
