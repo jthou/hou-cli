@@ -166,19 +166,66 @@ class WeatherTool:
         pass
     
     def get_current_weather(self, location: str) -> Dict[str, Any]:
-        """获取实时天气"""
+        """获取实时天气
+        
+        Args:
+            location: 城市名称（如：'北京'）
+            
+        Returns:
+            包含实时天气信息的字典
+        """
         pass
     
     def get_forecast(self, location: str, days: int = 7) -> Dict[str, Any]:
-        """获取天气预报"""
+        """获取天气预报
+        
+        Args:
+            location: 城市名称（如：'北京'）
+            days: 预报天数（1-15）
+            
+        Returns:
+            包含天气预报信息的字典
+        """
         pass
     
     def get_warning(self, location: str) -> Dict[str, Any]:
-        """获取天气预警"""
+        """获取天气预警
+        
+        Args:
+            location: 城市名称（如：'北京'）
+            
+        Returns:
+            包含天气预警信息的字典
+        """
+        pass
+    
+    def search_city(self, city_name: str) -> Dict[str, Any]:
+        """搜索城市，获取城市ID
+        
+        Args:
+            city_name: 城市名称（如：'北京'）
+            
+        Returns:
+            包含城市信息的字典，包括城市ID
+        """
         pass
     
     def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """发送 API 请求（带 JWT 认证）"""
+        pass
+    
+    def _resolve_location(self, location: str) -> str:
+        """解析城市名称，返回城市ID
+        
+        Args:
+            location: 城市名称（如：'北京'）
+            
+        Returns:
+            城市ID（如：'101010100'）
+            
+        Raises:
+            LocationNotFoundError: 城市未找到
+        """
         pass
 ```
 
@@ -251,7 +298,7 @@ class WeatherTool:
 
 ### 8.1 需要确认的问题
 1. **JWT Payload：** 具体的 payload 结构是什么？需要包含哪些字段？（iss, aud, sub 等字段的具体值）
-2. **城市 ID：** 如何获取城市 ID？是否需要实现城市搜索功能？
+2. **城市搜索 API：** 城市搜索 API 的返回格式和错误处理方式
 
 **注意：** 私钥和公钥已配置完成，无需额外配置。
 
