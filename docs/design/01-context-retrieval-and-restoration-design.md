@@ -53,8 +53,20 @@
    - 继续对话（使用恢复的会话 ID）
    - 会话切换（在不同会话间切换）
 
-4. **前端集成**
-   - CLI 命令（`list`, `search`, `restore`, `show`）
+4. **命令模式**（类似 Cursor Agent）
+   - `/list` - 列出最近的会话
+   - `/search <keyword>` - 搜索会话
+   - `/restore [session_id]` - 恢复会话
+   - `/show <session_id>` - 显示会话详情
+   - `/delete <session_id>` - 删除会话
+   - `/summary <session_id>` - 生成会话摘要
+   - `/help` - 显示帮助信息
+   - `/clear` - 清除当前会话
+   - `/switch <session_id>` - 切换到指定会话
+
+5. **前端集成**
+   - 命令模式支持（交互式模式中识别 `/` 开头的命令）
+   - CLI 独立命令（`list`, `search`, `restore`, `show`）
    - 交互式选择界面
    - 会话列表显示
 

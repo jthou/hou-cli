@@ -2,10 +2,10 @@
 
 ## 任务概述
 
-实现上下文检索和恢复机制，允许用户查找、预览和恢复历史会话上下文。
+实现上下文检索和恢复机制，允许用户查找、预览和恢复历史会话上下文。包括命令模式支持（类似 Cursor Agent 的 `/commands` 格式）。
 
 **优先级**: P0（高优先级）  
-**预计工时**: 2-3 天  
+**预计工时**: 3-4 天  
 **创建时间**: 2025-01-02  
 **状态**: ⏳ 待开始
 
@@ -153,9 +153,69 @@
 
 ---
 
-### 阶段 3: 前端 CLI 命令（P1）- 预计 1 天
+### 阶段 3: 命令模式实现（P0）- 预计 1.5 天
 
-#### 任务 3.1: 实现 CLI 命令
+#### 任务 3.1: 实现命令处理器
+
+**文件**: `frontend/ui/command_handler.py`（新建）
+
+**实现步骤**:
+
+1. **创建 CommandHandler 类**
+   - 检测 `/` 开头的命令
+   - 解析命令和参数
+   - 路由到对应的处理函数
+
+2. **实现命令处理函数**
+   - `/list` - 列出会话
+   - `/search` - 搜索会话
+   - `/restore` - 恢复会话
+   - `/show` - 显示会话详情
+   - `/delete` - 删除会话
+   - `/summary` - 生成会话摘要
+   - `/clear` - 清除当前会话
+   - `/switch` - 切换会话
+   - `/help` - 显示帮助
+
+3. **实现命令格式化显示**
+   - 会话列表表格显示
+   - 搜索结果表格显示
+   - 帮助信息格式化
+
+**验收标准**:
+- [ ] CommandHandler 类实现完整
+- [ ] 所有命令都有处理函数
+- [ ] 命令解析正确
+- [ ] 错误处理完善
+
+---
+
+#### 任务 3.2: 集成命令模式到交互式对话
+
+**文件**: `frontend/main.py`
+
+**实现步骤**:
+
+1. **在交互式模式中集成命令处理**
+   - 检测用户输入是否以 `/` 开头
+   - 如果是命令，调用 CommandHandler
+   - 如果不是命令，继续正常对话流程
+
+2. **实现会话状态管理**
+   - 跟踪当前会话 ID
+   - 支持会话切换
+   - 支持会话恢复
+
+**验收标准**:
+- [ ] 命令模式在交互式对话中工作
+- [ ] 正常对话流程不受影响
+- [ ] 会话状态管理正确
+
+---
+
+### 阶段 4: 前端 CLI 独立命令（P1）- 预计 0.5 天
+
+#### 任务 4.1: 实现 CLI 独立命令
 
 **文件**: `frontend/main.py`
 
@@ -179,6 +239,13 @@
    - 显示会话详情
    - 显示完整消息列表
 
+5. **实现 `delete` 命令**
+   - 删除指定会话
+   - 确认提示
+
+6. **实现 `summary` 命令**
+   - 生成并显示会话摘要
+
 **验收标准**:
 - [ ] 所有 CLI 命令实现完整
 - [ ] 交互式界面友好
@@ -186,7 +253,7 @@
 
 ---
 
-#### 任务 3.2: 扩展 IPC Client
+#### 任务 4.2: 扩展 IPC Client
 
 **文件**: `frontend/client/ipc_client.py`
 
@@ -198,6 +265,9 @@
    - `restore_session(session_id)`
    - `get_session_preview(session_id)`
    - `get_session_messages(session_id)`
+   - `delete_session(session_id)`
+   - `generate_session_summary(session_id)`
+   - `clear_session(session_id)`
 
 **验收标准**:
 - [ ] IPC Client 方法实现完整
@@ -205,7 +275,7 @@
 
 ---
 
-### 阶段 4: 集成测试和文档（P1）- 预计 0.5 天
+### 阶段 5: 集成测试和文档（P1）- 预计 0.5 天
 
 #### 任务 4.1: 集成测试
 
@@ -229,7 +299,7 @@
 
 ---
 
-#### 任务 4.2: 文档更新
+#### 任务 5.2: 文档更新
 
 **文件**: `backend/core/context/README.md`, `docs/design/04-getting-started.md`
 
@@ -261,15 +331,20 @@
 3. ⏳ 任务 2.1: 扩展后端 API 路由
 4. ⏳ 任务 2.2: 集成到 Orchestrator
 
-### 阶段 3: 前端 CLI 命令（1 天）
+### 阶段 3: 命令模式实现（1.5 天）
 
-5. ⏳ 任务 3.1: 实现 CLI 命令
-6. ⏳ 任务 3.2: 扩展 IPC Client
+5. ⏳ 任务 3.1: 实现命令处理器
+6. ⏳ 任务 3.2: 集成命令模式到交互式对话
 
-### 阶段 4: 集成测试和文档（0.5 天）
+### 阶段 4: 前端 CLI 独立命令（0.5 天）
 
-7. ⏳ 任务 4.1: 集成测试
-8. ⏳ 任务 4.2: 文档更新
+7. ⏳ 任务 4.1: 实现 CLI 独立命令
+8. ⏳ 任务 4.2: 扩展 IPC Client
+
+### 阶段 5: 集成测试和文档（0.5 天）
+
+9. ⏳ 任务 5.1: 集成测试
+10. ⏳ 任务 5.2: 文档更新
 
 ---
 
@@ -353,7 +428,43 @@ async def get_session_messages(session_id: str):
 
 ---
 
-### 步骤 4: 前端 CLI 命令实现
+### 步骤 3: 命令处理器实现
+
+**文件**: `frontend/ui/command_handler.py`（新建）
+
+创建 CommandHandler 类，实现所有命令处理逻辑。
+
+### 步骤 4: 集成命令模式到交互式对话
+
+**文件**: `frontend/main.py`
+
+在交互式对话循环中集成命令处理：
+
+```python
+while True:
+    msg = console.input("[dim cyan]▸[/dim cyan] ")
+    if msg.lower() in ['exit', 'quit']:
+        break
+    if not msg.strip():
+        continue
+    
+    # 检测命令模式
+    if msg.startswith('/'):
+        command_handler = CommandHandler(client, session_id)
+        result = command_handler.handle_command(msg)
+        if result:
+            console.print(result)
+        continue
+    
+    # 正常对话流程
+    if stream:
+        asyncio.run(_stream_chat(client, msg, session_id=session_id))
+    else:
+        # 非流式响应
+        # ...
+```
+
+### 步骤 5: 前端 CLI 独立命令实现
 
 **文件**: `frontend/main.py`
 
@@ -383,6 +494,18 @@ def restore(session_id):
 @click.argument('session_id')
 def show(session_id):
     """显示会话详情"""
+    # 实现
+
+@cli.command()
+@click.argument('session_id')
+def delete(session_id):
+    """删除会话"""
+    # 实现
+
+@cli.command()
+@click.argument('session_id')
+def summary(session_id):
+    """生成会话摘要"""
     # 实现
 ```
 
