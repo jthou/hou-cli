@@ -364,36 +364,10 @@ class CommandHandler:
                             return f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}"
                         else:
                             return f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号查看，例如 /show 1"
+            except Exception as e:
+                return f"[red]错误: {e}[/red]"
         
         try:
-            # 获取所有会话
-            sessions = self.client.list_sessions(limit=1000)
-            
-            if not sessions:
-                return "[yellow]没有可用的会话[/yellow]"
-            
-            # 尝试作为序号处理（数字）
-            try:
-                index = int(identifier)
-                if index < 1 or index > len(sessions):
-                    return f"[red]错误: 序号超出范围 (1-{len(sessions)})[/red]"
-                # 序号从 1 开始，数组从 0 开始
-                session = sessions[index - 1]
-                session_id = session.get("session_id")
-            except ValueError:
-                # 不是数字，作为会话 ID 处理
-                session_id = identifier
-                session_ids = [s.get("session_id") for s in sessions]
-                
-                if session_id not in session_ids:
-                    # 尝试匹配部分会话 ID
-                    matching = [sid for sid in session_ids if sid.startswith(session_id)]
-                    if len(matching) == 1:
-                        session_id = matching[0]
-                    elif len(matching) > 1:
-                        return f"[yellow]找到多个匹配的会话，请使用完整的会话 ID 或序号[/yellow]\n匹配的会话: {', '.join(matching[:5])}"
-                    else:
-                        return f"[red]错误: 会话不存在: {session_id}[/red]\n提示: 可以使用序号查看，例如 /show 1"
             
             # 获取会话详情
             detail = self.client.get_session_detail(session_id)
