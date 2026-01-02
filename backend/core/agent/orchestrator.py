@@ -141,12 +141,12 @@ class Orchestrator:
         filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
         
         if filtered_history:
-            # 将历史消息格式化为对话形式
+            # 将历史消息格式化为对话形式，明确标注历史对话
             history_text = "\n".join([
                 f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
                 for msg in filtered_history
             ])
-            user_prompt = f"{history_text}\n用户: {task}"
+            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
         else:
             user_prompt = task
