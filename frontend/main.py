@@ -187,6 +187,13 @@ def chat(message, stream):
                 break
             except Exception as e:
                 show_error(e)
+        
+        # 保存历史记录
+        if readline and history_file:
+            try:
+                readline.write_history_file(str(history_file))
+            except Exception:
+                pass
     
     client.close()
 
