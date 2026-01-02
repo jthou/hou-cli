@@ -4,7 +4,7 @@ import httpx
 from pathlib import Path
 import platform
 import time
-from typing import Optional, AsyncIterator
+from typing import Optional, AsyncIterator, List, Dict, Any
 
 class IPCClient:
     """跨平台 IPC 客户端"""
@@ -172,4 +172,41 @@ class IPCClient:
         """异步关闭客户端"""
         if self.async_client:
             await self.async_client.aclose()
+    
+    def list_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        列出最近的会话
+        
+        Args:
+            limit: 返回数量限制
+            
+        Returns:
+            会话列表（包含预览信息）
+        """
+        try:
+            response = self.client.get(
+                f"{self.base_url}/api/sessions/list",
+                params={"limit": limit},
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if "error" in result:
+                raise Exception(result["error"])
+            
+            # 转换时间字符串为 datetime 对象（用于显示）
+            sessions = result.get("sessions", [])
+            for session in sessions:
+                from datetime import datetime
+                if isinstance(session.get("created_at"), str):
+                    session["created_at"] = datetime.fromisoformat(session["created_at"])
+                if isinstance(session.get("updated_at"), str):
+                    session["updated_at"] = datetime.fromisoformat(session["updated_at"])
+            
+            return sessions
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
 

@@ -210,6 +210,49 @@ class ContextManager:
         """列出会话"""
         return self.storage.list_sessions(limit)
     
+    def get_session_preview(
+        self,
+        session_id: str,
+        max_preview_length: int = 100
+    ) -> Dict[str, Any]:
+        """
+        获取会话预览
+        
+        Args:
+            session_id: 会话 ID
+            max_preview_length: 预览文本最大长度
+            
+        Returns:
+            预览信息（摘要、消息数量、最后更新时间等）
+        """
+        session = self.storage.get_session(session_id)
+        if not session:
+            raise ValueError(f"会话不存在: {session_id}")
+        
+        # 获取消息列表
+        messages = self.storage.get_messages(session_id)
+        
+        # 生成预览文本（第一条用户消息）
+        preview_text = ""
+        if messages:
+            first_user_msg = next(
+                (msg for msg in messages if msg.role == MessageRole.USER),
+                None
+            )
+            if first_user_msg:
+                preview_text = first_user_msg.content
+                if len(preview_text) > max_preview_length:
+                    preview_text = preview_text[:max_preview_length] + "..."
+        
+        return {
+            "session_id": session_id,
+            "preview": preview_text,
+            "message_count": len(messages),
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "metadata": session.metadata
+        }
+    
     def get_relevant_memories(
         self,
         query: str,

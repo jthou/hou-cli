@@ -91,3 +91,34 @@ async def chat_stream(request: ChatRequest):
         }
     )
 
+@router.get("/sessions/list")
+async def list_sessions(limit: int = 10):
+    """列出最近的会话"""
+    try:
+        orchestrator = get_orchestrator()
+        sessions = orchestrator.context_manager.list_sessions(limit=limit)
+        
+        # 获取每个会话的预览信息
+        result = []
+        for session in sessions:
+            try:
+                preview = orchestrator.context_manager.get_session_preview(session.session_id)
+                result.append(preview)
+            except Exception as e:
+                # 如果获取预览失败，使用基本信息
+                result.append({
+                    "session_id": session.session_id,
+                    "preview": "",
+                    "message_count": 0,
+                    "created_at": session.created_at.isoformat(),
+                    "updated_at": session.updated_at.isoformat(),
+                    "metadata": session.metadata
+                })
+        
+        return {"sessions": result}
+    except Exception as e:
+        return {
+            "sessions": [],
+            "error": str(e)
+        }
+

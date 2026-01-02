@@ -93,10 +93,51 @@ class CommandHandler:
         
         try:
             limit = int(args[0]) if args else 10
-            # TODO: 调用后端 API
-            return "[yellow]命令功能正在开发中，敬请期待[/yellow]"
+            sessions = self.client.list_sessions(limit=limit)
+            
+            if not sessions:
+                return "[dim]没有找到会话[/dim]"
+            
+            # 创建表格显示
+            table = Table(title="最近会话")
+            table.add_column("序号", style="cyan", width=6)
+            table.add_column("会话 ID", style="green", width=12)
+            table.add_column("时间", style="yellow", width=16)
+            table.add_column("预览", style="white", width=50)
+            table.add_column("消息数", style="magenta", width=8)
+            
+            for i, session in enumerate(sessions, 1):
+                session_id = session.get("session_id", "N/A")
+                updated_at = session.get("updated_at")
+                if isinstance(updated_at, str):
+                    from datetime import datetime
+                    updated_at = datetime.fromisoformat(updated_at)
+                time_str = updated_at.strftime("%Y-%m-%d %H:%M") if updated_at else "N/A"
+                
+                preview = session.get("preview", "")
+                if len(preview) > 45:
+                    preview = preview[:45] + "..."
+                
+                message_count = session.get("message_count", 0)
+                
+                table.add_row(
+                    str(i),
+                    session_id[:8] + "..." if len(session_id) > 8 else session_id,
+                    time_str,
+                    preview,
+                    str(message_count)
+                )
+            
+            # 使用 StringIO 捕获表格输出
+            from io import StringIO
+            output = StringIO()
+            console = Console(file=output, width=120)
+            console.print(table)
+            return output.getvalue()
         except ValueError:
             return "[red]错误: limit 必须是数字[/red]"
+        except Exception as e:
+            return f"[red]错误: {e}[/red]"
     
     def _handle_search(self, args: List[str]) -> str:
         """处理 /search 命令"""
