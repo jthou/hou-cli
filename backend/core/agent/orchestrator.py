@@ -67,7 +67,6 @@ class Orchestrator:
         system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
         
         # 构建 user_prompt（包含历史上下文）
-        user_prompt = task
         if history:
             # 将历史消息格式化为对话形式
             history_text = "\n".join([
