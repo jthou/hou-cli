@@ -205,8 +205,21 @@ class TestWeatherTool:
     def test_make_request_api_error(self, weather_tool):
         """测试 API 请求错误处理"""
         with patch('httpx.get') as mock_get:
-            mock_get.return_value.status_code = 500
-            mock_get.return_value.raise_for_status.side_effect = Exception("Server Error")
+            from httpx import HTTPStatusError, Response, Request
+            mock_response = Mock(spec=Response)
+            mock_response.status_code = 500
+            mock_request = Mock(spec=Request)
+            
+            # 让 raise_for_status 抛出 HTTPStatusError
+            def raise_status_error():
+                raise HTTPStatusError(
+                    "Server Error",
+                    request=mock_request,
+                    response=mock_response
+                )
+            
+            mock_response.raise_for_status = raise_status_error
+            mock_get.return_value = mock_response
             
             with pytest.raises(WeatherToolError, match="API request failed"):
                 weather_tool._make_request("/test", {})
