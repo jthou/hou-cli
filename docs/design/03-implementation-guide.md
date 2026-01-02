@@ -269,33 +269,27 @@ class WebSocketClient:
             await self.websocket.close()
 ```
 
-### 2.4 创建 Rich UI 组件
+### 2.4 创建 Rich UI 组件（简洁风格，参考 Cursor Agent）
 
 ```python
-# frontend/ui/panels.py
-from rich.panel import Panel
-from rich.markdown import Markdown
+# frontend/ui/renderer.py
+from frontend.ui.renderer import RendererFactory
 from rich.console import Console
 
 console = Console()
+factory = RendererFactory()
 
-def chat_panel(message: str, role: str = "assistant") -> Panel:
-    """创建聊天面板"""
-    if role == "user":
-        return Panel.fit(
-            f"[bold cyan]{message}[/bold cyan]",
-            border_style="cyan",
-            title="[bold cyan]你[/bold cyan]"
-        )
-    else:
-        return Panel(
-            Markdown(message),
-            border_style="green",
-            title="[bold green]Agent[/bold green]"
-        )
+def render_message(message: str):
+    """渲染消息（简洁风格，不使用 Panel）"""
+    renderer = factory.get_renderer(message)
+    rendered = renderer.render(message)
+    console.print(rendered)
+
+# frontend/ui/panels.py（仅用于特殊场景）
+from rich.panel import Panel
 
 def error_panel(error: str) -> Panel:
-    """创建错误面板"""
+    """创建错误面板（Panel 仅用于错误提示等特殊场景）"""
     return Panel(
         f"[bold red]{error}[/bold red]",
         border_style="red",
@@ -303,23 +297,29 @@ def error_panel(error: str) -> Panel:
     )
 ```
 
-### 2.5 创建前端主程序
+**设计原则**：
+- ✅ 普通对话回复：直接渲染内容，不使用 Panel（简洁风格）
+- ✅ Panel 仅用于特殊场景：错误提示、状态显示、重要信息
+- ✅ 用户输入：使用简洁的提示符（`▸` 或 `>`）
+- ✅ Agent 回复：直接显示，无前缀
+
+### 2.5 创建前端主程序（简洁风格，参考 Cursor Agent）
 
 ```python
 # frontend/main.py
 import asyncio
 from rich.console import Console
-from rich.panel import Panel
 from rich.live import Live
-from rich.text import Text
 from frontend.client.http_client import AgentClient
 from frontend.client.websocket_client import WebSocketClient
-from frontend.ui.panels import chat_panel, error_panel
+from frontend.ui.renderer import RendererFactory
+from frontend.ui.panels import error_panel  # 仅用于错误提示
 
 console = Console()
+factory = RendererFactory()
 
 async def main_http():
-    """使用 HTTP 客户端的主程序"""
+    """使用 HTTP 客户端的主程序（简洁风格）"""
     client = AgentClient()
     
     # 健康检查
@@ -327,62 +327,68 @@ async def main_http():
         console.print(error_panel("无法连接到后端服务"))
         return
     
-    console.print(Panel.fit(
-        "[bold green]LLM Agent CLI[/bold green]\n"
-        "输入 'exit' 或 'quit' 退出",
-        border_style="green"
-    ))
+    # 简洁的启动提示（不使用 Panel）
+    console.print("[bold cyan]hou-cli[/bold cyan] - LLM Agent CLI")
+    console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
     
     while True:
         try:
-            message = console.input("[bold cyan]你: [/bold cyan]")
+            # 简洁的提示符
+            message = console.input("[dim cyan]▸[/dim cyan] ")
             if message.lower() in ["exit", "quit"]:
                 break
-            
-            console.print(chat_panel(message, "user"))
             
             # 显示加载状态
             with console.status("[yellow]思考中...[/yellow]"):
                 response = await client.chat(message)
             
-            console.print(chat_panel(response, "assistant"))
+            # 直接渲染内容，不使用 Panel（简洁风格）
+            renderer = factory.get_renderer(response)
+            rendered = renderer.render(response)
+            console.print(rendered)
+            console.print()  # 空行分隔
         except KeyboardInterrupt:
             break
         except Exception as e:
-            console.print(error_panel(str(e)))
+            console.print(error_panel(str(e)))  # 错误提示使用 Panel
     
     await client.close()
 
 async def main_websocket():
-    """使用 WebSocket 客户端的主程序（支持流式输出）"""
+    """使用 WebSocket 客户端的主程序（支持流式输出，简洁风格）"""
     client = WebSocketClient()
+    factory = RendererFactory()
     
     try:
         await client.connect()
-        console.print(Panel.fit(
-            "[bold green]LLM Agent CLI (WebSocket)[/bold green]\n"
-            "输入 'exit' 或 'quit' 退出",
-            border_style="green"
-        ))
+        # 简洁的启动提示
+        console.print("[bold cyan]hou-cli[/bold cyan] - LLM Agent CLI (WebSocket)")
+        console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
         
         while True:
-            message = console.input("[bold cyan]你: [/bold cyan]")
+            # 简洁的提示符
+            message = console.input("[dim cyan]▸[/dim cyan] ")
             if message.lower() in ["exit", "quit"]:
                 break
-            
-            console.print(chat_panel(message, "user"))
             
             # 发送消息
             await client.send(message)
             
-            # 流式接收响应
-            response_text = Text()
-            with Live(response_text, console=console, refresh_per_second=10) as live:
+            # 流式接收响应（使用 Live 组件实时渲染）
+            full_content = ""
+            with Live(console=console, refresh_per_second=10) as live:
                 async for chunk in client.receive_stream():
-                    response_text.append(chunk)
-                    live.update(response_text)
+                    full_content += chunk
+                    # 实时渲染当前内容
+                    renderer = factory.get_renderer(full_content)
+                    rendered = renderer.render(full_content)
+                    live.update(rendered)
             
-            console.print()  # 换行
+            # 流式结束后，最终渲染一次
+            renderer = factory.get_renderer(full_content)
+            rendered = renderer.render(full_content)
+            console.print(rendered)
+            console.print()  # 空行分隔
         
         await client.close()
     except Exception as e:

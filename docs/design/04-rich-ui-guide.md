@@ -68,13 +68,17 @@ console.print("[yellow]警告[/yellow]")
 
 ### 2. Panel - 面板容器
 
+**使用场景**：
+- Panel 主要用于**特殊场景**，如错误提示、状态显示、重要信息展示
+- **普通对话回复不使用 Panel**，直接显示内容，保持简洁风格（参考 Cursor Agent）
+
 ```python
 from rich.panel import Panel
 from rich.console import Console
 
 console = Console()
 
-# 基本面板
+# 基本面板（用于特殊场景）
 console.print(Panel("内容"))
 
 # 带标题的面板
@@ -85,6 +89,13 @@ console.print(Panel("内容", border_style="green"))
 
 # 自适应宽度
 console.print(Panel.fit("内容"))
+
+# 错误提示（推荐使用 Panel）
+console.print(Panel(
+    "[bold red]错误信息[/bold red]",
+    border_style="red",
+    title="[bold red]错误[/bold red]"
+))
 ```
 
 ### 3. Table - 表格
@@ -168,19 +179,33 @@ renderer = factory.get_renderer(content)
 rendered = renderer.render(content)
 console.print(rendered)
 
-# 流式渲染
+# 流式渲染（使用 Rich Live 组件避免重复显示）
+from rich.live import Live
+
 async def stream_generator():
     yield "# 标题\n\n"
     yield "这是 **粗体** 文本"
 
-stream_renderer = StreamRenderer(factory)
-await stream_renderer.render_stream(stream_generator(), console)
+# 使用 Live 组件实时更新，避免重复显示
+full_content = ""
+with Live(console=console, refresh_per_second=10) as live:
+    async for chunk in stream_generator():
+        full_content += chunk
+        renderer = factory.get_renderer(full_content)
+        rendered = renderer.render(full_content)
+        live.update(rendered)
+
+# 流式结束后，最终渲染一次
+renderer = factory.get_renderer(full_content)
+rendered = renderer.render(full_content)
+console.print(rendered)
 ```
 
 **特性**:
 - 自动识别 Markdown、代码块、纯文本
 - 代码块优先检测，避免误判
-- 流式响应实时渲染
+- 流式响应实时渲染（使用 Rich Live 组件）
+- 避免重复显示（流式时实时更新，结束后最终渲染）
 - 错误降级处理（Markdown 解析失败时降级到纯文本）
 
 ### 6. Syntax - 代码语法高亮
@@ -256,28 +281,23 @@ with Live(generate_table(), refresh_per_second=4) as live:
 
 ## 在项目中的应用示例
 
-### 示例 1：LLM 问答界面（使用智能渲染模块）
+### 示例 1：LLM 问答界面（简洁风格，参考 Cursor Agent）
 
 ```python
 from rich.console import Console
-from rich.panel import Panel
+from rich.live import Live
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from frontend.ui.renderer import RendererFactory
-from frontend.ui.stream_handler import StreamRenderer
-from frontend.ui.panels import ChatPanel
 
 console = Console()
 factory = RendererFactory()
 
-# 非流式响应
+# 非流式响应（简洁风格，不使用 Panel）
 def ask_question(question: str):
-    # 显示问题面板
-    console.print(Panel.fit(
-        f"[bold cyan]问题:[/bold cyan]\n{question}",
-        border_style="cyan"
-    ))
+    # 用户输入提示（简洁的提示符）
+    console.print(f"[dim cyan]▸[/dim cyan] {question}")
     
-    # 显示思考进度
+    # 显示思考进度（可选）
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -287,25 +307,37 @@ def ask_question(question: str):
         response = get_llm_response(question)  # 获取 LLM 响应
         progress.update(task, completed=True)
     
-    # 使用 ChatPanel 自动渲染（支持 Markdown、代码块、纯文本）
-    console.print(ChatPanel(response))
+    # 直接渲染内容，不使用 Panel（简洁风格）
+    renderer = factory.get_renderer(response)
+    rendered = renderer.render(response)
+    console.print(rendered)
+    console.print()  # 空行分隔
 
-# 流式响应
+# 流式响应（使用 Rich Live 组件避免重复显示）
 async def ask_question_stream(question: str):
-    console.print(Panel.fit(
-        f"[bold cyan]问题:[/bold cyan]\n{question}",
-        border_style="cyan"
-    ))
+    # 用户输入提示（简洁的提示符）
+    console.print(f"[dim cyan]▸[/dim cyan] {question}")
     
-    console.print("[bold green]回答:[/bold green] ", end="")
+    # 使用 Live 组件实时更新，避免重复显示
+    full_content = ""
+    renderer = factory.get_renderer("")
     
-    # 使用 StreamRenderer 实时渲染流式响应
-    stream_renderer = StreamRenderer(factory)
     async def stream_generator():
         async for chunk in get_llm_stream(question):
             yield chunk
     
-    await stream_renderer.render_stream(stream_generator(), console)
+    with Live(console=console, refresh_per_second=10) as live:
+        async for chunk in stream_generator():
+            full_content += chunk
+            renderer = factory.get_renderer(full_content)
+            rendered = renderer.render(full_content)
+            live.update(rendered)
+    
+    # 流式结束后，最终渲染一次
+    renderer = factory.get_renderer(full_content)
+    rendered = renderer.render(full_content)
+    console.print(rendered)
+    console.print()  # 空行分隔
 ```
 
 ### 示例 2：PDF 处理进度
@@ -359,6 +391,49 @@ def show_model_info():
 
 ## 最佳实践
 
+### 0. UI 设计原则（参考 Cursor Agent）
+
+**核心原则**：
+
+1. **简洁优先**
+   - ✅ 不使用过多的装饰元素
+   - ✅ 直接显示内容，减少视觉噪音
+   - ✅ 保持界面清爽
+
+2. **一致性**
+   - ✅ 统一的提示符风格（`▸` 或 `>`）
+   - ✅ 统一的颜色使用
+   - ✅ 统一的交互方式
+
+3. **清晰性**
+   - ✅ 用户输入和 Agent 回复有明显的视觉区分
+   - ✅ 错误信息清晰明确
+   - ✅ 状态反馈及时
+
+4. **专业性**
+   - ✅ 不显示技术细节（如会话 ID、内部状态）
+   - ✅ 专注于用户任务
+   - ✅ 提供有用的反馈
+
+**具体实践**：
+
+- ✅ **直接显示内容**：普通对话回复不使用 Panel，直接显示内容
+- ✅ **简洁的提示符**：使用 `▸` 或 `>` 作为用户输入提示，不使用冗长的前缀
+- ✅ **不显示技术细节**：不显示会话 ID 等技术细节
+- ✅ **流式输出不重复**：使用 Rich Live 组件避免重复显示
+- ✅ **清晰的视觉区分**：用户输入和 Agent 回复有明显的视觉区分
+
+**示例**：
+```python
+# ✅ 推荐：简洁风格
+console.print(f"[dim cyan]▸[/dim cyan] {user_input}")
+renderer = factory.get_renderer(response)
+console.print(renderer.render(response))
+
+# ❌ 不推荐：使用 Panel 包装普通回复
+console.print(Panel(response, title="Agent"))
+```
+
 ### 1. 统一使用 Console 实例
 
 ```python
@@ -399,6 +474,13 @@ console.print("很长的文本...", overflow="ellipsis")
 
 ### 4. 错误处理
 
+**设计原则**：
+- ✅ 错误信息清晰明确
+- ✅ 提供解决建议
+- ✅ 使用 Panel 突出显示错误（特殊场景）
+- ✅ 区分错误类型（网络错误、API 错误、配置错误等）
+
+**基础用法**：
 ```python
 from rich.console import Console
 from rich.traceback import install
@@ -415,6 +497,19 @@ except Exception as e:
     console.print_exception()  # 美观的错误显示
 ```
 
+**错误提示示例**（使用 Panel，特殊场景）：
+```python
+from rich.panel import Panel
+
+# 错误提示（使用 Panel 突出显示）
+console.print(Panel(
+    f"[bold red]✗ 错误[/bold red]: {error_message}\n"
+    "[dim]提示: 请检查后端服务是否正常运行[/dim]",
+    border_style="red",
+    title="[bold red]错误[/bold red]"
+))
+```
+
 ## 性能考虑
 
 1. **避免频繁创建对象**
@@ -429,12 +524,19 @@ except Exception as e:
        table.add_row(...)
    ```
 
-2. **使用 Live 组件进行实时更新**
+2. **使用 Live 组件进行实时更新（流式输出推荐）**
    ```python
-   # 适合实时更新的场景
-   with Live(generate_content(), refresh_per_second=4) as live:
-       # 更新内容
-       live.update(new_content)
+   # 适合实时更新的场景（如流式输出）
+   # 使用 Live 组件可以避免重复显示问题
+   full_content = ""
+   with Live(console=console, refresh_per_second=10) as live:
+       async for chunk in stream:
+           full_content += chunk
+           rendered = render_content(full_content)
+           live.update(rendered)
+   
+   # 流式结束后，最终渲染一次
+   console.print(render_content(full_content))
    ```
 
 3. **大量数据考虑分页**

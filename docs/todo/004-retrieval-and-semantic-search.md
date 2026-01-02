@@ -10,8 +10,8 @@
 **状态**: ⏳ 待开始
 
 **前置任务**: 
-- [ ] TODO: 上下文存储核心功能实现（20260101210602）
-- [ ] TODO: 长期记忆基础实现（20260101210603）
+- [ ] TODO: 上下文存储核心功能实现（004-context-storage-core-implementation）
+- [ ] TODO: 长期记忆基础实现（004-long-term-memory-basic-implementation）
 
 **关联文档**:
 - [主设计文档](../../design/01-context-storage-and-compression-design.md)
@@ -57,7 +57,7 @@
 
 ### 2.1 阶段 1: KeywordRetrievalEngine 完善（0.5天）
 
-**注意**: 基础 KeywordRetrievalEngine 已在阶段 1（任务 20260101210602）中实现，本阶段是**完善**版本。
+**注意**: 基础 KeywordRetrievalEngine 已在阶段 1（任务 004-context-storage-core-implementation）中实现，本阶段是**完善**版本。
 
 #### 步骤 1.1: 完善关键词检索
 - [ ] 优化 `backend/core/context/retrieval/keyword.py`（基于阶段 1 的基础实现）

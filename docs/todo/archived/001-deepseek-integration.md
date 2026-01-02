@@ -52,24 +52,28 @@
 
 ### 1.2 LLM 服务基础功能
 
-#### 步骤 1.2.1: 错误处理（基础版）
+#### 步骤 1.2.1: 错误处理（增强版）
 - [x] 添加网络错误处理（超时、连接失败）
 - [x] 添加 API 错误处理（401、429、500等）
-- [x] 实现简单重试机制（固定重试 3 次，间隔 1 秒）
-- [x] 添加错误日志记录
+- [x] 实现指数退避重试机制（重试 3 次，指数退避策略）
+- [x] 添加错误日志记录（包含完整堆栈信息）
 
 **代码位置**: `backend/services/llm/llm_service.py`
 
 **注意事项**:
-- 429 错误（限流）：等待 2 秒后重试
+- 429 错误（限流）：等待 2 秒后重试（限流通常很快恢复）
 - 401 错误（认证失败）：不重试，直接返回错误
-- 网络错误：重试 3 次
-- 使用 Python `logging` 记录错误
+- 其他 HTTP 错误：指数退避重试（delay = base_delay * 2^attempt，最大 10 秒）
+- 网络错误：指数退避重试（delay = base_delay * 2^attempt，最大 10 秒）
+- 使用 Python `logging` 记录错误（包含 `exc_info=True`）
 
-**简化实现**:
+**实际实现**:
 ```python
 async def chat(self, ...):
     max_retries = 3
+    base_delay = 1.0  # 基础延迟（秒）
+    max_delay = 10.0  # 最大延迟（秒）
+    
     for attempt in range(max_retries):
         try:
             response = await self.client.chat.completions.create(...)
@@ -78,10 +82,21 @@ async def chat(self, ...):
             if e.response.status_code == 401:
                 raise  # 认证错误不重试
             if e.response.status_code == 429:
-                await asyncio.sleep(2)  # 限流等待
-                continue
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)  # 限流等待固定 2 秒
+                    continue
+                raise
+            # 其他 HTTP 错误：指数退避重试
             if attempt < max_retries - 1:
-                await asyncio.sleep(1)
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                await asyncio.sleep(delay)
+                continue
+            raise
+        except httpx.RequestError as e:
+            # 网络错误：指数退避重试
+            if attempt < max_retries - 1:
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                await asyncio.sleep(delay)
                 continue
             raise
 ```
@@ -353,10 +368,10 @@ LLM Service Error → Orchestrator Error → API Route Error → IPC Client Erro
 以下功能在 MVP 完成后，根据实际需求逐步添加：
 
 - [x] 配置文件支持（`.env` 文件）✅ 已完成
+- [x] 更完善的错误处理（指数退避等）✅ 已完成（超出 MVP 要求）
 - [ ] 上下文持久化（如果需要跨会话）
 - [ ] 上下文压缩（如果遇到 token 超限）
 - [ ] 更多参数配置（如果需要）
-- [ ] 更完善的错误处理（指数退避等）
 - [ ] 性能监控（如果需要）
 
 ---
@@ -375,8 +390,8 @@ LLM Service Error → Orchestrator Error → API Route Error → IPC Client Erro
 ---
 
 **创建时间**: 2025-12-31  
-**最后更新**: 2025-12-31  
-**版本**: 2.0 (简化版，基于过度设计分析)
+**最后更新**: 2025-01-02  
+**版本**: 2.1 (更新错误处理描述，标记指数退避为已完成)
 
 ---
 

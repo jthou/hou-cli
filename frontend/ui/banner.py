@@ -10,34 +10,29 @@ def show_banner():
     """显示启动画面 - 增强版"""
     # ASCII 艺术字 - HOU (使用标准 ASCII 字符，更清晰)
     ascii_art = r"""
-  _   _      _ _          _   _                ____ _     ___ 
-| | | | ___| | | ___    | | | | ___  _   _   / ___| |   |_ _|
-| |_| |/ _ \ | |/ _ \   | |_| |/ _ \| | | | | |   | |    | | 
-|  _  |  __/ | | (_) |  |  _  | (_) | |_| | | |___| |___ | | 
-|_| |_|\___|_|_|\___( ) |_| |_|\___/ \__,_|  \____|_____|___|
-                    |/                                       
+░█░█░█▀▀░█░░░█░░░█▀█░░░░░█░█░█▀█░█░█░░░░░█▀▀░█░░░▀█▀
+░█▀█░█▀▀░█░░░█░░░█░█░░░░░█▀█░█░█░█░█░▄▄▄░█░░░█░░░░█░
+░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀▀▀░▄▀░░▀░▀░▀▀▀░▀▀▀░░░░░▀▀▀░▀▀▀░▀▀▀
 """
     
-    # 创建带颜色的文本
+    # 创建黑白文本
     banner_text = Text()
     lines = ascii_art.strip().split('\n')
     
-    # 为每一行添加渐变色效果
-    colors = ["bright_cyan", "cyan", "bright_blue", "blue", "bright_cyan"]
+    # 为每一行添加黑白样式
     for i, line in enumerate(lines):
         if line.strip():
-            style = colors[i % len(colors)]
-            banner_text.append(line, style=style)
+            banner_text.append(line, style="white")
             if i < len(lines) - 1:
                 banner_text.append("\n")
     
     # 创建装饰性面板
     banner_panel = Panel(
         banner_text,
-        border_style="bright_cyan",
+        border_style="white",
         box=DOUBLE,
         padding=(1, 3),
-        title="[bold bright_cyan]╔═══ LLM Agent CLI ═══╗[/bold bright_cyan]",
+        title="[bold white]╔═══ LLM Agent CLI ═══╗[/bold white]",
         title_align="center"
     )
     
@@ -47,7 +42,7 @@ def show_banner():
     # 显示副标题，带装饰
     subtitle = Text()
     subtitle.append("─" * 15, style="dim")
-    subtitle.append(" hou-cli ", style="italic bright_white")
+    subtitle.append(" hou-cli ", style="italic white")
     subtitle.append("─" * 15, style="dim")
     console.print(subtitle, justify="center")
     console.print()  # 空行
@@ -56,22 +51,19 @@ def show_banner_simple():
     """简洁版启动画面"""
     # 简洁的 ASCII 艺术字
     ascii_art = """
- ██╗  ██╗ ██████╗ ██╗   ██╗
- ██║  ██║██╔═══██╗██║   ██║
- ███████║██║   ██║██║   ██║
- ██╔══██║██║   ██║██║   ██║
- ██║  ██║╚██████╔╝╚██████╔╝
- ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ 
+░█░█░█▀█░█░█░░░░░█▄█░█▀█░█▀█░█░█░█▀▀
+░█▀█░█░█░█░█░▄▄▄░█░█░█▀█░█░█░█░█░▀▀█
+░▀░▀░▀▀▀░▀▀▀░░░░░▀░▀░▀░▀░▀░▀░▀▀▀░▀▀▀
 """
     
-    banner_text = Text(ascii_art.strip(), style="bold bright_cyan")
+    banner_text = Text(ascii_art.strip(), style="bold white")
     
     banner_panel = Panel(
         banner_text,
-        border_style="bright_cyan",
+        border_style="white",
         box=ROUNDED,
         padding=(1, 2),
-        title="[bold bright_cyan]LLM Agent CLI[/bold bright_cyan]",
+        title="[bold white]LLM Agent CLI[/bold white]",
         title_align="center"
     )
     
@@ -91,13 +83,13 @@ def show_banner_minimal():
 ╩ ╩╚═╝╚═╝     ╚═╝╚╩╝
 """
     
-    banner_text = Text(ascii_art.strip(), style="bold bright_cyan")
+    banner_text = Text(ascii_art.strip(), style="bold white")
     
     banner_panel = Panel(
         banner_text,
-        border_style="bright_cyan",
+        border_style="white",
         padding=(1, 2),
-        title="[bold bright_cyan]LLM Agent CLI[/bold bright_cyan]",
+        title="[bold white]LLM Agent CLI[/bold white]",
         title_align="center"
     )
     

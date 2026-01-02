@@ -10,7 +10,7 @@
 **状态**: ⏳ 待开始
 
 **前置任务**: 
-- [ ] TODO: 上下文存储核心功能实现（20260101210602）
+- [ ] TODO: 上下文存储核心功能实现（004-context-storage-core-implementation）
 
 **关联文档**:
 - [主设计文档](../../design/01-context-storage-and-compression-design.md)

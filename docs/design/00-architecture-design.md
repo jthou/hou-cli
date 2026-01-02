@@ -36,10 +36,12 @@
 ┌─────────────────────────────────────────────────────────┐
 │  前端进程 (Frontend Process)                            │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │  Rich UI 层                                      │  │
-│  │  - 表格、面板、进度条                            │  │
-│  │  - 用户输入/输出                                 │  │
-│  │  - 交互式界面                                    │  │
+│  │  Rich UI 层（简洁风格，参考 Cursor Agent）      │  │
+│  │  - 直接显示内容（不使用过多 Panel）              │  │
+│  │  - 简洁的提示符（▸ 或 >）                        │  │
+│  │  - 流式输出实时渲染（Rich Live 组件）            │  │
+│  │  - Markdown 和代码块自动识别渲染                 │  │
+│  │  - 表格、进度条（用于特殊场景）                  │  │
 │  └──────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────┐  │
 │  │  前端通信层                                      │  │
@@ -368,21 +370,28 @@ hou-cli  # 或 python -m frontend.main
 
 ### 阶段 2：前端 Rich UI
 
-1. **创建前端入口**
+1. **创建前端入口（简洁风格，参考 Cursor Agent）**
    ```python
    # frontend/main.py
    from rich.console import Console
    from frontend.client.http_client import AgentClient
-   from frontend.ui.panels import ChatPanel
+   from frontend.ui.renderer import RendererFactory
    
    console = Console()
    client = AgentClient("http://localhost:8000")
+   factory = RendererFactory()
    
    def main():
        while True:
-           message = console.input("[bold cyan]你: [/bold cyan]")
+           # 简洁的提示符
+           message = console.input("[dim cyan]▸[/dim cyan] ")
            response = client.chat(message)
-           console.print(ChatPanel(response))
+           
+           # 直接渲染内容，不使用 Panel（简洁风格）
+           renderer = factory.get_renderer(response)
+           rendered = renderer.render(response)
+           console.print(rendered)
+           console.print()  # 空行分隔
    ```
 
 2. **实现 Rich UI 组件**

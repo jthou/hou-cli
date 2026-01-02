@@ -12,6 +12,7 @@
 **关联文档**:
 - [主设计文档](../../design/01-context-storage-and-compression-design.md)
 - [技术选型文档](../../design/01-context-storage-and-compression-design-technology-selection.md)
+- [TDD 指南](./004-context-storage-core-implementation-tdd-guide.md) ⭐
 
 ---
 
@@ -96,16 +97,30 @@
 - [ ] 实现 `to_dict()` 方法
 - [ ] 实现 `from_dict()` 类方法
 
-#### 步骤 1.4: 单元测试
+#### 步骤 1.4: 单元测试（TDD 方式）
 - [ ] 创建 `backend/core/context/tests/test_models.py`
-- [ ] 测试 Message 序列化/反序列化
-- [ ] 测试 Session 序列化/反序列化
-- [ ] 测试 MessageRole 枚举
+- [ ] **先写测试**（TDD Red 阶段）:
+  - 测试 Message 创建
+  - 测试 Message 序列化/反序列化
+  - 测试 Session 创建
+  - 测试 Session 序列化/反序列化
+  - 测试 MessageRole 枚举
+- [ ] **运行测试，确认失败**（验证测试有效）
+- [ ] **实现功能**（TDD Green 阶段）
+- [ ] **运行测试，确认通过**
+
+**TDD 验证**:
+- [ ] 测试必须先失败（功能未实现时）
+- [ ] 实现功能后测试必须通过
+- [ ] 如果测试一开始就通过，说明测试无效
+
+**详细 TDD 指南**: 参考 `docs/todo/004-context-storage-core-implementation-tdd-guide.md`
 
 **验收标准**:
 - [ ] 所有数据模型测试通过
 - [ ] 序列化/反序列化正确
 - [ ] 类型检查通过（mypy）
+- [ ] TDD 流程验证通过
 
 ---
 
@@ -141,13 +156,19 @@
 - [ ] 实现 `get_session()` 方法
 - [ ] 实现 `list_sessions()` 方法
 
-#### 步骤 2.3: 单元测试
+#### 步骤 2.3: 单元测试（TDD 方式）
 - [ ] 创建 `backend/core/context/storage/tests/test_file_storage.py`
-- [ ] 测试保存和获取消息
-- [ ] 测试删除消息
-- [ ] 测试会话管理
-- [ ] 测试 limit 和 offset
-- [ ] 测试数据持久化（重启后数据不丢失）
+- [ ] **先写测试**（TDD Red 阶段）:
+  - 测试保存和获取消息
+  - 测试删除消息
+  - 测试会话管理
+  - 测试 limit 和 offset
+  - 测试数据持久化（重启后数据不丢失）
+- [ ] **运行测试，确认失败**（验证测试有效）
+- [ ] **实现功能**（TDD Green 阶段）
+- [ ] **运行测试，确认通过**
+
+**TDD 验证**: 参考阶段 1 的 TDD 验证方法
 
 **验收标准**:
 - [ ] 所有存储后端测试通过
@@ -171,11 +192,17 @@
   - 保留最近的消息
   - 如果消息数 <= max_messages，返回全部消息
 
-#### 步骤 3.3: 单元测试
+#### 步骤 3.3: 单元测试（TDD 方式）
 - [ ] 创建 `backend/core/context/compression/tests/test_time_window.py`
-- [ ] 测试消息数未超过限制
-- [ ] 测试消息数超过限制（保留最近的消息）
-- [ ] 测试空消息列表
+- [ ] **先写测试**（TDD Red 阶段）:
+  - 测试消息数未超过限制
+  - 测试消息数超过限制（保留最近的消息）
+  - 测试空消息列表
+- [ ] **运行测试，确认失败**（验证测试有效）
+- [ ] **实现功能**（TDD Green 阶段）
+- [ ] **运行测试，确认通过**
+
+**TDD 验证**: 参考阶段 1 的 TDD 验证方法
 
 **验收标准**:
 - [ ] 所有压缩策略测试通过
@@ -207,15 +234,21 @@
 - [ ] 创建 `base.py` 定义 `RetrievalEngine` 接口
 - [ ] 创建 `keyword.py` 实现**最基础**关键词搜索
   - **注意**: 这是最基础版本，仅支持简单关键词匹配
-  - 详细完善（部分匹配、模糊匹配等）将在阶段 5（任务 20260101210606）中实现
+  - 详细完善（部分匹配、模糊匹配等）将在阶段 5（任务 004-retrieval-and-semantic-search）中实现
 
-#### 步骤 4.3: 单元测试
+#### 步骤 4.3: 单元测试（TDD 方式）
 - [ ] 创建 `backend/core/context/tests/test_manager.py`
-- [ ] 测试创建会话
-- [ ] 测试添加和获取消息
-- [ ] 测试消息压缩
-- [ ] 测试搜索消息
-- [ ] 测试会话管理
+- [ ] **先写测试**（TDD Red 阶段）:
+  - 测试创建会话
+  - 测试添加和获取消息
+  - 测试消息压缩
+  - 测试搜索消息
+  - 测试会话管理
+- [ ] **运行测试，确认失败**（验证测试有效）
+- [ ] **实现功能**（TDD Green 阶段）
+- [ ] **运行测试，确认通过**
+
+**TDD 验证**: 参考阶段 1 的 TDD 验证方法
 
 **验收标准**:
 - [ ] 所有 ContextManager 测试通过

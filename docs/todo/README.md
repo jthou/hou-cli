@@ -96,7 +96,7 @@
 
 实现上下文存储和整理机制的核心功能，包括数据模型、存储后端接口、压缩策略接口和 ContextManager 统一接口。
 
-**任务文档**: [20260101210602-context-storage-core-implementation.md](./20260101210602-context-storage-core-implementation.md)
+**任务文档**: [004-context-storage-core-implementation.md](./004-context-storage-core-implementation.md)
 
 **核心功能**:
 - Message 和 Session 数据模型
@@ -117,7 +117,7 @@
 
 **前置任务**: TODO-004
 
-**任务文档**: [20260101210603-long-term-memory-basic-implementation.md](./20260101210603-long-term-memory-basic-implementation.md)
+**任务文档**: [004-long-term-memory-basic-implementation.md](./004-long-term-memory-basic-implementation.md)
 
 **核心功能**:
 - Memory 数据模型和 MemoryType 枚举
@@ -128,7 +128,51 @@
 
 ---
 
-### TODO-006: 数据库存储后端实现
+### TODO-006: 前端 UI 改进实现
+**状态**: ⏳ 待开始  
+**优先级**: P0（高优先级）  
+**预计工时**: 1-2 天  
+**创建时间**: 2025-01-02
+
+根据设计文档和前端 UI 改进方案，实现与 Cursor Agent 风格对齐的简洁 UI。
+
+**任务文档**: [006-frontend-ui-improvements-implementation.md](./006-frontend-ui-improvements-implementation.md)
+
+**核心任务**:
+- 修复流式输出重复显示问题（使用 Rich Live 组件）
+- 简化 Agent 前缀（移除或使用简洁符号）
+- 移除会话 ID 显示
+- 简化 Banner
+- 简化非流式响应显示（移除 Panel）
+- 改进错误提示
+
+**前置任务**: 无
+
+---
+
+### TODO-007: 调试日志和思考过程输出实现
+**状态**: ⏳ 待开始  
+**优先级**: P0（高优先级）  
+**预计工时**: 1-2 天  
+**创建时间**: 2025-01-02
+
+实现开发环境的调试输出功能，包括模型的思考过程输出、后端 debug 流程输出、上下文过程输出，并支持环境区分（开发环境默认开启，生产环境默认关闭）。
+
+**任务文档**: [007-debug-logging-implementation.md](./007-debug-logging-implementation.md)
+
+**核心功能**:
+- 环境配置和调试工具（DEBUG/ENV 环境变量）
+- Orchestrator 流程调试输出
+- ContextManager 操作调试输出
+- LLM 请求/响应调试输出
+- 模型思考过程输出（如果支持）
+- 日志系统配置
+
+**前置任务**: 无
+
+---
+
+### TODO-008: 数据库存储后端实现
 **状态**: ⏳ 待开始  
 **优先级**: P1（中优先级）  
 **预计工时**: 1-2 天  
@@ -138,7 +182,7 @@
 
 **前置任务**: TODO-004
 
-**任务文档**: [20260101210604-database-storage-backend-implementation.md](./20260101210604-database-storage-backend-implementation.md)
+**任务文档**: [004-database-storage-backend-implementation.md](./004-database-storage-backend-implementation.md)
 
 **核心功能**:
 - DatabaseStorageBackend 实现（SQLite）
@@ -147,7 +191,7 @@
 
 ---
 
-### TODO-007: 高级压缩策略实现
+### TODO-009: 高级压缩策略实现
 **状态**: ⏳ 待开始  
 **优先级**: P1（中优先级）  
 **预计工时**: 2-3 天  
@@ -157,7 +201,7 @@
 
 **前置任务**: TODO-004
 
-**任务文档**: [20260101210605-advanced-compression-strategies.md](./20260101210605-advanced-compression-strategies.md)
+**任务文档**: [004-advanced-compression-strategies.md](./004-advanced-compression-strategies.md)
 
 **核心功能**:
 - TokenLimitCompression 实现
@@ -166,7 +210,7 @@
 
 ---
 
-### TODO-008: 检索功能和语义搜索实现
+### TODO-010: 检索功能和语义搜索实现
 **状态**: ⏳ 待开始  
 **优先级**: P1（中优先级）  
 **预计工时**: 3-4 天  
@@ -176,7 +220,7 @@
 
 **前置任务**: TODO-004, TODO-005
 
-**任务文档**: [20260101210606-retrieval-and-semantic-search.md](./20260101210606-retrieval-and-semantic-search.md)
+**任务文档**: [004-retrieval-and-semantic-search.md](./004-retrieval-and-semantic-search.md)
 
 **核心功能**:
 - KeywordRetrievalEngine 完善
@@ -187,7 +231,7 @@
 
 ---
 
-### TODO-009: 扩展功能实现
+### TODO-011: 扩展功能实现
 **状态**: ⏳ 待开始  
 **优先级**: P3（低优先级，可选）  
 **预计工时**: 3-5 天  
@@ -197,12 +241,34 @@
 
 **前置任务**: TODO-004, TODO-008
 
-**任务文档**: [20260101210607-extension-features.md](./20260101210607-extension-features.md)
+**任务文档**: [004-extension-features.md](./004-extension-features.md)
 
 **核心功能**:
 - VectorRetrievalEngine 实现（可选）
 - LLMSummarizationCompression 实现（可选）
 - RedisStorageBackend 实现（可选）
+
+---
+
+### TODO-006: 前端 UI 改进实现
+**状态**: ⏳ 待开始  
+**优先级**: P0（高优先级）  
+**预计工时**: 1-2 天  
+**创建时间**: 2025-01-02
+
+根据设计文档和前端 UI 改进方案，实现与 Cursor Agent 风格对齐的简洁 UI。
+
+**任务文档**: [006-frontend-ui-improvements-implementation.md](./006-frontend-ui-improvements-implementation.md)
+
+**核心任务**:
+- 修复流式输出重复显示问题（使用 Rich Live 组件）
+- 简化 Agent 前缀（移除或使用简洁符号）
+- 移除会话 ID 显示
+- 简化 Banner
+- 简化非流式响应显示（移除 Panel）
+- 改进错误提示
+
+**前置任务**: 无
 
 ---
 

@@ -65,10 +65,10 @@ python cli.py
    python -m frontend.main chat
    ```
 
-3. **开始对话**：
+3. **开始对话**（简洁风格，参考 Cursor Agent）：
    ```
-   你: 你好
-   Agent: 处理任务: 你好
+   ▸ 你好
+   你好！我是你的 AI 助手。
    ```
 
 ## 配置 LLM（可选）

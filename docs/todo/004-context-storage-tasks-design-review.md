@@ -6,16 +6,16 @@
 
 **审查时间**: 2025-01-01  
 **审查范围**: 
-- 20260101210602: 上下文存储核心功能实现
-- 20260101210603: 长期记忆基础实现
-- 20260101210604: 数据库存储后端实现
-- 20260101210605: 高级压缩策略实现
-- 20260101210606: 检索功能和语义搜索实现
-- 20260101210607: 扩展功能实现
+- 004-context-storage-core-implementation: 上下文存储核心功能实现
+- 004-long-term-memory-basic-implementation: 长期记忆基础实现
+- 004-database-storage-backend-implementation: 数据库存储后端实现
+- 004-advanced-compression-strategies: 高级压缩策略实现
+- 004-retrieval-and-semantic-search: 检索功能和语义搜索实现
+- 004-extension-features: 扩展功能实现
 
 ---
 
-## 一、任务 20260101210602: 上下文存储核心功能实现
+## 一、任务 004-context-storage-core-implementation: 上下文存储核心功能实现
 
 ### 1.1 与设计文档一致性 ✅
 
@@ -54,7 +54,7 @@
 
 ---
 
-## 二、任务 20260101210603: 长期记忆基础实现
+## 二、任务 004-long-term-memory-basic-implementation: 长期记忆基础实现
 
 ### 2.1 与设计文档一致性 ✅
 
@@ -88,11 +88,11 @@
 
 ### 2.4 前置任务检查 ✅
 
-**前置任务**: 20260101210602 ✅ 正确
+**前置任务**: 004-context-storage-core-implementation ✅ 正确
 
 ---
 
-## 三、任务 20260101210604: 数据库存储后端实现
+## 三、任务 004-database-storage-backend-implementation: 数据库存储后端实现
 
 ### 3.1 与设计文档一致性 ✅
 
@@ -121,11 +121,11 @@
 
 ### 3.4 前置任务检查 ✅
 
-**前置任务**: 20260101210602 ✅ 正确
+**前置任务**: 004-context-storage-core-implementation ✅ 正确
 
 ---
 
-## 四、任务 20260101210605: 高级压缩策略实现
+## 四、任务 004-advanced-compression-strategies: 高级压缩策略实现
 
 ### 4.1 与设计文档一致性 ✅
 
@@ -155,11 +155,11 @@
 
 ### 4.4 前置任务检查 ✅
 
-**前置任务**: 20260101210602 ✅ 正确
+**前置任务**: 004-context-storage-core-implementation ✅ 正确
 
 ---
 
-## 五、任务 20260101210606: 检索功能和语义搜索实现
+## 五、任务 004-retrieval-and-semantic-search: 检索功能和语义搜索实现
 
 ### 5.1 与设计文档一致性 ✅
 
@@ -196,12 +196,12 @@
 ### 5.4 前置任务检查 ✅
 
 **前置任务**: 
-- 20260101210602 ✅ 正确
-- 20260101210603 ✅ 正确（长期记忆基础）
+- 004-context-storage-core-implementation ✅ 正确
+- 004-long-term-memory-basic-implementation ✅ 正确（长期记忆基础）
 
 ---
 
-## 六、任务 20260101210607: 扩展功能实现
+## 六、任务 004-extension-features: 扩展功能实现
 
 ### 6.1 与设计文档一致性 ✅
 
@@ -235,12 +235,12 @@
 ### 7.1 任务覆盖完整性 ✅
 
 **设计文档阶段**:
-- 阶段 1（P0）: ✅ 任务 20260101210602
-- 阶段 2（P0）: ✅ 任务 20260101210603
-- 阶段 3（P1）: ✅ 任务 20260101210604
-- 阶段 4（P1）: ✅ 任务 20260101210605
-- 阶段 5（P1）: ✅ 任务 20260101210606
-- 阶段 6（P3）: ✅ 任务 20260101210607
+- 阶段 1（P0）: ✅ 任务 004-context-storage-core-implementation
+- 阶段 2（P0）: ✅ 任务 004-long-term-memory-basic-implementation
+- 阶段 3（P1）: ✅ 任务 004-database-storage-backend-implementation
+- 阶段 4（P1）: ✅ 任务 004-advanced-compression-strategies
+- 阶段 5（P1）: ✅ 任务 004-retrieval-and-semantic-search
+- 阶段 6（P3）: ✅ 任务 004-extension-features
 
 **覆盖情况**: ✅ 完全覆盖
 
@@ -248,22 +248,22 @@
 
 | 任务 | 设计文档优先级 | 任务文档优先级 | 一致性 |
 |------|---------------|---------------|--------|
-| 20260101210602 | P0 | P0 | ✅ |
-| 20260101210603 | P0 | P0 | ✅ |
-| 20260101210604 | P1 | P1 | ✅ |
-| 20260101210605 | P1 | P1 | ✅ |
-| 20260101210606 | P1 | P1 | ✅ |
-| 20260101210607 | P3 | P3 | ✅ |
+| 004-context-storage-core-implementation | P0 | P0 | ✅ |
+| 004-long-term-memory-basic-implementation | P0 | P0 | ✅ |
+| 004-database-storage-backend-implementation | P1 | P1 | ✅ |
+| 004-advanced-compression-strategies | P1 | P1 | ✅ |
+| 004-retrieval-and-semantic-search | P1 | P1 | ✅ |
+| 004-extension-features | P3 | P3 | ✅ |
 
 ### 7.3 前置任务正确性 ✅
 
 **任务依赖关系**:
-- 20260101210602: 无前置 ✅
-- 20260101210603: 依赖 20260101210602 ✅
-- 20260101210604: 依赖 20260101210602 ✅
-- 20260101210605: 依赖 20260101210602 ✅
-- 20260101210606: 依赖 20260101210602, 20260101210603 ✅
-- 20260101210607: 依赖 20260101210602, 20260101210606 ✅
+- 004-context-storage-core-implementation: 无前置 ✅
+- 004-long-term-memory-basic-implementation: 依赖 004-context-storage-core-implementation ✅
+- 004-database-storage-backend-implementation: 依赖 004-context-storage-core-implementation ✅
+- 004-advanced-compression-strategies: 依赖 004-context-storage-core-implementation ✅
+- 004-retrieval-and-semantic-search: 依赖 004-context-storage-core-implementation, 004-long-term-memory-basic-implementation ✅
+- 004-extension-features: 依赖 004-context-storage-core-implementation, 004-retrieval-and-semantic-search ✅
 
 **依赖关系**: ✅ 正确
 
@@ -280,18 +280,18 @@
 #### 问题 1: KeywordRetrievalEngine 实现时机 ⚠️
 
 **问题描述**:
-- 任务 20260101210602（阶段 1）中提到实现基础 KeywordRetrievalEngine
-- 任务 20260101210606（阶段 5）中提到"完善" KeywordRetrievalEngine
+- 任务 004-context-storage-core-implementation（阶段 1）中提到实现基础 KeywordRetrievalEngine
+- 任务 004-retrieval-and-semantic-search（阶段 5）中提到"完善" KeywordRetrievalEngine
 - 需要明确阶段 1 中实现的是"最基础版本"，阶段 5 是"完善"
 
 **建议**:
-- 在任务 20260101210602 中明确：实现最基础的 KeywordRetrievalEngine（仅支持简单关键词匹配）
-- 在任务 20260101210606 中明确：完善 KeywordRetrievalEngine（支持部分匹配、模糊匹配等）
+- 在任务 004-context-storage-core-implementation 中明确：实现最基础的 KeywordRetrievalEngine（仅支持简单关键词匹配）
+- 在任务 004-retrieval-and-semantic-search 中明确：完善 KeywordRetrievalEngine（支持部分匹配、模糊匹配等）
 
 #### 问题 2: Embedding 模型推荐不明确 ⚠️
 
 **问题描述**:
-- 任务 20260101210606 中提供了三个 Embedding 模型方案，但未明确推荐
+- 任务 004-retrieval-and-semantic-search 中提供了三个 Embedding 模型方案，但未明确推荐
 - 设计文档推荐 Ollama（本地，零成本）
 
 **建议**:
@@ -302,14 +302,14 @@
 
 #### 建议 1: 添加集成测试任务
 
-**建议**: 在任务 20260101210602 完成后，添加一个集成测试任务，验证：
+**建议**: 在任务 004-context-storage-core-implementation 完成后，添加一个集成测试任务，验证：
 - ContextManager 与 FileStorageBackend 集成
 - ContextManager 与 TimeWindowCompression 集成
 - 端到端流程测试
 
 #### 建议 2: 添加性能基准测试
 
-**建议**: 在任务 20260101210605 完成后，添加性能基准测试：
+**建议**: 在任务 004-advanced-compression-strategies 完成后，添加性能基准测试：
 - 不同压缩策略的性能对比
 - 不同数据量下的性能表现
 - 建立性能基准，便于后续优化
@@ -336,12 +336,12 @@
 ### 9.2 建议行动
 
 **立即修复**（P0）:
-- [x] 明确任务 20260101210602 中 KeywordRetrievalEngine 为基础版本 ✅
-- [x] 明确任务 20260101210606 中 Embedding 模型推荐 Ollama ✅
+- [x] 明确任务 004-context-storage-core-implementation 中 KeywordRetrievalEngine 为基础版本 ✅
+- [x] 明确任务 004-retrieval-and-semantic-search 中 Embedding 模型推荐 Ollama ✅
 
 **可选改进**（P1）:
-- [x] 添加集成测试任务 ✅（已添加到任务 20260101210602）
-- [x] 添加性能基准测试 ✅（已添加到任务 20260101210605）
+- [x] 添加集成测试任务 ✅（已添加到任务 004-context-storage-core-implementation）
+- [x] 添加性能基准测试 ✅（已添加到任务 004-advanced-compression-strategies）
 
 ---
 
