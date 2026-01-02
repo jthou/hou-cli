@@ -155,7 +155,34 @@
 
 ### 阶段 3: 命令模式实现（P0）- 预计 1.5 天
 
-#### 任务 3.1: 实现命令处理器
+#### 任务 3.1: 实现交互式命令输入（支持命令提示）
+
+**文件**: `frontend/ui/command_input.py`（新建）
+
+**实现步骤**:
+
+1. **创建 CommandInput 类**
+   - 检测用户输入 `/` 时显示命令提示菜单
+   - 支持命令自动补全（Tab 键）
+   - 使用 `prompt_toolkit` 或 `readline` 实现交互式输入
+
+2. **实现命令提示显示**
+   - 当输入 `/` 时，立即显示命令菜单
+   - 显示所有可用命令和说明
+   - 支持继续输入命令
+
+3. **实现命令补全**
+   - Tab 键自动补全命令
+   - 支持命令参数提示
+
+**验收标准**:
+- [ ] 输入 `/` 时显示命令提示菜单
+- [ ] 支持 Tab 键自动补全
+- [ ] 交互体验流畅
+
+---
+
+#### 任务 3.2: 实现命令处理器
 
 **文件**: `frontend/ui/command_handler.py`（新建）
 
@@ -190,23 +217,28 @@
 
 ---
 
-#### 任务 3.2: 集成命令模式到交互式对话
+#### 任务 3.3: 集成命令模式到交互式对话
 
 **文件**: `frontend/main.py`
 
 **实现步骤**:
 
-1. **在交互式模式中集成命令处理**
+1. **集成 CommandInput 到交互式模式**
+   - 使用 CommandInput.input_with_hint() 替代 console.input()
+   - 支持命令提示功能
+
+2. **在交互式模式中集成命令处理**
    - 检测用户输入是否以 `/` 开头
    - 如果是命令，调用 CommandHandler
    - 如果不是命令，继续正常对话流程
 
-2. **实现会话状态管理**
+3. **实现会话状态管理**
    - 跟踪当前会话 ID
    - 支持会话切换
    - 支持会话恢复
 
 **验收标准**:
+- [ ] 命令提示在交互式对话中工作
 - [ ] 命令模式在交互式对话中工作
 - [ ] 正常对话流程不受影响
 - [ ] 会话状态管理正确
@@ -333,8 +365,9 @@
 
 ### 阶段 3: 命令模式实现（1.5 天）
 
-5. ⏳ 任务 3.1: 实现命令处理器
-6. ⏳ 任务 3.2: 集成命令模式到交互式对话
+5. ⏳ 任务 3.1: 实现交互式命令输入（支持命令提示）
+6. ⏳ 任务 3.2: 实现命令处理器
+7. ⏳ 任务 3.3: 集成命令模式到交互式对话
 
 ### 阶段 4: 前端 CLI 独立命令（0.5 天）
 
@@ -428,21 +461,53 @@ async def get_session_messages(session_id: str):
 
 ---
 
-### 步骤 3: 命令处理器实现
+### 步骤 3: 交互式命令输入实现
+
+**文件**: `frontend/ui/command_input.py`（新建）
+
+创建 CommandInput 类，实现命令提示功能。
+
+**依赖**: 需要安装 `prompt_toolkit` 库（可选，提供更好的交互体验）
+
+```bash
+pip install prompt-toolkit
+```
+
+**简化版本**（不使用 prompt_toolkit）:
+```python
+def input_with_hint(self, prompt: str = "▸ ") -> str:
+    """带命令提示的输入（简化版本）"""
+    user_input = self.console.input(prompt)
+    if user_input == '/':
+        self._show_command_hint()
+        user_input = self.console.input(prompt)
+    return user_input
+```
+
+### 步骤 4: 命令处理器实现
 
 **文件**: `frontend/ui/command_handler.py`（新建）
 
 创建 CommandHandler 类，实现所有命令处理逻辑。
 
-### 步骤 4: 集成命令模式到交互式对话
+### 步骤 5: 集成命令模式到交互式对话
 
 **文件**: `frontend/main.py`
 
-在交互式对话循环中集成命令处理：
+在交互式对话循环中集成命令处理和命令提示：
 
 ```python
+from frontend.ui.command_input import CommandInput
+from frontend.ui.command_handler import CommandHandler
+
+# 创建命令输入和处理器
+command_input = CommandInput(console)
+command_handler = CommandHandler(client, session_id)
+
 while True:
-    msg = console.input("[dim cyan]▸[/dim cyan] ")
+    # 使用带提示的输入
+    msg = command_input.input_with_hint("[dim cyan]▸[/dim cyan] ")
+    
     if msg.lower() in ['exit', 'quit']:
         break
     if not msg.strip():
@@ -450,7 +515,6 @@ while True:
     
     # 检测命令模式
     if msg.startswith('/'):
-        command_handler = CommandHandler(client, session_id)
         result = command_handler.handle_command(msg)
         if result:
             console.print(result)
