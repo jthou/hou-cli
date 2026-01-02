@@ -113,11 +113,12 @@ class StreamRenderer:
 
         策略：
         - 使用 Rich Live 组件实时更新渲染内容
-        - 流式结束后最终渲染一次，确保完整渲染
+        - Live 组件会自动保留最终内容，无需再次打印
         """
         full_content = ""
         
         # 使用 Live 组件实时更新
+        # Live 组件会在退出时保留最后更新的内容，无需再次打印
         with Live(console=console, refresh_per_second=10) as live:
             async for chunk in stream:
                 full_content += chunk
@@ -125,10 +126,4 @@ class StreamRenderer:
                 renderer = self.factory.get_renderer(full_content)
                 rendered = renderer.render(full_content)
                 live.update(rendered)
-        
-        # 流式结束后，最终渲染一次（确保完整渲染）
-        if full_content:
-            renderer = self.factory.get_renderer(full_content)
-            rendered = renderer.render(full_content)
-            console.print(rendered)
 
