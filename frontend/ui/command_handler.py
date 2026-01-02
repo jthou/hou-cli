@@ -101,40 +101,40 @@ class CommandHandler:
     def _show_command_hint(self) -> str:
         """显示命令提示菜单"""
         hint_text = Text()
-        hint_text.append("可用命令:\n", style="dim")
+        hint_text.append("可用命令:\n")
         
         # 显示顶级命令
         for cmd, (desc, _) in self.top_level_commands.items():
-            cmd_line = f"  [cyan]/{cmd}[/cyan] - {desc}\n"
+            cmd_line = f"  /{cmd} - {desc}\n"
             hint_text.append(cmd_line)
         
-        hint_text.append("\n[dim]提示: 输入 /help 查看详细帮助[/dim]")
+        hint_text.append("\n提示: 输入 /help 查看详细帮助")
         
         return Panel(
             hint_text,
-            border_style="dim cyan",
-            title="[dim cyan]命令提示[/dim cyan]",
+            border_style="dim",
+            title="命令提示",
             padding=(1, 2)
         )
     
     def _show_context_help(self) -> str:
         """显示上下文管理命令帮助"""
         hint_text = Text()
-        hint_text.append("上下文管理命令:\n", style="dim")
+        hint_text.append("上下文管理命令:\n")
         
         for cmd, (desc, args) in self.context_commands.items():
-            cmd_line = f"  [cyan]/context {cmd}[/cyan]"
+            cmd_line = f"  /context {cmd}"
             if args:
                 cmd_line += f" {args}"
             cmd_line += f" - {desc}\n"
             hint_text.append(cmd_line)
         
-        hint_text.append("\n[dim]提示: 输入 /context <command> 执行命令，或 /context help 查看此帮助[/dim]")
+        hint_text.append("\n提示: 输入 /context <command> 执行命令，或 /context help 查看此帮助")
         
         return Panel(
             hint_text,
-            border_style="dim cyan",
-            title="[dim cyan]上下文管理[/dim cyan]",
+            border_style="dim",
+            title="上下文管理",
             padding=(1, 2)
         )
     
