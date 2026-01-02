@@ -194,18 +194,6 @@ QWEATHER_API_KEY=your-api-key
 WEATHER_JWT_EXPIRES_IN=3600
 ```
 
-#### 4.3.2 配置文件（可选）
-```yaml
-# config/weather.yaml
-weather:
-  jwt:
-    private_key_path: ~/.ssh/weather_jwt_private_key.pem
-    expires_in: 3600
-  api:
-    base_url: https://devapi.qweather.com
-    api_key: your-api-key
-```
-
 ## 5. 错误处理
 
 ### 5.1 错误类型
