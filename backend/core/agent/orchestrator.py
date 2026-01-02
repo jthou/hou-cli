@@ -71,14 +71,17 @@ class Orchestrator:
         system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
         
         # 构建 user_prompt（包含历史上下文）
-        if history:
+        # 过滤掉 system 消息，只保留 user 和 assistant 消息
+        filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
+        
+        if filtered_history:
             # 将历史消息格式化为对话形式
             history_text = "\n".join([
                 f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
-                for msg in history
+                for msg in filtered_history
             ])
             user_prompt = f"{history_text}\n用户: {task}"
-            self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(history)})
+            self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
         else:
             user_prompt = task
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
