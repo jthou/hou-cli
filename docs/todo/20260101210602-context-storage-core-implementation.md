@@ -60,6 +60,11 @@
   - 使用文件存储示例
   - 使用 Token 限制压缩示例
 
+- [ ] **基础 KeywordRetrievalEngine（最基础版本）**
+  - RetrievalEngine 接口定义
+  - KeywordRetrievalEngine 基础实现（仅简单关键词匹配）
+  - **注意**: 详细完善将在阶段 5 实现
+
 ---
 
 ## 二、实现步骤
@@ -197,10 +202,12 @@
 - [ ] 实现 `get_session()` 方法
 - [ ] 实现 `list_sessions()` 方法
 
-#### 步骤 4.2: 实现基础 KeywordRetrievalEngine
+#### 步骤 4.2: 实现基础 KeywordRetrievalEngine（最基础版本）
 - [ ] 创建 `backend/core/context/retrieval/` 目录
 - [ ] 创建 `base.py` 定义 `RetrievalEngine` 接口
-- [ ] 创建 `keyword.py` 实现基础关键词搜索
+- [ ] 创建 `keyword.py` 实现**最基础**关键词搜索
+  - **注意**: 这是最基础版本，仅支持简单关键词匹配
+  - 详细完善（部分匹配、模糊匹配等）将在阶段 5（任务 20260101210606）中实现
 
 #### 步骤 4.3: 单元测试
 - [ ] 创建 `backend/core/context/tests/test_manager.py`
@@ -300,7 +307,9 @@ backend/core/context/
 
 - [ ] 端到端测试：创建会话 → 添加消息 → 获取消息 → 压缩
 - [ ] 持久化测试：重启后数据不丢失
-- [ ] 搜索功能测试
+- [ ] 搜索功能测试（基础关键词搜索）
+- [ ] ContextManager 与 FileStorageBackend 集成测试
+- [ ] ContextManager 与 TimeWindowCompression 集成测试
 
 ### 5.3 测试覆盖率
 

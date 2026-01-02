@@ -57,12 +57,15 @@
 
 ### 2.1 阶段 1: KeywordRetrievalEngine 完善（0.5天）
 
+**注意**: 基础 KeywordRetrievalEngine 已在阶段 1（任务 20260101210602）中实现，本阶段是**完善**版本。
+
 #### 步骤 1.1: 完善关键词检索
-- [ ] 优化 `backend/core/context/retrieval/keyword.py`
+- [ ] 优化 `backend/core/context/retrieval/keyword.py`（基于阶段 1 的基础实现）
 - [ ] 改进匹配算法：
   - 支持部分匹配
   - 支持大小写不敏感
   - 支持多词匹配评分
+  - 支持模糊匹配（如需要）
 - [ ] 性能优化（如需要）
 
 #### 步骤 1.2: 单元测试
@@ -214,7 +217,7 @@
 
 ### 3.2 Embedding 模型
 
-**推荐方案 A**: Ollama（本地，推荐）
+**⭐ 推荐方案: Ollama（本地，首选）**
 
 **技术栈**: `ollama` 库或 HTTP API
 
@@ -222,12 +225,19 @@
 - ✅ 本地运行，零 API 成本
 - ✅ 隐私保护
 - ✅ 无需网络
+- ✅ 与项目已有 Ollama 集成一致
 
 **缺点**:
 - ⚠️ 需要安装 Ollama
 - ⚠️ 需要下载模型
 
-**推荐方案 B**: sentence-transformers（本地备选）
+**推荐理由**:
+1. **零成本**: 本地运行，无需 API 费用
+2. **一致性**: 项目已有 Ollama 集成（LLM Service）
+3. **隐私**: 数据不离开本地
+4. **简单**: 与现有架构一致
+
+**备选方案 B**: sentence-transformers（本地备选）
 
 **技术栈**: `sentence-transformers` 库
 
@@ -239,7 +249,7 @@
 - ⚠️ 需要下载模型文件
 - ⚠️ 内存占用较大
 
-**推荐方案 C**: OpenAI embeddings（云端）
+**备选方案 C**: OpenAI embeddings（云端，不推荐）
 
 **技术栈**: `openai` 库
 
@@ -251,8 +261,12 @@
 - ❌ 需要 API Key
 - ❌ 有 API 成本
 - ❌ 需要网络
+- ❌ 数据隐私问题
 
-**建议**: 优先使用 Ollama（本地，零成本）
+**实施建议**: 
+- **首选**: Ollama（与设计文档一致，推荐）
+- **备选**: sentence-transformers（如果 Ollama 不可用）
+- **不推荐**: OpenAI（除非有特殊需求）
 
 ---
 
