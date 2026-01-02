@@ -90,13 +90,22 @@ class CommandInput:
         self.console = console
         self.commands = commands
         
-        if PROMPT_TOOLKIT_AVAILABLE:
+        # 检测终端类型，macOS Terminal 优先使用 readline
+        import os
+        import sys
+        self.use_readline = False
+        
+        # 在 macOS Terminal 上，readline 通常更可靠
+        if sys.platform == 'darwin' and os.getenv('TERM_PROGRAM') == 'Apple_Terminal':
+            # macOS Terminal，优先使用 readline
+            try:
+                import readline
+                self.use_readline = True
+            except ImportError:
+                pass
+        
+        if PROMPT_TOOLKIT_AVAILABLE and not self.use_readline:
             # 使用 prompt_toolkit 实现高级功能
-            # 方法1: 使用 WordCompleter（更简单，但需要完整命令）
-            from prompt_toolkit.completion import WordCompleter
-            command_words = [f"/{cmd[0]}" for cmd in commands]
-            # 使用 WordCompleter 作为基础，但我们需要自定义补全逻辑
-            # 所以还是使用 CommandCompleter
             self.completer = CommandCompleter(commands)
             
             self.key_bindings = KeyBindings()
@@ -171,7 +180,7 @@ class CommandInput:
             except EOFError:
                 return "exit"
         else:
-            # 回退到简单的输入方式（使用 readline 如果可用）
+            # 使用 readline（macOS Terminal 或 prompt_toolkit 不可用时）
             try:
                 import readline
                 
@@ -190,7 +199,11 @@ class CommandInput:
                     return None
                 
                 readline.set_completer(complete)
+                # 确保 Tab 键绑定到补全功能
                 readline.parse_and_bind("tab: complete")
+                # macOS 上可能需要额外的绑定
+                if sys.platform == 'darwin':
+                    readline.parse_and_bind("bind ^I rl_complete")
                 
                 text = self.console.input(prompt)
                 
