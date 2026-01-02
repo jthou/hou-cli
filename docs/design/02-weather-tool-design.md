@@ -46,18 +46,13 @@
 **注意：** 和风天气 API 不使用 API Key，仅使用 JWT 认证。
 ```
 
-#### 3.2.2 私钥管理
-- **存储位置：** `.env` 文件中的环境变量 `WEATHER_JWT_PRIVATE_KEY`
-- **密钥格式：** RSA 私钥（PEM 格式，可以是单行或多行）
-- **配置方式：** 通过环境变量读取，支持从 `.env` 文件加载
-- **安全建议：** `.env` 文件不应提交到版本控制系统，应添加到 `.gitignore`
+#### 3.2.2 JWT 生成流程
+1. 从环境变量 `WEATHER_JWT_PRIVATE_KEY` 读取私钥（私钥已配置在 `.env` 文件中）
+2. 构建 JWT payload
+3. 使用 RS256 算法签名生成 JWT
+4. 将 JWT 添加到 HTTP 请求头：`Authorization: Bearer <jwt_token>`
 
-#### 3.2.3 JWT 生成流程
-1. 从环境变量 `WEATHER_JWT_PRIVATE_KEY` 读取私钥
-2. 验证私钥格式和有效性
-3. 构建 JWT payload
-4. 使用 RS256 算法签名生成 JWT
-5. 将 JWT 添加到 HTTP 请求头：`Authorization: Bearer <jwt_token>`
+**注意：** 私钥和公钥已配置完成，无需额外配置。
 
 ### 3.3 工具接口设计
 
@@ -147,13 +142,13 @@ class KeyLoader:
     """私钥加载工具"""
     
     @staticmethod
-    def load_private_key(path: str) -> bytes:
-        """加载私钥文件"""
+    def load_private_key_from_env() -> bytes:
+        """从环境变量加载私钥（私钥已配置在 .env 文件中）"""
         pass
     
     @staticmethod
-    def validate_key_permissions(path: str) -> bool:
-        """验证私钥文件权限（应为 600）"""
+    def normalize_private_key(key: str) -> str:
+        """规范化私钥格式（处理换行符等）"""
         pass
 ```
 
@@ -215,15 +210,11 @@ weather:
 ## 5. 错误处理
 
 ### 5.1 错误类型
-1. **私钥文件不存在**
-   - 错误码：`KEY_FILE_NOT_FOUND`
-   - 处理：提示用户检查私钥路径
+1. **私钥环境变量未设置**
+   - 错误码：`PRIVATE_KEY_NOT_SET`
+   - 处理：提示用户检查 `.env` 文件中的 `WEATHER_JWT_PRIVATE_KEY` 配置
 
-2. **私钥文件权限不正确**
-   - 错误码：`KEY_FILE_PERMISSION_DENIED`
-   - 处理：提示用户修改文件权限为 600
-
-3. **JWT 生成失败**
+2. **JWT 生成失败**
    - 错误码：`JWT_GENERATION_FAILED`
    - 处理：记录错误日志，返回通用错误信息
 
@@ -243,9 +234,9 @@ weather:
 ## 6. 安全考虑
 
 ### 6.1 私钥安全
-- 私钥文件权限必须为 600（仅所有者可读）
-- 私钥不应提交到版本控制系统
-- 支持从环境变量读取私钥路径，避免硬编码
+- 私钥已配置在 `.env` 文件中，不应提交到版本控制系统
+- `.env` 文件应添加到 `.gitignore`
+- 公钥已存储完成
 
 ### 6.2 JWT 安全
 - JWT 设置合理的过期时间（默认 1 小时）
@@ -277,13 +268,13 @@ weather:
 ## 8. 待确认信息
 
 ### 8.1 需要确认的问题
-1. **JWT 认证方式：** 和风天气 API 是否支持 JWT 认证？如果不支持，是否需要自定义认证服务器？
-2. **JWT Payload：** 具体的 payload 结构是什么？需要包含哪些字段？
-3. **私钥格式：** 私钥是 RSA 还是其他格式？是否需要公钥？
-4. **城市 ID：** 如何获取城市 ID？是否需要实现城市搜索功能？
+1. **JWT Payload：** 具体的 payload 结构是什么？需要包含哪些字段？（iss, aud, sub 等字段的具体值）
+2. **城市 ID：** 如何获取城市 ID？是否需要实现城市搜索功能？
+
+**注意：** 私钥和公钥已配置完成，无需额外配置。
 
 ### 8.2 建议的默认值
-- 私钥路径：`~/.ssh/weather_jwt_private_key.pem`
+- 私钥来源：环境变量 `WEATHER_JWT_PRIVATE_KEY`（已配置在 `.env` 文件中）
 - JWT 算法：`RS256`
 - JWT 过期时间：`3600` 秒（1 小时）
 - API 基础 URL：`https://devapi.qweather.com`
