@@ -28,10 +28,7 @@
 - 天气预警：`https://devapi.qweather.com/v7/warning/now`
 - 城市搜索：`https://devapi.qweather.com/v7/city/lookup`
 
-**注意：** 和风天气 API 通常使用 API Key 认证，但根据需求，我们需要使用 JWT 认证。可能的实现方式：
-1. JWT 作为额外的认证头（如果 API 支持）
-2. JWT 包含 API Key 信息
-3. 自定义认证服务器（如果和风天气不支持 JWT）
+**注意：** 和风天气 API 使用 JWT 认证，不需要 API Key。JWT token 通过 `Authorization: Bearer <jwt_token>` 请求头传递。
 
 ### 3.2 JWT 认证设计
 
@@ -42,9 +39,11 @@
   "iat": 1234567890,              // 签发时间
   "exp": 1234571490,              // 过期时间（1小时后）
   "aud": "qweather-api",          // 受众
-  "sub": "weather-query",          // 主题
-  "api_key": "your-api-key"       // 和风天气 API Key（如果需要）
+  "sub": "weather-query"          // 主题
 }
+```
+
+**注意：** 和风天气 API 不使用 API Key，仅使用 JWT 认证。
 ```
 
 #### 3.2.2 私钥管理
@@ -188,8 +187,8 @@ class WeatherTool:
 
 #### 4.3.1 环境变量
 ```bash
-# JWT 私钥路径（可选，默认 环境变量 WEATHER_JWT_PRIVATE_KEY）
-WEATHER_JWT_PRIVATE_KEY=环境变量 WEATHER_JWT_PRIVATE_KEY
+# JWT 私钥路径（可选，默认 ~/.ssh/weather_jwt_private_key.pem）
+WEATHER_JWT_PRIVATE_KEY_PATH=~/.ssh/weather_jwt_private_key.pem
 
 # 和风天气 API 基础 URL
 QWEATHER_API_BASE_URL=https://devapi.qweather.com
@@ -206,7 +205,7 @@ WEATHER_JWT_EXPIRES_IN=3600
 # config/weather.yaml
 weather:
   jwt:
-    private_key: 环境变量 WEATHER_JWT_PRIVATE_KEY
+    private_key_path: ~/.ssh/weather_jwt_private_key.pem
     expires_in: 3600
   api:
     base_url: https://devapi.qweather.com
@@ -285,7 +284,7 @@ weather:
 5. **城市 ID：** 如何获取城市 ID？是否需要实现城市搜索功能？
 
 ### 8.2 建议的默认值
-- 私钥路径：`环境变量 WEATHER_JWT_PRIVATE_KEY`
+- 私钥路径：`~/.ssh/weather_jwt_private_key.pem`
 - JWT 算法：`RS256`
 - JWT 过期时间：`3600` 秒（1 小时）
 - API 基础 URL：`https://devapi.qweather.com`

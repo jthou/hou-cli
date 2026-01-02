@@ -7,17 +7,16 @@
 ## 前置条件
 
 ### 需要确认的信息
-- [ ] 和风天气 API 是否支持 JWT 认证？如果不支持，确认认证方式
 - [ ] JWT Payload 的具体结构（iss, aud, sub 等字段的值）
-- [ ] 私钥文件的具体路径和格式（RSA/其他）
-- [ ] 是否需要将和风天气 API Key 包含在 JWT 中
+- [ ] 私钥格式（RSA/其他）和是否需要公钥
 - [ ] 城市 ID 的获取方式（是否需要实现城市搜索）
 
 ### 环境准备
-- [ ] 注册和风天气开发者账号，获取 API Key
 - [ ] 生成 RSA 私钥对（如果还没有）
 - [ ] 将私钥添加到 `.env` 文件中的 `WEATHER_JWT_PRIVATE_KEY` 变量
 - [ ] 确保 `.env` 文件已添加到 `.gitignore`（如果还没有）
+
+**注意：** 和风天气 API 不需要 API Key，仅使用 JWT 认证。
 
 ## 阶段 1: 基础架构实现（P0）
 
@@ -90,7 +89,7 @@
 
 ### 任务 2.3: 配置管理
 - [ ] 在 `.env.example` 中添加配置项
-  - `WEATHER_JWT_PRIVATE_KEY`
+  - `WEATHER_JWT_PRIVATE_KEY_PATH`
   - `QWEATHER_API_BASE_URL`
   - `QWEATHER_API_KEY`
   - `WEATHER_JWT_EXPIRES_IN`
