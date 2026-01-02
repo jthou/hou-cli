@@ -7,45 +7,9 @@ from rich.box import DOUBLE, ROUNDED
 console = Console()
 
 def show_banner():
-    """显示启动画面 - 增强版"""
-    # ASCII 艺术字 - HOU (使用标准 ASCII 字符，更清晰)
-    ascii_art = r"""
-░█░█░█▀▀░█░░░█░░░█▀█░░░░░█░█░█▀█░█░█░░░░░█▀▀░█░░░▀█▀
-░█▀█░█▀▀░█░░░█░░░█░█░░░░░█▀█░█░█░█░█░▄▄▄░█░░░█░░░░█░
-░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀▀▀░▄▀░░▀░▀░▀▀▀░▀▀▀░░░░░▀▀▀░▀▀▀░▀▀▀
-"""
-    
-    # 创建黑白文本
-    banner_text = Text()
-    lines = ascii_art.strip().split('\n')
-    
-    # 为每一行添加黑白样式
-    for i, line in enumerate(lines):
-        if line.strip():
-            banner_text.append(line, style="white")
-            if i < len(lines) - 1:
-                banner_text.append("\n")
-    
-    # 创建装饰性面板
-    banner_panel = Panel(
-        banner_text,
-        border_style="white",
-        box=DOUBLE,
-        padding=(1, 3),
-        title="[bold white]╔═══ LLM Agent CLI ═══╗[/bold white]",
-        title_align="center"
-    )
-    
-    console.print()
-    console.print(banner_panel, justify="center")
-    
-    # 显示副标题，带装饰
-    subtitle = Text()
-    subtitle.append("─" * 15, style="dim")
-    subtitle.append(" hou-cli ", style="italic white")
-    subtitle.append("─" * 15, style="dim")
-    console.print(subtitle, justify="center")
-    console.print()  # 空行
+    """简洁的启动画面（参考 Cursor Agent）"""
+    console.print("[bold cyan]hou-cli[/bold cyan] - LLM Agent CLI")
+    console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
 
 def show_banner_simple():
     """简洁版启动画面"""

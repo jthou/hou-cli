@@ -2,6 +2,7 @@
 import re
 from typing import AsyncIterator, Optional, Tuple
 from rich.console import Console
+from rich.live import Live
 from frontend.ui.renderer import RendererFactory, ContentRenderer
 
 
@@ -103,41 +104,30 @@ class StreamRenderer:
         self,
         stream: AsyncIterator[str],
         console: Console,
-        show_incomplete: bool = True
     ):
-        """渲染流式响应
+        """渲染流式响应（使用 Live 组件避免重复显示）
 
         Args:
             stream: 流式数据迭代器
             console: Rich Console 实例
-            show_incomplete: 是否显示不完整的内容（淡色）
 
-        策略（修复重复显示问题）：
-        - 流式时，实时显示每个 chunk（作为纯文本，不渲染 Markdown）
-        - 流式结束后，一次性渲染完整内容（格式化后的 Markdown）
-        - 这样可以确保用户看到实时输出，且 Markdown 正确渲染
-        
-        注意：流式时显示纯文本预览，结束后渲染格式化内容。
-        由于终端限制，无法完全清除已显示的内容，所以会显示两次
-        （一次预览，一次渲染），但至少不会重复显示每个字符。
+        策略：
+        - 使用 Rich Live 组件实时更新渲染内容
+        - 流式结束后最终渲染一次，确保完整渲染
         """
-        # 收集所有流式数据
         full_content = ""
-
-        async for chunk in stream:
-            # 只追加新内容，避免重复
-            full_content += chunk
-            # 流式时实时显示 chunk（作为纯文本预览）
-            # 这样用户可以看到实时输出
-            if show_incomplete:
-                console.print(chunk, end="", style="dim")
-
-        # 流式结束，渲染完整内容
+        
+        # 使用 Live 组件实时更新
+        with Live(console=console, refresh_per_second=10) as live:
+            async for chunk in stream:
+                full_content += chunk
+                # 实时渲染当前内容
+                renderer = self.factory.get_renderer(full_content)
+                rendered = renderer.render(full_content)
+                live.update(rendered)
+        
+        # 流式结束后，最终渲染一次（确保完整渲染）
         if full_content:
-            # 换行（因为流式输出在同一行）
-            console.print()  # 换行
-            
-            # 渲染完整内容（格式化后的 Markdown）
             renderer = self.factory.get_renderer(full_content)
             rendered = renderer.render(full_content)
             console.print(rendered)
