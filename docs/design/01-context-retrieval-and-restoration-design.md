@@ -409,7 +409,215 @@ class ContextRetrievalService:
         return summary
 ```
 
-### 4.3 前端 CLI 命令
+### 4.3 交互式命令输入实现（支持命令提示）
+
+**文件**: `frontend/ui/command_input.py`（新建）
+
+**功能**: 当用户输入 `/` 时，立即显示命令菜单提示。
+
+**实现方式**:
+1. 使用自定义输入函数，监听键盘输入
+2. 检测到 `/` 字符时，显示命令提示菜单
+3. 支持 Tab 键自动补全
+4. 支持方向键选择命令（可选）
+
+**实现代码**:
+
+```python
+"""交互式命令输入（支持命令提示）"""
+import sys
+from typing import Optional, List
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+
+class CommandInput:
+    """交互式命令输入，支持命令提示"""
+    
+    def __init__(self, console: Console):
+        self.console = console
+        self.commands = [
+            ("list", "列出最近的会话", "[limit]"),
+            ("search", "搜索包含关键词的会话", "<keyword> [limit]"),
+            ("restore", "恢复会话（继续对话）", "[session_id]"),
+            ("show", "显示会话详情", "<session_id>"),
+            ("delete", "删除指定会话", "<session_id>"),
+            ("summary", "生成并显示会话摘要", "<session_id>"),
+            ("clear", "清除当前会话的所有消息", ""),
+            ("switch", "切换到指定会话", "<session_id>"),
+            ("help", "显示帮助信息", "[command]"),
+        ]
+    
+    def input_with_hint(self, prompt: str = "▸ ") -> str:
+        """带命令提示的输入"""
+        try:
+            from prompt_toolkit import prompt as pt_prompt
+            from prompt_toolkit.completion import WordCompleter
+            from prompt_toolkit.history import InMemoryHistory
+            
+            # 创建命令补全器
+            command_words = ['/' + cmd[0] for cmd in self.commands]
+            completer = WordCompleter(command_words, ignore_case=True)
+            history = InMemoryHistory()
+            
+            # 自定义提示函数
+            def get_prompt_text():
+                return prompt
+            
+            # 使用 prompt_toolkit 实现交互式输入
+            # 监听输入，检测到单独的 '/' 时显示提示
+            user_input = ""
+            while True:
+                char = sys.stdin.read(1) if sys.stdin.isatty() else None
+                if char == '/':
+                    # 显示命令提示
+                    self._show_command_hint()
+                    # 继续读取完整输入
+                    user_input = pt_prompt(
+                        get_prompt_text,
+                        completer=completer,
+                        history=history,
+                        complete_while_typing=True,
+                    )
+                    break
+                elif char == '\n':
+                    # 回车，返回当前输入
+                    break
+                else:
+                    user_input += char
+            
+            return user_input
+        except ImportError:
+            # 如果没有 prompt_toolkit，使用简化版本
+            return self._simple_input_with_hint(prompt)
+    
+    def _simple_input_with_hint(self, prompt: str) -> str:
+        """简化版本的命令提示输入"""
+        # 使用 readline（标准库，Unix/Linux/macOS）
+        try:
+            import readline
+            
+            # 设置命令补全
+            def complete(text, state):
+                commands = ['/' + cmd[0] for cmd in self.commands]
+                matches = [cmd for cmd in commands if cmd.startswith(text)]
+                if state < len(matches):
+                    return matches[state]
+                return None
+            
+            readline.set_completer(complete)
+            readline.parse_and_bind("tab: complete")
+            
+            # 读取输入
+            user_input = input(prompt)
+            
+            # 如果输入是单独的 '/'，显示提示
+            if user_input == '/':
+                self._show_command_hint()
+                user_input = input(prompt)
+            
+            return user_input
+        except ImportError:
+            # 如果没有 readline（Windows），使用最简版本
+            user_input = self.console.input(prompt)
+            if user_input == '/':
+                self._show_command_hint()
+                user_input = self.console.input(prompt)
+            return user_input
+    
+    def _show_command_hint(self):
+        """显示命令提示菜单"""
+        hint_text = Text()
+        hint_text.append("可用命令:\n", style="dim")
+        
+        for cmd, desc, args in self.commands:
+            cmd_line = f"  [cyan]/{cmd}[/cyan]"
+            if args:
+                cmd_line += f" {args}"
+            cmd_line += f" - {desc}\n"
+            hint_text.append(cmd_line)
+        
+        hint_text.append("\n[dim]提示: 输入命令后按 Enter 执行，按 Tab 自动补全[/dim]")
+        
+        self.console.print(Panel(
+            hint_text,
+            border_style="dim cyan",
+            title="[dim cyan]命令提示[/dim cyan]",
+            padding=(1, 2)
+        ))
+```
+
+**使用示例**:
+
+```python
+# 在交互式对话中使用
+command_input = CommandInput(console)
+
+while True:
+    msg = command_input.input_with_hint("[dim cyan]▸[/dim cyan] ")
+    # 用户输入 '/' 时，会立即显示命令提示菜单
+    # 然后用户可以继续输入命令，如 '/list'
+```
+
+### 4.4 命令处理器实现
+
+**文件**: `frontend/ui/command_handler.py`（新建）
+
+```python
+"""命令处理器（类似 Cursor Agent 的命令模式）"""
+from typing import List, Dict, Any, Optional
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from frontend.client.ipc_client import IPCClient
+
+class CommandHandler:
+    """命令处理器"""
+    
+    def __init__(self, client: IPCClient, current_session_id: Optional[str] = None):
+        self.client = client
+        self.current_session_id = current_session_id
+        self.console = Console()
+    
+    def handle_command(self, input_text: str) -> Optional[str]:
+        """处理命令输入"""
+        if not input_text.startswith('/'):
+            return None  # 不是命令
+        
+        # 解析命令
+        parts = input_text[1:].strip().split()
+        if not parts:
+            return self._show_help()
+        
+        command = parts[0].lower()
+        args = parts[1:]
+        
+        # 路由到对应的命令处理函数
+        handlers = {
+            'list': self._handle_list,
+            'search': self._handle_search,
+            'restore': self._handle_restore,
+            'show': self._handle_show,
+            'delete': self._handle_delete,
+            'summary': self._handle_summary,
+            'clear': self._handle_clear,
+            'switch': self._handle_switch,
+            'help': self._handle_help,
+        }
+        
+        handler = handlers.get(command)
+        if handler:
+            try:
+                return handler(args)
+            except Exception as e:
+                return f"[red]错误: {e}[/red]"
+        else:
+            return f"[yellow]未知命令: {command}[/yellow]\n输入 /help 查看帮助"
+    
+    # ... 其他命令处理函数（见之前的实现）
+```
+
+### 4.5 前端 CLI 独立命令
 
 **文件**: `frontend/main.py`（扩展）
 
