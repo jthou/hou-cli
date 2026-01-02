@@ -93,7 +93,8 @@ class TestWeatherToolIntegration:
             assert isinstance(result, ToolResult)
             assert result.success is True
             assert result.data is not None
-            assert "now" in result.data
+            assert "current" in result.data
+            assert result.data["current"]["temp"] == "20"
     
     def test_weather_tool_execute_city_not_found(self, jwt_auth):
         """测试天气工具执行时城市未找到"""
