@@ -20,6 +20,8 @@ if __name__ == "__main__":
         sys.path.insert(0, str(project_root))
 
 from backend.core.context import ContextManager, MessageRole
+from backend.core.context.compression.token_limit import TokenLimitCompression
+from backend.core.context.compression.importance import ImportanceScoringCompression
 
 
 def example_basic_usage():
@@ -145,6 +147,75 @@ def example_session_management():
     print(f"\n清除会话后，剩余 {len(context_manager.list_sessions())} 个会话")
 
 
+def example_token_limit_compression():
+    """示例 6: Token 限制压缩"""
+    print("\n" + "=" * 60)
+    print("示例 6: Token 限制压缩")
+    print("=" * 60)
+    
+    # 使用 TokenLimitCompression
+    compression = TokenLimitCompression()
+    context_manager = ContextManager(
+        compression_strategy=compression,
+        default_max_tokens=100
+    )
+    
+    session_id = context_manager.create_session()
+    
+    # 添加多条长消息
+    for i in range(10):
+        context_manager.add_message(
+            session_id,
+            MessageRole.USER,
+            f"消息 {i}: " + "x" * 50  # 每条约 12.5 tokens
+        )
+    
+    # 获取消息（自动压缩到 100 tokens 以内）
+    messages = context_manager.get_messages(session_id)
+    print(f"压缩后消息数: {len(messages)}")
+    print("保留的消息（优先保留系统消息，然后从后往前）:")
+    for msg in messages:
+        print(f"  - {msg.role.value}: {msg.content[:30]}...")
+
+
+def example_importance_scoring_compression():
+    """示例 7: 重要性评分压缩"""
+    print("\n" + "=" * 60)
+    print("示例 7: 重要性评分压缩")
+    print("=" * 60)
+    
+    # 使用 ImportanceScoringCompression
+    compression = ImportanceScoringCompression()
+    context_manager = ContextManager(
+        compression_strategy=compression,
+        default_max_messages=5
+    )
+    
+    session_id = context_manager.create_session()
+    
+    # 添加系统消息（高优先级）
+    context_manager.add_message(session_id, MessageRole.SYSTEM, "系统配置信息")
+    
+    # 添加普通消息
+    for i in range(8):
+        context_manager.add_message(session_id, MessageRole.USER, f"普通消息 {i}")
+    
+    # 添加包含关键词的重要消息
+    context_manager.add_message(session_id, MessageRole.USER, "重要的问题需要解决")
+    context_manager.add_message(session_id, MessageRole.USER, "关键的错误发生了")
+    
+    # 获取消息（按重要性压缩）
+    messages = context_manager.get_messages(session_id)
+    print(f"压缩后消息数: {len(messages)}")
+    print("保留的消息（按重要性排序）:")
+    for msg in messages:
+        print(f"  - {msg.role.value}: {msg.content}")
+    
+    # 验证重要消息被保留
+    assert any(msg.role == MessageRole.SYSTEM for msg in messages)
+    assert any("问题" in msg.content or "错误" in msg.content for msg in messages)
+
+
 if __name__ == "__main__":
     """运行所有示例"""
     example_basic_usage()
@@ -152,6 +223,8 @@ if __name__ == "__main__":
     example_compression()
     example_search()
     example_session_management()
+    example_token_limit_compression()
+    example_importance_scoring_compression()
     print("\n" + "=" * 60)
     print("所有示例运行完成！")
     print("=" * 60)

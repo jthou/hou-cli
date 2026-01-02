@@ -55,6 +55,8 @@ context_manager.add_message(session_id, MessageRole.USER, "消息内容")
 
 ### 消息压缩
 
+#### 时间窗口压缩（默认）
+
 ```python
 # 设置默认最大消息数
 context_manager = ContextManager(default_max_messages=10)
@@ -66,6 +68,49 @@ for i in range(20):
 # 获取消息（自动压缩到 10 条）
 messages = context_manager.get_messages(session_id)
 # 将只返回最近 10 条消息
+```
+
+#### Token 限制压缩
+
+```python
+from backend.core.context.compression.token_limit import TokenLimitCompression
+
+# 使用 TokenLimitCompression
+compression = TokenLimitCompression()
+context_manager = ContextManager(
+    compression_strategy=compression,
+    default_max_tokens=1000
+)
+
+# 添加多条长消息
+for i in range(20):
+    context_manager.add_message(session_id, MessageRole.USER, f"消息{i}: " + "x" * 100)
+
+# 获取消息（自动压缩到 1000 tokens 以内）
+messages = context_manager.get_messages(session_id)
+# 优先保留系统消息，然后从后往前保留其他消息
+```
+
+#### 重要性评分压缩
+
+```python
+from backend.core.context.compression.importance import ImportanceScoringCompression
+
+# 使用 ImportanceScoringCompression
+compression = ImportanceScoringCompression()
+context_manager = ContextManager(
+    compression_strategy=compression,
+    default_max_messages=10
+)
+
+# 添加消息（包含重要消息）
+context_manager.add_message(session_id, MessageRole.SYSTEM, "系统配置")
+context_manager.add_message(session_id, MessageRole.USER, "普通消息")
+context_manager.add_message(session_id, MessageRole.USER, "重要的问题需要解决")
+
+# 获取消息（按重要性压缩）
+messages = context_manager.get_messages(session_id)
+# 会优先保留系统消息和包含关键词的重要消息
 ```
 
 ### 搜索消息
@@ -94,7 +139,9 @@ backend/core/context/
 │   └── file.py                # FileStorageBackend（默认，持久化）
 ├── compression/
 │   ├── base.py                # CompressionStrategy 接口
-│   └── time_window.py         # TimeWindowCompression
+│   ├── time_window.py         # TimeWindowCompression（默认）
+│   ├── token_limit.py        # TokenLimitCompression
+│   └── importance.py          # ImportanceScoringCompression
 └── retrieval/
     ├── base.py                # RetrievalEngine 接口
     └── keyword.py             # KeywordRetrievalEngine（基础）
@@ -255,6 +302,37 @@ data/contexts/
 - 支持 `max_messages` 参数
 - 保留最近的消息
 - 如果消息数 <= max_messages，返回全部消息
+- **性能**: 最快（O(1) 复杂度）
+
+### TokenLimitCompression
+
+Token 限制压缩策略，基于 token 数量压缩消息。
+
+**特点**:
+- 支持 `max_tokens` 和 `max_messages` 参数
+- 优先保留系统消息
+- 从后往前保留其他消息
+- 支持自定义 tokenizer（默认：1 token ≈ 4 字符）
+- **性能**: 较快（O(n) 复杂度）
+
+**使用场景**: 需要精确控制 token 数量的场景
+
+### ImportanceScoringCompression
+
+重要性评分压缩策略，基于消息重要性压缩。
+
+**特点**:
+- 支持 `max_tokens` 和 `max_messages` 参数
+- 重要性评分规则：
+  - 系统消息：+10.0
+  - 最近 5 条消息：+5.0
+  - 包含关键词（"错误", "问题", "重要", "关键", "失败", "异常"）：+2.0
+  - 用户消息：+1.0
+- 按分数排序选择消息
+- 按时间顺序重新排序
+- **性能**: 较慢（O(n²) 复杂度），但保留重要消息效果最好
+
+**使用场景**: 需要保留重要消息的场景
 
 ## 检索引擎
 
@@ -296,11 +374,20 @@ python backend/core/context/examples.py
 - [技术选型文档](../../../docs/design/01-context-storage-and-compression-design-technology-selection.md)
 - [TDD 指南](../../../docs/todo/004-context-storage-core-implementation-tdd-guide.md)
 
+## 性能基准
+
+详细的性能基准数据请参考：[性能基准文档](../../../docs/design/01-context-storage-compression-performance-benchmark.md)
+
+**性能对比**（10000 条消息）:
+- TimeWindowCompression: < 0.0001s
+- TokenLimitCompression: 0.0072s
+- ImportanceScoringCompression: 0.0352s
+
 ## 未来扩展
 
-- [ ] 长期记忆支持
-- [ ] 高级压缩策略（TokenLimitCompression, ImportanceScoringCompression）
+- [x] ✅ 长期记忆支持
+- [x] ✅ 高级压缩策略（TokenLimitCompression, ImportanceScoringCompression）
+- [x] ✅ 数据库存储后端（SQLite）
 - [ ] 语义搜索（向量检索）
-- [ ] 数据库存储后端（SQLite）
 - [ ] 更完善的检索引擎
 
