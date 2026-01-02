@@ -65,7 +65,7 @@
     parameters={
         "location": {
             "type": "string",
-            "description": "城市名称或城市ID，例如：'北京' 或 '101010100'",
+            "description": "城市名称，例如：'北京'、'上海'。系统会自动将城市名称转换为城市ID",
             "required": True
         },
         "days": {
@@ -77,7 +77,10 @@
     }
 )
 def get_weather(location: str, days: int = 1) -> Dict[str, Any]:
-    """获取天气信息"""
+    """获取天气信息
+    
+    如果传入的是城市名称，会先调用城市搜索API获取城市ID，然后再查询天气。
+    """
     pass
 ```
 
