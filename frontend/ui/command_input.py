@@ -63,14 +63,17 @@ class CommandCompleter(Completer):
             for cmd_name, desc, args in self.commands:
                 if cmd_name.startswith(partial):
                     # 计算需要替换的字符数
-                    # 如果输入是 "/l"，需要替换 "l"，所以 start_position = -1
-                    # 如果输入是 "/li"，需要替换 "li"，所以 start_position = -2
+                    # 如果输入是 "/l"，text = "/l"，command_part = "l"，partial = "l"
+                    # 光标在 "l" 后面，需要替换 "l"，所以 start_position = -1
+                    # 补全文本应该是完整的命令（包括 /），这样 "/l" 会变成 "/list"
                     start_pos = -len(partial)
-                    # 补全文本应该是完整的命令名（不包括 /）
+                    display_text = f"/{cmd_name}"
+                    if args:
+                        display_text += f" {args}"
                     yield Completion(
-                        cmd_name,
+                        f"/{cmd_name}",
                         start_position=start_pos,
-                        display=f"/{cmd_name}",
+                        display=display_text,
                         display_meta=desc
                     )
 
@@ -89,7 +92,13 @@ class CommandInput:
         
         if PROMPT_TOOLKIT_AVAILABLE:
             # 使用 prompt_toolkit 实现高级功能
+            # 方法1: 使用 WordCompleter（更简单，但需要完整命令）
+            from prompt_toolkit.completion import WordCompleter
+            command_words = [f"/{cmd[0]}" for cmd in commands]
+            # 使用 WordCompleter 作为基础，但我们需要自定义补全逻辑
+            # 所以还是使用 CommandCompleter
             self.completer = CommandCompleter(commands)
+            
             self.key_bindings = KeyBindings()
             self._setup_key_bindings()
             
@@ -97,11 +106,13 @@ class CommandInput:
                 completer=self.completer,
                 key_bindings=self.key_bindings,
                 complete_style='multi-column',  # 多列显示补全建议
-                complete_in_thread=True,  # 在后台线程中计算补全
+                complete_in_thread=False,  # 改为 False，确保补全立即响应
                 enable_open_in_editor=False,  # 禁用编辑器模式
                 enable_system_prompt=False,  # 禁用系统提示
             )
         else:
+            self.completer = None
+            self.key_bindings = None
             self.session = None
     
     def _setup_key_bindings(self):
