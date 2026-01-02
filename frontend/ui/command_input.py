@@ -96,10 +96,11 @@ class CommandInput:
     
     def _setup_key_bindings(self):
         """设置快捷键绑定"""
-        @self.key_bindings.add(Keys.ControlSpace)
-        def show_hint(event):
-            """Ctrl+Space 显示命令提示"""
-            self._show_command_hint()
+        if PROMPT_TOOLKIT_AVAILABLE and self.key_bindings:
+            @self.key_bindings.add(Keys.ControlSpace)
+            def show_hint(event):
+                """Ctrl+Space 显示命令提示"""
+                self._show_command_hint()
     
     def _show_command_hint(self):
         """显示命令提示菜单"""
