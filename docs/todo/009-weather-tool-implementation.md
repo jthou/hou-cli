@@ -108,8 +108,9 @@
 - [ ] 实现 `get_current_weather()` 方法（获取实时天气）
 - [ ] 实现 `get_forecast()` 方法（获取天气预报）
 - [ ] 实现 `get_warning()` 方法（获取天气预警）
+- [ ] 实现 `search_city()` 方法（搜索城市，获取城市ID）
 - [ ] 实现 `_make_request()` 方法（发送 API 请求，带 JWT 认证）
-- [ ] 实现 `_resolve_location()` 方法（解析城市名称或 ID）
+- [ ] 实现 `_resolve_location()` 方法（将城市名称转换为城市ID）
 - [ ] 实现错误处理和重试逻辑
 - [ ] 编写单元测试
 
