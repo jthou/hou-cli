@@ -16,7 +16,6 @@ class CommandHandler:
         
         # 上下文管理子命令
         self.context_commands = {
-            "new": ("创建新会话（开启新对话）", ""),
             "list": ("列出最近的会话", "[limit]"),
             "search": ("搜索包含关键词的会话", "<keyword> [limit]"),
             "restore": ("恢复会话（继续对话）", "[session_id]"),
@@ -67,7 +66,6 @@ class CommandHandler:
             
             # 上下文管理子命令处理器
             context_handlers = {
-                'new': self._handle_new,
                 'list': self._handle_list,
                 'search': self._handle_search,
                 'restore': self._handle_restore,
@@ -370,12 +368,12 @@ class CommandHandler:
                 return f"[red]错误: {e}[/red]"
         
         try:
-            
             # 获取会话详情
             detail = self.client.get_session_detail(session_id)
             
             if not detail.get("success"):
-                return f"[red]错误: {detail.get('error', '获取失败')}[/red]"
+                error_msg = detail.get('error', '获取失败')
+                return f"[red]错误: {error_msg}[/red]"
             
             session_info = detail.get("session", {})
             messages = detail.get("messages", [])
@@ -552,24 +550,6 @@ class CommandHandler:
             )
         except Exception as e:
             return f"[red]错误: {e}[/red]"
-    
-    def _handle_new(self, args: List[str]) -> Tuple[str, Optional[str]]:
-        """处理 /context new 命令 - 创建新会话"""
-        if not self.client:
-            return ("[yellow]命令功能尚未完全实现，请稍候[/yellow]", None)
-        
-        try:
-            new_session_id = self.client.create_session()
-            
-            message = (
-                f"[green]✓ 新会话已创建[/green]\n"
-                f"[dim]会话 ID: {new_session_id[:8]}...[/dim]\n"
-                f"[dim]已切换到新会话[/dim]"
-            )
-            
-            return (message, new_session_id)
-        except Exception as e:
-            return (f"[red]错误: {e}[/red]", None)
     
     def _handle_clear(self, args: List[str]) -> str:
         """处理 /clear 命令 - 清除当前会话的所有消息"""
