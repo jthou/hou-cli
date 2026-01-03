@@ -20,14 +20,14 @@ def show_banner_simple():
 ░▀░▀░▀▀▀░▀▀▀░░░░░▀░▀░▀░▀░▀░▀░▀▀▀░▀▀▀
 """
     
-    banner_text = Text(ascii_art.strip(), style="bold white")
+    banner_text = Text(ascii_art.strip(), style="bold cyan")
     
     banner_panel = Panel(
         banner_text,
-        border_style="white",
+        border_style="bright_cyan",
         box=ROUNDED,
         padding=(1, 2),
-        title="[bold white]LLM Agent CLI[/bold white]",
+        title="[bold bright_cyan]LLM Agent CLI[/bold bright_cyan]",
         title_align="center"
     )
     
@@ -35,7 +35,7 @@ def show_banner_simple():
     console.print(banner_panel, justify="center")
     
     # 副标题
-    subtitle = Text("hou-cli", style="dim italic")
+    subtitle = Text("hou-cli", style="bold cyan")
     console.print(subtitle, justify="center")
     console.print()
 
