@@ -112,11 +112,13 @@ class IPCClient:
             LLM 生成的回复
         """
         try:
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
             payload = {"message": message}
             if session_id:
                 payload["session_id"] = session_id
             
-            response = self.client.post(
+            response = requests.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
                 timeout=30.0
@@ -129,9 +131,9 @@ class IPCClient:
             else:
                 raise Exception(result.get("error", "未知错误"))
         
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     async def stream_send(self, message: str, session_id: Optional[str] = None) -> AsyncIterator[str]:
