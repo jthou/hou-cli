@@ -140,6 +140,22 @@ class WeatherTool:
         
         return self._make_request(endpoint, params)
     
+    def get_air_quality(self, location: str) -> Dict[str, Any]:
+        """
+        获取空气质量（AQI）数据
+        
+        Args:
+            location: 城市名称（如：'北京'）
+            
+        Returns:
+            包含空气质量信息的字典，包括AQI、PM2.5、PM10等
+        """
+        city_id = self._resolve_location(location)
+        endpoint = f"{self._get_api_base_url()}/v7/air/now"
+        params = {"location": city_id}
+        
+        return self._make_request(endpoint, params)
+    
     def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         发送 API 请求（带 JWT 认证）
