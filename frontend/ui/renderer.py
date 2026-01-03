@@ -50,6 +50,7 @@ class MarkdownRenderer(ContentRenderer):
             r'```[\s\S]*?```',       # 代码块
             r'\[[^\]]+\]\([^\)]+\)', # 链接：格式严格
             r'!\[[^\]]+\]\([^\)]+\)', # 图片：格式严格
+            r'\|.*\|',               # 表格：包含 | 的行
         ]
 
         for pattern in markdown_patterns:
