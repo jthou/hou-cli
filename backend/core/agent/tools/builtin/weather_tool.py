@@ -309,12 +309,22 @@ class WeatherToolWrapper(Tool):
             except Exception:
                 pass  # 预警失败不影响其他数据返回
             
+            # 尝试获取空气质量数据
+            air_quality_data = None
+            try:
+                air_quality_data = self.weather_tool.get_air_quality(location)
+            except Exception:
+                pass  # 空气质量失败不影响其他数据返回
+            
             # 组合返回数据
             result_data = {
                 "location": location,
                 "current": weather_data.get("now", {}),
                 "code": weather_data.get("code", "200")
             }
+            
+            if air_quality_data and air_quality_data.get("now"):
+                result_data["air_quality"] = air_quality_data.get("now", {})
             
             if forecast_data:
                 result_data["forecast"] = forecast_data.get("daily", [])
