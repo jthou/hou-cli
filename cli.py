@@ -338,7 +338,17 @@ def main():
                     if port and port != 8000 and port > 1024:
                         # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
                         import requests
-                        response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2.0)
+                        # 配置代理：跳过本地地址，避免代理问题
+                        proxies = {
+                            "http": None,
+                            "https": None,
+                            "no_proxy": "127.0.0.1,localhost,0.0.0.0"
+                        }
+                        response = requests.get(
+                            f"http://127.0.0.1:{port}/health", 
+                            timeout=2.0,
+                            proxies=proxies
+                        )
                         if response.status_code == 200:
                             print("✅ 后端服务已就绪")
                             return

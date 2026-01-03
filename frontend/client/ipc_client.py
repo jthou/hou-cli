@@ -58,8 +58,24 @@ class IPCClient:
             raise ConnectionError(f"无法连接到后端服务：{self.base_url}\n提示: 请检查后端服务是否正常运行")
         
         # 连接验证成功后，创建持久客户端
-        self.client = httpx.Client(timeout=30.0, follow_redirects=True)
-        self.async_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        # 配置代理：跳过本地地址（127.0.0.1, localhost），避免代理问题
+        proxy_config = {
+            "http://": None,
+            "https://": None,
+            "no_proxy": "127.0.0.1,localhost,0.0.0.0"
+        }
+        self.client = httpx.Client(
+            timeout=30.0, 
+            follow_redirects=True,
+            proxies=proxy_config,
+            trust_env=False  # 不信任环境变量中的代理设置，使用我们自己的配置
+        )
+        self.async_client = httpx.AsyncClient(
+            timeout=30.0, 
+            follow_redirects=True,
+            proxies=proxy_config,
+            trust_env=False
+        )
     
     def health_check(self) -> bool:
         """健康检查（带重试，使用 requests 库）"""
@@ -263,7 +279,8 @@ class IPCClient:
             import requests
             response = requests.delete(
                 f"{self.base_url}/api/sessions/{session_id}",
-                timeout=10.0
+                timeout=10.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
@@ -294,7 +311,8 @@ class IPCClient:
             import requests
             response = requests.post(
                 f"{self.base_url}/api/sessions/{session_id}/clear",
-                timeout=10.0
+                timeout=10.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
@@ -325,7 +343,8 @@ class IPCClient:
             import requests
             response = requests.get(
                 f"{self.base_url}/api/sessions/{session_id}",
-                timeout=10.0
+                timeout=10.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
@@ -353,7 +372,8 @@ class IPCClient:
             import requests
             response = requests.post(
                 f"{self.base_url}/api/sessions",
-                timeout=10.0
+                timeout=10.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
@@ -384,7 +404,8 @@ class IPCClient:
             response = requests.get(
                 f"{self.base_url}/api/sessions/search",
                 params={"keyword": keyword, "limit": limit},
-                timeout=10.0
+                timeout=10.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
@@ -422,7 +443,8 @@ class IPCClient:
             import requests
             response = requests.post(
                 f"{self.base_url}/api/sessions/{session_id}/summary",
-                timeout=60.0  # 生成摘要可能需要更长时间
+                timeout=60.0,  # 生成摘要可能需要更长时间
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
