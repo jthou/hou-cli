@@ -28,7 +28,7 @@ def get_orchestrator():
     global _orchestrator
     if _orchestrator is None:
         try:
-            _orchestrator = Orchestrator()
+        _orchestrator = Orchestrator()
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
@@ -100,12 +100,12 @@ async def chat_stream(request: ChatRequest):
             
             logger.debug("开始流式处理请求...")
             try:
-                async for chunk in orchestrator.stream_process(request.message, context=context):
-                    # SSE 格式：data: {json}\n\n
-                    yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
-                # 发送完成信号
+            async for chunk in orchestrator.stream_process(request.message, context=context):
+                # SSE 格式：data: {json}\n\n
+                yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
+            # 发送完成信号
                 logger.debug("流式处理完成")
-                yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
+            yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
             except Exception as inner_e:
                 # 流式处理过程中的异常
                 error_trace = traceback.format_exc()
@@ -182,14 +182,18 @@ async def delete_session(session_id: str):
 async def clear_session_messages(session_id: str):
     """清除会话的所有消息"""
     try:
+        logger.debug(f"清除会话消息: session_id={session_id}")
         orchestrator = get_orchestrator()
         result = orchestrator.context_manager.clear_session(session_id)
         
         if result:
+            logger.debug(f"成功清除会话消息: session_id={session_id}")
             return {"success": True, "message": f"会话 {session_id} 的消息已清除"}
         else:
+            logger.warning(f"清除会话消息失败: session_id={session_id}")
             return {"success": False, "error": f"会话不存在或清除失败: {session_id}"}
     except Exception as e:
+        logger.error(f"清除会话消息异常: session_id={session_id}, 错误: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e)
@@ -199,17 +203,21 @@ async def clear_session_messages(session_id: str):
 async def get_session_detail(session_id: str):
     """获取会话详情（包含消息列表）"""
     try:
+        logger.debug(f"获取会话详情: session_id={session_id}")
         orchestrator = get_orchestrator()
         session = orchestrator.context_manager.get_session(session_id)
         
         if not session:
+            logger.warning(f"会话不存在: {session_id}")
             return {"success": False, "error": f"会话不存在: {session_id}"}
         
         # 获取消息列表（不压缩，用于显示）
+        logger.debug(f"获取消息列表: session_id={session_id}, compressed=False")
         messages = orchestrator.context_manager.get_messages(
             session_id,
             compressed=False
         )
+        logger.debug(f"获取到 {len(messages)} 条消息")
         
         # 转换为字典格式
         messages_data = [
@@ -222,7 +230,7 @@ async def get_session_detail(session_id: str):
             for msg in messages
         ]
         
-        return {
+        result = {
             "success": True,
             "session": {
                 "session_id": session.session_id,
@@ -232,7 +240,10 @@ async def get_session_detail(session_id: str):
             },
             "messages": messages_data
         }
+        logger.debug(f"成功获取会话详情: session_id={session_id}, messages_count={len(messages_data)}")
+        return result
     except Exception as e:
+        logger.error(f"获取会话详情失败: session_id={session_id}, 错误: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e)
