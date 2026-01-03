@@ -18,3 +18,4 @@ class TestSessionHistory:
         # TODO: 当 SessionHistory 实现后，添加具体测试
         assert True
 
+

@@ -30,9 +30,8 @@ class TestJWTAuth:
         
         auth = JWTAuth(
             private_key=normalized_key,
-            issuer="test_issuer",
-            audience="test_audience",
-            subject="test_subject",
+            kid="test_kid",
+            sub="test_sub",
             expires_in=3600
         )
         return auth
@@ -44,13 +43,11 @@ class TestJWTAuth:
         
         auth = JWTAuth(
             private_key=normalized_key,
-            issuer="test_issuer",
-            audience="test_audience",
-            subject="test_subject"
+            kid="test_kid",
+            sub="test_sub"
         )
-        assert auth.issuer == "test_issuer"
-        assert auth.audience == "test_audience"
-        assert auth.subject == "test_subject"
+        assert auth.kid == "test_kid"
+        assert auth.sub == "test_sub"
     
     def test_init_from_env(self, real_private_key):
         """测试从环境变量初始化（使用真实私钥）"""
@@ -58,14 +55,14 @@ class TestJWTAuth:
         if not real_private_key:
             pytest.skip("WEATHER_JWT_PRIVATE_KEY not set")
         
-        auth = JWTAuth.from_env(
-            issuer="test_issuer",
-            audience="test_audience",
-            subject="test_subject"
-        )
-        assert auth.issuer == "test_issuer"
-        assert auth.audience == "test_audience"
-        assert auth.subject == "test_subject"
+        # 需要设置 kid 和 sub 环境变量
+        with patch.dict(os.environ, {
+            "QWEATHER_CREDENTIAL_ID": "test_kid",
+            "QWEATHER_PROJECT_ID": "test_sub"
+        }):
+            auth = JWTAuth.from_env()
+            assert auth.kid == "test_kid"
+            assert auth.sub == "test_sub"
     
     def test_init_from_env_key_not_set(self):
         """测试从环境变量初始化时私钥未设置"""
@@ -75,11 +72,7 @@ class TestJWTAuth:
             mock_loader.return_value = mock_loader_instance
             
             with pytest.raises(JWTAuthError, match="Failed to load private key"):
-                JWTAuth.from_env(
-                    issuer="test_issuer",
-                    audience="test_audience",
-                    subject="test_subject"
-                )
+                JWTAuth.from_env()
     
     def test_generate_token_success(self, jwt_auth):
         """测试成功生成 JWT token"""
@@ -109,9 +102,8 @@ class TestJWTAuth:
         invalid_key = "invalid_key"
         auth = JWTAuth(
             private_key=invalid_key,
-            issuer="test_issuer",
-            audience="test_audience",
-            subject="test_subject"
+            kid="test_kid",
+            sub="test_sub"
         )
         
         with pytest.raises(JWTAuthError, match="Failed to generate JWT token"):
@@ -138,9 +130,8 @@ class TestJWTAuth:
         
         auth = JWTAuth(
             private_key=normalized_key,
-            issuer="test_issuer",
-            audience="test_audience",
-            subject="test_subject"
+            kid="test_kid",
+            sub="test_sub"
         )
         assert auth.expires_in == 3600  # 默认 1 小时
     
@@ -151,9 +142,8 @@ class TestJWTAuth:
         
         auth = JWTAuth(
             private_key=normalized_key,
-            issuer="test_issuer",
-            audience="test_audience",
-            subject="test_subject",
+            kid="test_kid",
+            sub="test_sub",
             expires_in=7200
         )
         assert auth.expires_in == 7200

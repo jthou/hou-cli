@@ -139,3 +139,4 @@ class RendererFactory:
         # 默认返回文本渲染器
         return TextRenderer()
 
+

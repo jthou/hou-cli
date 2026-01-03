@@ -42,3 +42,4 @@ class TestWorkflowIdentifier:
             assert result["mode"] in ["dynamic", "sop"]
             assert 0 <= result["confidence"] <= 1
 
+

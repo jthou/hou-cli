@@ -55,3 +55,4 @@ class TestAgentCoordinator:
         assert isinstance(coordinator.execution_history, list)
         assert len(coordinator.execution_history) == 0
 
+

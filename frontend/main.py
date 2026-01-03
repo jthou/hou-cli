@@ -78,6 +78,11 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
 @click.option('--stream/--no-stream', default=True, help='是否使用流式响应')
 def chat(message, stream):
     """与 Agent 对话"""
+    # 如果是交互式模式，先显示 banner
+    if not message:
+        show_banner()
+        console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
+    
     try:
         client = IPCClient()
     except ConnectionError as e:
@@ -106,9 +111,7 @@ def chat(message, stream):
             show_error(e)
     else:
         # 交互式模式
-        # 显示启动画面
-        show_banner()
-        console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
+        # Banner 已经在上面显示了
         # 会话 ID 在后台使用，不显示给用户
         
         # 创建命令处理器

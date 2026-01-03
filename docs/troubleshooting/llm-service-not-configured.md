@@ -215,3 +215,4 @@ curl http://127.0.0.1:$(cat ~/.local/share/hou-cli/port.txt 2>/dev/null || echo 
 **最后更新**: 2025-01-02  
 **状态**: ✅ 已修复 - 代码中已实现完整的错误检查和提示
 
+

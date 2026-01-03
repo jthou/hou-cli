@@ -153,10 +153,11 @@ def cleanup_environment():
         PID_FILE.unlink(missing_ok=True)
         print("   ✅ 已清理 PID 文件")
     
-    # 4. 清理端口文件
-    if port_file.exists():
-        port_file.unlink(missing_ok=True)
-        print("   ✅ 已清理端口文件")
+    # 4. 不清理端口文件，保留以便下次启动时复用端口
+    # 如果端口被占用，会在启动时自动检测并分配新端口
+    # if port_file.exists():
+    #     port_file.unlink(missing_ok=True)
+    #     print("   ✅ 已清理端口文件")
     
     # 5. 等待一小段时间确保进程完全退出
     time.sleep(0.5)

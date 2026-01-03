@@ -17,31 +17,45 @@ class TestWeatherTool:
     def jwt_auth(self):
         """创建 JWT 认证实例"""
         try:
-            auth = JWTAuth.from_env(
-                issuer="test_issuer",
-                audience="test_audience",
-                subject="test_subject"
-            )
+            auth = JWTAuth.from_env()
             return auth
         except Exception:
-            pytest.skip("JWT auth not configured. Set WEATHER_JWT_PRIVATE_KEY in .env")
+            pytest.skip("JWT auth not configured. Set WEATHER_JWT_PRIVATE_KEY, QWEATHER_CREDENTIAL_ID, QWEATHER_PROJECT_ID in .env")
     
     @pytest.fixture
     def weather_tool(self, jwt_auth):
         """创建 WeatherTool 实例"""
-        return WeatherTool(jwt_auth=jwt_auth)
+        # 确保设置了 QWEATHER_API_HOST 环境变量
+        # 注意：需要在每个测试中设置，因为 _get_api_base_url 每次都会读取环境变量
+        original_host = os.environ.get("QWEATHER_API_HOST")
+        os.environ["QWEATHER_API_HOST"] = "test-host.re.qweatherapi.com"
+        try:
+            tool = WeatherTool(jwt_auth=jwt_auth)
+            yield tool
+        finally:
+            # 恢复原始环境变量
+            if original_host is not None:
+                os.environ["QWEATHER_API_HOST"] = original_host
+            elif "QWEATHER_API_HOST" in os.environ:
+                del os.environ["QWEATHER_API_HOST"]
     
     def test_init(self, jwt_auth):
         """测试初始化"""
-        tool = WeatherTool(jwt_auth=jwt_auth)
-        assert tool.jwt_auth == jwt_auth
-        assert tool.api_base_url == "https://devapi.qweather.com"
+        with patch.dict(os.environ, {"QWEATHER_API_HOST": "test-host.re.qweatherapi.com"}):
+            tool = WeatherTool(jwt_auth=jwt_auth)
+            assert tool.jwt_auth == jwt_auth
+            # 验证 _get_api_base_url 方法返回正确的 URL
+            assert tool._get_api_base_url() == "https://test-host.re.qweatherapi.com"
     
-    def test_init_custom_api_url(self, jwt_auth):
-        """测试使用自定义 API URL 初始化"""
-        custom_url = "https://custom.api.com"
-        tool = WeatherTool(jwt_auth=jwt_auth, api_base_url=custom_url)
-        assert tool.api_base_url == custom_url
+    def test_init_missing_api_host(self, jwt_auth):
+        """测试缺少 QWEATHER_API_HOST 时初始化失败"""
+        with patch.dict(os.environ, {}, clear=True):
+            # 移除 QWEATHER_API_HOST
+            if "QWEATHER_API_HOST" in os.environ:
+                del os.environ["QWEATHER_API_HOST"]
+            
+            with pytest.raises(WeatherToolError, match="QWEATHER_API_HOST"):
+                WeatherTool(jwt_auth=jwt_auth)
     
     def test_search_city_success(self, weather_tool):
         """测试搜索城市成功"""

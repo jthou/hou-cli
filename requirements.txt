@@ -11,6 +11,7 @@ click>=8.1.0
 
 # HTTP 客户端
 httpx>=0.25.0
+requests>=2.31.0  # 用于健康检查（httpx 在某些情况下可能有问题）
 
 # 数据验证
 pydantic>=2.0.0
@@ -47,8 +48,14 @@ pyyaml>=6.0.1
 # 环境变量管理
 python-dotenv>=1.0.0
 
+# ===== 认证和安全 =====
+# JWT 认证（和风天气 API）
+PyJWT[crypto]>=2.8.0
+cryptography>=41.0.0
+
 # ===== 可选依赖 =====
 # 如果需要使用其他向量数据库，可以取消注释
 # faiss-cpu>=1.7.4  # Facebook AI Similarity Search
 # qdrant-client>=1.7.0  # Qdrant 向量数据库
+
 

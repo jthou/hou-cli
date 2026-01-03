@@ -1,10 +1,12 @@
 """IPC 客户端 (TCP Localhost)"""
 import json
 import httpx
+import requests  # 用于健康检查和流式请求，httpx 在某些情况下可能有问题
 from pathlib import Path
 import platform
 import time
 from typing import Optional, AsyncIterator, List, Dict, Any
+import asyncio
 
 class IPCClient:
     """跨平台 IPC 客户端"""
@@ -50,20 +52,53 @@ class IPCClient:
         """连接到后端服务"""
         self.port = self._load_port()
         self.base_url = f"http://127.0.0.1:{self.port}"
-        self.client = httpx.Client(timeout=30.0)
-        self.async_client = httpx.AsyncClient(timeout=30.0)
         
-        # 验证连接
+        # 先验证连接（使用临时客户端）
         if not self.health_check():
-            raise ConnectionError(f"无法连接到后端服务：{self.base_url}")
+            raise ConnectionError(f"无法连接到后端服务：{self.base_url}\n提示: 请检查后端服务是否正常运行")
+        
+        # 连接验证成功后，创建持久客户端
+        self.client = httpx.Client(timeout=30.0, follow_redirects=True)
+        self.async_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
     
     def health_check(self) -> bool:
-        """健康检查"""
-        try:
-            response = self.client.get(f"{self.base_url}/health", timeout=5.0)
-            return response.status_code == 200
-        except:
-            return False
+        """健康检查（带重试，使用 requests 库）"""
+        max_retries = 3
+        retry_delay = 0.5
+        
+        for attempt in range(max_retries):
+            try:
+                # 使用 requests 库进行健康检查，因为 httpx 在某些情况下可能返回 502
+                response = requests.get(f"{self.base_url}/health", timeout=10.0)
+                
+                if response.status_code == 200:
+                    return True
+                elif response.status_code == 502 and attempt < max_retries - 1:
+                    # 502 可能是服务还在启动，等待后重试
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return False
+            except requests.exceptions.ConnectionError as e:
+                # 连接错误：服务可能未启动或端口错误
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+            except requests.exceptions.Timeout as e:
+                # 超时：服务可能响应慢或不可用
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+            except Exception as e:
+                # 其他错误
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+        
+        return False
     
     def send(self, message: str, session_id: Optional[str] = None) -> str:
         """
@@ -110,56 +145,55 @@ class IPCClient:
         Yields:
             流式数据块
         """
-        # 确保异步客户端存在
-        if not self.async_client:
-            self.async_client = httpx.AsyncClient(timeout=60.0)
-        
         url = f"{self.base_url}/api/chat/stream"
+        payload = {"message": message}
+        if session_id:
+            payload["session_id"] = session_id
+        
+        # 使用 requests 库进行流式请求，因为 httpx 在某些情况下可能返回 502
+        # 在异步函数中运行同步的 requests 请求
+        loop = asyncio.get_event_loop()
         try:
-            payload = {"message": message}
-            if session_id:
-                payload["session_id"] = session_id
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.post(url, json=payload, stream=True, timeout=60.0)
+            )
             
-            async with self.async_client.stream(
-                "POST",
-                url,
-                json=payload,
-                timeout=60.0
-            ) as response:
-                # 检查状态码
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    raise Exception(f"HTTP 错误 {response.status_code}: {error_text.decode('utf-8', errors='ignore')}")
-                
-                buffer = ""
-                async for chunk in response.aiter_bytes():
-                    buffer += chunk.decode('utf-8', errors='ignore')
-                    
-                    # 处理 SSE 格式：data: {json}\n\n
-                    while "\n\n" in buffer:
-                        line, buffer = buffer.split("\n\n", 1)
-                        if line.startswith("data: "):
+            # 检查状态码
+            if response.status_code != 200:
+                error_text = response.text[:500] if response.text else f"状态码: {response.status_code}"
+                response.close()
+                raise Exception(f"HTTP 错误 {response.status_code}: {error_text}")
+            
+            try:
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8', errors='ignore')
+                        # 每行就是一个完整的 SSE 消息（data: {...}）
+                        if line_str.startswith("data: "):
                             try:
-                                data = json.loads(line[6:])  # 跳过 "data: "
+                                # 解析JSON，会自动处理Unicode转义序列
+                                data = json.loads(line_str[6:])  # 跳过 "data: "
                                 if data.get("status") == "streaming":
-                                    yield data.get("content", "")
+                                    content = data.get("content", "")
+                                    if content:  # 只yield非空内容
+                                        yield content
                                 elif data.get("status") == "done":
                                     return
                                 elif data.get("status") == "error":
                                     raise Exception(data.get("error", "未知错误"))
                             except json.JSONDecodeError:
+                                # 忽略解析错误，继续处理下一行
                                 continue
+            finally:
+                response.close()
         
-        except httpx.RequestError as e:
+        except requests.exceptions.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
-            error_text = ""
-            try:
-                if hasattr(e.response, 'text'):
-                    error_text = e.response.text
-            except:
-                pass
-            raise Exception(f"HTTP 错误 {e.response.status_code}: {error_text}")
+        except Exception as e:
+            if "HTTP 错误" in str(e):
+                raise
+            raise Exception(f"请求失败：{str(e)}")
     
     def close(self):
         """关闭客户端"""

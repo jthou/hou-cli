@@ -22,10 +22,12 @@
 ### 3.1 API 选择
 
 **和风天气 API 端点：**
-- 城市搜索：`https://devapi.qweather.com/v7/city/lookup` - 根据城市名称搜索，返回城市ID
-- 实时天气：`https://devapi.qweather.com/v7/weather/now?location={cityId}`
-- 天气预报：`https://devapi.qweather.com/v7/weather/{days}d?location={cityId}`
-- 天气预警：`https://devapi.qweather.com/v7/warning/now?location={cityId}`
+- 城市搜索：`https://{API_HOST}/geo/v2/city/lookup` - 根据城市名称搜索，返回城市ID
+- 实时天气：`https://{API_HOST}/v7/weather/now?location={cityId}`
+- 天气预报：`https://{API_HOST}/v7/weather/{days}d?location={cityId}`
+- 天气预警：`https://{API_HOST}/v7/warning/now?location={cityId}`
+
+**注意：** `{API_HOST}` 是项目特定的 API Host，在控制台-设置中查看（格式：`xxx.re.qweatherapi.com`）。不能使用公共 API（`devapi.qweather.com`）。
 
 **注意：** 所有天气查询 API 都需要城市ID（cityId），因此需要先调用城市搜索API将城市名称转换为城市ID。
 
@@ -36,11 +38,18 @@
 #### 3.2.1 JWT Payload 结构
 ```json
 {
-  "iss": "hou-cli-weather-tool",  // 发行者
-  "iat": 1234567890,              // 签发时间
-  "exp": 1234571490,              // 过期时间（1小时后）
-  "aud": "qweather-api",          // 受众
-  "sub": "weather-query"          // 主题
+  "sub": "ABCDE23456",           // 项目ID（Project ID），在控制台-项目管理中查看
+  "iat": 1234567890,             // 签发时间（当前时间-30秒，防止时间误差）
+  "exp": 1234571490              // 过期时间（最长24小时）
+}
+```
+
+**JWT Header 结构：**
+```json
+{
+  "alg": "EdDSA",                // 签名算法
+  "kid": "K8GYPEQ99J",          // 凭据ID（Credential ID），在控制台-项目管理中查看
+  "typ": "JWT"                   // Token 类型（如果包含此字段，必须设置为JWT）
 }
 ```
 
@@ -161,8 +170,11 @@ class KeyLoader:
 class WeatherTool:
     """天气预报工具"""
     
-    def __init__(self, jwt_auth: JWTAuth, api_base_url: str = None):
-        """初始化天气工具"""
+    def __init__(self, jwt_auth: JWTAuth):
+        """初始化天气工具
+        
+        注意：API Host 从环境变量 QWEATHER_API_HOST 读取（必需配置）
+        """
         pass
     
     def get_current_weather(self, location: str) -> Dict[str, Any]:
@@ -233,7 +245,7 @@ class WeatherTool:
 
 所有配置通过 `.env` 文件的环境变量读取：
 - `WEATHER_JWT_PRIVATE_KEY`: JWT 私钥（RSA 私钥，PEM 格式）
-- `QWEATHER_API_BASE_URL`: 和风天气 API 基础 URL（默认：`https://devapi.qweather.com`）
+- `QWEATHER_API_HOST`: 和风天气 API Host（项目特定的 Host，必需，格式：`xxx.re.qweatherapi.com`）
 - `WEATHER_JWT_EXPIRES_IN`: JWT 过期时间（秒，默认：3600）
 
 ## 5. 错误处理
@@ -297,16 +309,16 @@ class WeatherTool:
 ## 8. 待确认信息
 
 ### 8.1 需要确认的问题
-1. **JWT Payload：** 具体的 payload 结构是什么？需要包含哪些字段？（iss, aud, sub 等字段的具体值）
-2. **城市搜索 API：** 城市搜索 API 的返回格式和错误处理方式
+1. ~~**JWT Payload：** 具体的 payload 结构是什么？需要包含哪些字段？（iss, aud, sub 等字段的具体值）~~ ✅ 已确认：使用 `sub`（项目ID）、`iat`、`exp`，Header 中使用 `kid`（凭据ID）
+2. ~~**城市搜索 API：** 城市搜索 API 的返回格式和错误处理方式~~ ✅ 已确认：使用 `/geo/v2/city/lookup` 端点
 
 **注意：** 私钥和公钥已配置完成，无需额外配置。
 
 ### 8.2 建议的默认值
 - 私钥来源：环境变量 `WEATHER_JWT_PRIVATE_KEY`（已配置在 `.env` 文件中）
 - JWT 算法：`Ed25519 (EdDSA)`
-- JWT 过期时间：`3600` 秒（1 小时）
-- API 基础 URL：`https://devapi.qweather.com`
+- JWT 过期时间：`3600` 秒（1 小时，最长 24 小时）
+- API Host：环境变量 `QWEATHER_API_HOST`（项目特定的 Host，格式：`xxx.re.qweatherapi.com`，必需）
 - 默认预报天数：`7` 天
 
 ## 9. 后续扩展

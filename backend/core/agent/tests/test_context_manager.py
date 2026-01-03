@@ -84,3 +84,4 @@ class TestContextManager:
         assert llm_history[0]["role"] == "user"
         assert llm_history[1]["role"] == "assistant"
 
+

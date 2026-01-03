@@ -9,3 +9,4 @@ def create_table(title: str = None, **kwargs) -> Table:
     table = Table(title=title, **kwargs)
     return table
 
+

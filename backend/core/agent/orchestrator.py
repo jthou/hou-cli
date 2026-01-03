@@ -1,8 +1,11 @@
 """Agent 编排器"""
 import os
+import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # 加载 .env 文件（在导入 LLMService 之前）
 env_path = Path(__file__).parent.parent.parent.parent / '.env'
@@ -15,6 +18,9 @@ else:
 from backend.core.agent.coordinator import AgentCoordinator
 from backend.core.context.manager import ContextManager as FullContextManager
 from backend.core.context.models import MessageRole
+from backend.core.agent.tools.registry import ToolRegistry
+from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
+from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
 from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
@@ -27,9 +33,33 @@ class Orchestrator:
         self.coordinator = AgentCoordinator()
         self.llm_service = LLMService()
         self.context_manager = FullContextManager()
+        self.tool_registry = ToolRegistry()
         self.debug = DebugOutput()  # 调试输出
+        
+        # 注册天气工具（如果配置了 JWT）
+        self._register_tools()
+        
         # self.workflow_identifier = WorkflowIdentifier()
         # self.workflow_engine = WorkflowEngine(self)
+    
+    def _register_tools(self):
+        """注册所有可用工具"""
+        try:
+            # 从环境变量读取 kid 和 sub（如果未提供）
+            jwt_auth = JWTAuth.from_env()
+            weather_tool = get_weather_tool(jwt_auth)
+            self.tool_registry.register(weather_tool)
+            self.debug.log_orchestrator_step("注册工具", {"weather_tool": "registered"})
+        except JWTAuthError as e:
+            # JWT 认证配置错误，记录详细错误信息
+            error_msg = f"JWT authentication configuration error: {str(e)}. Weather tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            # 其他工具注册失败，记录但不中断
+            error_msg = f"Failed to register weather tool: {str(e)}. Weather tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
     
     async def process(self, task: str, context: Optional[Dict] = None) -> str:
         """处理任务，支持 SOP 和动态编排"""
@@ -68,7 +98,7 @@ class Orchestrator:
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
         # 构建消息列表
-        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。"
+        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。\n\n重要：当用户询问天气信息时，你必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。"
         
         # 构建 user_prompt（包含历史上下文）
         # 过滤掉 system 消息，只保留 user 和 assistant 消息
@@ -86,11 +116,16 @@ class Orchestrator:
             user_prompt = task
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         
-        # LLM 调用
+        # 获取工具定义（LLM Function Calling 格式）
+        tools = self.tool_registry.get_tools_for_llm()
+        self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools)})
+        
+        # LLM 调用（支持工具调用）
         self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
-        response = await self.llm_service.chat(
+        response = await self._chat_with_tools(
             system_prompt=system_prompt,
-            user_prompt=user_prompt
+            user_prompt=user_prompt,
+            tools=tools if tools else None
         )
         self.debug.log_llm_response(response, "deepseek-chat")
         
@@ -133,8 +168,8 @@ class Orchestrator:
         )
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
-        # 构建消息
-        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
+        # 构建消息列表（与 process 方法保持一致）
+        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。\n\n重要：当用户询问天气信息时，你必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息，也不要从历史对话记录中提取旧的天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。"
         
         # 构建 user_prompt（包含历史上下文）
         # 过滤掉 system 消息，只保留 user 和 assistant 消息
@@ -152,18 +187,49 @@ class Orchestrator:
             user_prompt = task
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         
-        # 流式调用 LLM
-        self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
-        full_response = ""
+        # 获取工具定义（LLM Function Calling 格式）
+        tools = self.tool_registry.get_tools_for_llm()
+        self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []})
         
-        async for chunk in self.llm_service.stream_chat(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt
-        ):
-            full_response += chunk
-            yield chunk
-        
-        self.debug.log_llm_response(full_response, "deepseek-chat")
+        # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
+        if tools:
+            try:
+                # 使用工具调用获取完整响应
+                full_response = await self._chat_with_tools(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    tools=tools
+                )
+                
+                # 确保 full_response 是字符串
+                if full_response is None:
+                    full_response = ""
+                else:
+                    full_response = str(full_response)
+                
+                # 流式返回最终响应（模拟流式输出）
+                self.debug.log_llm_response(full_response, "deepseek-chat")
+                for char in full_response:
+                    yield char
+            except Exception as e:
+                logger.error(f"流式处理工具调用失败: {str(e)}", exc_info=True)
+                error_msg = f"处理请求时出错：{str(e)}"
+                for char in error_msg:
+                    yield char
+                # 不重新抛出异常，让流式响应正常完成
+        else:
+            # 没有工具，直接流式调用 LLM
+            self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
+            full_response = ""
+            
+            async for chunk in self.llm_service.stream_chat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            ):
+                full_response += chunk
+                yield chunk
+            
+            self.debug.log_llm_response(full_response, "deepseek-chat")
         
         # 保存消息到历史
         self.context_manager.add_message(session_id, MessageRole.USER, task)
@@ -171,4 +237,142 @@ class Orchestrator:
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
         
         self.debug.log_orchestrator_step("流式任务处理完成", {"response_length": len(full_response)})
-
+    
+    async def _chat_with_tools(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tools: Optional[list] = None
+    ) -> str:
+        """
+        带工具调用的聊天（处理工具调用循环）
+        
+        Args:
+            system_prompt: 系统提示
+            user_prompt: 用户提示
+            tools: 工具定义列表
+            
+        Returns:
+            LLM 生成的最终回复
+        """
+        import json
+        
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_prompt})
+            
+            max_iterations = 5  # 最多 5 轮工具调用循环
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                self.debug.log_orchestrator_step(f"工具调用循环第 {iteration} 轮", {})
+                
+                try:
+                    # 调用 LLM（使用 messages 而不是 system_prompt/user_prompt）
+                    response = await self.llm_service.chat(messages=messages, tools=tools)
+                except Exception as e:
+                    logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
+                    return f"抱歉，处理您的请求时出现错误：{str(e)}"
+                
+                # 检查响应类型
+                if isinstance(response, str):
+                    # 普通文本回复，直接返回
+                    return response
+                
+                # 检查是否有工具调用
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
+                    
+                    # 执行所有工具调用
+                    tool_results = []
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call.function.name
+                    tool_args_str = tool_call.function.arguments
+                    
+                    self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str})
+                    
+                    # 解析参数
+                    try:
+                        tool_args = json.loads(tool_args_str)
+                    except json.JSONDecodeError:
+                        tool_args = {}
+                    
+                    # 执行工具
+                    try:
+                        tool_result = self.tool_registry.execute(tool_name, **tool_args)
+                    except Exception as e:
+                        logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
+                        tool_result = ToolResult(
+                            success=False,
+                            error=f"工具执行失败: {str(e)}"
+                        )
+                    
+                    # 记录详细的执行结果
+                    if not tool_result.success:
+                        self.debug.log_orchestrator_step("工具执行失败", {
+                            "name": tool_name,
+                            "error": tool_result.error
+                        })
+                    
+                    # 构建工具结果消息
+                    # 如果工具执行失败，确保错误信息清晰
+                    if not tool_result.success:
+                        tool_result_content = json.dumps({
+                            "error": tool_result.error,
+                            "success": False
+                        }, ensure_ascii=False)
+                    else:
+                        tool_result_content = json.dumps(tool_result.data, ensure_ascii=False)
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": tool_result_content
+                    })
+                    
+                    self.debug.log_orchestrator_step("工具执行完成", {
+                        "name": tool_name,
+                        "success": tool_result.success,
+                        "error": tool_result.error if not tool_result.success else None
+                    })
+                
+                    # 将助手消息添加到消息历史
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response.content if response.content else None,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": tc.type,
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            }
+                            for tc in response.tool_calls
+                        ]
+                    }
+                    messages.append(assistant_message)
+                    
+                    # 添加工具结果
+                    messages.extend(tool_results)
+                    
+                    # 继续循环，让 LLM 基于工具结果生成回复
+                    continue
+                
+                # 如果没有工具调用，返回内容
+                if hasattr(response, 'content') and response.content:
+                    return response.content
+                
+                # 如果都没有，返回空字符串
+                return ""
+            
+            # 达到最大迭代次数，返回错误信息
+            self.debug.log_orchestrator_step("达到最大工具调用迭代次数", {"max_iterations": max_iterations})
+            return "抱歉，工具调用未能成功获取信息。"
+        except Exception as e:
+            logger.error(f"_chat_with_tools 执行失败: {str(e)}", exc_info=True)
+            return f"抱歉，处理您的请求时出现错误：{str(e)}"

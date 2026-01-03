@@ -46,28 +46,45 @@ class LLMService:
         # DeepSeek R1 模型支持思考过程
         return "r1" in self.model.lower() or "reasoning" in self.model.lower()
     
-    async def chat(self, system_prompt: str = "", user_prompt: str = "") -> str:
+    async def chat(self, system_prompt: str = "", user_prompt: str = "", tools: Optional[list] = None, messages: Optional[list] = None):
         """
         聊天（非流式）
         
         Args:
             system_prompt: 系统提示
             user_prompt: 用户提示
+            tools: 工具定义列表（OpenAI Function Calling 格式）
+            messages: 消息列表（如果提供，将忽略 system_prompt 和 user_prompt）
             
         Returns:
-            LLM 生成的回复
+            LLM 生成的回复（字符串）或包含工具调用的响应对象（message 对象）
             
         Raises:
             httpx.HTTPStatusError: API 错误
             httpx.RequestError: 网络错误
         """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": user_prompt})
+        if messages is None:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_prompt})
         
         # 调试输出：请求信息
-        self.debug.log_llm_request(system_prompt, user_prompt, self.model)
+        self.debug.log_llm_request(system_prompt or "", user_prompt or "", self.model)
+        
+        # 构建请求参数
+        request_params = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens
+        }
+        
+        # 如果提供了工具，添加到请求中
+        if tools:
+            request_params["tools"] = tools
+            request_params["tool_choice"] = "auto"  # 让 LLM 决定是否调用工具
         
         # 错误处理：重试机制（指数退避）
         max_retries = 3
@@ -77,17 +94,16 @@ class LLMService:
         
         for attempt in range(max_retries):
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    stream=False,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens
-                )
+                response = await self.client.chat.completions.create(**request_params)
                 
                 # 处理思考过程（如果支持）
                 result = response.choices[0].message
                 content = result.content
+                
+                # 检查是否有工具调用
+                if hasattr(result, 'tool_calls') and result.tool_calls:
+                    # 返回包含工具调用的响应对象
+                    return result
                 
                 # 检查是否有思考过程（DeepSeek R1 格式）
                 # 注意：OpenAI SDK 可能不支持 reasoning_content，需要根据实际 API 响应调整

@@ -89,7 +89,7 @@
 ### 任务 2.3: 配置管理
 - [ ] 在 `.env.example` 中添加配置项
   - `WEATHER_JWT_PRIVATE_KEY_PATH`
-  - `QWEATHER_API_BASE_URL`
+  - `QWEATHER_API_HOST`（必需）
   - `QWEATHER_API_KEY`
   - `WEATHER_JWT_EXPIRES_IN`
 - [ ] 实现配置加载逻辑（从环境变量读取）

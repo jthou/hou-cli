@@ -18,3 +18,4 @@ class TestLongTermMemory:
         # TODO: 当 LongTermMemory 实现后，添加具体测试
         assert True
 
+

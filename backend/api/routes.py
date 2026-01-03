@@ -27,7 +27,13 @@ def get_orchestrator():
     """获取 Orchestrator 实例（单例模式）"""
     global _orchestrator
     if _orchestrator is None:
-        _orchestrator = Orchestrator()
+        try:
+            _orchestrator = Orchestrator()
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize Orchestrator: {str(e)}", exc_info=True)
+            raise
     return _orchestrator
 
 class ChatRequest(BaseModel):
@@ -37,13 +43,20 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """处理聊天请求（非流式）"""
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+    
     try:
+        logger.debug(f"收到聊天请求: message={request.message[:50]}..., session_id={request.session_id}")
         orchestrator = get_orchestrator()
         context = {}
         if request.session_id:
             context["session_id"] = request.session_id
         
+        logger.debug("开始处理请求...")
         response = await orchestrator.process(request.message, context=context)
+        logger.debug(f"请求处理成功，响应长度: {len(response) if response else 0}")
         
         # 返回响应和会话 ID（如果是新会话）
         result = {
@@ -57,6 +70,10 @@ async def chat(request: ChatRequest):
         
         return result
     except Exception as e:
+        error_trace = traceback.format_exc()
+        logger.error(f"Chat request failed: {str(e)}\n{error_trace}")
+        # 返回 200 状态码，但在响应中包含错误信息
+        # 这样前端可以正常处理，而不是收到 502
         return {
             "response": None,
             "status": "error",
@@ -66,19 +83,40 @@ async def chat(request: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """处理聊天请求（流式 SSE）"""
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+    
     async def generate():
         try:
+            logger.debug(f"收到流式聊天请求: message={request.message[:50]}..., session_id={request.session_id}")
+            # 立即发送一个心跳，保持连接活跃
+            yield f"data: {json.dumps({'content': '', 'status': 'streaming'})}\n\n"
+            
             orchestrator = get_orchestrator()
             context = {}
             if request.session_id:
                 context["session_id"] = request.session_id
             
-            async for chunk in orchestrator.stream_process(request.message, context=context):
-                # SSE 格式：data: {json}\n\n
-                yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
-            # 发送完成信号
-            yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
+            logger.debug("开始流式处理请求...")
+            try:
+                async for chunk in orchestrator.stream_process(request.message, context=context):
+                    # SSE 格式：data: {json}\n\n
+                    yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
+                # 发送完成信号
+                logger.debug("流式处理完成")
+                yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
+            except Exception as inner_e:
+                # 流式处理过程中的异常
+                error_trace = traceback.format_exc()
+                logger.error(f"流式处理过程中出错: {str(inner_e)}\n{error_trace}")
+                # 发送错误信号
+                yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(inner_e)})}\n\n"
         except Exception as e:
+            # 外层异常（如 orchestrator 初始化失败）
+            error_trace = traceback.format_exc()
+            logger.error(f"流式聊天请求失败: {str(e)}\n{error_trace}")
+            # 发送错误信号
             yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(e)})}\n\n"
     
     return StreamingResponse(
@@ -87,7 +125,8 @@ async def chat_stream(request: ChatRequest):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # 禁用 Nginx 缓冲
+            "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
+            "Transfer-Encoding": "chunked"
         }
     )
 

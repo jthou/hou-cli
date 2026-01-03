@@ -115,3 +115,4 @@ class TestMarkdownRenderingIntegration:
         renderer = factory.get_renderer(text)
         assert renderer is not None
 
+
