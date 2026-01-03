@@ -61,6 +61,7 @@ class IPCClient:
         # 配置代理：跳过本地地址（127.0.0.1, localhost），避免代理问题
         # httpx 通过设置 trust_env=False 来忽略环境变量中的代理设置
         # 对于本地地址，httpx 会自动跳过代理，但为了确保，我们明确禁用代理
+        # 注意：httpx 对本地地址（127.0.0.1, localhost）默认会跳过代理
         self.client = httpx.Client(
             timeout=30.0, 
             follow_redirects=True,
@@ -127,17 +128,15 @@ class IPCClient:
             LLM 生成的回复
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
             payload = {"message": message}
             if session_id:
                 payload["session_id"] = session_id
             
-            response = requests.post(
+            response = self.client.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
-                timeout=30.0,
-                proxies=self._get_no_proxy_config()
+                timeout=30.0
             )
             response.raise_for_status()
             result = response.json()
@@ -292,9 +291,9 @@ class IPCClient:
                 return True
             else:
                 raise Exception(result.get("error", "删除失败"))
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
@@ -324,9 +323,9 @@ class IPCClient:
                 return True
             else:
                 raise Exception(result.get("error", "清除失败"))
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
@@ -356,9 +355,9 @@ class IPCClient:
                 return result
             else:
                 raise Exception(result.get("error", "获取失败"))
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
@@ -385,9 +384,9 @@ class IPCClient:
                 return result.get("session_id")
             else:
                 raise Exception(result.get("error", "创建失败"))
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     def search_sessions(self, keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
