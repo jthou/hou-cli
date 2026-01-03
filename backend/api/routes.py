@@ -100,12 +100,12 @@ async def chat_stream(request: ChatRequest):
             
             logger.debug("开始流式处理请求...")
             try:
-            async for chunk in orchestrator.stream_process(request.message, context=context):
-                # SSE 格式：data: {json}\n\n
-                yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
-            # 发送完成信号
+                async for chunk in orchestrator.stream_process(request.message, context=context):
+                    # SSE 格式：data: {json}\n\n
+                    yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
+                # 发送完成信号
                 logger.debug("流式处理完成")
-            yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
+                yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
             except Exception as inner_e:
                 # 流式处理过程中的异常
                 error_trace = traceback.format_exc()
