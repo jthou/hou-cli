@@ -90,6 +90,9 @@ data/
 tmp/
 temp/
 
+# Git 提交消息临时文件
+.git_commit_msg*.txt
+
 # 操作系统文件
 .DS_Store
 .DS_Store?
