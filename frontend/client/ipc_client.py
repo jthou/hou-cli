@@ -257,7 +257,9 @@ class IPCClient:
             是否删除成功
         """
         try:
-            response = self.client.delete(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.delete(
                 f"{self.base_url}/api/sessions/{session_id}",
                 timeout=10.0
             )
@@ -268,9 +270,9 @@ class IPCClient:
                 return True
             else:
                 raise Exception(result.get("error", "删除失败"))
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
