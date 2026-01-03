@@ -98,18 +98,15 @@ class RendererFactory:
 
     优先级说明：
     1. CodeRenderer - 代码块优先（避免代码块内的 Markdown 被误判）
-    2. WeatherRenderer - 天气信息专用渲染器（使用 Rich Table）
-    3. MarkdownRenderer - Markdown 内容
-    4. TextRenderer - 默认渲染器（纯文本）
+    2. MarkdownRenderer - Markdown 内容
+    3. TextRenderer - 默认渲染器（纯文本）
 
     注意：代码块检测会排除代码块内的内容，避免嵌套检测
     """
 
     def __init__(self):
-        from frontend.ui.weather_renderer import WeatherRenderer
         self.renderers = [
             CodeRenderer(),      # 优先检测代码块（必须优先）
-            WeatherRenderer(),   # 天气信息专用渲染器
             MarkdownRenderer(),  # 其次检测 Markdown
             TextRenderer(),      # 默认渲染器
         ]
@@ -117,15 +114,9 @@ class RendererFactory:
     def get_renderer(self, content: str) -> ContentRenderer:
         """根据内容类型选择合适的渲染器
 
-        特殊处理：如果检测到代码块，排除代码块内的内容进行 Markdown 检测
+        特殊处理：如果检测到代码块，排除代码块内的内容进行其他检测
         """
-        # 先检测代码块
-        code_renderer = CodeRenderer()
-        if code_renderer.can_render(content):
-            return code_renderer
-
-        # 排除代码块后检测 Markdown
-        # 提取所有代码块，用占位符替换，避免代码块内的 Markdown 被误判
+        # 先排除代码块
         code_blocks = re.finditer(r'```[\s\S]*?```', content)
         content_without_code = content
         placeholders = []
@@ -135,12 +126,18 @@ class RendererFactory:
             placeholders.append((placeholder, match.group(0)))
             content_without_code = content_without_code.replace(match.group(0), placeholder)
 
-        # 在排除代码块的内容中检测 Markdown
-        markdown_renderer = MarkdownRenderer()
-        if markdown_renderer.can_render(content_without_code):
-            return markdown_renderer
+        # 按优先级遍历渲染器列表
+        for renderer in self.renderers:
+            # 代码块渲染器需要检测完整内容（包含代码块标记）
+            if isinstance(renderer, CodeRenderer):
+                if renderer.can_render(content):
+                    return renderer
+            else:
+                # 其他渲染器检测排除代码块后的内容
+                if renderer.can_render(content_without_code):
+                    return renderer
 
-        # 默认返回文本渲染器
+        # 默认返回文本渲染器（理论上不会到达这里，因为 TextRenderer.can_render 总是返回 True）
         return TextRenderer()
 
 

@@ -184,10 +184,8 @@ class IPCClient:
                     if line.startswith("data: "):
                         data_str = line[6:]  # 移除 "data: " 前缀
                         try:
-                            # 处理 Unicode 转义序列（如 \u4e2d）
-                            data_str = data_str.encode().decode('unicode_escape')
-                            # 清理无效的 Unicode 代理对字符
-                            data_str = data_str.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
+                            # 直接解析 JSON，不需要 unicode_escape（后端已使用 ensure_ascii=False）
+                            # 如果后端使用了 ensure_ascii=False，JSON 中的 emoji 会保持原样
                             data = json.loads(data_str)
                             
                             if data.get("status") == "streaming":

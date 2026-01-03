@@ -102,22 +102,23 @@ async def chat_stream(request: ChatRequest):
             try:
                 async for chunk in orchestrator.stream_process(request.message, context=context):
                     # SSE 格式：data: {json}\n\n
-                    yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'})}\n\n"
+                    # 使用 ensure_ascii=False 保持 emoji 等 Unicode 字符原样，避免转义
+                    yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'}, ensure_ascii=False)}\n\n"
                 # 发送完成信号
                 logger.debug("流式处理完成")
-                yield f"data: {json.dumps({'content': '', 'status': 'done'})}\n\n"
+                yield f"data: {json.dumps({'content': '', 'status': 'done'}, ensure_ascii=False)}\n\n"
             except Exception as inner_e:
                 # 流式处理过程中的异常
                 error_trace = traceback.format_exc()
                 logger.error(f"流式处理过程中出错: {str(inner_e)}\n{error_trace}")
                 # 发送错误信号
-                yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(inner_e)})}\n\n"
+                yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(inner_e)}, ensure_ascii=False)}\n\n"
         except Exception as e:
             # 外层异常（如 orchestrator 初始化失败）
             error_trace = traceback.format_exc()
             logger.error(f"流式聊天请求失败: {str(e)}\n{error_trace}")
             # 发送错误信号
-            yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(
         generate(),

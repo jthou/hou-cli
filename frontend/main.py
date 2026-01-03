@@ -123,7 +123,13 @@ def chat(message, stream):
                 factory = RendererFactory()
                 renderer = factory.get_renderer(response)
                 rendered = renderer.render(response)
-                console.print(rendered)
+                
+                # 检查是否为列表（某些渲染器可能返回列表）
+                if isinstance(rendered, list):
+                    for item in rendered:
+                        console.print(item)
+                else:
+                    console.print(rendered)
                 console.print()  # 空行分隔
         except Exception as e:
             show_error(e)
@@ -202,7 +208,13 @@ def chat(message, stream):
                     factory = RendererFactory()
                     renderer = factory.get_renderer(response)
                     rendered = renderer.render(response)
-                    console.print(rendered)
+                    
+                    # 检查是否为列表（WeatherRenderer 返回列表）
+                    if isinstance(rendered, list):
+                        for item in rendered:
+                            console.print(item)
+                    else:
+                        console.print(rendered)
                 console.print()  # 空行
             except KeyboardInterrupt:
                 break
