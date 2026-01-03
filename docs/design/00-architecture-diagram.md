@@ -12,7 +12,7 @@ flowchart TB
             Panels[Panel 面板组件<br/>带边框的容器]
             Tables[Table 表格组件<br/>数据表格展示]
             Progress[Progress 进度条<br/>任务进度显示]
-            Markdown[Markdown 渲染<br/>富文本内容]
+            StreamRenderer[流式渲染器<br/>StreamRenderer<br/>- Markdown 原始文本显示<br/>- Unicode 字符清理<br/>- Rich Live 实时更新]
             Syntax[Syntax 语法高亮<br/>代码显示]
         end
         
@@ -30,7 +30,7 @@ flowchart TB
         subgraph Workflow["📋 流程编排"]
             Identifier[流程识别器]
             WorkflowEngine[SOP 流程引擎]
-            Orchestrator[动态编排器]
+            Orchestrator[动态编排器<br/>- 工具注册和管理<br/>- Function Calling<br/>- 工具调用结果处理]
             Coordinator[Agent 协调器]
         end
         
@@ -75,6 +75,11 @@ flowchart TB
             LLMService[LLM 服务]
             ToolService[工具服务]
         end
+        
+        subgraph Tools["🛠️ 工具系统"]
+            ToolRegistry[工具注册器<br/>Tool Registry]
+            WeatherTool[天气工具<br/>Weather Tool<br/>- JWT 认证<br/>- 和风天气 API]
+        end
     end
 
     subgraph Storage["💾 存储层"]
@@ -98,6 +103,7 @@ flowchart TB
     subgraph External["🌐 外部服务"]
         DeepSeekAPI[DeepSeek API]
         Ollama[Ollama 本地 LLM]
+        QWeatherAPI[和风天气 API<br/>QWeather API]
     end
 
     %% 使用不可见节点控制布局顺序
@@ -127,6 +133,12 @@ flowchart TB
 - **Agent → 代码执行层**：执行代码
 - **Agent → 服务层**：调用 LLM 和工具
 
+#### 工具调用
+- **Orchestrator → Tool Registry**：注册和获取工具
+- **Orchestrator → 工具执行**：执行工具调用
+- **工具 → 外部服务**：调用外部 API（如和风天气 API）
+- **工具结果 → LLM**：将工具执行结果传递给 LLM 生成回复
+
 #### 代码执行
 - **代码执行层 → 安全执行层**：安全检查
 - **安全执行层 → 沙箱**：隔离执行
@@ -137,6 +149,7 @@ flowchart TB
 
 #### 服务调用
 - **LLM 服务 → 外部服务**：调用 DeepSeek API 或 Ollama
+- **天气工具 → 外部服务**：调用和风天气 API（使用 JWT 认证）
 
 #### 记忆存储
 - **长记忆系统 → 存储层**：存储记忆索引和上下文
@@ -220,4 +233,10 @@ flowchart TB
 
 6. **LLM 调用流程**：
    - Agent → LLM 服务 → 外部服务（DeepSeek/Ollama）
+
+7. **工具调用流程**：
+   - 用户请求 → Orchestrator → LLM 分析 → 决定调用工具
+   - Orchestrator → Tool Registry → 执行工具 → 获取结果
+   - 工具结果 → LLM → 生成最终回复 → 流式返回前端
+   - 前端 → StreamRenderer → 实时显示 Markdown 文本
 
