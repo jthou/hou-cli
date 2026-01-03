@@ -1,7 +1,6 @@
 """IPC 客户端 (TCP Localhost)"""
 import json
 import httpx
-import requests  # 用于健康检查和流式请求，httpx 在某些情况下可能有问题
 from pathlib import Path
 import platform
 import time
@@ -74,47 +73,42 @@ class IPCClient:
         )
     
     def health_check(self) -> bool:
-        """健康检查（带重试，使用 requests 库）"""
+        """健康检查（带重试，使用 httpx）"""
         max_retries = 3
         retry_delay = 0.5
         
-        for attempt in range(max_retries):
-            try:
-                # 使用 requests 库进行健康检查，因为 httpx 在某些情况下可能返回 502
-                response = requests.get(
-                    f"{self.base_url}/health", 
-                    timeout=10.0,
-                    proxies=self._get_no_proxy_config()
-                )
-                
-                if response.status_code == 200:
-                    return True
-                elif response.status_code == 502 and attempt < max_retries - 1:
-                    # 502 可能是服务还在启动，等待后重试
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    return False
-            except requests.exceptions.ConnectionError as e:
-                # 连接错误：服务可能未启动或端口错误
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return False
-            except requests.exceptions.Timeout as e:
-                # 超时：服务可能响应慢或不可用
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return False
-            except Exception as e:
-                # 其他错误
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return False
+        # 使用临时客户端进行健康检查
+        temp_client = httpx.Client(timeout=10.0, trust_env=False)
         
-        return False
+        try:
+            for attempt in range(max_retries):
+                try:
+                    response = temp_client.get(f"{self.base_url}/health", timeout=10.0)
+                    
+                    if response.status_code == 200:
+                        return True
+                    elif response.status_code == 502 and attempt < max_retries - 1:
+                        # 502 可能是服务还在启动，等待后重试
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return False
+                except httpx.RequestError:
+                    # 连接错误：服务可能未启动或端口错误
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    return False
+                except Exception:
+                    # 其他错误
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    return False
+            
+            return False
+        finally:
+            temp_client.close()
     
     def send(self, message: str, session_id: Optional[str] = None) -> str:
         """
@@ -144,11 +138,11 @@ class IPCClient:
             if result["status"] == "success":
                 return result["response"]
             else:
-                raise Exception(result.get("error", "未知错误"))
+                raise Exception(result.get("error", "未知错误")))
         
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     async def stream_send(self, message: str, session_id: Optional[str] = None) -> AsyncIterator[str]:
@@ -167,50 +161,48 @@ class IPCClient:
         if session_id:
             payload["session_id"] = session_id
         
-        # 使用 requests 库进行流式请求，因为 httpx 在某些情况下可能返回 502
-        # 在异步函数中运行同步的 requests 请求
-        loop = asyncio.get_event_loop()
+        # 使用 httpx.AsyncClient 进行流式请求，已配置 trust_env=False 跳过代理
         try:
-            # 在 lambda 中无法直接使用 self，所以先获取代理配置
-            no_proxy = self._get_no_proxy_config()
-            response = await loop.run_in_executor(
-                None,
-                lambda: requests.post(url, json=payload, stream=True, timeout=60.0, proxies=no_proxy)
-            )
-            
-            # 检查状态码
-            if response.status_code != 200:
-                error_text = response.text[:500] if response.text else f"状态码: {response.status_code}"
-                response.close()
-                raise Exception(f"HTTP 错误 {response.status_code}: {error_text}")
-            
-            try:
-                for line in response.iter_lines():
-                    if line:
-                        line_str = line.decode('utf-8', errors='ignore')
-                        # 每行就是一个完整的 SSE 消息（data: {...}）
-                        if line_str.startswith("data: "):
-                            try:
-                                # 解析JSON，会自动处理Unicode转义序列
-                                data = json.loads(line_str[6:])  # 跳过 "data: "
-                                if data.get("status") == "streaming":
-                                    content = data.get("content", "")
-                                    if content:  # 只yield非空内容
-                                        yield content
-                                elif data.get("status") == "done":
-                                    return
-                                elif data.get("status") == "error":
-                                    raise Exception(data.get("error", "未知错误"))
-                            except json.JSONDecodeError:
-                                # 忽略解析错误，继续处理下一行
-                                continue
-            finally:
-                response.close()
-        
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"连接错误：{str(e)}")
+            async with self.async_client.stream(
+                "POST",
+                url,
+                json=payload,
+                timeout=60.0,
+                headers={"Accept": "text/event-stream"}
+            ) as response:
+                # 检查状态码
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    error_text = error_text.decode('utf-8')[:500] if error_text else f"状态码: {response.status_code}"
+                    raise Exception(f"流式请求失败: {error_text}")
+                
+                # 解析 SSE 格式
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    
+                    if line.startswith("data: "):
+                        data_str = line[6:]  # 移除 "data: " 前缀
+                        try:
+                            # 处理 Unicode 转义序列（如 \u4e2d）
+                            data_str = data_str.encode().decode('unicode_escape')
+                            data = json.loads(data_str)
+                            
+                            if data.get("status") == "streaming":
+                                content = data.get("content", "")
+                                if content:  # 只yield非空内容
+                                    yield content
+                            elif data.get("status") == "done":
+                                return
+                            elif data.get("status") == "error":
+                                raise Exception(data.get("error", "未知错误"))
+                        except json.JSONDecodeError:
+                            # JSON 解析失败，跳过这一行
+                            continue
+        except httpx.RequestError as e:
+            raise ConnectionError(f"流式请求连接错误: {str(e)}")
         except Exception as e:
-            if "HTTP 错误" in str(e):
+            if "流式请求失败" in str(e) or "未知错误" in str(e):
                 raise
             raise Exception(f"请求失败：{str(e)}")
     
@@ -237,13 +229,11 @@ class IPCClient:
             会话列表（包含预览信息）
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.get(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.get(
                 f"{self.base_url}/api/sessions/list",
                 params={"limit": limit},
-                timeout=10.0,
-                proxies=self._get_no_proxy_config()
+                timeout=10.0
             )
             response.raise_for_status()
             result = response.json()
@@ -261,9 +251,9 @@ class IPCClient:
                     session["updated_at"] = datetime.fromisoformat(session["updated_at"])
             
             return sessions
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     def delete_session(self, session_id: str) -> bool:
@@ -277,12 +267,10 @@ class IPCClient:
             是否删除成功
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.delete(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.delete(
                 f"{self.base_url}/api/sessions/{session_id}",
-                timeout=10.0,
-                proxies=self._get_no_proxy_config()
+                timeout=10.0
             )
             response.raise_for_status()
             result = response.json()
@@ -309,12 +297,10 @@ class IPCClient:
             是否清除成功
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.post(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.post(
                 f"{self.base_url}/api/sessions/{session_id}/clear",
-                timeout=10.0,
-                proxies=self._get_no_proxy_config()
+                timeout=10.0
             )
             response.raise_for_status()
             result = response.json()
@@ -341,12 +327,10 @@ class IPCClient:
             会话详情和消息列表
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.get(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.get(
                 f"{self.base_url}/api/sessions/{session_id}",
-                timeout=10.0,
-                proxies=self._get_no_proxy_config()
+                timeout=10.0
             )
             response.raise_for_status()
             result = response.json()
@@ -370,12 +354,10 @@ class IPCClient:
             新会话的 ID
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.post(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.post(
                 f"{self.base_url}/api/sessions",
-                timeout=10.0,
-                proxies=self._get_no_proxy_config()
+                timeout=10.0
             )
             response.raise_for_status()
             result = response.json()
@@ -401,13 +383,11 @@ class IPCClient:
             匹配的会话列表
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.get(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.get(
                 f"{self.base_url}/api/sessions/search",
                 params={"keyword": keyword, "limit": limit},
-                timeout=10.0,
-                proxies=self._get_no_proxy_config()
+                timeout=10.0
             )
             response.raise_for_status()
             result = response.json()
@@ -425,9 +405,9 @@ class IPCClient:
                     session["updated_at"] = datetime.fromisoformat(session["updated_at"])
             
             return sessions
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     def generate_session_summary(self, session_id: str) -> Dict[str, Any]:
@@ -441,12 +421,10 @@ class IPCClient:
             摘要信息
         """
         try:
-            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
-            import requests
-            response = requests.post(
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.post(
                 f"{self.base_url}/api/sessions/{session_id}/summary",
-                timeout=60.0,  # 生成摘要可能需要更长时间
-                proxies=self._get_no_proxy_config()
+                timeout=60.0  # 生成摘要可能需要更长时间
             )
             response.raise_for_status()
             result = response.json()
@@ -455,9 +433,9 @@ class IPCClient:
                 return result
             else:
                 raise Exception(result.get("error", "生成失败"))
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
