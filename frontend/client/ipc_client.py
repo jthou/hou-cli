@@ -186,6 +186,8 @@ class IPCClient:
                         try:
                             # 处理 Unicode 转义序列（如 \u4e2d）
                             data_str = data_str.encode().decode('unicode_escape')
+                            # 清理无效的 Unicode 代理对字符
+                            data_str = data_str.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
                             data = json.loads(data_str)
                             
                             if data.get("status") == "streaming":

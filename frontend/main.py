@@ -29,6 +29,12 @@ def show_error(error: Exception, context: str = ""):
     from rich.panel import Panel
     
     error_msg = str(error)
+    # 清理无效的 Unicode 字符
+    try:
+        error_msg = error_msg.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
+    except Exception:
+        error_msg = error_msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    
     suggestion = ""
     
     # 根据错误类型提供建议
@@ -62,6 +68,11 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
         # 创建流式数据生成器
         async def stream_generator():
             async for chunk in client.stream_send(message, session_id=session_id):
+                # 清理无效的 Unicode 字符
+                try:
+                    chunk = chunk.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
+                except Exception:
+                    chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
                 yield chunk
         
         # 使用 StreamRenderer 实时渲染

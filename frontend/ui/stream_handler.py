@@ -100,6 +100,23 @@ class StreamRenderer:
         self.factory = renderer_factory
         self.buffer = StreamBuffer()
 
+    def _clean_unicode(self, text: str) -> str:
+        """
+        清理无效的 Unicode 字符（代理对）
+        
+        Args:
+            text: 原始文本
+            
+        Returns:
+            清理后的文本
+        """
+        try:
+            # 尝试编码为 UTF-8，如果失败则替换无效字符
+            return text.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
+        except Exception:
+            # 如果仍然失败，使用 replace 策略
+            return text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    
     async def render_stream(
         self,
         stream: AsyncIterator[str],
@@ -114,6 +131,7 @@ class StreamRenderer:
         策略：
         - 使用 Rich Live 组件实时更新渲染内容
         - Live 组件会自动保留最终内容，无需再次打印
+        - 流式输出完成后，使用完整的 Markdown 渲染器进行最终渲染
         """
         full_content = ""
         
@@ -121,9 +139,29 @@ class StreamRenderer:
         # Live 组件会在退出时保留最后更新的内容，无需再次打印
         with Live(console=console, refresh_per_second=10) as live:
             async for chunk in stream:
+                # 清理无效的 Unicode 字符
+                chunk = self._clean_unicode(chunk)
                 full_content += chunk
-                # 实时渲染当前内容
+                
+                # 实时渲染当前内容（流式显示）
+                # 注意：流式显示时可能表格不完整，所以使用文本渲染器
+                # 但最终会使用完整的 Markdown 渲染器
+                try:
+                    renderer = self.factory.get_renderer(full_content)
+                    rendered = renderer.render(full_content)
+                    live.update(rendered)
+                except Exception:
+                    # 如果渲染失败，直接显示文本
+                    live.update(full_content)
+        
+        # 流式输出完成后，使用完整的 Markdown 渲染器进行最终渲染
+        # 这样可以确保表格等复杂格式正确显示
+        if full_content:
+            try:
                 renderer = self.factory.get_renderer(full_content)
                 rendered = renderer.render(full_content)
-                live.update(rendered)
+                console.print(rendered)
+            except Exception:
+                # 如果最终渲染失败，直接显示文本
+                console.print(full_content)
 
