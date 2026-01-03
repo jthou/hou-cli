@@ -59,22 +59,17 @@ class IPCClient:
         
         # 连接验证成功后，创建持久客户端
         # 配置代理：跳过本地地址（127.0.0.1, localhost），避免代理问题
-        proxy_config = {
-            "http://": None,
-            "https://": None,
-            "no_proxy": "127.0.0.1,localhost,0.0.0.0"
-        }
+        # httpx 通过设置 trust_env=False 来忽略环境变量中的代理设置
+        # 对于本地地址，httpx 会自动跳过代理，但为了确保，我们明确禁用代理
         self.client = httpx.Client(
             timeout=30.0, 
             follow_redirects=True,
-            proxies=proxy_config,
-            trust_env=False  # 不信任环境变量中的代理设置，使用我们自己的配置
+            trust_env=False  # 不信任环境变量中的代理设置，避免代理问题
         )
         self.async_client = httpx.AsyncClient(
             timeout=30.0, 
             follow_redirects=True,
-            proxies=proxy_config,
-            trust_env=False
+            trust_env=False  # 不信任环境变量中的代理设置，避免代理问题
         )
     
     def health_check(self) -> bool:
@@ -85,7 +80,11 @@ class IPCClient:
         for attempt in range(max_retries):
             try:
                 # 使用 requests 库进行健康检查，因为 httpx 在某些情况下可能返回 502
-                response = requests.get(f"{self.base_url}/health", timeout=10.0)
+                response = requests.get(
+                    f"{self.base_url}/health", 
+                    timeout=10.0,
+                    proxies=self._get_no_proxy_config()
+                )
                 
                 if response.status_code == 200:
                     return True
@@ -137,7 +136,8 @@ class IPCClient:
             response = requests.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
-                timeout=30.0
+                timeout=30.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
@@ -172,9 +172,11 @@ class IPCClient:
         # 在异步函数中运行同步的 requests 请求
         loop = asyncio.get_event_loop()
         try:
+            # 在 lambda 中无法直接使用 self，所以先获取代理配置
+            no_proxy = self._get_no_proxy_config()
             response = await loop.run_in_executor(
                 None,
-                lambda: requests.post(url, json=payload, stream=True, timeout=60.0)
+                lambda: requests.post(url, json=payload, stream=True, timeout=60.0, proxies=no_proxy)
             )
             
             # 检查状态码
@@ -241,7 +243,8 @@ class IPCClient:
             response = requests.get(
                 f"{self.base_url}/api/sessions/list",
                 params={"limit": limit},
-                timeout=10.0
+                timeout=10.0,
+                proxies=self._get_no_proxy_config()
             )
             response.raise_for_status()
             result = response.json()
