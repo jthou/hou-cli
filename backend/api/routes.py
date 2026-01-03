@@ -28,7 +28,7 @@ def get_orchestrator():
     global _orchestrator
     if _orchestrator is None:
         try:
-        _orchestrator = Orchestrator()
+            _orchestrator = Orchestrator()
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
