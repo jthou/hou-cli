@@ -347,7 +347,9 @@ class IPCClient:
             新会话的 ID
         """
         try:
-            response = self.client.post(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.post(
                 f"{self.base_url}/api/sessions",
                 timeout=10.0
             )
@@ -358,9 +360,9 @@ class IPCClient:
                 return result.get("session_id")
             else:
                 raise Exception(result.get("error", "创建失败"))
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     def search_sessions(self, keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -375,7 +377,9 @@ class IPCClient:
             匹配的会话列表
         """
         try:
-            response = self.client.get(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.get(
                 f"{self.base_url}/api/sessions/search",
                 params={"keyword": keyword, "limit": limit},
                 timeout=10.0
@@ -396,9 +400,9 @@ class IPCClient:
                     session["updated_at"] = datetime.fromisoformat(session["updated_at"])
             
             return sessions
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     def generate_session_summary(self, session_id: str) -> Dict[str, Any]:
@@ -412,7 +416,9 @@ class IPCClient:
             摘要信息
         """
         try:
-            response = self.client.post(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.post(
                 f"{self.base_url}/api/sessions/{session_id}/summary",
                 timeout=60.0  # 生成摘要可能需要更长时间
             )
@@ -423,9 +429,9 @@ class IPCClient:
                 return result
             else:
                 raise Exception(result.get("error", "生成失败"))
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
