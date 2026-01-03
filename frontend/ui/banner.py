@@ -8,17 +8,8 @@ console = Console()
 
 def show_banner():
     """简洁的启动画面（参考 Cursor Agent）"""
-    # 使用更醒目的显示方式，确保banner明显可见
-    console.print()
-    # 使用Panel包装，让banner更醒目
-    banner_text = "[bold cyan]hou-cli[/bold cyan] - [bold]LLM Agent CLI[/bold]"
-    console.print(Panel(
-        banner_text,
-        border_style="cyan",
-        padding=(0, 2),
-        box=ROUNDED
-    ))
-    console.print()
+    # 使用 show_banner_simple 的实现
+    show_banner_simple()
 
 def show_banner_simple():
     """简洁版启动画面"""
