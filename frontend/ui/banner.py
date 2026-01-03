@@ -8,8 +8,10 @@ console = Console()
 
 def show_banner():
     """简洁的启动画面（参考 Cursor Agent）"""
-    console.print("[bold cyan]hou-cli[/bold cyan] - LLM Agent CLI")
-    console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
+    # 使用更醒目的显示方式
+    console.print()
+    console.print("[bold cyan]hou-cli[/bold cyan] - [bold]LLM Agent CLI[/bold]")
+    console.print()
 
 def show_banner_simple():
     """简洁版启动画面"""
