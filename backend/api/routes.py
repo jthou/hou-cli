@@ -181,6 +181,8 @@ async def delete_session(session_id: str):
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
     """清除会话的所有消息"""
+    import logging
+    logger = logging.getLogger(__name__)
     try:
         logger.debug(f"清除会话消息: session_id={session_id}")
         orchestrator = get_orchestrator()
@@ -202,6 +204,8 @@ async def clear_session_messages(session_id: str):
 @router.get("/sessions/{session_id}")
 async def get_session_detail(session_id: str):
     """获取会话详情（包含消息列表）"""
+    import logging
+    logger = logging.getLogger(__name__)
     try:
         logger.debug(f"获取会话详情: session_id={session_id}")
         orchestrator = get_orchestrator()

@@ -218,7 +218,9 @@ class IPCClient:
             会话列表（包含预览信息）
         """
         try:
-            response = self.client.get(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.get(
                 f"{self.base_url}/api/sessions/list",
                 params={"limit": limit},
                 timeout=10.0
@@ -239,9 +241,9 @@ class IPCClient:
                     session["updated_at"] = datetime.fromisoformat(session["updated_at"])
             
             return sessions
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
     def delete_session(self, session_id: str) -> bool:
@@ -284,7 +286,9 @@ class IPCClient:
             是否清除成功
         """
         try:
-            response = self.client.post(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.post(
                 f"{self.base_url}/api/sessions/{session_id}/clear",
                 timeout=10.0
             )
@@ -295,9 +299,9 @@ class IPCClient:
                 return True
             else:
                 raise Exception(result.get("error", "清除失败"))
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
@@ -313,7 +317,9 @@ class IPCClient:
             会话详情和消息列表
         """
         try:
-            response = self.client.get(
+            # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+            import requests
+            response = requests.get(
                 f"{self.base_url}/api/sessions/{session_id}",
                 timeout=10.0
             )
@@ -324,9 +330,9 @@ class IPCClient:
                 return result
             else:
                 raise Exception(result.get("error", "获取失败"))
-        except httpx.RequestError as e:
+        except requests.RequestException as e:
             raise ConnectionError(f"连接错误：{str(e)}")
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             if e.response.status_code == 404:
                 raise Exception(f"会话不存在: {session_id}")
             raise Exception(f"HTTP 错误：{e.response.status_code}")
