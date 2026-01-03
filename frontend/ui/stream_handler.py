@@ -135,24 +135,16 @@ class StreamRenderer:
         """
         full_content = ""
         
-        # 使用 Live 组件实时更新
-        # Live 组件会在退出时保留最后更新的内容，无需再次打印
-        with Live(console=console, refresh_per_second=10) as live:
+        # 使用 Live 组件实时更新（transient=True 表示流式输出完成后清除）
+        # 这样可以在流式输出时显示进度，完成后用完整的 Markdown 渲染
+        with Live(console=console, refresh_per_second=10, transient=True) as live:
             async for chunk in stream:
                 # 清理无效的 Unicode 字符
                 chunk = self._clean_unicode(chunk)
                 full_content += chunk
                 
-                # 实时渲染当前内容（流式显示）
-                # 注意：流式显示时可能表格不完整，所以使用文本渲染器
-                # 但最终会使用完整的 Markdown 渲染器
-                try:
-                    renderer = self.factory.get_renderer(full_content)
-                    rendered = renderer.render(full_content)
-                    live.update(rendered)
-                except Exception:
-                    # 如果渲染失败，直接显示文本
-                    live.update(full_content)
+                # 流式显示时，直接显示文本（避免表格不完整时的渲染问题）
+                live.update(full_content)
         
         # 流式输出完成后，使用完整的 Markdown 渲染器进行最终渲染
         # 这样可以确保表格等复杂格式正确显示
