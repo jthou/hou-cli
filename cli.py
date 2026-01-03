@@ -336,11 +336,13 @@ def main():
                     port = load_port()
                     # 检查端口是否为有效值（不是默认值8000，且大于1024）
                     if port and port != 8000 and port > 1024:
-                        response = httpx.get(f"http://127.0.0.1:{port}/health", timeout=2.0)
+                        # 使用 requests 库，因为 httpx 在某些情况下可能返回 502
+                        import requests
+                        response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2.0)
                         if response.status_code == 200:
                             print("✅ 后端服务已就绪")
                             return
-                except httpx.RequestError:
+                except (requests.RequestException, Exception):
                     # 连接错误，继续重试
                     pass
                 except Exception:
