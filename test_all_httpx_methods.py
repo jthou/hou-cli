@@ -162,24 +162,38 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# 测试 2: cli.py 中的 httpx 使用
-print("\n3. 测试 cli.py 中的 httpx 使用...")
+# 测试 2: cli.py 中的修复（现在使用 requests）
+print("\n3. 测试 cli.py 中的健康检查（已修复为使用 requests）...")
 try:
-    # 直接测试 httpx.get 健康检查
-    print("   - httpx.get() 健康检查...")
+    # 测试修复后的代码（使用 requests）
+    print("   - requests.get() 健康检查（修复后）...")
     try:
-        response = httpx.get(f"{base_url}/health", timeout=2.0)
+        response = requests.get(f"{base_url}/health", timeout=2.0)
         if response.status_code == 200:
-            results.append(("cli.py: httpx.get(health)", "✅ 成功", "httpx"))
+            results.append(("cli.py: requests.get(health)", "✅ 成功", "requests (已修复)"))
         else:
-            results.append(("cli.py: httpx.get(health)", f"❌ 状态码: {response.status_code}", "httpx"))
+            results.append(("cli.py: requests.get(health)", f"❌ 状态码: {response.status_code}", "requests (已修复)"))
     except Exception as e:
         if "502" in str(e):
-            results.append(("cli.py: httpx.get(health)", f"❌ 502错误: {e}", "httpx"))
+            results.append(("cli.py: requests.get(health)", f"❌ 502错误: {e}", "requests (已修复)"))
         else:
-            results.append(("cli.py: httpx.get(health)", f"⚠️  其他错误: {e}", "httpx"))
+            results.append(("cli.py: requests.get(health)", f"⚠️  其他错误: {e}", "requests (已修复)"))
+    
+    # 对比测试：httpx 仍然会返回 502（这是已知问题）
+    print("   - httpx.get() 健康检查（对比测试，预期502）...")
+    try:
+        response = httpx.get(f"{base_url}/health", timeout=2.0)
+        if response.status_code == 502:
+            results.append(("cli.py: httpx.get(health)", "⚠️  返回502（预期行为）", "httpx (已弃用)"))
+        else:
+            results.append(("cli.py: httpx.get(health)", f"⚠️  状态码: {response.status_code}", "httpx (已弃用)"))
+    except Exception as e:
+        if "502" in str(e):
+            results.append(("cli.py: httpx.get(health)", "⚠️  502错误（预期行为）", "httpx (已弃用)"))
+        else:
+            results.append(("cli.py: httpx.get(health)", f"⚠️  其他错误: {e}", "httpx (已弃用)"))
 except Exception as e:
-    results.append(("cli.py: httpx.get(health)", f"❌ 测试失败: {e}", "httpx"))
+    results.append(("cli.py: 健康检查测试", f"❌ 测试失败: {e}", "N/A"))
 
 # 测试 3: backend/core/agent/tools/builtin/weather_tool.py 中的 httpx
 print("\n4. 测试 weather_tool.py 中的 httpx 使用...")
