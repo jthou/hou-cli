@@ -138,7 +138,7 @@ class IPCClient:
             if result["status"] == "success":
                 return result["response"]
             else:
-                raise Exception(result.get("error", "未知错误")))
+                raise Exception(result.get("error", "未知错误"))
         
         except httpx.RequestError as e:
             raise ConnectionError(f"连接错误：{str(e)}")
