@@ -146,14 +146,20 @@ class StreamRenderer:
                 # 流式显示时，直接显示文本（避免表格不完整时的渲染问题）
                 live.update(full_content)
         
-        # 流式输出完成后，使用完整的 Markdown 渲染器进行最终渲染
+        # 流式输出完成后，使用完整的渲染器进行最终渲染
         # 这样可以确保表格等复杂格式正确显示
         if full_content:
             try:
                 renderer = self.factory.get_renderer(full_content)
                 rendered = renderer.render(full_content)
-                console.print(rendered)
-            except Exception:
+                
+                # 如果返回的是列表（多个渲染对象），逐个打印
+                if isinstance(rendered, list):
+                    for item in rendered:
+                        console.print(item)
+                else:
+                    console.print(rendered)
+            except Exception as e:
                 # 如果最终渲染失败，直接显示文本
                 console.print(full_content)
 

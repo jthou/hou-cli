@@ -98,15 +98,18 @@ class RendererFactory:
 
     优先级说明：
     1. CodeRenderer - 代码块优先（避免代码块内的 Markdown 被误判）
-    2. MarkdownRenderer - Markdown 内容
-    3. TextRenderer - 默认渲染器（纯文本）
+    2. WeatherRenderer - 天气信息专用渲染器（使用 Rich Table）
+    3. MarkdownRenderer - Markdown 内容
+    4. TextRenderer - 默认渲染器（纯文本）
 
     注意：代码块检测会排除代码块内的内容，避免嵌套检测
     """
 
     def __init__(self):
+        from frontend.ui.weather_renderer import WeatherRenderer
         self.renderers = [
             CodeRenderer(),      # 优先检测代码块（必须优先）
+            WeatherRenderer(),   # 天气信息专用渲染器
             MarkdownRenderer(),  # 其次检测 Markdown
             TextRenderer(),      # 默认渲染器
         ]
