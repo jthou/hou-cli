@@ -10,3 +10,7 @@ def create_table(title: str = None, **kwargs) -> Table:
     return table
 
 
+
+
+
+

@@ -21,7 +21,6 @@ from backend.core.context.models import MessageRole
 from backend.core.agent.tools.registry import ToolRegistry
 from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
 from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
-from backend.core.agent.mcps.manager import MCPManager
 from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
@@ -37,22 +36,14 @@ class Orchestrator:
         self.tool_registry = ToolRegistry()
         self.debug = DebugOutput()  # 调试输出
         
-        # 初始化 MCP 管理器（会自动注册 MCP 工具）
-        self.mcp_manager = MCPManager(tool_registry=self.tool_registry)
-        
-        # 注册内置工具（如天气工具）
+        # 注册天气工具（如果配置了 JWT）
         self._register_tools()
-        
-        # 异步初始化 MCP 管理器（在后台进行，不阻塞）
-        # 注意：在实际使用前需要确保 MCP 管理器已初始化
-        # self._init_mcp_manager()
         
         # self.workflow_identifier = WorkflowIdentifier()
         # self.workflow_engine = WorkflowEngine(self)
     
     def _register_tools(self):
         """注册所有可用工具"""
-        # 注册内置工具（如天气工具）
         try:
             # 从环境变量读取 kid 和 sub（如果未提供）
             jwt_auth = JWTAuth.from_env()
@@ -69,17 +60,6 @@ class Orchestrator:
             error_msg = f"Failed to register weather tool: {str(e)}. Weather tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
-    
-    async def _init_mcp_manager(self):
-        """初始化 MCP 管理器（异步）"""
-        try:
-            await self.mcp_manager.initialize()
-            mcp_servers = self.mcp_manager.list_servers()
-            if mcp_servers:
-                self.debug.log_orchestrator_step("MCP 管理器初始化", {"servers": mcp_servers})
-                logger.info(f"MCP 管理器已初始化，连接了 {len(mcp_servers)} 个服务器: {mcp_servers}")
-        except Exception as e:
-            logger.error(f"MCP 管理器初始化失败: {e}", exc_info=True)
     
     async def process(self, task: str, context: Optional[Dict] = None) -> str:
         """处理任务，支持 SOP 和动态编排"""
