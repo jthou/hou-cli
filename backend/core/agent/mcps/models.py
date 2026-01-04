@@ -30,7 +30,7 @@ class MCPResource:
     """MCP 资源定义"""
     uri: str
     name: str
+    server_name: str  # 所属的 MCP 服务器名称（必需参数）
     description: Optional[str] = None
     mime_type: Optional[str] = None
-    server_name: str  # 所属的 MCP 服务器名称
 
