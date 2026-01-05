@@ -40,7 +40,10 @@ class FileSearchResponse(BaseModel):
     total: int = Field(..., description="总结果数")
     limit: int = Field(..., description="结果数量限制")
     offset: int = Field(..., description="分页偏移量")
+    has_more: bool = Field(..., description="是否有更多结果")
     search_time_ms: Optional[float] = Field(None, description="搜索耗时（毫秒）")
     search_type: str = Field(..., description="搜索类型（name/content）")
+    platform: str = Field(..., description="搜索平台（macos/linux/windows）")
+    query_summary: Optional[str] = Field(None, description="查询摘要（用于调试）")
 
 

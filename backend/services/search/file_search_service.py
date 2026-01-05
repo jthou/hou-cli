@@ -81,13 +81,22 @@ class FileSearchService:
             # 应用分页
             total = len(results)
             paginated_results = results[request.offset:request.offset + request.limit]
+            has_more = (request.offset + request.limit) < total
             
             # 计算搜索耗时
             search_time = (time.time() - start_time) * 1000  # 转换为毫秒
             
+            # 构建查询摘要
+            query_summary = self._build_query_summary(request)
+            
+            # 获取平台信息
+            platform_name = platform.system().lower()
+            if platform_name == 'darwin':
+                platform_name = 'macos'
+            
             logger.info(
-                f"Search completed: {len(paginated_results)}/{total} results, "
-                f"{search_time:.2f}ms"
+                f"Search completed: {len(paginated_results)}/{total} results "
+                f"(has_more={has_more}), {search_time:.2f}ms, type={search_type}"
             )
             
             return FileSearchResponse(
@@ -95,8 +104,11 @@ class FileSearchService:
                 total=total,
                 limit=request.limit,
                 offset=request.offset,
+                has_more=has_more,
                 search_time_ms=search_time,
-                search_type=search_type
+                search_type=search_type,
+                platform=platform_name,
+                query_summary=query_summary
             )
             
         except Exception as e:
@@ -130,3 +142,31 @@ class FileSearchService:
         else:
             logger.warning(f"Unknown sort_by field: {sort_by}, using default (name)")
             return sorted(results, key=lambda x: x.name.lower(), reverse=reverse)
+    
+    def _build_query_summary(self, request: FileSearchRequest) -> str:
+        """构建查询摘要
+        
+        Args:
+            request: 搜索请求
+            
+        Returns:
+            str: 查询摘要字符串
+        """
+        parts = []
+        parts.append(f"query='{request.query}'")
+        
+        if request.path:
+            parts.append(f"path='{request.path}'")
+        
+        if request.file_type:
+            parts.append(f"type='{request.file_type}'")
+        
+        if request.content_search:
+            parts.append("content_search=true")
+        
+        if request.sort_by:
+            parts.append(f"sort={request.sort_by}({request.sort_order})")
+        
+        parts.append(f"limit={request.limit}, offset={request.offset}")
+        
+        return ", ".join(parts)
