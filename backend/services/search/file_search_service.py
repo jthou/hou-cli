@@ -3,7 +3,10 @@
 import platform
 import time
 import logging
-from typing import Optional
+import hashlib
+import threading
+from typing import Optional, Dict, Tuple
+from datetime import datetime, timedelta
 
 from .models import FileSearchRequest, FileSearchResponse, FileSearchResult
 from .platform.macos_search import MacOSSearchAdapter
@@ -12,16 +15,153 @@ from .platform.base import PlatformAdapter
 logger = logging.getLogger(__name__)
 
 
+class SearchCache:
+    """搜索结果缓存
+    
+    使用内存缓存存储搜索结果，支持 TTL（Time To Live）。
+    """
+    
+    def __init__(self, ttl_seconds: int = 300, max_size: int = 100):
+        """初始化缓存
+        
+        Args:
+            ttl_seconds: 缓存过期时间（秒），默认 5 分钟
+            max_size: 最大缓存条目数，默认 100
+        """
+        self.ttl_seconds = ttl_seconds
+        self.max_size = max_size
+        self._cache: Dict[str, Tuple[FileSearchResponse, datetime]] = {}
+        self._lock = threading.RLock()
+    
+    def _generate_key(self, request: FileSearchRequest) -> str:
+        """生成缓存键
+        
+        Args:
+            request: 搜索请求
+            
+        Returns:
+            str: 缓存键
+        """
+        # 使用请求的关键字段生成哈希键
+        key_data = f"{request.query}:{request.path}:{request.file_type}:{request.content_search}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+    
+    def get(self, request: FileSearchRequest) -> Optional[FileSearchResponse]:
+        """获取缓存结果
+        
+        Args:
+            request: 搜索请求
+            
+        Returns:
+            Optional[FileSearchResponse]: 缓存的结果，如果不存在或已过期则返回 None
+        """
+        with self._lock:
+            key = self._generate_key(request)
+            if key not in self._cache:
+                return None
+            
+            response, cached_time = self._cache[key]
+            
+            # 检查是否过期
+            if datetime.now() - cached_time > timedelta(seconds=self.ttl_seconds):
+                del self._cache[key]
+                return None
+            
+            # 返回缓存的响应（需要根据请求的 limit 和 offset 重新分页）
+            return self._apply_pagination(response, request)
+    
+    def _apply_pagination(self, cached_response: FileSearchResponse, request: FileSearchRequest) -> FileSearchResponse:
+        """对缓存结果应用新的分页参数
+        
+        Args:
+            cached_response: 缓存的响应
+            request: 新的搜索请求
+            
+        Returns:
+            FileSearchResponse: 应用分页后的响应
+        """
+        # 如果分页参数相同，直接返回
+        if (cached_response.limit == request.limit and 
+            cached_response.offset == request.offset):
+            return cached_response
+        
+        # 应用新的分页
+        total = len(cached_response.results)
+        paginated_results = cached_response.results[request.offset:request.offset + request.limit]
+        has_more = (request.offset + request.limit) < total
+        
+        return FileSearchResponse(
+            results=paginated_results,
+            total=total,
+            limit=request.limit,
+            offset=request.offset,
+            has_more=has_more,
+            search_time_ms=cached_response.search_time_ms,
+            search_type=cached_response.search_type,
+            platform=cached_response.platform,
+            query_summary=cached_response.query_summary
+        )
+    
+    def set(self, request: FileSearchRequest, response: FileSearchResponse):
+        """设置缓存结果
+        
+        Args:
+            request: 搜索请求
+            response: 搜索结果响应
+        """
+        with self._lock:
+            # 如果缓存已满，删除最旧的条目
+            if len(self._cache) >= self.max_size:
+                # 删除最旧的条目
+                oldest_key = min(
+                    self._cache.keys(),
+                    key=lambda k: self._cache[k][1]
+                )
+                del self._cache[oldest_key]
+            
+            key = self._generate_key(request)
+            # 存储完整的结果列表（不分页），以便后续可以应用不同的分页
+            self._cache[key] = (response, datetime.now())
+    
+    def clear(self):
+        """清空缓存"""
+        with self._lock:
+            self._cache.clear()
+    
+    def get_stats(self) -> Dict[str, int]:
+        """获取缓存统计信息
+        
+        Returns:
+            Dict[str, int]: 缓存统计信息
+        """
+        with self._lock:
+            return {
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "ttl_seconds": self.ttl_seconds
+            }
+
+
 class FileSearchService:
     """统一文件搜索服务
     
     根据平台自动选择适配器，提供统一的搜索接口。
     """
     
-    def __init__(self):
-        """初始化搜索服务"""
+    def __init__(self, cache_enabled: bool = True, cache_ttl: int = 300):
+        """初始化搜索服务
+        
+        Args:
+            cache_enabled: 是否启用缓存
+            cache_ttl: 缓存过期时间（秒），默认 5 分钟
+        """
         self.adapter = self._create_adapter()
-        logger.info(f"FileSearchService initialized with {type(self.adapter).__name__}")
+        self.cache_enabled = cache_enabled
+        self.cache = SearchCache(ttl_seconds=cache_ttl) if cache_enabled else None
+        logger.info(
+            f"FileSearchService initialized with {type(self.adapter).__name__}, "
+            f"cache={'enabled' if cache_enabled else 'disabled'}"
+        )
     
     def _create_adapter(self) -> PlatformAdapter:
         """根据平台创建适配器
@@ -56,6 +196,13 @@ class FileSearchService:
         start_time = time.time()
         
         try:
+            # 检查缓存
+            if self.cache_enabled and self.cache:
+                cached_response = self.cache.get(request)
+                if cached_response:
+                    logger.debug(f"Cache hit for query: {request.query}")
+                    return cached_response
+            
             # 根据搜索类型调用不同的方法
             if request.content_search:
                 results = self.adapter.search_by_content(
@@ -99,7 +246,7 @@ class FileSearchService:
                 f"(has_more={has_more}), {search_time:.2f}ms, type={search_type}"
             )
             
-            return FileSearchResponse(
+            response = FileSearchResponse(
                 results=paginated_results,
                 total=total,
                 limit=request.limit,
@@ -110,6 +257,24 @@ class FileSearchService:
                 platform=platform_name,
                 query_summary=query_summary
             )
+            
+            # 缓存结果（存储完整结果，不分页）
+            if self.cache_enabled and self.cache:
+                # 创建完整结果的响应用于缓存
+                full_response = FileSearchResponse(
+                    results=results,  # 完整结果列表
+                    total=total,
+                    limit=request.limit,
+                    offset=0,  # 缓存时使用 offset=0
+                    has_more=False,  # 缓存完整结果
+                    search_time_ms=search_time,
+                    search_type=search_type,
+                    platform=platform_name,
+                    query_summary=query_summary
+                )
+                self.cache.set(request, full_response)
+            
+            return response
             
         except Exception as e:
             logger.error(f"Search failed: {e}")
@@ -170,3 +335,51 @@ class FileSearchService:
         parts.append(f"limit={request.limit}, offset={request.offset}")
         
         return ", ".join(parts)
+    
+    def search_concurrent(
+        self,
+        requests: list[FileSearchRequest],
+        max_workers: int = 5
+    ) -> list[FileSearchResponse]:
+        """并发执行多个搜索请求
+        
+        Args:
+            requests: 搜索请求列表
+            max_workers: 最大并发数
+            
+        Returns:
+            list[FileSearchResponse]: 搜索结果响应列表
+        """
+        import concurrent.futures
+        
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有搜索任务
+            future_to_request = {
+                executor.submit(self.search, request): request
+                for request in requests
+            }
+            
+            # 收集结果
+            for future in concurrent.futures.as_completed(future_to_request):
+                request = future_to_request[future]
+                try:
+                    response = future.result()
+                    results.append(response)
+                except Exception as e:
+                    logger.error(f"Concurrent search failed for {request.query}: {e}")
+                    # 创建错误响应
+                    error_response = FileSearchResponse(
+                        results=[],
+                        total=0,
+                        limit=request.limit,
+                        offset=request.offset,
+                        has_more=False,
+                        search_time_ms=0,
+                        search_type="name",
+                        platform=platform.system().lower(),
+                        query_summary=self._build_query_summary(request)
+                    )
+                    results.append(error_response)
+        
+        return results

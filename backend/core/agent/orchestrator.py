@@ -44,6 +44,7 @@ class Orchestrator:
     
     def _register_tools(self):
         """注册所有可用工具"""
+        # 注册天气工具
         try:
             # 从环境变量读取 kid 和 sub（如果未提供）
             jwt_auth = JWTAuth.from_env()
@@ -58,6 +59,19 @@ class Orchestrator:
         except Exception as e:
             # 其他工具注册失败，记录但不中断
             error_msg = f"Failed to register weather tool: {str(e)}. Weather tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册文件搜索工具
+        try:
+            from backend.core.agent.tools.builtin.file_search_tool import FileSearchTool
+            file_search_tool = FileSearchTool()
+            self.tool_registry.register(file_search_tool)
+            self.debug.log_orchestrator_step("注册工具", {"file_search_tool": "registered"})
+            logger.info("File search tool registered successfully")
+        except Exception as e:
+            # 工具注册失败不应该阻止 Orchestrator 初始化
+            error_msg = f"Failed to register file search tool: {str(e)}. File search tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
     
