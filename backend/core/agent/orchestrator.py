@@ -19,6 +19,7 @@ from backend.core.agent.coordinator import AgentCoordinator
 from backend.core.context.manager import ContextManager as FullContextManager
 from backend.core.context.models import MessageRole
 from backend.core.agent.tools.registry import ToolRegistry
+from backend.core.agent.tools.base import ToolResult
 from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
 from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
 from backend.services.llm.llm_service import LLMService
@@ -36,8 +37,15 @@ class Orchestrator:
         self.tool_registry = ToolRegistry()
         self.debug = DebugOutput()  # 调试输出
         
+        # 代码执行相关组件
+        self.auto_code_executor = None
+        self.auto_execute_code = True  # 配置项：是否自动执行代码块
+        
         # 注册天气工具（如果配置了 JWT）
         self._register_tools()
+        
+        # 初始化自动代码执行器
+        self._init_auto_code_executor()
         
         # self.workflow_identifier = WorkflowIdentifier()
         # self.workflow_engine = WorkflowEngine(self)
@@ -74,6 +82,48 @@ class Orchestrator:
             error_msg = f"Failed to register file search tool: {str(e)}. File search tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
+        
+        # 注册代码执行工具
+        try:
+            from backend.core.agent.tools.builtin.code_executor_tool import CodeExecutorTool
+            code_executor_tool = CodeExecutorTool()
+            self.tool_registry.register(code_executor_tool)
+            self.debug.log_orchestrator_step("注册工具", {"code_executor_tool": "registered"})
+            logger.info("Code executor tool registered successfully")
+        except Exception as e:
+            # 工具注册失败不应该阻止 Orchestrator 初始化
+            error_msg = f"Failed to register code executor tool: {str(e)}. Code executor tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+    
+    def _init_auto_code_executor(self):
+        """初始化自动代码执行器"""
+        try:
+            from backend.infrastructure.execution import AutoCodeExecutor
+            self.auto_code_executor = AutoCodeExecutor()
+            logger.info("Auto code executor initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize auto code executor: {str(e)}")
+            self.auto_code_executor = None
+    
+    def _build_execution_feedback(self, execution_results: list) -> str:
+        """构建执行结果反馈消息"""
+        feedback = "代码执行完成：\n\n"
+        for result in execution_results:
+            feedback += f"代码块 {result.get('index', '?')} ({result.get('language', 'unknown')}):\n"
+            if "error" in result:
+                feedback += f"  ❌ 执行失败: {result['error']}\n"
+            else:
+                exec_result = result.get("result", {})
+                if exec_result.get("success"):
+                    feedback += f"  ✅ 执行成功\n"
+                    if exec_result.get("output"):
+                        output = exec_result["output"][:500]  # 限制长度
+                        feedback += f"  输出: {output}\n"
+                else:
+                    feedback += f"  ❌ 执行失败: {exec_result.get('error', 'Unknown error')}\n"
+            feedback += "\n"
+        return feedback
     
     async def process(self, task: str, context: Optional[Dict] = None) -> str:
         """处理任务，支持 SOP 和动态编排"""
@@ -683,8 +733,39 @@ class Orchestrator:
                 
                 # 检查响应类型
                 if isinstance(response, str):
-                    # 普通文本回复，直接返回
-                    return response
+                    # 普通文本回复
+                    # 如果启用了自动代码执行，检查并执行代码块
+                    if self.auto_execute_code and self.auto_code_executor:
+                        try:
+                            processed = await self.auto_code_executor.process_llm_output(
+                                response,
+                                auto_execute=True,
+                                require_confirmation=False
+                            )
+                            
+                            if processed["code_executed"]:
+                                # 如果有代码执行，将结果反馈给 LLM
+                                feedback_message = self._build_execution_feedback(processed["execution_results"])
+                                
+                                # 将执行结果添加到消息中，让 LLM 基于结果生成最终回复
+                                messages.append({"role": "assistant", "content": response})
+                                messages.append({
+                                    "role": "user",
+                                    "content": f"代码执行完成。执行结果：\n{feedback_message}\n\n请基于执行结果给出最终回复。"
+                                })
+                                
+                                # 继续下一轮，让 LLM 基于执行结果生成回复
+                                continue
+                            else:
+                                # 没有代码执行，直接返回
+                                return response
+                        except Exception as e:
+                            logger.error(f"自动代码执行失败: {str(e)}", exc_info=True)
+                            # 执行失败，返回原始回复
+                            return response
+                    else:
+                        # 未启用自动代码执行，直接返回
+                        return response
                 
                 # 检查是否有工具调用
                 if hasattr(response, 'tool_calls') and response.tool_calls:
