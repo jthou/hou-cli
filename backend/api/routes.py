@@ -346,3 +346,93 @@ async def generate_session_summary(session_id: str):
             "error": str(e)
         }
 
+# 文件搜索 API
+from backend.services.search.file_search_service import FileSearchService
+from backend.services.search.models import FileSearchRequest, FileSearchResponse
+
+_search_service = None
+
+def get_search_service():
+    """获取 FileSearchService 实例（单例模式）"""
+    global _search_service
+    if _search_service is None:
+        try:
+            _search_service = FileSearchService()
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize FileSearchService: {str(e)}", exc_info=True)
+            raise
+    return _search_service
+
+@router.get("/search/files", response_model=FileSearchResponse)
+async def search_files(
+    query: str,
+    path: Optional[str] = None,
+    file_type: Optional[str] = None,
+    content_search: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+    sort_by: Optional[str] = None,
+    sort_order: str = "asc"
+):
+    """文件搜索 API
+    
+    Args:
+        query: 搜索关键词
+        path: 搜索路径限制（可选）
+        file_type: 文件类型过滤（可选，如 '*.py'）
+        content_search: 是否进行文件内容搜索
+        limit: 结果数量限制（默认 100，最大 1000）
+        offset: 分页偏移量
+        sort_by: 排序字段（name, size, modified_time）
+        sort_order: 排序顺序（asc, desc）
+        
+    Returns:
+        FileSearchResponse: 搜索结果响应
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # 验证参数
+        if limit < 1 or limit > 1000:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail="limit must be between 1 and 1000"
+            )
+        
+        if offset < 0:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail="offset must be >= 0"
+            )
+        
+        # 创建搜索请求
+        request = FileSearchRequest(
+            query=query,
+            path=path,
+            file_type=file_type,
+            content_search=content_search,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        
+        # 执行搜索
+        service = get_search_service()
+        response = service.search(request)
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"File search failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {str(e)}"
+        )
+
