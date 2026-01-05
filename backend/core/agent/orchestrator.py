@@ -231,8 +231,22 @@ class Orchestrator:
             context: 上下文信息（可选，包含 session_id）
             
         Yields:
-            流式数据块
+            流式数据块（格式：特殊标记 + JSON 或纯文本）
+            - 调试信息：`__DEBUG__:{"type":"debug","category":"...","message":"..."}`
+            - 工具调用：`__TOOL__:{"type":"tool","name":"...","args":{...},"result":{...}}`
+            - 内容：纯文本
         """
+        import json
+        
+        # 发送调试信息：开始处理
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "开始流式处理任务",
+            "details": {"task": task[:50] + "..." if len(task) > 50 else task}
+        }
+        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        
         self.debug.log_orchestrator_step("开始流式处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
         
         # 获取会话 ID（如果提供）
@@ -242,6 +256,13 @@ class Orchestrator:
         # 如果没有会话 ID，创建新会话
         if not session_id:
             session_id = self.context_manager.create_session()
+            debug_info = {
+                "type": "debug",
+                "category": "context",
+                "message": "创建新会话",
+                "details": {"session_id": session_id[:8] + "..."}
+            }
+            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
             self.debug.log_context_operation("创建新会话", session_id)
         
         # 获取历史消息（不压缩，保留完整历史）
@@ -251,6 +272,13 @@ class Orchestrator:
             max_messages=None,  # 不限制消息数量
             max_tokens=None     # 不限制 token 数量
         )
+        debug_info = {
+            "type": "debug",
+            "category": "context",
+            "message": "获取历史消息",
+            "details": {"count": len(history), "has_history": len(history) > 0}
+        }
+        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
         # 构建消息列表（与 process 方法保持一致）
@@ -344,17 +372,33 @@ class Orchestrator:
         
         # 获取工具定义（LLM Function Calling 格式）
         tools = self.tool_registry.get_tools_for_llm()
-        self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []})
+        tool_names = [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "准备工具",
+            "details": {"tool_count": len(tools), "tools": tool_names}
+        }
+        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": tool_names})
         
         # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
         if tools:
             try:
-                # 使用工具调用获取完整响应
-                full_response = await self._chat_with_tools(
+                # 使用工具调用获取完整响应（带调试信息）
+                full_response = ""
+                async for chunk in self._chat_with_tools_stream(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     tools=tools
-                )
+                ):
+                    # 检查是否是调试信息或工具调用信息
+                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:"):
+                        yield chunk
+                    else:
+                        # 内容块
+                        full_response += chunk
+                        yield chunk
                 
                 # 确保 full_response 是字符串
                 if full_response is None:
@@ -362,10 +406,8 @@ class Orchestrator:
                 else:
                     full_response = str(full_response)
                 
-                # 流式返回最终响应（模拟流式输出）
+                # full_response 已经在上面流式输出了
                 self.debug.log_llm_response(full_response, "deepseek-chat")
-                for char in full_response:
-                    yield char
             except Exception as e:
                 logger.error(f"流式处理工具调用失败: {str(e)}", exc_info=True)
                 error_msg = f"处理请求时出错：{str(e)}"
@@ -391,7 +433,214 @@ class Orchestrator:
         self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_response)
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
         
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "流式任务处理完成",
+            "details": {"response_length": len(full_response)}
+        }
+        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
         self.debug.log_orchestrator_step("流式任务处理完成", {"response_length": len(full_response)})
+    
+    async def _chat_with_tools_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tools: Optional[list] = None
+    ) -> AsyncIterator[str]:
+        """
+        带工具调用的聊天（流式版本，包含调试信息）
+        
+        Args:
+            system_prompt: 系统提示
+            user_prompt: 用户提示
+            tools: 工具定义列表
+            
+        Yields:
+            流式数据块（调试信息、工具调用信息或内容）
+        """
+        import json
+        
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_prompt})
+            
+            max_iterations = 100  # 最多 100 轮工具调用循环
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                debug_info = {
+                    "type": "debug",
+                    "category": "orchestrator",
+                    "message": f"工具调用循环第 {iteration} 轮",
+                    "details": {}
+                }
+                yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                self.debug.log_orchestrator_step(f"工具调用循环第 {iteration} 轮", {})
+                
+                try:
+                    # 调用 LLM（使用 messages 而不是 system_prompt/user_prompt）
+                    response = await self.llm_service.chat(messages=messages, tools=tools)
+                except Exception as e:
+                    logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
+                    yield f"抱歉，处理您的请求时出现错误：{str(e)}"
+                    return
+                
+                # 检查响应类型
+                if isinstance(response, str):
+                    # 普通文本回复，直接返回
+                    yield response
+                    return
+                
+                # 检查是否有工具调用
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    debug_info = {
+                        "type": "debug",
+                        "category": "orchestrator",
+                        "message": "检测到工具调用",
+                        "details": {"count": len(response.tool_calls)}
+                    }
+                    yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                    self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
+                    
+                    # 执行所有工具调用
+                    tool_results = []
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args_str = tool_call.function.arguments
+                        
+                        debug_info = {
+                            "type": "debug",
+                            "category": "orchestrator",
+                            "message": "执行工具",
+                            "details": {"name": tool_name, "args": tool_args_str}
+                        }
+                        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                        self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str})
+                        
+                        # 解析参数
+                        try:
+                            tool_args = json.loads(tool_args_str)
+                        except json.JSONDecodeError:
+                            tool_args = {}
+                        
+                        # 执行工具
+                        try:
+                            tool_result = self.tool_registry.execute(tool_name, **tool_args)
+                        except Exception as e:
+                            logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
+                            tool_result = ToolResult(
+                                success=False,
+                                error=f"工具执行失败: {str(e)}"
+                            )
+                        
+                        # 发送工具调用信息
+                        tool_info = {
+                            "type": "tool",
+                            "name": tool_name,
+                            "args": tool_args,
+                            "success": tool_result.success,
+                            "result": tool_result.data if tool_result.success else None,
+                            "error": tool_result.error if not tool_result.success else None
+                        }
+                        yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                        
+                        # 记录详细的执行结果
+                        if not tool_result.success:
+                            debug_info = {
+                                "type": "debug",
+                                "category": "orchestrator",
+                                "message": "工具执行失败",
+                                "details": {"name": tool_name, "error": tool_result.error}
+                            }
+                            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                            self.debug.log_orchestrator_step("工具执行失败", {
+                                "name": tool_name,
+                                "error": tool_result.error
+                            })
+                        
+                        # 构建工具结果消息
+                        # 如果工具执行失败，确保错误信息清晰
+                        if not tool_result.success:
+                            tool_result_content = json.dumps({
+                                "error": tool_result.error,
+                                "success": False
+                            }, ensure_ascii=False)
+                        else:
+                            tool_result_content = json.dumps(tool_result.data, ensure_ascii=False)
+                        tool_results.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": tool_result_content
+                        })
+                        
+                        debug_info = {
+                            "type": "debug",
+                            "category": "orchestrator",
+                            "message": "工具执行完成",
+                            "details": {
+                                "name": tool_name,
+                                "success": tool_result.success,
+                                "error": tool_result.error if not tool_result.success else None
+                            }
+                        }
+                        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                        self.debug.log_orchestrator_step("工具执行完成", {
+                            "name": tool_name,
+                            "success": tool_result.success,
+                            "error": tool_result.error if not tool_result.success else None
+                        })
+                    
+                    # 将助手消息添加到消息历史
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response.content if response.content else None,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": tc.type,
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            }
+                            for tc in response.tool_calls
+                        ]
+                    }
+                    messages.append(assistant_message)
+                    
+                    # 添加工具结果
+                    messages.extend(tool_results)
+                    
+                    # 继续循环，让 LLM 基于工具结果生成回复
+                    continue
+                
+                # 如果没有工具调用，返回内容
+                if hasattr(response, 'content') and response.content:
+                    yield response.content
+                    return
+                
+                # 如果都没有，返回空字符串
+                yield ""
+                return
+            
+            # 达到最大迭代次数，返回错误信息
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "达到最大工具调用迭代次数",
+                "details": {"max_iterations": max_iterations}
+            }
+            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+            self.debug.log_orchestrator_step("达到最大工具调用迭代次数", {"max_iterations": max_iterations})
+            yield "抱歉，工具调用未能成功获取信息。"
+        except Exception as e:
+            logger.error(f"_chat_with_tools_stream 执行失败: {str(e)}", exc_info=True)
+            yield f"抱歉，处理您的请求时出现错误：{str(e)}"
     
     async def _chat_with_tools(
         self,

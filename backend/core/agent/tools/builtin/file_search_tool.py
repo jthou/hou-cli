@@ -29,7 +29,10 @@ class FileSearchTool(Tool):
             ToolParameter(
                 name="file_type",
                 type="string",
-                description="文件类型过滤（可选，如 '*.py', '*.xlsx'）",
+                description=(
+                    "文件类型过滤（可选），使用文件扩展名模式，如 '*.py'、'*.xlsx'、"
+                    "'*.doc'、'*.docx'。根据用户需求自行决定要搜索的文件类型。"
+                ),
                 required=False
             ),
             ToolParameter(
@@ -52,8 +55,20 @@ class FileSearchTool(Tool):
             name="file_search",
             description=(
                 "搜索本地文件系统中的文件。支持文件名搜索和文件内容搜索。"
-                "可以搜索特定类型的文件（如 Excel 文件、Python 文件等）。"
-                "使用示例：搜索所有 Excel 文件使用 query='*.xlsx'，搜索包含特定内容的文件使用 content_search=true。"
+                "\n参数说明："
+                "- query: 搜索模式，可以是文件名模式（支持通配符，如 '*.py'、'test*'）"
+                "  或搜索关键词（用于内容搜索）"
+                "- file_type: 文件类型过滤（可选），使用文件扩展名模式（如 '*.py'、"
+                "'*.xlsx'、'*.doc'、'*.docx'）"
+                "- content_search: 是否进行文件内容搜索（默认 false，仅搜索文件名）"
+                "- path: 搜索路径限制（可选）"
+                "- limit: 结果数量限制（默认 20，最大 100）"
+                "\n使用示例："
+                "- 搜索所有 Python 文件：query='*.py', file_type='*.py'"
+                "- 搜索所有 Excel 文件：query='*.xlsx', file_type='*.xlsx'"
+                "- 搜索包含特定内容的文件：query='关键词', content_search=true"
+                "\n注意：根据用户需求，自行决定 query 和 file_type 参数的值。"
+                "可以使用通配符、正则表达式模式或具体的文件扩展名。"
             ),
             parameters=parameters
         )
@@ -64,9 +79,48 @@ class FileSearchTool(Tool):
     def _get_search_service(self) -> FileSearchService:
         """获取搜索服务实例（延迟初始化）"""
         if self._search_service is None:
+            # #region agent log
+            import json
+            import os
+            log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H1",
+                    "location": "file_search_tool.py:64",
+                    "message": "Before FileSearchService init",
+                    "data": {},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
             try:
                 self._search_service = FileSearchService()
+                # #region agent log
+                with open(log_path, "a") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H1",
+                        "location": "file_search_tool.py:68",
+                        "message": "After FileSearchService init success",
+                        "data": {"service_type": type(self._search_service).__name__},
+                        "timestamp": int(__import__("time").time() * 1000)
+                    }) + "\n")
+                # #endregion
             except Exception as e:
+                # #region agent log
+                with open(log_path, "a") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H1",
+                        "location": "file_search_tool.py:70",
+                        "message": "FileSearchService init failed",
+                        "data": {"error": str(e), "error_type": type(e).__name__},
+                        "timestamp": int(__import__("time").time() * 1000)
+                    }) + "\n")
+                # #endregion
                 raise RuntimeError(
                     f"文件搜索服务初始化失败: {str(e)}\n"
                     "请确保系统支持文件搜索（macOS 需要启用 Spotlight）。"
@@ -87,6 +141,21 @@ class FileSearchTool(Tool):
         Returns:
             ToolResult: 搜索结果
         """
+        # #region agent log
+        import json
+        import os
+        log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
+        with open(log_path, "a") as f:
+            f.write(json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "H4",
+                "location": "file_search_tool.py:76",
+                "message": "FileSearchTool.execute entry",
+                "data": {"kwargs": kwargs},
+                "timestamp": int(__import__("time").time() * 1000)
+            }) + "\n")
+        # #endregion
         try:
             # 获取参数
             query = kwargs.get("query")
@@ -94,6 +163,19 @@ class FileSearchTool(Tool):
             file_type = kwargs.get("file_type")
             content_search = kwargs.get("content_search", False)
             limit = min(kwargs.get("limit", 20), 100)  # 限制最大值为 100
+            
+            # #region agent log
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H4",
+                    "location": "file_search_tool.py:98",
+                    "message": "Parameters extracted",
+                    "data": {"query": query, "path": path, "file_type": file_type, "content_search": content_search, "limit": limit},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
             
             if not query:
                 return ToolResult(
@@ -111,9 +193,62 @@ class FileSearchTool(Tool):
                 offset=0
             )
             
+            # #region agent log
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H1",
+                    "location": "file_search_tool.py:115",
+                    "message": "Before _get_search_service",
+                    "data": {"request_query": request.query, "request_file_type": request.file_type},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
+            
             # 执行搜索
             service = self._get_search_service()
+            
+            # #region agent log
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H1",
+                    "location": "file_search_tool.py:120",
+                    "message": "After _get_search_service",
+                    "data": {"service_type": type(service).__name__},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
+            
+            # #region agent log
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H3",
+                    "location": "file_search_tool.py:122",
+                    "message": "Before service.search",
+                    "data": {"request_query": request.query},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
+            
             response = service.search(request)
+            
+            # #region agent log
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H3",
+                    "location": "file_search_tool.py:125",
+                    "message": "After service.search",
+                    "data": {"total": response.total, "results_count": len(response.results)},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
             
             # 格式化结果
             results = []
@@ -127,6 +262,21 @@ class FileSearchTool(Tool):
                     "file_type": result.file_type
                 })
             
+            # 即使没有结果，也返回成功，但提供明确的提示信息
+            if response.total == 0:
+                summary = (
+                    f"未找到匹配的文件。"
+                    f"搜索模式: {query}"
+                    f"{f', 文件类型: {file_type}' if file_type else ''}"
+                    f"{f', 搜索路径: {path}' if path else ''}"
+                )
+            else:
+                summary = (
+                    f"找到 {response.total} 个文件"
+                    f"（显示前 {len(results)} 个，"
+                    f"耗时 {response.search_time_ms:.2f}ms）"
+                )
+            
             return ToolResult(
                 success=True,
                 data={
@@ -137,20 +287,46 @@ class FileSearchTool(Tool):
                     "search_time_ms": response.search_time_ms,
                     "search_type": response.search_type,
                     "platform": response.platform,
-                    "summary": (
-                        f"找到 {response.total} 个文件"
-                        f"（显示前 {len(results)} 个，"
-                        f"耗时 {response.search_time_ms:.2f}ms）"
-                    )
+                    "summary": summary
                 }
             )
             
         except RuntimeError as e:
+            # #region agent log
+            import json
+            import os
+            log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H5",
+                    "location": "file_search_tool.py:148",
+                    "message": "RuntimeError caught",
+                    "data": {"error": str(e), "error_type": type(e).__name__},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
             return ToolResult(
                 success=False,
                 error=str(e)
             )
         except Exception as e:
+            # #region agent log
+            import json
+            import os
+            log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
+            with open(log_path, "a") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H5",
+                    "location": "file_search_tool.py:153",
+                    "message": "Exception caught",
+                    "data": {"error": str(e), "error_type": type(e).__name__},
+                    "timestamp": int(__import__("time").time() * 1000)
+                }) + "\n")
+            # #endregion
             return ToolResult(
                 success=False,
                 error=f"文件搜索失败: {str(e)}"

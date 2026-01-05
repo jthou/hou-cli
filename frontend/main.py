@@ -67,13 +67,25 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
         
         # 创建流式数据生成器
         async def stream_generator():
-            async for chunk in client.stream_send(message, session_id=session_id):
-                # 清理无效的 Unicode 字符
-                try:
-                    chunk = chunk.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
-                except Exception:
-                    chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-                yield chunk
+            try:
+                async for chunk in client.stream_send(message, session_id=session_id):
+                    # 清理无效的 Unicode 字符
+                    try:
+                        chunk = chunk.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
+                    except Exception:
+                        chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                    yield chunk
+            except ConnectionError as e:
+                # 连接错误，显示友好提示
+                error_msg = str(e)
+                if not error_msg:
+                    error_msg = "流式请求连接错误：连接已断开"
+                yield f"\n\n[bold red]✗ 连接错误[/bold red]: {error_msg}\n"
+                yield "[dim]提示: 请检查后端服务是否正常运行，或搜索范围是否过大导致超时[/dim]\n"
+            except Exception as e:
+                # 其他错误
+                error_msg = str(e)
+                yield f"\n\n[bold red]✗ 错误[/bold red]: {error_msg}\n"
         
         # 使用 StreamRenderer 实时渲染
         await stream_renderer.render_stream(stream_generator(), console)

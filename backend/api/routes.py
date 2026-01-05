@@ -1,6 +1,7 @@
 """路由定义"""
 import os
 import json
+import asyncio
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -17,8 +18,26 @@ else:
     load_dotenv()
 
 from backend.core.agent.orchestrator import Orchestrator
+from backend.services.search.file_search_service import FileSearchService
+from backend.services.search.models import FileSearchRequest
 
 router = APIRouter()
+
+# 延迟创建搜索服务
+_search_service = None
+
+def get_search_service():
+    """获取 FileSearchService 实例（单例模式）"""
+    global _search_service
+    if _search_service is None:
+        try:
+            _search_service = FileSearchService()
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize FileSearchService: {str(e)}", exc_info=True)
+            raise
+    return _search_service
 
 # 延迟创建 orchestrator，确保 .env 已加载
 _orchestrator = None
@@ -101,18 +120,35 @@ async def chat_stream(request: ChatRequest):
             logger.debug("开始流式处理请求...")
             try:
                 async for chunk in orchestrator.stream_process(request.message, context=context):
-                    # SSE 格式：data: {json}\n\n
-                    # 使用 ensure_ascii=False 保持 emoji 等 Unicode 字符原样，避免转义
-                    yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'}, ensure_ascii=False)}\n\n"
+                    try:
+                        # SSE 格式：data: {json}\n\n
+                        # 使用 ensure_ascii=False 保持 emoji 等 Unicode 字符原样，避免转义
+                        yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'}, ensure_ascii=False)}\n\n"
+                    except Exception as chunk_error:
+                        # 单个 chunk 处理失败，记录但继续
+                        logger.warning(f"处理 chunk 时出错: {str(chunk_error)}")
+                        continue
                 # 发送完成信号
                 logger.debug("流式处理完成")
                 yield f"data: {json.dumps({'content': '', 'status': 'done'}, ensure_ascii=False)}\n\n"
+            except GeneratorExit:
+                # 客户端断开连接，正常情况
+                logger.debug("客户端断开连接")
+                raise
+            except asyncio.CancelledError:
+                # 任务被取消，正常情况
+                logger.debug("流式处理被取消")
+                raise
             except Exception as inner_e:
                 # 流式处理过程中的异常
                 error_trace = traceback.format_exc()
                 logger.error(f"流式处理过程中出错: {str(inner_e)}\n{error_trace}")
-                # 发送错误信号
-                yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(inner_e)}, ensure_ascii=False)}\n\n"
+                try:
+                    # 发送错误信号
+                    yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(inner_e)}, ensure_ascii=False)}\n\n"
+                except Exception:
+                    # 如果发送错误信号也失败，记录日志
+                    logger.error("无法发送错误信号，连接可能已关闭")
         except Exception as e:
             # 外层异常（如 orchestrator 初始化失败）
             error_trace = traceback.format_exc()
@@ -435,4 +471,27 @@ async def search_files(
             status_code=500,
             detail=f"Search failed: {str(e)}"
         )
+
+@router.get("/search/availability")
+async def check_search_availability():
+    """检查搜索功能可用性"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        search_service = get_search_service()
+        available, error = search_service.check_availability()
+        
+        return {
+            "success": True,
+            "available": available,
+            "error": error
+        }
+    except Exception as e:
+        logger.error(f"检查搜索可用性失败: {e}", exc_info=True)
+        return {
+            "success": False,
+            "available": False,
+            "error": str(e)
+        }
 

@@ -67,5 +67,3 @@ class PlatformAdapter(ABC):
             RuntimeError: 当搜索失败时抛出
         """
         pass
-
-
