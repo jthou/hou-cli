@@ -57,14 +57,19 @@ class MacOSSearchAdapter(PlatformAdapter):
                 return False, "mdfind command not found"
             
             # 执行测试查询验证 Spotlight 索引
+            # 使用一个简单的查询，即使没有结果也认为可用
             test_result = subprocess.run(
                 ['mdfind', '-name', 'test'],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=10  # 增加超时时间
             )
             # 即使没有结果，只要命令执行成功就认为可用
             if test_result.returncode != 0:
+                # 如果超时，可能是 Spotlight 正在索引，但仍然认为可用
+                if "timeout" in str(test_result.stderr).lower():
+                    logger.warning("mdfind test query timeout, but command is available")
+                    return True, None
                 return False, f"mdfind test query failed: {test_result.stderr}"
             
             return True, None
