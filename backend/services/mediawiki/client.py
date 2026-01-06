@@ -5,6 +5,7 @@ import logging
 import time
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from urllib.parse import urlparse
 import mwclient
 from mwclient.errors import APIError, LoginError
 
@@ -61,8 +62,41 @@ class MediaWikiClientService:
             MediaWikiClientError: 连接失败时抛出
         """
         try:
-            # 创建 Site 对象
-            self.site = mwclient.Site(self.url)
+            # 解析 URL，提取协议、主机和路径
+            parsed = urlparse(self.url)
+            scheme = parsed.scheme or 'https'  # 默认使用 https
+            host = parsed.netloc or parsed.hostname
+            path = parsed.path.rstrip('/') or '/'
+            
+            # mwclient 的 path 参数应该是 MediaWiki 安装的基础路径
+            # 如果路径是 /mediawiki，API 端点应该是 /mediawiki/api.php
+            # 但 mwclient 会在路径后直接拼接 api.php，所以需要确保路径以 / 结尾
+            # 或者，如果路径不是根路径，需要确保正确拼接
+            if path != '/' and not path.endswith('/'):
+                # 对于非根路径，mwclient 会在后面拼接 api.php
+                # 所以 /mediawiki 会变成 /mediawikiapi.php（错误）
+                # 我们需要确保路径格式正确
+                # 实际上，根据 mwclient 源码，它会在路径后拼接 '/api.php'
+                # 所以如果 path='/mediawiki'，会变成 '/mediawiki/api.php'（正确）
+                # 但实际测试显示它变成了 '/mediawikiapi.php'（错误）
+                # 让我们尝试使用完整路径
+                pass
+            
+            # mwclient.Site() 需要 (host, path, scheme) 参数
+            # 如果路径是 /mediawiki，应该保持原样，mwclient 会自动添加 /api.php
+            logger.debug(f"Connecting to MediaWiki: scheme={scheme}, host={host}, path={path}")
+            
+            # 尝试直接使用完整 URL（如果 mwclient 支持）
+            # 根据文档，mwclient.Site() 也可以接受完整 URL
+            if path == '/' or path == '':
+                # 根路径，直接使用 host
+                self.site = mwclient.Site(host, scheme=scheme)
+            else:
+                # 非根路径，需要正确设置
+                # 根据测试，mwclient 在路径后直接拼接 api.php，没有加斜杠
+                # 所以我们需要确保路径格式为 /mediawiki/（带斜杠）
+                path_with_slash = path if path.endswith('/') else path + '/'
+                self.site = mwclient.Site(host, path=path_with_slash, scheme=scheme)
             
             # 优先使用 Bot 认证
             if self.bot_name and self.bot_password:
@@ -174,8 +208,23 @@ class MediaWikiClientService:
                 # 获取页面内容
                 content = page.text()
                 
-                # 获取页面信息
-                page_info = page.info
+                # 获取页面信息（使用 API 查询）
+                page_info = self.site.api(
+                    'query',
+                    prop='info',
+                    titles=title,
+                    inprop='url|timestamp|revid'
+                )
+                
+                # 解析页面信息
+                pages_data = page_info.get('query', {}).get('pages', {})
+                page_data = None
+                for page_id, data in pages_data.items():
+                    page_data = data
+                    break
+                
+                if not page_data:
+                    return None
                 
                 # 获取分类
                 categories = [cat.name for cat in page.categories()]
@@ -184,18 +233,24 @@ class MediaWikiClientService:
                 links = [link.name for link in page.links()]
                 
                 # 解析最后修改时间
-                last_modified = datetime.fromisoformat(
-                    page_info.get("touched", "").replace("Z", "+00:00")
-                ) if page_info.get("touched") else datetime.now()
+                touched = page_data.get("touched", "")
+                if touched:
+                    try:
+                        # MediaWiki 时间格式: 2024-01-01T12:00:00Z
+                        last_modified = datetime.strptime(touched, "%Y-%m-%dT%H:%M:%SZ")
+                    except ValueError:
+                        last_modified = datetime.now()
+                else:
+                    last_modified = datetime.now()
                 
                 return MediaWikiPage(
                     title=title,
                     content=content,
-                    revision_id=page_info.get("lastrevid", 0),
+                    revision_id=page_data.get("lastrevid", 0),
                     last_modified=last_modified,
                     categories=categories,
                     links=links,
-                    url=f"{self.url}/index.php/{title.replace(' ', '_')}"
+                    url=page_data.get("fullurl", f"{self.url}/index.php/{title.replace(' ', '_')}")
                 )
             except KeyError:
                 return None
