@@ -31,6 +31,8 @@ class CommandHandler:
             "context": ("上下文管理", "管理会话和上下文"),
             "help": ("显示帮助信息", "[command]"),
             "gvim": ("打开文件或 MediaWiki 页面", "[file_path|mediawiki_page] [options]"),
+            "exit": ("退出程序", ""),
+            "quit": ("退出程序", ""),
         }
     
     def handle_command(self, input_text: str) -> Tuple[Optional[str], Optional[str]]:
@@ -98,6 +100,10 @@ class CommandHandler:
         elif command == 'gvim':
             # /gvim 命令
             return (self._handle_gvim(args), None)
+        
+        elif command in ['exit', 'quit']:
+            # /exit 或 /quit 命令
+            return ("[dim]再见！[/dim]", None)
         
         else:
             # 未知命令，提供帮助

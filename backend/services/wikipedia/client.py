@@ -68,8 +68,19 @@ class WikipediaService:
             else:
                 current_lang = self.language
             
-            # 执行搜索
-            search_results = wikipedia.search(query, results=num_results)
+            # 执行搜索（添加错误处理）
+            try:
+                search_results = wikipedia.search(query, results=num_results)
+            except Exception as e:
+                # 如果是 JSON 解析错误，可能是网络问题或 API 限制
+                error_msg = str(e)
+                if "JSON" in error_msg or "Expecting value" in error_msg:
+                    raise WikipediaServiceError(
+                        f"Wikipedia API 返回无效响应。可能是网络问题或 API 限制。"
+                        f"请稍后重试或尝试其他搜索词。原始错误: {error_msg}"
+                    )
+                else:
+                    raise WikipediaServiceError(f"搜索失败: {error_msg}")
             
             results = []
             for title in search_results:
@@ -159,7 +170,7 @@ class WikipediaService:
             else:
                 current_lang = self.language
             
-            # 获取页面
+            # 获取页面（添加错误处理）
             try:
                 page = wikipedia.page(title, auto_suggest=False)
             except wikipedia.exceptions.DisambiguationError as e:
@@ -170,6 +181,16 @@ class WikipediaService:
                     raise WikipediaServiceError(f"页面 '{title}' 存在歧义，无法确定具体页面")
             except wikipedia.exceptions.PageError:
                 raise WikipediaServiceError(f"页面不存在: {title}")
+            except Exception as e:
+                # 处理其他异常（如 JSON 解析错误）
+                error_msg = str(e)
+                if "JSON" in error_msg or "Expecting value" in error_msg:
+                    raise WikipediaServiceError(
+                        f"Wikipedia API 返回无效响应。可能是网络问题或 API 限制。"
+                        f"请稍后重试。原始错误: {error_msg}"
+                    )
+                else:
+                    raise
             
             # 获取摘要
             summary = page.summary if hasattr(page, 'summary') else ""

@@ -266,6 +266,10 @@ def chat(message, stream):
                 
                 # 检测命令模式（以 / 开头）
                 if msg.startswith('/'):
+                    # 检查是否是退出命令
+                    if msg.strip().lower() in ['/exit', '/quit']:
+                        break
+                    
                     result, new_session_id = command_handler.handle_command(msg)
                     if result:
                         console.print(result)
@@ -287,8 +291,8 @@ def chat(message, stream):
                         # 成功发送消息后，保存会话 ID
                         save_session_id(session_id)
                     except KeyboardInterrupt:
-                        # 用户按 Ctrl+C，已经在上层处理，这里只需要继续循环
-                        console.print()
+                        # 用户按 Ctrl+C，终止当前对话，继续循环（不退出程序）
+                        console.print("\n[dim]对话已终止，输入 /exit 退出程序[/dim]")
                         continue
                 else:
                     # 非流式响应
@@ -308,7 +312,13 @@ def chat(message, stream):
                         console.print(rendered)
                 console.print()  # 空行
             except KeyboardInterrupt:
-                break
+                # 用户按 Ctrl+C，不退出程序，只显示提示
+                console.print("\n[dim]提示: 输入 /exit 退出程序[/dim]")
+                continue
+            except EOFError:
+                # 用户按 Ctrl+D，不退出程序，只显示提示
+                console.print("\n[dim]提示: 输入 /exit 退出程序[/dim]")
+                continue
             except Exception as e:
                 show_error(e)
         

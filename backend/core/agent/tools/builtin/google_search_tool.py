@@ -1,5 +1,7 @@
 """Google 搜索工具实现"""
 
+import asyncio
+import concurrent.futures
 from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.services.google_search import GoogleSearchService, GoogleSearchServiceError
@@ -82,8 +84,6 @@ class GoogleSearchTool(Tool):
         Returns:
             ToolResult: 搜索结果
         """
-        import asyncio
-        
         try:
             # 获取参数
             query = kwargs.get("query")
@@ -101,11 +101,32 @@ class GoogleSearchTool(Tool):
             
             # 执行搜索（异步）
             service = self._get_search_service()
-            response = asyncio.run(service.search(
-                query=query,
-                num_results=num_results,
-                language=language
-            ))
+            
+            # 检查是否已有运行的事件循环
+            try:
+                loop = asyncio.get_running_loop()
+                # 如果已有运行的事件循环，使用线程池执行
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        lambda: asyncio.run(service.search(
+                            query=query,
+                            num_results=num_results,
+                            language=language
+                        ))
+                    )
+                    response = future.result(timeout=30)
+            except RuntimeError:
+                # 没有运行的事件循环，可以直接使用 asyncio.run
+                response = asyncio.run(service.search(
+                    query=query,
+                    num_results=num_results,
+                    language=language
+                ))
+            except concurrent.futures.TimeoutError:
+                return ToolResult(
+                    success=False,
+                    error="Google 搜索超时，请稍后重试"
+                )
             
             # 格式化结果
             results = []
