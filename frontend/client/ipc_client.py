@@ -424,6 +424,31 @@ class IPCClient:
         except httpx.HTTPStatusError as e:
             raise Exception(f"HTTP 错误：{e.response.status_code}")
     
+    def list_tools(self) -> List[Dict[str, Any]]:
+        """
+        获取可用工具列表
+        
+        Returns:
+            工具列表
+        """
+        try:
+            # 使用 httpx 客户端，已配置 trust_env=False 跳过代理
+            response = self.client.get(
+                f"{self.base_url}/api/tools/list",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success"):
+                return result.get("tools", [])
+            else:
+                raise Exception(result.get("error", "获取失败"))
+        except httpx.RequestError as e:
+            raise ConnectionError(f"连接错误：{str(e)}")
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"HTTP 错误：{e.response.status_code}")
+    
     def generate_session_summary(self, session_id: str) -> Dict[str, Any]:
         """
         生成会话摘要

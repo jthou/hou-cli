@@ -123,6 +123,35 @@ class CommandHandler:
                     sub_cmd_line += f" - {sub_desc}\n"
                     hint_text.append(sub_cmd_line)
         
+        # 显示可用工具
+        hint_text.append("\n可用工具:\n")
+        try:
+            if self.client:
+                tools = self.client.list_tools()
+                if tools:
+                    for tool in tools:
+                        tool_name = tool.get("name", "unknown")
+                        tool_desc = tool.get("description", "")
+                        # 截断描述（取第一行或前 50 个字符）
+                        if tool_desc:
+                            # 取第一行
+                            first_line = tool_desc.split('\n')[0]
+                            if len(first_line) > 50:
+                                tool_desc = first_line[:50] + "..."
+                            else:
+                                tool_desc = first_line
+                        hint_text.append(f"  • {tool_name}", style="cyan")
+                        if tool_desc:
+                            hint_text.append(f" - {tool_desc}\n")
+                        else:
+                            hint_text.append("\n")
+                else:
+                    hint_text.append("  [dim]暂无可用工具[/dim]\n")
+            else:
+                hint_text.append("  [dim]无法获取工具列表（客户端未初始化）[/dim]\n")
+        except Exception as e:
+            hint_text.append(f"  [dim]无法获取工具列表: {str(e)[:50]}...[/dim]\n")
+        
         hint_text.append("\n提示: 输入 /help 查看详细帮助")
         
         return Panel(

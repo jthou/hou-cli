@@ -109,6 +109,32 @@ class Orchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册 Google 搜索工具
+        try:
+            from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool
+            google_search_tool = GoogleSearchTool()
+            self.tool_registry.register(google_search_tool)
+            self.debug.log_orchestrator_step("注册工具", {"google_search_tool": "registered"})
+            logger.info("Google search tool registered successfully")
+        except Exception as e:
+            # 工具注册失败不应该阻止 Orchestrator 初始化
+            error_msg = f"Failed to register Google search tool: {str(e)}. Google search tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 Wikipedia 搜索工具
+        try:
+            from backend.core.agent.tools.builtin.wikipedia_tool import WikipediaTool
+            wikipedia_tool = WikipediaTool()
+            self.tool_registry.register(wikipedia_tool)
+            self.debug.log_orchestrator_step("注册工具", {"wikipedia_tool": "registered"})
+            logger.info("Wikipedia search tool registered successfully")
+        except Exception as e:
+            # 工具注册失败不应该阻止 Orchestrator 初始化
+            error_msg = f"Failed to register Wikipedia search tool: {str(e)}. Wikipedia search tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
         # 注册代码执行工具
         try:
             from backend.core.agent.tools.builtin.code_executor_tool import CodeExecutorTool
