@@ -495,3 +495,316 @@ async def check_search_availability():
             "error": str(e)
         }
 
+# MediaWiki API
+from backend.services.mediawiki import (
+    MediaWikiClientService,
+    MediaWikiSyncService,
+    UnifiedSearchService
+)
+from backend.services.mediawiki.models import MediaWikiPage, UnifiedSearchResult
+
+_mediawiki_client = None
+_mediawiki_sync_service = None
+_unified_search_service = None
+
+def get_mediawiki_client():
+    """获取 MediaWiki 客户端实例（单例模式）"""
+    global _mediawiki_client
+    if _mediawiki_client is None:
+        try:
+            _mediawiki_client = MediaWikiClientService()
+            _mediawiki_client.connect()
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize MediaWiki client: {str(e)}", exc_info=True)
+            raise
+    return _mediawiki_client
+
+def get_mediawiki_sync_service():
+    """获取 MediaWiki 同步服务实例（单例模式）"""
+    global _mediawiki_sync_service
+    if _mediawiki_sync_service is None:
+        try:
+            client = get_mediawiki_client()
+            _mediawiki_sync_service = MediaWikiSyncService(client=client)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize MediaWiki sync service: {str(e)}", exc_info=True)
+            raise
+    return _mediawiki_sync_service
+
+def get_unified_search_service():
+    """获取统一搜索服务实例（单例模式）"""
+    global _unified_search_service
+    if _unified_search_service is None:
+        try:
+            client = get_mediawiki_client()
+            _unified_search_service = UnifiedSearchService(mediawiki_client=client)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize unified search service: {str(e)}", exc_info=True)
+            raise
+    return _unified_search_service
+
+class MediaWikiEditRequest(BaseModel):
+    """MediaWiki 编辑请求"""
+    content: str
+    summary: Optional[str] = ""
+
+@router.get("/mediawiki/search")
+async def search_mediawiki(
+    query: str,
+    limit: int = 20
+):
+    """搜索 MediaWiki 页面
+    
+    Args:
+        query: 搜索关键词
+        limit: 结果数量限制（默认 20，最大 100）
+        
+    Returns:
+        搜索结果列表
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        if limit < 1 or limit > 100:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail="limit must be between 1 and 100"
+            )
+        
+        client = get_mediawiki_client()
+        results = client.search_pages(query, limit=limit)
+        
+        return {
+            "success": True,
+            "count": len(results),
+            "results": [
+                {
+                    "title": r.title,
+                    "snippet": r.snippet,
+                    "url": r.url,
+                    "score": r.score
+                }
+                for r in results
+            ]
+        }
+    except Exception as e:
+        logger.error(f"MediaWiki search failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {str(e)}"
+        )
+
+@router.get("/mediawiki/pages/{title:path}")
+async def get_mediawiki_page(title: str):
+    """获取 MediaWiki 页面
+    
+    Args:
+        title: 页面标题（URL 编码）
+        
+    Returns:
+        页面内容
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        client = get_mediawiki_client()
+        page = client.get_page(title)
+        
+        if not page:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=404,
+                detail=f"Page '{title}' not found"
+            )
+        
+        return {
+            "success": True,
+            "page": {
+                "title": page.title,
+                "content": page.content,
+                "url": page.url,
+                "categories": page.categories,
+                "links": page.links,
+                "last_modified": page.last_modified.isoformat(),
+                "revision_id": page.revision_id
+            }
+        }
+    except Exception as e:
+        logger.error(f"Get MediaWiki page failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get page: {str(e)}"
+        )
+
+@router.post("/mediawiki/pages/{title:path}")
+async def edit_mediawiki_page(title: str, request: MediaWikiEditRequest):
+    """编辑 MediaWiki 页面
+    
+    Args:
+        title: 页面标题（URL 编码）
+        request: 编辑请求（包含 content 和 summary）
+        
+    Returns:
+        编辑结果
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        client = get_mediawiki_client()
+        success = client.edit_page(
+            title,
+            request.content,
+            summary=request.summary or "由 API 编辑"
+        )
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Page '{title}' edited successfully"
+            }
+        else:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail="Edit failed"
+            )
+    except Exception as e:
+        logger.error(f"Edit MediaWiki page failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Edit failed: {str(e)}"
+        )
+
+@router.post("/mediawiki/sync")
+async def trigger_sync(
+    force: bool = False,
+    category: Optional[str] = None
+):
+    """触发 MediaWiki 同步
+    
+    Args:
+        force: 是否强制全量同步
+        category: 同步指定分类（可选）
+        
+    Returns:
+        同步结果
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        sync_service = get_mediawiki_sync_service()
+        
+        if category:
+            result = sync_service.sync_category(category, force=force)
+        else:
+            result = sync_service.sync_all_pages(force=force)
+        
+        return {
+            "success": True,
+            "result": result
+        }
+    except Exception as e:
+        logger.error(f"MediaWiki sync failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sync failed: {str(e)}"
+        )
+
+@router.get("/mediawiki/sync/status")
+async def get_sync_status():
+    """获取同步状态
+    
+    Returns:
+        同步状态信息
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        sync_service = get_mediawiki_sync_service()
+        status = sync_service.get_sync_status()
+        
+        return {
+            "success": True,
+            "status": status
+        }
+    except Exception as e:
+        logger.error(f"Get sync status failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get sync status: {str(e)}"
+        )
+
+@router.get("/search/unified")
+async def unified_search(
+    query: str,
+    limit: int = 20,
+    sources: Optional[str] = None
+):
+    """统一搜索（MediaWiki + 知识库）
+    
+    Args:
+        query: 搜索关键词
+        limit: 结果数量限制
+        sources: 搜索来源，逗号分隔（"mediawiki,knowledge_base"），None 表示搜索所有来源
+        
+    Returns:
+        合并后的搜索结果
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        if limit < 1 or limit > 100:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail="limit must be between 1 and 100"
+            )
+        
+        source_list = None
+        if sources:
+            source_list = [s.strip() for s in sources.split(",")]
+        
+        search_service = get_unified_search_service()
+        results = search_service.search(query, limit=limit, sources=source_list)
+        
+        return {
+            "success": True,
+            "count": len(results),
+            "results": [
+                {
+                    "source": r.source,
+                    "title": r.title,
+                    "content": r.content,
+                    "score": r.score,
+                    "url": r.url,
+                    "metadata": r.metadata
+                }
+                for r in results
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Unified search failed: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {str(e)}"
+        )
+

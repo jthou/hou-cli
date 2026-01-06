@@ -83,6 +83,19 @@ class Orchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册 MediaWiki 工具
+        try:
+            from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
+            mediawiki_tool = MediaWikiTool()
+            self.tool_registry.register(mediawiki_tool)
+            self.debug.log_orchestrator_step("注册工具", {"mediawiki_tool": "registered"})
+            logger.info("MediaWiki tool registered successfully")
+        except Exception as e:
+            # 工具注册失败不应该阻止 Orchestrator 初始化
+            error_msg = f"Failed to register MediaWiki tool: {str(e)}. MediaWiki tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
         # 注册代码执行工具
         try:
             from backend.core.agent.tools.builtin.code_executor_tool import CodeExecutorTool

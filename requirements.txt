@@ -53,6 +53,10 @@ python-dotenv>=1.0.0
 PyJWT[crypto]>=2.8.0
 cryptography>=41.0.0
 
+# ===== MediaWiki 集成 =====
+# MediaWiki API 客户端
+mwclient>=0.10.0
+
 # ===== 可选依赖 =====
 # 如果需要使用其他向量数据库，可以取消注释
 # faiss-cpu>=1.7.4  # Facebook AI Similarity Search
