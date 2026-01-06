@@ -70,8 +70,17 @@ class FileStorageBackend(StorageBackend):
                 "messages": [m.to_dict() for m in messages]
             }, f, ensure_ascii=False, indent=2)
         
-        # 更新会话时间
-        if session_id in self.sessions:
+        # 如果会话不存在，自动创建会话
+        if session_id not in self.sessions:
+            from backend.core.context.models import Session
+            session = Session(
+                session_id=session_id,
+                metadata={}
+            )
+            self.sessions[session_id] = session
+            self._save_sessions()
+        else:
+            # 更新会话时间
             self.sessions[session_id].updated_at = datetime.now()
             self._save_sessions()
         

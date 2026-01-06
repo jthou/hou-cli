@@ -4,6 +4,7 @@ import sys
 import asyncio
 import uuid
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 import click
 from rich.console import Console
@@ -23,6 +24,41 @@ else:
     load_dotenv()
 
 console = Console()
+
+def _get_session_file() -> Path:
+    """获取会话文件路径（跨平台）"""
+    import platform
+    if platform.system() == "Windows":
+        base = Path.home() / "AppData" / "Local" / "hou-cli"
+    elif platform.system() == "Darwin":  # macOS
+        base = Path.home() / "Library" / "Application Support" / "hou-cli"
+    else:  # Linux
+        base = Path.home() / ".local" / "share" / "hou-cli"
+    
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "last_session.txt"
+
+def save_session_id(session_id: str):
+    """保存会话 ID 到文件"""
+    try:
+        session_file = _get_session_file()
+        session_file.write_text(session_id.strip())
+    except Exception:
+        # 保存失败不影响主流程，静默处理
+        pass
+
+def load_session_id() -> Optional[str]:
+    """从文件加载会话 ID"""
+    try:
+        session_file = _get_session_file()
+        if session_file.exists():
+            session_id = session_file.read_text().strip()
+            if session_id:
+                return session_id
+    except Exception:
+        # 加载失败返回 None，将创建新会话
+        pass
+    return None
 
 def show_error(error: Exception, context: str = ""):
     """显示友好的错误提示"""
@@ -75,21 +111,33 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
                     except Exception:
                         chunk = chunk.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
                     yield chunk
+            except KeyboardInterrupt:
+                # 用户按 Ctrl+C，终止流式请求
+                yield "\n\n[bold yellow]⚠ 用户中断[/bold yellow]: 对话已终止\n"
+                raise  # 重新抛出，让外层处理
             except ConnectionError as e:
                 # 连接错误，显示友好提示
                 error_msg = str(e)
                 if not error_msg:
                     error_msg = "流式请求连接错误：连接已断开"
                 yield f"\n\n[bold red]✗ 连接错误[/bold red]: {error_msg}\n"
-                yield "[dim]提示: 请检查后端服务是否正常运行，或搜索范围是否过大导致超时[/dim]\n"
+                # 如果错误信息中已经包含提示，就不再重复显示
+                if "提示:" not in error_msg:
+                    yield "[dim]提示: 请检查后端服务是否正常运行，或任务是否过于复杂导致超时[/dim]\n"
             except Exception as e:
                 # 其他错误
                 error_msg = str(e)
                 yield f"\n\n[bold red]✗ 错误[/bold red]: {error_msg}\n"
         
         # 使用 StreamRenderer 实时渲染
-        await stream_renderer.render_stream(stream_generator(), console)
-        console.print()  # 换行
+        try:
+            await stream_renderer.render_stream(stream_generator(), console)
+            console.print()  # 换行
+        except KeyboardInterrupt:
+            # 用户按 Ctrl+C，显示提示并终止
+            console.print("\n[bold yellow]⚠ 对话已终止[/bold yellow]")
+            console.print("[dim]提示: 按 Ctrl+C 可以随时终止正在进行的对话[/dim]\n")
+            return False
         
         return True
     except Exception as e:
@@ -105,7 +153,7 @@ def chat(message, stream):
     banner_shown = False
     if not message:
         show_banner()
-        console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
+        console.print("[dim]输入 'exit' 或 'quit' 退出，按 Ctrl+C 可终止正在进行的对话[/dim]\n")
         banner_shown = True
     
     try:
@@ -114,20 +162,40 @@ def chat(message, stream):
         # 连接失败时，确保banner已显示（交互式模式）
         if not banner_shown and not message:
             show_banner()
-            console.print("[dim]输入 'exit' 或 'quit' 退出[/dim]\n")
+            console.print("[dim]输入 'exit' 或 'quit' 退出，按 Ctrl+C 可终止正在进行的对话[/dim]\n")
         # 显示错误信息（不会覆盖banner，因为banner在上面）
         show_error(e)
         return
     
-    # 创建会话 ID（用于维护对话上下文）
-    session_id = str(uuid.uuid4())
+    # 尝试加载上次的会话 ID（仅在交互式模式下）
+    session_id = None
+    if not message:  # 交互式模式才恢复会话
+        session_id = load_session_id()
+        
+        if session_id:
+            # 直接使用上次的会话 ID，不验证是否存在
+            # 如果会话不存在，后端会在第一次发送消息时自动创建
+            console.print(f"[dim]已恢复上次会话: {session_id[:8]}...[/dim]")
+        else:
+            # 如果没有保存的会话，创建新会话
+            session_id = str(uuid.uuid4())
+            console.print(f"[dim]已创建新会话: {session_id[:8]}...[/dim]")
+            # 注意：会话 ID 会在第一次成功发送消息后保存
+    else:
+        # 单次对话模式，创建新会话
+        session_id = str(uuid.uuid4())
     
     if message:
         # 单次对话
         try:
             if stream:
                 # 流式响应
-                asyncio.run(_stream_chat(client, message, session_id=session_id))
+                try:
+                    asyncio.run(_stream_chat(client, message, session_id=session_id))
+                except KeyboardInterrupt:
+                    # 用户按 Ctrl+C，显示提示
+                    console.print("\n[bold yellow]⚠ 对话已终止[/bold yellow]\n")
+                    return
             else:
                 # 非流式响应
                 response = client.send(message, session_id=session_id)
@@ -205,6 +273,8 @@ def chat(message, stream):
                     if new_session_id:
                         session_id = new_session_id
                         command_handler.current_session_id = session_id
+                        # 立即保存新的会话 ID
+                        save_session_id(session_id)
                         console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
                     console.print()  # 空行
                     continue
@@ -212,10 +282,19 @@ def chat(message, stream):
                 # 正常对话流程
                 if stream:
                     # 流式响应
-                    asyncio.run(_stream_chat(client, msg, session_id=session_id))
+                    try:
+                        asyncio.run(_stream_chat(client, msg, session_id=session_id))
+                        # 成功发送消息后，保存会话 ID
+                        save_session_id(session_id)
+                    except KeyboardInterrupt:
+                        # 用户按 Ctrl+C，已经在上层处理，这里只需要继续循环
+                        console.print()
+                        continue
                 else:
                     # 非流式响应
                     response = client.send(msg, session_id=session_id)
+                    # 成功发送消息后，保存会话 ID
+                    save_session_id(session_id)
                     # 直接渲染内容，不使用 Panel
                     factory = RendererFactory()
                     renderer = factory.get_renderer(response)
@@ -239,6 +318,10 @@ def chat(message, stream):
                 readline.write_history_file(str(history_file))
             except Exception:
                 pass
+        
+        # 退出时保存当前会话 ID
+        if session_id:
+            save_session_id(session_id)
     
     client.close()
 

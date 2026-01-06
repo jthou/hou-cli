@@ -177,10 +177,20 @@ class StreamRenderer:
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
                         if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:")):
                             live.update(full_content + buffer)
+                    except KeyboardInterrupt:
+                        # 用户按 Ctrl+C，终止流式处理
+                        raise  # 重新抛出，让外层处理
                     except Exception as chunk_error:
                         # 处理单个 chunk 时出错，记录但继续
                         console.print(f"[dim]处理数据块时出错: {chunk_error}[/dim]")
                         continue
+        except KeyboardInterrupt:
+            # 用户按 Ctrl+C，显示提示并终止
+            console.print("\n[bold yellow]⚠ 对话已终止[/bold yellow]")
+            # 显示已收集的内容
+            if full_content:
+                console.print(full_content)
+            raise  # 重新抛出，让调用者知道是用户中断
         except Exception as e:
             # 流式处理失败，显示错误
             console.print(f"\n[bold red]流式处理失败[/bold red]: {e}")

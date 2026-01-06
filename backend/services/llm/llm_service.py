@@ -38,7 +38,18 @@ class LLMService:
         
         # 调试输出
         self.debug = DebugOutput()
-        self.model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")  # 支持切换模型
+        self.default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")  # 默认模型
+        self.model = self.default_model  # 当前使用的模型
+    
+    def set_model(self, model: str):
+        """动态设置使用的模型"""
+        self.model = model
+        logger.info(f"模型已切换为: {model}")
+    
+    def reset_model(self):
+        """重置为默认模型"""
+        self.model = self.default_model
+        logger.info(f"模型已重置为默认: {self.default_model}")
     
     @property
     def supports_thinking(self) -> bool:

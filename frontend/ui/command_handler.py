@@ -30,6 +30,7 @@ class CommandHandler:
         self.top_level_commands = {
             "context": ("上下文管理", "管理会话和上下文"),
             "help": ("显示帮助信息", "[command]"),
+            "gvim": ("打开文件或 MediaWiki 页面", "[file_path|mediawiki_page] [options]"),
         }
     
     def handle_command(self, input_text: str) -> Tuple[Optional[str], Optional[str]]:
@@ -93,6 +94,10 @@ class CommandHandler:
         elif command == 'help':
             # /help 命令
             return (self._handle_help(args), None)
+        
+        elif command == 'gvim':
+            # /gvim 命令
+            return (self._handle_gvim(args), None)
         
         else:
             # 未知命令，提供帮助
@@ -625,6 +630,82 @@ class CommandHandler:
             return (f"[green]✓ 已切换到会话: {session_id[:8]}...[/green]", session_id)
         except Exception as e:
             return (f"[red]错误: {e}[/red]", None)
+    
+    def _handle_gvim(self, args: List[str]) -> str:
+        """处理 /gvim 命令
+        
+        用法:
+        /gvim <file_path> [line_number] [--read-only]
+        /gvim --mediawiki <page_title> [line_number] [--read-only]
+        """
+        try:
+            from backend.services.editor import GvimService, GvimServiceError
+            
+            if not args:
+                return (
+                    "[yellow]用法:[/yellow]\n"
+                    "  /gvim <file_path> [line_number] [--read-only]\n"
+                    "  /gvim --mediawiki <page_title> [line_number] [--read-only]\n"
+                    "\n示例:\n"
+                    "  /gvim /path/to/file.py 10\n"
+                    "  /gvim --mediawiki Test\n"
+                    "  /gvim --mediawiki Test 5 --read-only"
+                )
+            
+            service = GvimService()
+            
+            if not service.check_availability():
+                return "[red]错误: gvim 不可用，请确保已安装 gvim[/red]"
+            
+            # 解析参数
+            file_path = None
+            mediawiki_page = None
+            line_number = None
+            read_only = False
+            
+            i = 0
+            while i < len(args):
+                arg = args[i]
+                if arg == '--mediawiki':
+                    if i + 1 < len(args):
+                        mediawiki_page = args[i + 1]
+                        i += 2
+                    else:
+                        return "[red]错误: --mediawiki 需要指定页面标题[/red]"
+                elif arg == '--read-only':
+                    read_only = True
+                    i += 1
+                elif arg.isdigit():
+                    line_number = int(arg)
+                    i += 1
+                else:
+                    # 作为文件路径处理
+                    if not file_path and not mediawiki_page:
+                        file_path = arg
+                    i += 1
+            
+            # 执行操作
+            if mediawiki_page:
+                result = service.open_mediawiki_page(
+                    page_title=mediawiki_page,
+                    line_number=line_number,
+                    read_only=read_only
+                )
+                return f"[green]✓ {result['message']}[/green]\n文件路径: {result['file_path']}"
+            elif file_path:
+                result = service.open_file(
+                    file_path=file_path,
+                    line_number=line_number,
+                    read_only=read_only
+                )
+                return f"[green]✓ {result['message']}[/green]"
+            else:
+                return "[red]错误: 必须指定文件路径或 MediaWiki 页面标题[/red]"
+                
+        except GvimServiceError as e:
+            return f"[red]错误: {str(e)}[/red]"
+        except Exception as e:
+            return f"[red]错误: {str(e)}[/red]"
     
     def _handle_help(self, args: List[str]) -> str:
         """处理 /help 命令"""

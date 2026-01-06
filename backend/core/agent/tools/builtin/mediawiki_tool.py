@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.services.mediawiki import MediaWikiClientService
 from backend.services.mediawiki.models import MediaWikiPage, MediaWikiSearchResult
+from backend.services.mediawiki.utils import format_page_link, format_page_list_with_links
 
 
 class MediaWikiTool(Tool):
@@ -59,11 +60,15 @@ class MediaWikiTool(Tool):
             name="mediawiki",
             description=(
                 "访问和操作 MediaWiki 网站。可以搜索页面、读取页面内容、编辑现有页面、创建新页面。"
-                "使用示例："
+                "\n使用示例："
                 "- 搜索：operation='search', query='关键词'"
                 "- 读取：operation='read', title='页面标题'"
                 "- 编辑：operation='edit', title='页面标题', content='新内容'"
                 "- 创建：operation='create', title='页面标题', content='内容'"
+                "\n重要提示："
+                "当输出 MediaWiki 页面列表时，请使用 format_page_link() 或 format_page_list_with_links() 函数"
+                "为每个页面标题添加可点击的链接。这些函数可以从 backend.services.mediawiki.utils 导入。"
+                "链接格式为 Markdown：[页面标题](URL)，可以在支持 Markdown 的终端中点击打开浏览器。"
             ),
             parameters=parameters
         )
@@ -155,8 +160,11 @@ class MediaWikiTool(Tool):
         
         formatted_results = []
         for result in results:
+            # 为每个结果添加 Markdown 格式的链接
+            link = format_page_link(result.title, link_text=result.title)
             formatted_results.append({
                 "title": result.title,
+                "title_link": link,  # 添加链接格式
                 "snippet": result.snippet,
                 "url": result.url,
                 "score": result.score
@@ -169,7 +177,7 @@ class MediaWikiTool(Tool):
                 "query": query,
                 "count": len(results),
                 "results": formatted_results,
-                "summary": f"找到 {len(results)} 个相关页面"
+                "summary": f"找到 {len(results)} 个相关页面（点击标题可在浏览器中打开）"
             }
         )
     
@@ -199,12 +207,13 @@ class MediaWikiTool(Tool):
             data={
                 "operation": "read",
                 "title": page.title,
+                "title_link": format_page_link(page.title, link_text=page.title),  # 添加链接格式（Markdown，可点击）
                 "content": page.content,
                 "url": page.url,
                 "categories": page.categories,
                 "links_count": len(page.links),
                 "last_modified": page.last_modified.isoformat(),
-                "summary": f"成功读取页面 '{title}'，包含 {len(page.categories)} 个分类"
+                "summary": f"成功读取页面 '{title}'，包含 {len(page.categories)} 个分类（点击标题可在浏览器中打开）"
             }
         )
     

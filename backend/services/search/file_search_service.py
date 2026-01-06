@@ -155,59 +155,9 @@ class FileSearchService:
             cache_enabled: 是否启用缓存
             cache_ttl: 缓存过期时间（秒），默认 5 分钟
         """
-        # #region agent log
-        import json
-        log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H1",
-                "location": "file_search_service.py:151",
-                "message": "FileSearchService.__init__ entry",
-                "data": {},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
-        # #region agent log
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H2",
-                "location": "file_search_service.py:158",
-                "message": "Before _create_adapter",
-                "data": {},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
         try:
             self.adapter = self._create_adapter()
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H2",
-                    "location": "file_search_service.py:162",
-                    "message": "After _create_adapter success",
-                    "data": {"adapter_type": type(self.adapter).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
         except Exception as e:
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H2",
-                    "location": "file_search_service.py:168",
-                    "message": "_create_adapter failed",
-                    "data": {"error": str(e), "error_type": type(e).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             raise
         self.cache_enabled = cache_enabled
         self.cache = SearchCache(ttl_seconds=cache_ttl) if cache_enabled else None
@@ -225,94 +175,20 @@ class FileSearchService:
         Raises:
             NotImplementedError: 如果平台不支持
         """
-        # #region agent log
-        import json
-        log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H2",
-                "location": "file_search_service.py:166",
-                "message": "_create_adapter entry",
-                "data": {"system": platform.system()},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
         system = platform.system()
         if system == 'Darwin':  # macOS
             return MacOSSearchAdapter()
         elif system == 'Linux':
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H2",
-                    "location": "file_search_service.py:178",
-                    "message": "Before LinuxSearchAdapter import",
-                    "data": {},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             try:
                 from .platform.linux_search import LinuxSearchAdapter
-                # #region agent log
-                with open(log_path, "a") as f:
-                    f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H2",
-                        "location": "file_search_service.py:181",
-                        "message": "Before LinuxSearchAdapter init",
-                        "data": {},
-                        "timestamp": int(__import__("time").time() * 1000)
-                    }) + "\n")
-                # #endregion
                 adapter = LinuxSearchAdapter()
-                # #region agent log
-                with open(log_path, "a") as f:
-                    f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H2",
-                        "location": "file_search_service.py:186",
-                        "message": "After LinuxSearchAdapter init success",
-                        "data": {"adapter_type": type(adapter).__name__},
-                        "timestamp": int(__import__("time").time() * 1000)
-                    }) + "\n")
-                # #endregion
                 return adapter
             except ImportError as e:
-                # #region agent log
-                with open(log_path, "a") as f:
-                    f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H2",
-                        "location": "file_search_service.py:193",
-                        "message": "LinuxSearchAdapter ImportError",
-                        "data": {"error": str(e)},
-                        "timestamp": int(__import__("time").time() * 1000)
-                    }) + "\n")
-                # #endregion
                 raise NotImplementedError(
                     f"Linux platform adapter not available. "
                     "Please ensure linux_search.py exists."
                 )
             except Exception as e:
-                # #region agent log
-                with open(log_path, "a") as f:
-                    f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H2",
-                        "location": "file_search_service.py:201",
-                        "message": "LinuxSearchAdapter init Exception",
-                        "data": {"error": str(e), "error_type": type(e).__name__},
-                        "timestamp": int(__import__("time").time() * 1000)
-                    }) + "\n")
-                # #endregion
                 raise
         else:
             raise NotImplementedError(

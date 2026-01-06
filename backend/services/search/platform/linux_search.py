@@ -41,62 +41,12 @@ class LinuxSearchAdapter(PlatformAdapter):
         Raises:
             RuntimeError: 如果 locate/plocate 和文件系统遍历都不可用
         """
-        # #region agent log
-        import json
-        log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H2",
-                "location": "linux_search.py:38",
-                "message": "LinuxSearchAdapter.__init__ entry",
-                "data": {},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
         self.locate_cmd: Optional[str] = None
         self.db_path: Optional[str] = None
         self.use_fallback: bool = False
-        # #region agent log
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H2",
-                "location": "linux_search.py:47",
-                "message": "Before _check_availability",
-                "data": {},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
         try:
             self._check_availability()
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H2",
-                    "location": "linux_search.py:54",
-                    "message": "After _check_availability success",
-                    "data": {"locate_cmd": self.locate_cmd, "use_fallback": self.use_fallback},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
         except Exception as e:
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H2",
-                    "location": "linux_search.py:60",
-                    "message": "_check_availability failed",
-                    "data": {"error": str(e), "error_type": type(e).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             raise
         logger.info(
             f"Linux search adapter initialized: "
@@ -204,20 +154,6 @@ class LinuxSearchAdapter(PlatformAdapter):
         Raises:
             ValueError: 当搜索路径不存在时抛出
         """
-        # #region agent log
-        import json
-        log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H3",
-                "location": "linux_search.py:81",
-                "message": "search_by_name entry",
-                "data": {"pattern": pattern, "path": path, "file_type": file_type, "limit": limit},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
         # 验证路径
         if path:
             if not os.path.exists(path):
@@ -227,62 +163,14 @@ class LinuxSearchAdapter(PlatformAdapter):
         logger.debug(f"Search by name: pattern={pattern}, path={path}, file_type={file_type}, limit={limit}")
         
         if self.use_fallback or not self.locate_cmd:
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H3",
-                    "location": "linux_search.py:100",
-                    "message": "Using filesystem fallback",
-                    "data": {"use_fallback": self.use_fallback, "locate_cmd": self.locate_cmd},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             # 使用文件系统遍历降级方案
             return self._search_by_filesystem(pattern, path, file_type, limit)
         
         # 使用 locate/plocate 命令
         try:
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H3",
-                    "location": "linux_search.py:108",
-                    "message": "Before _search_by_locate",
-                    "data": {},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             result = self._search_by_locate(pattern, path, file_type, limit)
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H3",
-                    "location": "linux_search.py:115",
-                    "message": "After _search_by_locate success",
-                    "data": {"results_count": len(result)},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             return result
         except Exception as e:
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H3",
-                    "location": "linux_search.py:120",
-                    "message": "_search_by_locate failed, falling back",
-                    "data": {"error": str(e), "error_type": type(e).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             logger.warning(f"locate 搜索失败，降级到文件系统遍历: {e}")
             return self._search_by_filesystem(pattern, path, file_type, limit)
     

@@ -162,12 +162,13 @@ class IPCClient:
             payload["session_id"] = session_id
         
         # 使用 httpx.AsyncClient 进行流式请求，已配置 trust_env=False 跳过代理
+        # 增加超时时间到 300 秒（5分钟），以支持长时间运行的任务（如读取和编辑 MediaWiki 页面）
         try:
             async with self.async_client.stream(
                 "POST",
                 url,
                 json=payload,
-                timeout=60.0,
+                timeout=300.0,  # 增加到 5 分钟，支持复杂任务
                 headers={"Accept": "text/event-stream"}
             ) as response:
                 # 检查状态码
@@ -177,30 +178,43 @@ class IPCClient:
                     raise Exception(f"流式请求失败: {error_text}")
                 
                 # 解析 SSE 格式
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    
-                    if line.startswith("data: "):
-                        data_str = line[6:]  # 移除 "data: " 前缀
-                        try:
-                            # 直接解析 JSON，不需要 unicode_escape（后端已使用 ensure_ascii=False）
-                            # 如果后端使用了 ensure_ascii=False，JSON 中的 emoji 会保持原样
-                            data = json.loads(data_str)
-                            
-                            if data.get("status") == "streaming":
-                                content = data.get("content", "")
-                                if content:  # 只yield非空内容
-                                    yield content
-                            elif data.get("status") == "done":
-                                return
-                            elif data.get("status") == "error":
-                                raise Exception(data.get("error", "未知错误"))
-                        except json.JSONDecodeError:
-                            # JSON 解析失败，跳过这一行
+                try:
+                    async for line in response.aiter_lines():
+                        if not line:
                             continue
+                        
+                        if line.startswith("data: "):
+                            data_str = line[6:]  # 移除 "data: " 前缀
+                            try:
+                                # 直接解析 JSON，不需要 unicode_escape（后端已使用 ensure_ascii=False）
+                                # 如果后端使用了 ensure_ascii=False，JSON 中的 emoji 会保持原样
+                                data = json.loads(data_str)
+                                
+                                if data.get("status") == "streaming":
+                                    content = data.get("content", "")
+                                    if content:  # 只yield非空内容
+                                        yield content
+                                elif data.get("status") == "done":
+                                    return
+                                elif data.get("status") == "error":
+                                    raise Exception(data.get("error", "未知错误"))
+                            except json.JSONDecodeError:
+                                # JSON 解析失败，跳过这一行
+                                continue
+                except KeyboardInterrupt:
+                    # 用户按 Ctrl+C，终止流式请求
+                    # 关闭响应连接
+                    await response.aclose()
+                    raise  # 重新抛出，让调用者知道是用户中断
+        except httpx.TimeoutException as e:
+            raise ConnectionError(f"流式请求超时: 任务处理时间过长（超过 5 分钟）。请尝试将任务分解为更小的步骤。")
         except httpx.RequestError as e:
-            raise ConnectionError(f"流式请求连接错误: {str(e)}")
+            error_msg = str(e)
+            # 提供更友好的错误信息
+            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                raise ConnectionError(f"流式请求连接超时: {error_msg}\n提示: 任务可能过于复杂，请尝试分解为更小的步骤，或检查后端服务是否正常运行")
+            else:
+                raise ConnectionError(f"流式请求连接错误: {error_msg}\n提示: 请检查后端服务是否正常运行")
         except Exception as e:
             if "流式请求失败" in str(e) or "未知错误" in str(e):
                 raise

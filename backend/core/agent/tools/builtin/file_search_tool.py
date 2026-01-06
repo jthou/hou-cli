@@ -79,48 +79,9 @@ class FileSearchTool(Tool):
     def _get_search_service(self) -> FileSearchService:
         """获取搜索服务实例（延迟初始化）"""
         if self._search_service is None:
-            # #region agent log
-            import json
-            import os
-            log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H1",
-                    "location": "file_search_tool.py:64",
-                    "message": "Before FileSearchService init",
-                    "data": {},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             try:
                 self._search_service = FileSearchService()
-                # #region agent log
-                with open(log_path, "a") as f:
-                    f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H1",
-                        "location": "file_search_tool.py:68",
-                        "message": "After FileSearchService init success",
-                        "data": {"service_type": type(self._search_service).__name__},
-                        "timestamp": int(__import__("time").time() * 1000)
-                    }) + "\n")
-                # #endregion
             except Exception as e:
-                # #region agent log
-                with open(log_path, "a") as f:
-                    f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H1",
-                        "location": "file_search_tool.py:70",
-                        "message": "FileSearchService init failed",
-                        "data": {"error": str(e), "error_type": type(e).__name__},
-                        "timestamp": int(__import__("time").time() * 1000)
-                    }) + "\n")
-                # #endregion
                 raise RuntimeError(
                     f"文件搜索服务初始化失败: {str(e)}\n"
                     "请确保系统支持文件搜索（macOS 需要启用 Spotlight）。"
@@ -141,21 +102,6 @@ class FileSearchTool(Tool):
         Returns:
             ToolResult: 搜索结果
         """
-        # #region agent log
-        import json
-        import os
-        log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-        with open(log_path, "a") as f:
-            f.write(json.dumps({
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "H4",
-                "location": "file_search_tool.py:76",
-                "message": "FileSearchTool.execute entry",
-                "data": {"kwargs": kwargs},
-                "timestamp": int(__import__("time").time() * 1000)
-            }) + "\n")
-        # #endregion
         try:
             # 获取参数
             query = kwargs.get("query")
@@ -163,19 +109,6 @@ class FileSearchTool(Tool):
             file_type = kwargs.get("file_type")
             content_search = kwargs.get("content_search", False)
             limit = min(kwargs.get("limit", 20), 100)  # 限制最大值为 100
-            
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H4",
-                    "location": "file_search_tool.py:98",
-                    "message": "Parameters extracted",
-                    "data": {"query": query, "path": path, "file_type": file_type, "content_search": content_search, "limit": limit},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             
             if not query:
                 return ToolResult(
@@ -193,62 +126,9 @@ class FileSearchTool(Tool):
                 offset=0
             )
             
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H1",
-                    "location": "file_search_tool.py:115",
-                    "message": "Before _get_search_service",
-                    "data": {"request_query": request.query, "request_file_type": request.file_type},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
-            
             # 执行搜索
             service = self._get_search_service()
-            
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H1",
-                    "location": "file_search_tool.py:120",
-                    "message": "After _get_search_service",
-                    "data": {"service_type": type(service).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
-            
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H3",
-                    "location": "file_search_tool.py:122",
-                    "message": "Before service.search",
-                    "data": {"request_query": request.query},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
-            
             response = service.search(request)
-            
-            # #region agent log
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H3",
-                    "location": "file_search_tool.py:125",
-                    "message": "After service.search",
-                    "data": {"total": response.total, "results_count": len(response.results)},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             
             # 格式化结果
             results = []
@@ -292,41 +172,11 @@ class FileSearchTool(Tool):
             )
             
         except RuntimeError as e:
-            # #region agent log
-            import json
-            import os
-            log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H5",
-                    "location": "file_search_tool.py:148",
-                    "message": "RuntimeError caught",
-                    "data": {"error": str(e), "error_type": type(e).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             return ToolResult(
                 success=False,
                 error=str(e)
             )
         except Exception as e:
-            # #region agent log
-            import json
-            import os
-            log_path = "/home/robo/justin/hou-cli/.cursor/debug.log"
-            with open(log_path, "a") as f:
-                f.write(json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H5",
-                    "location": "file_search_tool.py:153",
-                    "message": "Exception caught",
-                    "data": {"error": str(e), "error_type": type(e).__name__},
-                    "timestamp": int(__import__("time").time() * 1000)
-                }) + "\n")
-            # #endregion
             return ToolResult(
                 success=False,
                 error=f"文件搜索失败: {str(e)}"
@@ -339,4 +189,3 @@ class FileSearchTool(Tool):
                 return f"{size_bytes:.1f} {unit}"
             size_bytes /= 1024.0
         return f"{size_bytes:.1f} TB"
-

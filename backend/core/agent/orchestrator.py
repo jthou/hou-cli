@@ -96,6 +96,19 @@ class Orchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册 Gvim 工具
+        try:
+            from backend.core.agent.tools.builtin.gvim_tool import GvimTool
+            gvim_tool = GvimTool()
+            self.tool_registry.register(gvim_tool)
+            self.debug.log_orchestrator_step("注册工具", {"gvim_tool": "registered"})
+            logger.info("Gvim tool registered successfully")
+        except Exception as e:
+            # 工具注册失败不应该阻止 Orchestrator 初始化
+            error_msg = f"Failed to register Gvim tool: {str(e)}. Gvim tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
         # 注册代码执行工具
         try:
             from backend.core.agent.tools.builtin.code_executor_tool import CodeExecutorTool
@@ -268,14 +281,23 @@ class Orchestrator:
         tools = self.tool_registry.get_tools_for_llm()
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools)})
         
+        # 智能模型选择：使用 chat 模型分析任务，决定使用哪个模型
+        selected_model = await self._select_model(task)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
+            self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
+        
         # LLM 调用（支持工具调用）
-        self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
+        self.debug.log_llm_request(system_prompt, user_prompt, selected_model)
         response = await self._chat_with_tools(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             tools=tools if tools else None
         )
-        self.debug.log_llm_response(response, "deepseek-chat")
+        self.debug.log_llm_response(response, selected_model)
+        
+        # 重置为默认模型
+        self.llm_service.reset_model()
         
         # 保存消息到历史
         self.context_manager.add_message(session_id, MessageRole.USER, task)
@@ -445,6 +467,19 @@ class Orchestrator:
         yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": tool_names})
         
+        # 智能模型选择：使用 chat 模型分析任务，决定使用哪个模型
+        selected_model = await self._select_model(task)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
+            self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "模型选择",
+                "details": {"selected_model": selected_model}
+            }
+            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        
         # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
         if tools:
             try:
@@ -490,6 +525,9 @@ class Orchestrator:
                 yield chunk
             
             self.debug.log_llm_response(full_response, "deepseek-chat")
+        
+        # 重置为默认模型
+        self.llm_service.reset_model()
         
         # 保存消息到历史
         self.context_manager.add_message(session_id, MessageRole.USER, task)
@@ -874,3 +912,53 @@ class Orchestrator:
         except Exception as e:
             logger.error(f"_chat_with_tools 执行失败: {str(e)}", exc_info=True)
             return f"抱歉，处理您的请求时出现错误：{str(e)}"
+    
+    async def _select_model(self, task: str) -> str:
+        """
+        使用 chat 模型智能选择最适合的模型
+        
+        Args:
+            task: 用户任务
+            
+        Returns:
+            选定的模型名称: "deepseek-chat", "deepseek-reasoner", 或 "deepseek-coder"
+        """
+        # 使用 chat 模型分析任务类型
+        model_selection_prompt = f"""分析以下任务，决定应该使用哪个 DeepSeek 模型：
+
+任务：{task}
+
+可选模型：
+1. deepseek-chat: 适用于日常对话、文本生成、翻译、信息检索等一般性任务
+2. deepseek-reasoner: 适用于需要复杂推理的任务，如数学推理、逻辑分析、策略制定、问题解决等
+3. deepseek-coder: 适用于代码生成、代码补全、代码修复、代码审查、编程相关任务
+
+请只返回模型名称（deepseek-chat、deepseek-reasoner 或 deepseek-coder），不要返回其他内容。"""
+
+        try:
+            # 临时切换到 chat 模型进行分析
+            original_model = self.llm_service.model
+            self.llm_service.set_model("deepseek-chat")
+            
+            # 使用 chat 模型分析
+            analysis = await self.llm_service.chat(
+                system_prompt="你是一个模型选择助手，根据任务类型选择最合适的模型。",
+                user_prompt=model_selection_prompt
+            )
+            
+            # 恢复原模型
+            self.llm_service.set_model(original_model)
+            
+            # 解析返回的模型名称
+            analysis = analysis.strip().lower()
+            if "deepseek-reasoner" in analysis or "reasoner" in analysis:
+                return "deepseek-reasoner"
+            elif "deepseek-coder" in analysis or "coder" in analysis:
+                return "deepseek-coder"
+            else:
+                # 默认使用 chat 模型
+                return "deepseek-chat"
+                
+        except Exception as e:
+            logger.warning(f"模型选择失败，使用默认模型: {e}")
+            return "deepseek-chat"
