@@ -216,6 +216,12 @@ class Orchestrator:
         # 构建消息列表
         system_prompt = """你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。
 
+重要原则：
+- 对于简单的命令执行任务（如显示文件、查看目录、执行脚本等），严格按照用户指令执行，不要添加额外的探索、检查或推理
+- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作
+- 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
+- 不要过度思考，不要添加用户没有要求的额外功能
+
 重要：当用户询问天气信息时，你必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
 当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
@@ -394,6 +400,12 @@ class Orchestrator:
         
         # 构建消息列表（与 process 方法保持一致）
         system_prompt = """你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。
+
+重要原则：
+- 对于简单的命令执行任务（如显示文件、查看目录、执行脚本等），严格按照用户指令执行，不要添加额外的探索、检查或推理
+- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作
+- 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
+- 不要过度思考，不要添加用户没有要求的额外功能
 
 重要：当用户询问天气信息时，你必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息，也不要从历史对话记录中提取旧的天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
@@ -663,6 +675,39 @@ class Orchestrator:
                                 success=False,
                                 error=f"工具执行失败: {str(e)}"
                             )
+                        
+                        # 检查是否需要确认（针对 execute_code 工具）
+                        if (tool_name == "execute_code" and 
+                            tool_result.data and 
+                            tool_result.data.get("requires_confirmation")):
+                            # 发送确认请求
+                            confirm_info = {
+                                "type": "confirm",
+                                "tool_name": tool_name,
+                                "code": tool_result.data.get("code", ""),
+                                "language": tool_result.data.get("language", ""),
+                                "risk_level": tool_result.data.get("risk_level", ""),
+                                "reason": tool_result.data.get("reason", ""),
+                                "requires_password": tool_result.data.get("requires_password", False),
+                                "explanation": tool_result.data.get("explanation", "")
+                            }
+                            yield f"__CONFIRM__:{json.dumps(confirm_info, ensure_ascii=False)}\n"
+                            
+                            # 等待确认结果（暂时跳过，由前端处理）
+                            # 这里我们需要一个机制来等待前端响应
+                            # 暂时标记为需要确认，不继续执行
+                            tool_result_content = json.dumps({
+                                "error": "需要用户确认",
+                                "requires_confirmation": True,
+                                "success": False
+                            }, ensure_ascii=False)
+                            tool_results.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_name,
+                                "content": tool_result_content
+                            })
+                            continue
                         
                         # 发送工具调用信息
                         tool_info = {
@@ -957,7 +1002,12 @@ class Orchestrator:
 可选模型：
 1. deepseek-chat: 适用于日常对话、文本生成、翻译、信息检索等一般性任务
 2. deepseek-reasoner: 适用于需要复杂推理的任务，如数学推理、逻辑分析、策略制定、问题解决等
-3. deepseek-coder: 适用于代码生成、代码补全、代码修复、代码审查、编程相关任务
+3. deepseek-coder: 适用于代码生成、代码补全、代码修复、代码审查、编程相关任务，以及简单的命令执行（如 ls、cat、cd 等）
+
+重要提示：
+- 如果任务是执行简单的系统命令（如显示文件、查看目录、执行脚本等），应该使用 deepseek-coder
+- 如果任务需要复杂的逻辑推理、多步骤分析、策略制定，使用 deepseek-reasoner
+- 如果任务只是简单的命令执行，不要使用 deepseek-reasoner，避免过度思考
 
 请只返回模型名称（deepseek-chat、deepseek-reasoner 或 deepseek-coder），不要返回其他内容。"""
 

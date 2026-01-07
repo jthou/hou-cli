@@ -2,11 +2,14 @@
 
 支持显示调试信息、工具调用和内容
 """
-from typing import AsyncIterator
-from rich.console import Console
+from typing import AsyncIterator, List
+from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
 import json
+from frontend.ui.interactive_executor import InteractiveExecutor
 
 
 class StreamRenderer:
@@ -14,7 +17,7 @@ class StreamRenderer:
 
     def __init__(self, renderer_factory=None):
         # renderer_factory 参数保留以兼容现有代码，但不再使用
-        pass
+        self.interactive_executor = None  # 延迟初始化，需要 console
 
     def _clean_unicode(self, text: str) -> str:
         """
@@ -48,19 +51,82 @@ class StreamRenderer:
         }
         color = color_map.get(category, "dim")
         
-        # 构建详细信息文本
+        # 特殊处理 execute_code 工具的调试信息
+        if message == "执行工具" and details.get("name") == "execute_code":
+            # 解析 args 参数
+            args_str = details.get("args", "")
+            try:
+                if isinstance(args_str, str):
+                    args = json.loads(args_str)
+                else:
+                    args = args_str
+                
+                code = args.get("code", "")
+                language = args.get("language", "python")
+                explanation = args.get("explanation", "")
+                
+                # 语言图标映射
+                language_icons = {
+                    "python": "🐍",
+                    "bash": "💻",
+                    "zsh": "💻",
+                    "powershell": "⚡",
+                    "batch": "📜"
+                }
+                icon = language_icons.get(language, "🔧")
+                
+                # 构建内容
+                content_parts: List = []
+                content_parts.append(Text(message, style="bold"))
+                content_parts.append("")
+                
+                # 代码部分（带语法高亮）
+                if code:
+                    code_syntax = Syntax(
+                        code,
+                        language,
+                        theme="monokai",
+                        line_numbers=False,
+                        word_wrap=True
+                    )
+                    content_parts.append(Text("📝 代码:", style="bold"))
+                    content_parts.append("")
+                    content_parts.append(code_syntax)
+                    content_parts.append("")
+                
+                # 说明
+                if explanation:
+                    content_parts.append(Text(f"💡 说明: {explanation}", style="dim"))
+                
+                # 渲染面板
+                title = f"[{color}]🔍 {category.upper()}[/{color}] - {icon} {language.upper()}"
+                console.print(Panel(
+                    Group(*content_parts),
+                    border_style=color,
+                    title=title,
+                    padding=(1, 1)
+                ))
+                return
+            except (json.JSONDecodeError, KeyError, AttributeError):
+                # 解析失败，使用默认显示
+                pass
+        
+        # 默认处理：构建详细信息文本
         detail_text = ""
         if details:
             detail_lines = []
             for k, v in details.items():
                 if isinstance(v, (list, dict)):
                     v_str = json.dumps(v, ensure_ascii=False, indent=2)
+                elif isinstance(v, str) and len(v) > 200:
+                    # 长字符串截断
+                    v_str = v[:200] + "..."
                 else:
                     v_str = str(v)
                 detail_lines.append(f"  {k}: {v_str}")
             detail_text = "\n".join(detail_lines)
         
-        panel_content = f"[{color}]{message}[/{color}]"
+        panel_content = message
         if detail_text:
             panel_content += f"\n{detail_text}"
         
@@ -71,9 +137,183 @@ class StreamRenderer:
             padding=(0, 1)
         ))
     
+    def _render_code_executor(self, tool_data: dict, console: Console):
+        """专门渲染代码执行工具的结果"""
+        tool_args = tool_data.get("args", {})
+        result = tool_data.get("result", {})
+        success = tool_data.get("success", False)
+        error = tool_data.get("error")
+        
+        # 提取信息
+        code = tool_args.get("code", "")
+        language = tool_args.get("language", "python")
+        explanation = tool_args.get("explanation", "")
+        output = result.get("output", "") if result else ""
+        error_output = result.get("error", "") if result else ""
+        exit_code = result.get("exit_code", 0) if result else 0
+        execution_time = result.get("execution_time", 0) if result else 0
+        memory_used = result.get("memory_used", 0) if result else 0
+        
+        # 语言图标映射
+        language_icons = {
+            "python": "🐍",
+            "bash": "💻",
+            "zsh": "💻",
+            "powershell": "⚡",
+            "batch": "📜"
+        }
+        icon = language_icons.get(language, "🔧")
+        
+        # 构建内容
+        content_parts: List = []
+        
+        # 代码部分
+        if code:
+            code_syntax = Syntax(
+                code,
+                language,
+                theme="monokai",
+                line_numbers=False,
+                word_wrap=True
+            )
+            content_parts.append(Text("📝 代码:", style="bold"))
+            content_parts.append("")
+            content_parts.append(code_syntax)
+            content_parts.append("")
+        
+        # 执行状态
+        if success:
+            status_text = Text("✅ 执行成功", style="bold green")
+        else:
+            status_text = Text(f"❌ 执行失败 (退出码: {exit_code})", style="bold red")
+        content_parts.append(status_text)
+        content_parts.append("")
+        
+        # 输出部分
+        if output:
+            # 长输出截断处理
+            MAX_OUTPUT_LINES = 50
+            lines = output.split('\n')
+            if len(lines) > MAX_OUTPUT_LINES:
+                display_lines = lines[:MAX_OUTPUT_LINES]
+                display_output = '\n'.join(display_lines)
+                display_output += f"\n\n... (输出已截断，共 {len(lines)} 行，显示前 {MAX_OUTPUT_LINES} 行)"
+            else:
+                display_output = output
+            
+            content_parts.append(Text("📤 输出:", style="bold"))
+            content_parts.append("")
+            output_panel = Panel(
+                display_output,
+                border_style="blue",
+                padding=(0, 1)
+            )
+            content_parts.append(output_panel)
+            content_parts.append("")
+        
+        # 错误部分
+        if error_output or error:
+            error_content = error_output or error
+            # 错误信息也截断
+            MAX_ERROR_LINES = 50
+            error_lines = error_content.split('\n')
+            if len(error_lines) > MAX_ERROR_LINES:
+                display_error_lines = error_lines[:MAX_ERROR_LINES]
+                display_error = '\n'.join(display_error_lines)
+                display_error += f"\n\n... (错误信息已截断，共 {len(error_lines)} 行，显示前 {MAX_ERROR_LINES} 行)"
+            else:
+                display_error = error_content
+            
+            content_parts.append(Text("⚠️  错误:", style="bold yellow"))
+            content_parts.append("")
+            error_panel = Panel(
+                display_error,
+                border_style="red",
+                padding=(0, 1)
+            )
+            content_parts.append(error_panel)
+            content_parts.append("")
+        
+        # 统计信息
+        stats = []
+        if execution_time > 0:
+            stats.append(f"⏱️  执行时间: {execution_time:.2f} 秒")
+        if memory_used > 0:
+            stats.append(f"💾 内存使用: {memory_used:.2f} MB")
+        if stats:
+            content_parts.append(Text("\n".join(stats), style="dim"))
+        
+        # 渲染面板
+        title = f"{icon} 代码执行: {language.upper()}"
+        if explanation:
+            title += f" - {explanation}"
+        
+        console.print(Panel(
+            Group(*content_parts),
+            border_style="green" if success else "red",
+            title=title,
+            padding=(1, 1)
+        ))
+    
     def _render_tool_info(self, tool_data: dict, console: Console):
         """渲染工具调用信息"""
         tool_name = tool_data.get("name", "unknown")
+        
+        # 特殊处理代码执行工具
+        if tool_name == "execute_code":
+            # 如果有执行结果，使用专门的渲染方法
+            if tool_data.get("result") is not None or tool_data.get("success") is not False:
+                self._render_code_executor(tool_data, console)
+                return
+            # 如果只是工具调用（还没有结果），也要格式化显示代码
+            tool_args = tool_data.get("args", {})
+            code = tool_args.get("code", "")
+            language = tool_args.get("language", "python")
+            explanation = tool_args.get("explanation", "")
+            
+            # 语言图标映射
+            language_icons = {
+                "python": "🐍",
+                "bash": "💻",
+                "zsh": "💻",
+                "powershell": "⚡",
+                "batch": "📜"
+            }
+            icon = language_icons.get(language, "🔧")
+            
+            # 构建内容
+            content_parts: List = []
+            
+            # 代码部分（带语法高亮）
+            if code:
+                code_syntax = Syntax(
+                    code,
+                    language,
+                    theme="monokai",
+                    line_numbers=False,
+                    word_wrap=True
+                )
+                content_parts.append(Text("📝 代码:", style="bold"))
+                content_parts.append("")
+                content_parts.append(code_syntax)
+                content_parts.append("")
+            
+            # 说明
+            if explanation:
+                content_parts.append(Text(f"💡 说明: {explanation}", style="dim"))
+                content_parts.append("")
+            
+            # 渲染面板
+            title = f"{icon} 代码执行: {language.upper()}"
+            console.print(Panel(
+                Group(*content_parts),
+                border_style="yellow",
+                title=title,
+                padding=(1, 1)
+            ))
+            return
+        
+        # 其他工具使用原有逻辑
         tool_args = tool_data.get("args", {})
         success = tool_data.get("success", False)
         result = tool_data.get("result")
@@ -127,12 +367,36 @@ class StreamRenderer:
             padding=(1, 1)
         ))
     
+    def _render_confirm_request(self, confirm_data: dict, console: Console):
+        """渲染确认请求"""
+        if not self.interactive_executor:
+            self.interactive_executor = InteractiveExecutor(console)
+        
+        code = confirm_data.get("code", "")
+        risk_level = confirm_data.get("risk_level", "")
+        reason = confirm_data.get("reason", "")
+        
+        # 请求用户确认
+        from frontend.ui.interactive_executor import ConfirmationResult
+        result = self.interactive_executor.request_confirmation(
+            code=code,
+            risk_level=risk_level,
+            reason=reason
+        )
+        
+        # 显示确认结果
+        if result.approved:
+            console.print("[green]✓ 用户已批准执行[/green]")
+            # TODO: 将确认结果返回给后端（需要实现确认结果传递机制）
+        else:
+            console.print("[red]✗ 用户已取消执行[/red]")
+    
     async def render_stream(
         self,
         stream: AsyncIterator[str],
         console: Console,
     ):
-        """渲染流式响应（支持调试信息和工具调用）
+        """渲染流式响应（支持调试信息、工具调用和确认请求）
 
         Args:
             stream: 流式数据迭代器
@@ -140,6 +404,10 @@ class StreamRenderer:
         """
         full_content = ""
         buffer = ""
+        
+        # 初始化交互式执行器
+        if not self.interactive_executor:
+            self.interactive_executor = InteractiveExecutor(console)
         
         # 使用 Live 组件实时更新，流式显示文本
         try:
@@ -154,7 +422,7 @@ class StreamRenderer:
                         while "\n" in buffer:
                             line, buffer = buffer.split("\n", 1)
                             
-                            # 检查是否是调试信息或工具调用信息
+                            # 检查是否是调试信息、工具调用信息或确认请求
                             if line.startswith("__DEBUG__:"):
                                 try:
                                     debug_data = json.loads(line[10:])  # 移除 "__DEBUG__:" 前缀
@@ -169,13 +437,20 @@ class StreamRenderer:
                                 except (json.JSONDecodeError, KeyError):
                                     # JSON 解析失败，跳过
                                     pass
+                            elif line.startswith("__CONFIRM__:"):
+                                try:
+                                    confirm_data = json.loads(line[11:])  # 移除 "__CONFIRM__:" 前缀
+                                    self._render_confirm_request(confirm_data, console)
+                                except (json.JSONDecodeError, KeyError):
+                                    # JSON 解析失败，跳过
+                                    pass
                             else:
                                 # 普通内容
                                 full_content += line + "\n"
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
-                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:")):
+                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:")):
                             live.update(full_content + buffer)
                     except KeyboardInterrupt:
                         # 用户按 Ctrl+C，终止流式处理

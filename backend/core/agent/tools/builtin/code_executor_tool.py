@@ -1,8 +1,19 @@
 """代码执行工具实现"""
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.infrastructure.execution import SecureExecutor, ExecutionRequest
+from backend.infrastructure.execution.risk_detector import RiskDetector, RiskLevel
+
+if TYPE_CHECKING:
+    from backend.infrastructure.execution.interactive_executor import InteractiveExecutor
+
+try:
+    from backend.infrastructure.execution.interactive_executor import InteractiveExecutor as _InteractiveExecutor
+    INTERACTIVE_AVAILABLE = True
+except ImportError:
+    INTERACTIVE_AVAILABLE = False
+    _InteractiveExecutor = None
 
 
 class CodeExecutorTool(Tool):
@@ -53,6 +64,13 @@ class CodeExecutorTool(Tool):
                 "- zsh: Zsh 脚本（macOS）"
                 "- powershell: PowerShell 脚本（Windows/跨平台）"
                 "- batch: Batch 脚本（Windows）"
+                "\n核心原则（非常重要）："
+                "- 严格按照用户指令执行，不要添加额外的探索、检查或推理"
+                "- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作"
+                "- 例如：用户要求 '显示 /home 下的所有文件'，直接执行 'ls /home'，不要去找 /dev、/Users 等其他路径"
+                "- 优先使用简单、直接的命令，避免不必要的复杂性"
+                "- 能用单条命令解决的问题，不要写多行代码"
+                "- 不要过度思考，不要添加用户没有要求的额外功能"
                 "\n安全限制："
                 "- 代码在隔离环境中执行"
                 "- 资源限制：CPU、内存、时间"
@@ -71,6 +89,13 @@ class CodeExecutorTool(Tool):
         )
         
         self.executor = SecureExecutor()
+        self.risk_detector = RiskDetector()
+        self.interactive_executor: Optional[Any] = None
+        if INTERACTIVE_AVAILABLE and _InteractiveExecutor is not None:
+            try:
+                self.interactive_executor = _InteractiveExecutor()
+            except Exception:
+                self.interactive_executor = None  # pexpect 未安装或初始化失败
     
     def execute(self, **kwargs) -> ToolResult:
         """执行代码（同步包装异步方法）"""
@@ -111,17 +136,71 @@ class CodeExecutorTool(Tool):
         if timeout < 1 or timeout > 300:
             timeout = 30
         
-        try:
-            # 创建执行请求
-            request = ExecutionRequest(
-                code=code,
-                language=language,
-                timeout=timeout,
-                explanation=explanation
+        # 检测风险
+        risk_level, reason = self.risk_detector.detect_risk(code, language)
+        
+        # 如果是严重风险，直接拒绝
+        if not self.risk_detector.is_allowed(risk_level):
+            return ToolResult(
+                success=False,
+                error=f"禁止执行：{reason}",
+                data={
+                    "risk_level": risk_level.value,
+                    "reason": reason,
+                    "requires_confirmation": False,
+                    "language": language,
+                    "code": code
+                }
             )
+        
+        # 如果需要确认，返回特殊状态（由 Orchestrator 处理确认流程）
+        if self.risk_detector.requires_confirmation(risk_level):
+            return ToolResult(
+                success=False,
+                error="需要用户确认",
+                data={
+                    "risk_level": risk_level.value,
+                    "reason": reason,
+                    "requires_confirmation": True,
+                    "requires_password": self.risk_detector.requires_password(risk_level),
+                    "language": language,
+                    "code": code,
+                    "explanation": explanation
+                }
+            )
+        
+        try:
+            # 检测是否需要交互式输入
+            use_interactive = False
+            if self.interactive_executor is not None:
+                use_interactive = self.interactive_executor.detect_interactive_input(code, language)
             
-            # 执行代码
-            result = await self.executor.execute_code_safely(request)
+            if use_interactive and self.interactive_executor is not None:
+                # 使用交互式执行器
+                # 注意：交互式执行需要输入处理函数，这里暂时使用占位符
+                # 实际实现需要前后端配合
+                def input_handler(prompt: str, is_password: bool) -> str:
+                    # TODO: 实现输入处理，需要与前端交互
+                    # 暂时返回空字符串
+                    return ""
+                
+                result = await self.interactive_executor.execute_interactive(
+                    code=code,
+                    language=language,
+                    timeout=timeout,
+                    input_handler=input_handler
+                )
+            else:
+                # 使用普通执行器
+                request = ExecutionRequest(
+                    code=code,
+                    language=language,
+                    timeout=timeout,
+                    explanation=explanation
+                )
+                
+                # 执行代码
+                result = await self.executor.execute_code_safely(request)
             
             # 构建返回结果
             return ToolResult(

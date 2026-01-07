@@ -80,8 +80,19 @@ class SecureExecutor:
             return f"Code is too long ({code_bytes} bytes). Maximum allowed: {self.MAX_CODE_LENGTH} bytes"
         return None
     
-    def _validate_request(self, request: ExecutionRequest) -> Optional[str]:
-        """验证执行请求"""
+    def _validate_request(
+        self, 
+        request: ExecutionRequest,
+        skip_blacklist_check: bool = False,
+        skip_path_check: bool = False
+    ) -> Optional[str]:
+        """验证执行请求
+        
+        Args:
+            request: 执行请求
+            skip_blacklist_check: 是否跳过黑名单检查
+            skip_path_check: 是否跳过路径检查
+        """
         # 验证语言
         error = self._validate_language(request.language)
         if error:
@@ -92,25 +103,42 @@ class SecureExecutor:
         if error:
             return error
         
-        # 检查危险命令
-        error = self._check_command_blacklist(request.code)
-        if error:
-            return error
+        # 检查危险命令（如果未跳过）
+        if not skip_blacklist_check:
+            error = self._check_command_blacklist(request.code)
+            if error:
+                return error
         
-        # 检查受限路径
-        error = self._check_restricted_paths(request.code)
-        if error:
-            return error
+        # 检查受限路径（如果未跳过）
+        if not skip_path_check:
+            error = self._check_restricted_paths(request.code)
+            if error:
+                return error
         
         return None
     
-    async def execute_code_safely(self, request: ExecutionRequest) -> ExecutionResult:
-        """安全执行代码"""
+    async def execute_code_safely(
+        self, 
+        request: ExecutionRequest,
+        skip_blacklist_check: bool = False,
+        skip_path_check: bool = False
+    ) -> ExecutionResult:
+        """安全执行代码
+        
+        Args:
+            request: 执行请求
+            skip_blacklist_check: 是否跳过黑名单检查（用户确认后）
+            skip_path_check: 是否跳过路径检查（用户确认后）
+        """
         # 记录审计日志
         logger.info(f"Execution request: language={request.language}, code_length={len(request.code)}")
         
-        # 验证请求
-        validation_error = self._validate_request(request)
+        # 验证请求（根据参数决定是否跳过某些检查）
+        validation_error = self._validate_request(
+            request, 
+            skip_blacklist_check=skip_blacklist_check,
+            skip_path_check=skip_path_check
+        )
         if validation_error:
             logger.warning(f"Security validation failed: {validation_error}")
             return ExecutionResult(
