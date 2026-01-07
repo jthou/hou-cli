@@ -13,11 +13,75 @@ class ResultHandler:
     
     def truncate_output(self, output: str) -> str:
         """截断输出（防止过大输出）"""
-        output_bytes = output.encode('utf-8')
-        if len(output_bytes) > self.MAX_OUTPUT_SIZE:
-            truncated = output_bytes[:self.MAX_OUTPUT_SIZE].decode('utf-8', errors='ignore')
-            return truncated + "\n... (输出已截断，超过 10MB)"
-        return output
+        # #region agent log
+        try:
+            import json
+            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"开始处理输出","data":{"output_type":type(output).__name__,"output_len":len(str(output)) if output else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                f.write('\n')
+        except: pass
+        # #endregion
+        if not output:
+            return ""
+        
+        try:
+            # 确保 output 是字符串
+            if isinstance(output, bytes):
+                # 如果是字节，先尝试解码
+                output = output.decode('utf-8', errors='replace')
+            elif not isinstance(output, str):
+                output = str(output)
+            
+            # 清理无效字符：编码再解码
+            try:
+                output = output.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+            except Exception as e:
+                # #region agent log
+                try:
+                    import json
+                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"编码清理失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                        f.write('\n')
+                except: pass
+                # #endregion
+                # 如果编码失败，尝试其他方法
+                output = output.encode('utf-8', errors='ignore').decode('utf-8', errors='replace')
+            
+            # 检查大小
+            output_bytes = output.encode('utf-8', errors='replace')
+            if len(output_bytes) > self.MAX_OUTPUT_SIZE:
+                # #region agent log
+                try:
+                    import json
+                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"需要截断输出","data":{"output_bytes_len":len(output_bytes),"max_size":self.MAX_OUTPUT_SIZE},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                        f.write('\n')
+                except: pass
+                # #endregion
+                # 安全截断：确保不截断多字节字符
+                truncated = output_bytes[:self.MAX_OUTPUT_SIZE]
+                # 尝试找到最后一个完整的 UTF-8 字符边界
+                while truncated and (truncated[-1] & 0xC0) == 0x80:
+                    truncated = truncated[:-1]
+                truncated = truncated.decode('utf-8', errors='replace')
+                return truncated + "\n... (输出已截断，超过 10MB)"
+            
+            return output
+        except Exception as e:
+            # #region agent log
+            try:
+                import json
+                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"处理输出异常","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                    f.write('\n')
+            except: pass
+            # #endregion
+            # 如果所有方法都失败，返回清理后的错误信息
+            try:
+                error_msg = str(e).encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                return f"[编码错误: 无法处理输出] {error_msg[:100]}"
+            except Exception:
+                return "[编码错误: 无法处理输出]"
     
     def format_error(self, error: str) -> str:
         """格式化错误信息"""

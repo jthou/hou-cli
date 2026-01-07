@@ -8,6 +8,11 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
+from rich.table import Table
+from rich.markdown import Markdown
+from rich.columns import Columns
+from rich.align import Align
+import rich.box
 import json
 from frontend.ui.interactive_executor import InteractiveExecutor
 
@@ -65,15 +70,17 @@ class StreamRenderer:
                 language = args.get("language", "python")
                 explanation = args.get("explanation", "")
                 
-                # 语言图标映射
-                language_icons = {
-                    "python": "🐍",
-                    "bash": "💻",
-                    "zsh": "💻",
-                    "powershell": "⚡",
-                    "batch": "📜"
+                # 语言图标和颜色映射
+                language_config = {
+                    "python": {"icon": "🐍", "color": "yellow"},
+                    "bash": {"icon": "💻", "color": "green"},
+                    "zsh": {"icon": "💻", "color": "green"},
+                    "powershell": {"icon": "⚡", "color": "blue"},
+                    "batch": {"icon": "📜", "color": "cyan"}
                 }
-                icon = language_icons.get(language, "🔧")
+                lang_config = language_config.get(language, {"icon": "🔧", "color": "white"})
+                icon = lang_config["icon"]
+                lang_color = lang_config["color"]
                 
                 # 构建内容
                 content_parts: List = []
@@ -98,13 +105,18 @@ class StreamRenderer:
                 if explanation:
                     content_parts.append(Text(f"💡 说明: {explanation}", style="dim"))
                 
-                # 渲染面板
-                title = f"[{color}]🔍 {category.upper()}[/{color}] - {icon} {language.upper()}"
+                # 渲染面板（优化标题）
+                title = Text.assemble(
+                    (f"🔍 {category.upper()}", f"bold {color}"),
+                    " - ",
+                    (f"{icon} {language.upper()}", f"bold {lang_color}")
+                )
                 console.print(Panel(
                     Group(*content_parts),
                     border_style=color,
                     title=title,
-                    padding=(1, 1)
+                    padding=(1, 1),
+                    box=rich.box.ROUNDED
                 ))
                 return
             except (json.JSONDecodeError, KeyError, AttributeError):
@@ -154,105 +166,184 @@ class StreamRenderer:
         execution_time = result.get("execution_time", 0) if result else 0
         memory_used = result.get("memory_used", 0) if result else 0
         
-        # 语言图标映射
-        language_icons = {
-            "python": "🐍",
-            "bash": "💻",
-            "zsh": "💻",
-            "powershell": "⚡",
-            "batch": "📜"
+        # 语言图标和颜色映射
+        language_config = {
+            "python": {"icon": "🐍", "color": "yellow"},
+            "bash": {"icon": "💻", "color": "green"},
+            "zsh": {"icon": "💻", "color": "green"},
+            "powershell": {"icon": "⚡", "color": "blue"},
+            "batch": {"icon": "📜", "color": "cyan"}
         }
-        icon = language_icons.get(language, "🔧")
+        lang_config = language_config.get(language, {"icon": "🔧", "color": "white"})
+        icon = lang_config["icon"]
+        lang_color = lang_config["color"]
         
-        # 构建内容
+        # 构建内容（优化布局）
         content_parts: List = []
         
-        # 代码部分
+        # 代码部分（使用更紧凑的布局）
         if code:
-            code_syntax = Syntax(
-                code,
-                language,
-                theme="monokai",
-                line_numbers=False,
-                word_wrap=True
+            # 代码标题和内容
+            code_header = Text.assemble(
+                ("📝 ", "bold"),
+                ("代码", "bold cyan"),
+                (f" ({language})", "dim")
             )
-            content_parts.append(Text("📝 代码:", style="bold"))
+            content_parts.append(code_header)
             content_parts.append("")
-            content_parts.append(code_syntax)
+            
+            # 代码内容（带边框）
+            code_panel = Panel(
+                Syntax(
+                    code,
+                    language,
+                    theme="monokai",
+                    line_numbers=False,
+                    word_wrap=True
+                ),
+                border_style="dim",
+                padding=(0, 1),
+                box=rich.box.SQUARE
+            )
+            content_parts.append(code_panel)
             content_parts.append("")
         
-        # 执行状态
+        # 执行状态（使用更醒目的显示）
         if success:
-            status_text = Text("✅ 执行成功", style="bold green")
+            status_text = Text.assemble(
+                ("✅ ", "bold green"),
+                ("执行成功", "bold green")
+            )
         else:
-            status_text = Text(f"❌ 执行失败 (退出码: {exit_code})", style="bold red")
+            status_text = Text.assemble(
+                ("❌ ", "bold red"),
+                ("执行失败", "bold red"),
+                (f" (退出码: {exit_code})", "dim red")
+            )
         content_parts.append(status_text)
         content_parts.append("")
         
-        # 输出部分
+        # 输出部分（支持折叠）
         if output:
-            # 长输出截断处理
-            MAX_OUTPUT_LINES = 50
+            MAX_OUTPUT_LINES = 30  # 减少默认显示行数，更紧凑
             lines = output.split('\n')
-            if len(lines) > MAX_OUTPUT_LINES:
+            is_truncated = len(lines) > MAX_OUTPUT_LINES
+            
+            if is_truncated:
                 display_lines = lines[:MAX_OUTPUT_LINES]
                 display_output = '\n'.join(display_lines)
-                display_output += f"\n\n... (输出已截断，共 {len(lines)} 行，显示前 {MAX_OUTPUT_LINES} 行)"
+                truncate_info = f"\n\n[dim]... (输出已截断，共 {len(lines)} 行，显示前 {MAX_OUTPUT_LINES} 行)[/dim]"
+                display_output += truncate_info
             else:
                 display_output = output
             
-            content_parts.append(Text("📤 输出:", style="bold"))
-            content_parts.append("")
-            output_panel = Panel(
-                display_output,
-                border_style="blue",
-                padding=(0, 1)
+            # 输出标题
+            output_header = Text.assemble(
+                ("📤 ", "bold"),
+                ("输出", "bold cyan"),
+                (f" ({len(lines)} 行)" if not is_truncated else f" (共 {len(lines)} 行，显示前 {MAX_OUTPUT_LINES} 行)", "dim")
             )
+            content_parts.append(output_header)
+            content_parts.append("")
+            
+            # 输出内容（使用更紧凑的显示）
+            if is_truncated:
+                output_panel = Panel(
+                    display_output,
+                    border_style="blue",
+                    padding=(0, 1),
+                    box=rich.box.SQUARE,
+                    title="[dim]💡 提示: 输出已截断，完整输出请查看日志[/dim]"
+                )
+            else:
+                output_panel = Panel(
+                    display_output,
+                    border_style="blue",
+                    padding=(0, 1),
+                    box=rich.box.SQUARE
+                )
             content_parts.append(output_panel)
             content_parts.append("")
         
-        # 错误部分
+        # 错误部分（优化显示）
         if error_output or error:
             error_content = error_output or error
             # 错误信息也截断
-            MAX_ERROR_LINES = 50
+            MAX_ERROR_LINES = 30
             error_lines = error_content.split('\n')
-            if len(error_lines) > MAX_ERROR_LINES:
+            is_error_truncated = len(error_lines) > MAX_ERROR_LINES
+            
+            if is_error_truncated:
                 display_error_lines = error_lines[:MAX_ERROR_LINES]
                 display_error = '\n'.join(display_error_lines)
-                display_error += f"\n\n... (错误信息已截断，共 {len(error_lines)} 行，显示前 {MAX_ERROR_LINES} 行)"
+                display_error += f"\n\n[dim]... (错误信息已截断，共 {len(error_lines)} 行，显示前 {MAX_ERROR_LINES} 行)[/dim]"
             else:
                 display_error = error_content
             
-            content_parts.append(Text("⚠️  错误:", style="bold yellow"))
-            content_parts.append("")
-            error_panel = Panel(
-                display_error,
-                border_style="red",
-                padding=(0, 1)
+            # 错误标题
+            error_header = Text.assemble(
+                ("⚠️  ", "bold red"),
+                ("错误", "bold red"),
+                (f" ({len(error_lines)} 行)" if not is_error_truncated else f" (共 {len(error_lines)} 行，显示前 {MAX_ERROR_LINES} 行)", "dim red")
             )
-            content_parts.append(error_panel)
+            content_parts.append(error_header)
+            content_parts.append("")
+            
+            # 尝试检测是否是 Python traceback，使用语法高亮
+            if "Traceback" in error_content or "File \"" in error_content:
+                # 使用 Syntax 高亮显示错误
+                error_syntax = Syntax(
+                    display_error,
+                    "python",
+                    theme="monokai",
+                    line_numbers=False,
+                    word_wrap=True
+                )
+                error_panel = Panel(
+                    error_syntax,
+                    border_style="red",
+                    padding=(0, 1),
+                    box=rich.box.SQUARE
+                )
+                content_parts.append(error_panel)
+            else:
+                error_panel = Panel(
+                    display_error,
+                    border_style="red",
+                    padding=(0, 1),
+                    box=rich.box.SQUARE
+                )
+                content_parts.append(error_panel)
             content_parts.append("")
         
-        # 统计信息
-        stats = []
-        if execution_time > 0:
-            stats.append(f"⏱️  执行时间: {execution_time:.2f} 秒")
-        if memory_used > 0:
-            stats.append(f"💾 内存使用: {memory_used:.2f} MB")
-        if stats:
-            content_parts.append(Text("\n".join(stats), style="dim"))
+        # 统计信息（使用表格显示，更美观）
+        if execution_time > 0 or memory_used > 0:
+            stats_table = Table.grid(padding=(0, 2), expand=False)
+            stats_table.add_column(style="dim", width=12)
+            stats_table.add_column(style="cyan")
+            
+            if execution_time > 0:
+                stats_table.add_row("⏱️  执行时间", f"{execution_time:.3f} 秒")
+            if memory_used > 0:
+                stats_table.add_row("💾 内存使用", f"{memory_used:.2f} MB")
+            
+            content_parts.append("")
+            content_parts.append(stats_table)
         
-        # 渲染面板
-        title = f"{icon} 代码执行: {language.upper()}"
+        # 渲染面板（优化标题和边框颜色）
+        title_parts = [f"{icon} ", Text(f"代码执行: {language.upper()}", style=f"bold {lang_color}")]
         if explanation:
-            title += f" - {explanation}"
+            title_parts.append(Text(f" - {explanation}", style="dim"))
+        
+        border_color = "green" if success else "red"
+        title = Text.assemble(*title_parts)
         
         console.print(Panel(
             Group(*content_parts),
-            border_style="green" if success else "red",
+            border_style=border_color,
             title=title,
-            padding=(1, 1)
+            padding=(1, 1),
+            box=rich.box.ROUNDED if success else rich.box.DOUBLE  # 成功用圆角，失败用双线
         ))
     
     def _render_tool_info(self, tool_data: dict, console: Console):
@@ -414,6 +505,14 @@ class StreamRenderer:
             with Live(console=console, refresh_per_second=10) as live:
                 async for chunk in stream:
                     try:
+                        # #region agent log
+                        try:
+                            import json as json_module
+                            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"接收chunk","data":{"chunk_type":type(chunk).__name__,"chunk_len":len(str(chunk)) if chunk else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                f.write('\n')
+                        except: pass
+                        # #endregion
                         # 清理无效的 Unicode 字符
                         chunk = self._clean_unicode(chunk)
                         buffer += chunk
@@ -425,23 +524,88 @@ class StreamRenderer:
                             # 检查是否是调试信息、工具调用信息或确认请求
                             if line.startswith("__DEBUG__:"):
                                 try:
-                                    debug_data = json.loads(line[10:])  # 移除 "__DEBUG__:" 前缀
+                                    # #region agent log
+                                    try:
+                                        import json as json_module
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"准备解析DEBUG JSON","data":{"line_len":len(line),"line_preview":line[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
+                                    json_str = line[10:]  # 移除 "__DEBUG__:" 前缀
+                                    # 清理 JSON 字符串中的无效字符
+                                    json_str = self._clean_unicode(json_str)
+                                    debug_data = json.loads(json_str)
                                     self._render_debug_info(debug_data, console)
-                                except (json.JSONDecodeError, KeyError):
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
+                                    # #region agent log
+                                    try:
+                                        import json as json_module
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"DEBUG JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
                                     # JSON 解析失败，跳过
                                     pass
                             elif line.startswith("__TOOL__:"):
                                 try:
-                                    tool_data = json.loads(line[9:])  # 移除 "__TOOL__:" 前缀
+                                    # #region agent log
+                                    try:
+                                        import json as json_module
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"准备解析TOOL JSON","data":{"line_len":len(line)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
+                                    json_str = line[9:]  # 移除 "__TOOL__:" 前缀
+                                    # 清理 JSON 字符串中的无效字符
+                                    json_str = self._clean_unicode(json_str)
+                                    tool_data = json.loads(json_str)
                                     self._render_tool_info(tool_data, console)
-                                except (json.JSONDecodeError, KeyError):
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
+                                    # #region agent log
+                                    try:
+                                        import json as json_module
+                                        try:
+                                            error_msg = str(e)[:200]
+                                        except:
+                                            error_msg = f"{type(e).__name__}: 无法获取错误消息"
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"TOOL JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":error_msg},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
                                     # JSON 解析失败，跳过
                                     pass
                             elif line.startswith("__CONFIRM__:"):
                                 try:
-                                    confirm_data = json.loads(line[11:])  # 移除 "__CONFIRM__:" 前缀
+                                    # #region agent log
+                                    try:
+                                        import json as json_module
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"准备解析CONFIRM JSON","data":{"line_len":len(line)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
+                                    json_str = line[11:]  # 移除 "__CONFIRM__:" 前缀
+                                    # 清理 JSON 字符串中的无效字符
+                                    json_str = self._clean_unicode(json_str)
+                                    confirm_data = json.loads(json_str)
                                     self._render_confirm_request(confirm_data, console)
-                                except (json.JSONDecodeError, KeyError):
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
+                                    # #region agent log
+                                    try:
+                                        import json as json_module
+                                        try:
+                                            error_msg = str(e)[:200]
+                                        except:
+                                            error_msg = f"{type(e).__name__}: 无法获取错误消息"
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"CONFIRM JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":error_msg},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
                                     # JSON 解析失败，跳过
                                     pass
                             else:
@@ -457,7 +621,22 @@ class StreamRenderer:
                         raise  # 重新抛出，让外层处理
                     except Exception as chunk_error:
                         # 处理单个 chunk 时出错，记录但继续
-                        console.print(f"[dim]处理数据块时出错: {chunk_error}[/dim]")
+                        # #region agent log
+                        try:
+                            import json as json_module
+                            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"stream_handler.py:render_stream","message":"chunk处理异常","data":{"error_type":type(chunk_error).__name__},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                f.write('\n')
+                        except: pass
+                        # #endregion
+                        # 安全地获取错误消息
+                        try:
+                            error_msg = str(chunk_error)
+                        except (UnicodeDecodeError, UnicodeEncodeError):
+                            error_msg = f"{type(chunk_error).__name__}: 编码错误"
+                        except Exception:
+                            error_msg = f"{type(chunk_error).__name__}: 无法获取错误消息"
+                        console.print(f"[dim]处理数据块时出错: {error_msg}[/dim]")
                         continue
         except KeyboardInterrupt:
             # 用户按 Ctrl+C，显示提示并终止
@@ -467,8 +646,23 @@ class StreamRenderer:
                 console.print(full_content)
             raise  # 重新抛出，让调用者知道是用户中断
         except Exception as e:
+            # #region agent log
+            try:
+                import json as json_module
+                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"stream_handler.py:render_stream","message":"流式处理异常","data":{"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                    f.write('\n')
+            except: pass
+            # #endregion
             # 流式处理失败，显示错误
-            console.print(f"\n[bold red]流式处理失败[/bold red]: {e}")
+            # 安全地获取错误消息
+            try:
+                error_msg = str(e)
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                error_msg = f"{type(e).__name__}: 编码错误"
+            except Exception:
+                error_msg = f"{type(e).__name__}: 无法获取错误消息"
+            console.print(f"\n[bold red]流式处理失败[/bold red]: {error_msg}")
             # 显示已收集的内容
             if full_content:
                 console.print(full_content)

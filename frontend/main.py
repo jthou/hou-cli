@@ -64,11 +64,53 @@ def show_error(error: Exception, context: str = ""):
     """显示友好的错误提示"""
     from rich.panel import Panel
     
-    error_msg = str(error)
+    # #region agent log
+    try:
+        import json
+        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"显示错误","data":{"error_type":type(error).__name__},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+            f.write('\n')
+    except: pass
+    # #endregion
+    # 安全地获取错误消息
+    try:
+        error_msg = str(error)
+    except UnicodeDecodeError as e:
+        # #region agent log
+        try:
+            import json
+            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"str(error)失败","data":{"error_type":type(e).__name__,"error_msg":repr(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                f.write('\n')
+        except: pass
+        # #endregion
+        # 如果 str(error) 失败，使用 repr 或默认消息
+        try:
+            error_msg = repr(error)
+        except:
+            error_msg = f"{type(error).__name__}: 编码错误，无法显示详细信息"
+    except Exception as e:
+        # #region agent log
+        try:
+            import json
+            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"str(error)异常","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                f.write('\n')
+        except: pass
+        # #endregion
+        error_msg = f"{type(error).__name__}: 无法获取错误消息"
     # 清理无效的 Unicode 字符
     try:
         error_msg = error_msg.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
-    except Exception:
+    except Exception as e:
+        # #region agent log
+        try:
+            import json
+            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"错误消息编码失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                f.write('\n')
+        except: pass
+        # #endregion
         error_msg = error_msg.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
     
     suggestion = ""
@@ -117,7 +159,12 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
                 raise  # 重新抛出，让外层处理
             except ConnectionError as e:
                 # 连接错误，显示友好提示
-                error_msg = str(e)
+                try:
+                    error_msg = str(e)
+                except (UnicodeDecodeError, UnicodeEncodeError):
+                    error_msg = "流式请求连接错误：编码错误"
+                except Exception:
+                    error_msg = "流式请求连接错误：无法获取错误消息"
                 if not error_msg:
                     error_msg = "流式请求连接错误：连接已断开"
                 yield f"\n\n[bold red]✗ 连接错误[/bold red]: {error_msg}\n"
@@ -126,7 +173,12 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
                     yield "[dim]提示: 请检查后端服务是否正常运行，或任务是否过于复杂导致超时[/dim]\n"
             except Exception as e:
                 # 其他错误
-                error_msg = str(e)
+                try:
+                    error_msg = str(e)
+                except (UnicodeDecodeError, UnicodeEncodeError):
+                    error_msg = f"{type(e).__name__}: 编码错误"
+                except Exception:
+                    error_msg = f"{type(e).__name__}: 无法获取错误消息"
                 yield f"\n\n[bold red]✗ 错误[/bold red]: {error_msg}\n"
         
         # 使用 StreamRenderer 实时渲染
@@ -138,10 +190,56 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
             console.print("\n[bold yellow]⚠ 对话已终止[/bold yellow]")
             console.print("[dim]提示: 按 Ctrl+C 可以随时终止正在进行的对话[/dim]\n")
             return False
+        except UnicodeDecodeError as e:
+            # #region agent log
+            try:
+                import json
+                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"UnicodeDecodeError in render_stream","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"start":getattr(e,'start',None),"end":getattr(e,'end',None)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                    f.write('\n')
+            except: pass
+            # #endregion
+            # Unicode 解码错误，使用安全的错误处理
+            try:
+                error_msg = f"编码错误: 位置 {getattr(e, 'start', '?')}-{getattr(e, 'end', '?')}"
+            except:
+                error_msg = "编码错误: 无法解码数据"
+            show_error(e)
+            return False
+        except Exception as e:
+            # #region agent log
+            try:
+                import json
+                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in render_stream","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                    f.write('\n')
+            except: pass
+            # #endregion
+            show_error(e)
+            return False
         
         return True
+    except UnicodeDecodeError as e:
+        # #region agent log
+        try:
+            import json
+            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"UnicodeDecodeError in outer try","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                f.write('\n')
+        except: pass
+        # #endregion
+        show_error(e)
+        return None
     except Exception as e:
-        console.print(f"\n[bold red]✗ 错误[/bold red]: {e}")
+        # #region agent log
+        try:
+            import json
+            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in outer try","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                f.write('\n')
+        except: pass
+        # #endregion
+        show_error(e)
         return None
 
 @cli.command()

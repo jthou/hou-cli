@@ -174,33 +174,88 @@ class IPCClient:
                 # 检查状态码
                 if response.status_code != 200:
                     error_text = await response.aread()
-                    error_text = error_text.decode('utf-8')[:500] if error_text else f"状态码: {response.status_code}"
+                    # 安全解码错误文本
+                    if error_text:
+                        try:
+                            error_text = error_text.decode('utf-8', errors='replace')[:500]
+                        except Exception:
+                            error_text = f"状态码: {response.status_code} (无法解码错误信息)"
+                    else:
+                        error_text = f"状态码: {response.status_code}"
                     raise Exception(f"流式请求失败: {error_text}")
                 
                 # 解析 SSE 格式
                 try:
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        
-                        if line.startswith("data: "):
-                            data_str = line[6:]  # 移除 "data: " 前缀
-                            try:
-                                # 直接解析 JSON，不需要 unicode_escape（后端已使用 ensure_ascii=False）
-                                # 如果后端使用了 ensure_ascii=False，JSON 中的 emoji 会保持原样
-                                data = json.loads(data_str)
-                                
-                                if data.get("status") == "streaming":
-                                    content = data.get("content", "")
-                                    if content:  # 只yield非空内容
-                                        yield content
-                                elif data.get("status") == "done":
-                                    return
-                                elif data.get("status") == "error":
-                                    raise Exception(data.get("error", "未知错误"))
-                            except json.JSONDecodeError:
-                                # JSON 解析失败，跳过这一行
+                    # 使用 aiter_bytes() 然后手动解码，以便更好地处理编码错误
+                    buffer = b""
+                    async for chunk in response.aiter_bytes():
+                        buffer += chunk
+                        # 按行分割
+                        while b"\n" in buffer:
+                            line_bytes, buffer = buffer.split(b"\n", 1)
+                            if not line_bytes:
                                 continue
+                            
+                            # 安全解码行
+                            try:
+                                line = line_bytes.decode('utf-8', errors='replace')
+                            except Exception:
+                                # 如果解码失败，尝试其他编码
+                                try:
+                                    line = line_bytes.decode('latin-1', errors='replace')
+                                except Exception:
+                                    # 如果都失败，跳过这一行
+                                    continue
+                            
+                            if line.startswith("data: "):
+                                data_str = line[6:]  # 移除 "data: " 前缀
+                                # #region agent log
+                                try:
+                                    import json as json_module
+                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"准备解析JSON","data":{"data_str_len":len(data_str),"data_str_preview":data_str[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                        f.write('\n')
+                                except: pass
+                                # #endregion
+                                try:
+                                    # 直接解析 JSON，不需要 unicode_escape（后端已使用 ensure_ascii=False）
+                                    # 如果后端使用了 ensure_ascii=False，JSON 中的 emoji 会保持原样
+                                    data = json.loads(data_str)
+                                    # #region agent log
+                                    try:
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"JSON解析成功","data":{"status":data.get("status")},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
+                                    
+                                    if data.get("status") == "streaming":
+                                        content = data.get("content", "")
+                                        if content:  # 只yield非空内容
+                                            yield content
+                                    elif data.get("status") == "done":
+                                        return
+                                    elif data.get("status") == "error":
+                                        raise Exception(data.get("error", "未知错误"))
+                                except json.JSONDecodeError as e:
+                                    # #region agent log
+                                    try:
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"data_str_len":len(data_str)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
+                                    # JSON 解析失败，跳过这一行
+                                    continue
+                                except UnicodeDecodeError as e:
+                                    # #region agent log
+                                    try:
+                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"Unicode解码错误","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"position":getattr(e,'start',None)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                            f.write('\n')
+                                    except: pass
+                                    # #endregion
+                                    continue
                 except KeyboardInterrupt:
                     # 用户按 Ctrl+C，终止流式请求
                     # 关闭响应连接

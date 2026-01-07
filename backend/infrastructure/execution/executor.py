@@ -210,8 +210,57 @@ class SubprocessExecutor:
                 )
                 
                 exit_code = process.returncode
-                output = stdout.decode("utf-8", errors="ignore") if stdout else ""
-                error = stderr.decode("utf-8", errors="ignore") if stderr else ""
+                # 使用更安全的编码处理，支持多种编码尝试
+                def safe_decode(data: bytes) -> str:
+                    """安全解码字节数据"""
+                    # #region agent log
+                    try:
+                        import json
+                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"开始解码","data":{"data_len":len(data) if data else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                            f.write('\n')
+                    except: pass
+                    # #endregion
+                    if not data:
+                        return ""
+                    # 首先尝试 UTF-8
+                    try:
+                        result = data.decode("utf-8", errors="replace")
+                        # #region agent log
+                        try:
+                            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"UTF-8解码成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                f.write('\n')
+                        except: pass
+                        # #endregion
+                        return result
+                    except Exception as e:
+                        # #region agent log
+                        try:
+                            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"UTF-8解码失败，尝试其他编码","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                f.write('\n')
+                        except: pass
+                        # #endregion
+                        # 如果 UTF-8 失败，尝试其他常见编码
+                        for encoding in ["latin-1", "cp1252", "gbk", "gb2312"]:
+                            try:
+                                result = data.decode(encoding, errors="replace")
+                                # #region agent log
+                                try:
+                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"其他编码解码成功","data":{"encoding":encoding,"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                        f.write('\n')
+                                except: pass
+                                # #endregion
+                                return result
+                            except Exception:
+                                continue
+                        # 如果所有编码都失败，使用错误替换
+                        return data.decode("utf-8", errors="replace")
+                
+                output = safe_decode(stdout) if stdout else ""
+                error = safe_decode(stderr) if stderr else ""
                 
             except asyncio.TimeoutError:
                 # 超时，终止进程

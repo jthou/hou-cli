@@ -1,9 +1,11 @@
 """交互式命令输入（支持命令提示和自动补全）"""
 import sys
 from typing import List, Optional, Callable
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
+from rich.table import Table
+import rich.box
 
 try:
     from prompt_toolkit import PromptSession
@@ -132,24 +134,32 @@ class CommandInput:
                 self._show_command_hint()
     
     def _show_command_hint(self):
-        """显示命令提示菜单"""
-        hint_text = Text()
-        hint_text.append("可用命令:\n", style="dim")
+        """显示命令提示菜单（优化版）"""
+        # 使用表格显示命令，更清晰
+        commands_table = Table.grid(padding=(0, 2), expand=False)
+        commands_table.add_column(style="cyan bold", width=25)
+        commands_table.add_column(style="white", width=50)
         
         for cmd, desc, args in self.commands:
-            cmd_line = f"  [cyan]/{cmd}[/cyan]"
+            cmd_str = f"/{cmd}"
             if args:
-                cmd_line += f" {args}"
-            cmd_line += f" - {desc}\n"
-            hint_text.append(cmd_line)
+                cmd_str += f" {args}"
+            commands_table.add_row(cmd_str, desc)
         
-        hint_text.append("\n[dim]提示: 输入命令后按 Enter 执行，按 Tab 自动补全[/dim]")
+        # 构建内容
+        content_parts = []
+        content_parts.append(Text("📋 可用命令", style="bold cyan"))
+        content_parts.append("")
+        content_parts.append(commands_table)
+        content_parts.append("")
+        content_parts.append(Text("💡 提示: 输入命令后按 Enter 执行，按 Tab 自动补全", style="dim"))
         
         self.console.print(Panel(
-            hint_text,
-            border_style="dim cyan",
-            title="[dim cyan]命令提示[/dim cyan]",
-            padding=(1, 2)
+            Group(*content_parts),
+            border_style="cyan",
+            title="[bold cyan]📖 命令提示[/bold cyan]",
+            padding=(1, 2),
+            box=rich.box.ROUNDED
         ))
     
     def input(self, prompt: str = "[dim cyan]▸[/dim cyan] ") -> str:

@@ -736,13 +736,74 @@ class Orchestrator:
                         
                         # 构建工具结果消息
                         # 如果工具执行失败，确保错误信息清晰
+                        def safe_json_dumps(obj, **kwargs):
+                            """安全的 JSON 序列化，处理编码错误"""
+                            # #region agent log
+                            import json as json_module
+                            try:
+                                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                    json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"orchestrator.py:safe_json_dumps","message":"JSON序列化开始","data":{"obj_type":type(obj).__name__,"is_dict":isinstance(obj,dict)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                    f.write('\n')
+                            except: pass
+                            # #endregion
+                            try:
+                                result = json.dumps(obj, ensure_ascii=False, **kwargs)
+                                # #region agent log
+                                try:
+                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"orchestrator.py:safe_json_dumps","message":"JSON序列化成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                        f.write('\n')
+                                except: pass
+                                # #endregion
+                                return result
+                            except (UnicodeEncodeError, TypeError, UnicodeDecodeError) as e:
+                                # #region agent log
+                                try:
+                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"orchestrator.py:safe_json_dumps","message":"JSON序列化失败","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                        f.write('\n')
+                                except: pass
+                                # #endregion
+                                # 如果序列化失败，尝试清理数据
+                                if isinstance(obj, dict):
+                                    cleaned_obj = {}
+                                    for k, v in obj.items():
+                                        try:
+                                            # 尝试清理值
+                                            if isinstance(v, str):
+                                                # #region agent log
+                                                try:
+                                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                                        json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"orchestrator.py:safe_json_dumps","message":"清理字符串值","data":{"key":str(k)[:50],"value_len":len(v),"value_preview":v[:100]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                                        f.write('\n')
+                                                except: pass
+                                                # #endregion
+                                                # 清理字符串中的无效字符
+                                                cleaned_v = v.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                            else:
+                                                cleaned_v = v
+                                            cleaned_obj[k] = cleaned_v
+                                        except Exception as clean_e:
+                                            # #region agent log
+                                            try:
+                                                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                                    json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"orchestrator.py:safe_json_dumps","message":"清理值失败","data":{"key":str(k)[:50],"error":str(clean_e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                                                    f.write('\n')
+                                            except: pass
+                                            # #endregion
+                                            cleaned_obj[k] = f"[无法序列化: {type(v).__name__}]"
+                                    return json.dumps(cleaned_obj, ensure_ascii=False, **kwargs)
+                                else:
+                                    # 对于非字典对象，返回错误信息
+                                    return json.dumps({"error": f"序列化失败: {str(e)[:100]}"}, ensure_ascii=False)
+                        
                         if not tool_result.success:
-                            tool_result_content = json.dumps({
+                            tool_result_content = safe_json_dumps({
                                 "error": tool_result.error,
                                 "success": False
-                            }, ensure_ascii=False)
+                            })
                         else:
-                            tool_result_content = json.dumps(tool_result.data, ensure_ascii=False)
+                            tool_result_content = safe_json_dumps(tool_result.data)
                         tool_results.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -926,13 +987,38 @@ class Orchestrator:
                     
                     # 构建工具结果消息
                     # 如果工具执行失败，确保错误信息清晰
+                    # 使用安全的 JSON 序列化
+                    def safe_json_dumps(obj, **kwargs):
+                        """安全的 JSON 序列化，处理编码错误"""
+                        try:
+                            return json.dumps(obj, ensure_ascii=False, **kwargs)
+                        except (UnicodeEncodeError, TypeError) as e:
+                            # 如果序列化失败，尝试清理数据
+                            if isinstance(obj, dict):
+                                cleaned_obj = {}
+                                for k, v in obj.items():
+                                    try:
+                                        # 尝试清理值
+                                        if isinstance(v, str):
+                                            # 清理字符串中的无效字符
+                                            cleaned_v = v.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                                        else:
+                                            cleaned_v = v
+                                        cleaned_obj[k] = cleaned_v
+                                    except Exception:
+                                        cleaned_obj[k] = f"[无法序列化: {type(v).__name__}]"
+                                return json.dumps(cleaned_obj, ensure_ascii=False, **kwargs)
+                            else:
+                                # 对于非字典对象，返回错误信息
+                                return json.dumps({"error": f"序列化失败: {str(e)[:100]}"}, ensure_ascii=False)
+                    
                     if not tool_result.success:
-                        tool_result_content = json.dumps({
+                        tool_result_content = safe_json_dumps({
                             "error": tool_result.error,
                             "success": False
-                        }, ensure_ascii=False)
+                        })
                     else:
-                        tool_result_content = json.dumps(tool_result.data, ensure_ascii=False)
+                        tool_result_content = safe_json_dumps(tool_result.data)
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,

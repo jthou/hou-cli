@@ -202,19 +202,62 @@ class CodeExecutorTool(Tool):
                 # 执行代码
                 result = await self.executor.execute_code_safely(request)
             
+            # 安全处理输出和错误（清理无效字符）
+            def safe_clean_text(text: str) -> str:
+                """安全清理文本，移除无效字符"""
+                # #region agent log
+                try:
+                    import json
+                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"开始清理文本","data":{"text_type":type(text).__name__,"text_len":len(str(text)) if text else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                        f.write('\n')
+                except: pass
+                # #endregion
+                if not text:
+                    return ""
+                try:
+                    # 尝试编码和解码，清理无效字符
+                    result = text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                    # #region agent log
+                    try:
+                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"文本清理成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                            f.write('\n')
+                    except: pass
+                    # #endregion
+                    return result
+                except Exception as e:
+                    # #region agent log
+                    try:
+                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"文本清理失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                            f.write('\n')
+                    except: pass
+                    # #endregion
+                    # 如果失败，返回清理后的版本
+                    return str(text).encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+            
+            # #region agent log
+            try:
+                import json
+                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:_execute_async","message":"构建工具结果","data":{"result_success":result.success,"output_len":len(result.output) if result.output else 0,"error_len":len(result.error) if result.error else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                    f.write('\n')
+            except: pass
+            # #endregion
             # 构建返回结果
             return ToolResult(
                 success=result.success,
                 data={
-                    "output": result.output,
-                    "error": result.error,
+                    "output": safe_clean_text(result.output),
+                    "error": safe_clean_text(result.error),
                     "exit_code": result.exit_code,
                     "execution_time": result.resource_usage.execution_time_seconds if result.resource_usage else 0,
                     "memory_used": result.resource_usage.memory_used_mb if result.resource_usage else 0,
                     "language": language,
                     "explanation": explanation
                 },
-                error=result.error if not result.success else None
+                error=safe_clean_text(result.error) if not result.success else None
             )
         except Exception as e:
             return ToolResult(

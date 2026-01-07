@@ -4,6 +4,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich.columns import Columns
+from rich.align import Align
+import rich.box
 
 
 class CommandHandler:
@@ -89,9 +92,39 @@ class CommandHandler:
                     # 否则返回 (message, None)
                     return (result, None)
                 except Exception as e:
-                    return (f"[red]错误: {e}[/red]", None)
+                    error_panel = Panel(
+                        Text.assemble(
+                            ("❌ 执行失败: ", "bold red"),
+                            str(e),
+                            "\n\n",
+                            ("💡 提示: ", "bold cyan"),
+                            "请检查命令参数是否正确，或输入 ",
+                            ("/help", "bold"),
+                            " 查看帮助"
+                        ),
+                        border_style="red",
+                        title="[bold red]⚠️  错误[/bold red]",
+                        padding=(1, 2),
+                        box=rich.box.ROUNDED
+                    )
+                    return (str(error_panel), None)
             else:
-                return (f"[yellow]未知的上下文命令: {subcommand}[/yellow]\n输入 /context 或 /context help 查看可用命令", None)
+                error_panel = Panel(
+                    Text.assemble(
+                        (f"❌ 未知的上下文命令: ", "bold red"),
+                        (f"/context {subcommand}", "bold yellow"),
+                        "\n\n",
+                        ("💡 提示: ", "bold cyan"),
+                        "输入 ",
+                        ("/context help", "bold"),
+                        " 查看所有上下文管理命令"
+                    ),
+                    border_style="yellow",
+                    title="[bold yellow]⚠️  提示[/bold yellow]",
+                    padding=(1, 2),
+                    box=rich.box.ROUNDED
+                )
+                return (str(error_panel), None)
         
         elif command == 'help':
             # /help 命令
@@ -106,65 +139,94 @@ class CommandHandler:
             return ("[dim]再见！[/dim]", None)
         
         else:
-            # 未知命令，提供帮助
-            return (f"[yellow]未知命令: {command}[/yellow]\n输入 /help 查看帮助", None)
+            # 未知命令，提供友好的错误提示
+            error_panel = Panel(
+                Text.assemble(
+                    (f"❌ 未知命令: ", "bold red"),
+                    (f"/{command}", "bold yellow"),
+                    "\n\n",
+                    ("💡 提示: ", "bold cyan"),
+                    "输入 ",
+                    ("/help", "bold"),
+                    " 查看所有可用命令"
+                ),
+                border_style="red",
+                title="[bold red]⚠️  错误[/bold red]",
+                padding=(1, 2),
+                box=rich.box.ROUNDED
+            )
+            return (str(error_panel), None)
     
     def _show_command_hint(self) -> str:
-        """显示命令提示菜单"""
-        hint_text = Text()
-        hint_text.append("可用命令:\n")
+        """显示命令提示菜单（优化版）"""
+        # 使用表格显示命令，更清晰
+        commands_table = Table.grid(padding=(0, 2), expand=False)
+        commands_table.add_column(style="cyan bold", width=20)
+        commands_table.add_column(style="white", width=50)
         
         # 显示顶级命令
         for cmd, (desc, _) in self.top_level_commands.items():
-            cmd_line = f"  /{cmd} - {desc}\n"
-            hint_text.append(cmd_line)
-            
-            # 如果是 context 命令，显示子命令
-            if cmd == 'context':
-                hint_text.append("\n  子命令:\n")
-                for sub_cmd, (sub_desc, sub_args) in self.context_commands.items():
-                    sub_cmd_line = f"    /context {sub_cmd}"
-                    if sub_args:
-                        sub_cmd_line += f" {sub_args}"
-                    sub_cmd_line += f" - {sub_desc}\n"
-                    hint_text.append(sub_cmd_line)
+            commands_table.add_row(f"/{cmd}", desc)
         
-        # 显示可用工具
-        hint_text.append("\n可用工具:\n")
+        # 构建内容
+        content_parts = []
+        content_parts.append(Text("📋 可用命令", style="bold cyan"))
+        content_parts.append("")
+        content_parts.append(commands_table)
+        
+        # 如果是 context 命令，显示子命令
+        content_parts.append("")
+        content_parts.append(Text("📁 上下文管理子命令", style="bold yellow"))
+        content_parts.append("")
+        context_table = Table.grid(padding=(0, 2), expand=False)
+        context_table.add_column(style="yellow", width=25)
+        context_table.add_column(style="white", width=45)
+        for sub_cmd, (sub_desc, sub_args) in self.context_commands.items():
+            cmd_str = f"/context {sub_cmd}"
+            if sub_args:
+                cmd_str += f" {sub_args}"
+            context_table.add_row(cmd_str, sub_desc)
+        content_parts.append(context_table)
+        
+        # 显示可用工具（使用表格）
+        content_parts.append("")
+        content_parts.append(Text("🛠️  可用工具", style="bold green"))
+        content_parts.append("")
         try:
             if self.client:
                 tools = self.client.list_tools()
                 if tools:
+                    tools_table = Table.grid(padding=(0, 2), expand=False)
+                    tools_table.add_column(style="green", width=20)
+                    tools_table.add_column(style="dim", width=50)
                     for tool in tools:
                         tool_name = tool.get("name", "unknown")
                         tool_desc = tool.get("description", "")
                         # 截断描述（取第一行或前 50 个字符）
                         if tool_desc:
-                            # 取第一行
                             first_line = tool_desc.split('\n')[0]
                             if len(first_line) > 50:
                                 tool_desc = first_line[:50] + "..."
                             else:
                                 tool_desc = first_line
-                        hint_text.append(f"  • {tool_name}", style="cyan")
-                        if tool_desc:
-                            hint_text.append(f" - {tool_desc}\n")
-                        else:
-                            hint_text.append("\n")
+                        tools_table.add_row(f"• {tool_name}", tool_desc or "[dim]无描述[/dim]")
+                    content_parts.append(tools_table)
                 else:
-                    hint_text.append("  [dim]暂无可用工具[/dim]\n")
+                    content_parts.append(Text("  [dim]暂无可用工具[/dim]"))
             else:
-                hint_text.append("  [dim]无法获取工具列表（客户端未初始化）[/dim]\n")
+                content_parts.append(Text("  [dim]无法获取工具列表（客户端未初始化）[/dim]"))
         except Exception as e:
-            hint_text.append(f"  [dim]无法获取工具列表: {str(e)[:50]}...[/dim]\n")
+            content_parts.append(Text(f"  [dim]无法获取工具列表: {str(e)[:50]}...[/dim]"))
         
-        hint_text.append("\n提示: 输入 /help 查看详细帮助")
+        content_parts.append("")
+        content_parts.append(Text("💡 提示: 输入 /help 查看详细帮助", style="dim"))
         
         return Panel(
-            hint_text,
-            border_style="dim",
-            title="命令提示",
-            padding=(1, 2)
+            Group(*content_parts),
+            border_style="cyan",
+            title="[bold cyan]📖 命令提示[/bold cyan]",
+            padding=(1, 2),
+            box=rich.box.ROUNDED
         )
     
     def _show_context_help(self) -> str:
@@ -200,13 +262,19 @@ class CommandHandler:
             if not sessions:
                 return "[dim]没有找到会话[/dim]"
             
-            # 创建表格显示
-            table = Table(title="最近会话")
-            table.add_column("序号", style="cyan", width=6)
-            table.add_column("会话 ID", style="green", width=12)
-            table.add_column("时间", style="yellow", width=16)
-            table.add_column("预览", style="white", width=50)
-            table.add_column("消息数", style="magenta", width=8)
+            # 创建表格显示（优化样式）
+            table = Table(
+                title="[bold cyan]📋 最近会话[/bold cyan]",
+                show_header=True,
+                header_style="bold cyan",
+                border_style="cyan",
+                box=rich.box.ROUNDED
+            )
+            table.add_column("序号", style="cyan bold", width=6, justify="center")
+            table.add_column("会话 ID", style="green", width=14)
+            table.add_column("时间", style="yellow", width=18)
+            table.add_column("预览", style="white", width=45)
+            table.add_column("消息数", style="magenta bold", width=8, justify="center")
             
             for i, session in enumerate(sessions, 1):
                 session_id = session.get("session_id", "N/A")
@@ -258,13 +326,19 @@ class CommandHandler:
             if not sessions:
                 return f"[yellow]没有找到包含 '{keyword}' 的会话[/yellow]"
             
-            # 创建表格显示
-            table = Table(title=f"搜索结果: '{keyword}'")
-            table.add_column("序号", style="cyan", width=6)
-            table.add_column("会话 ID", style="green", width=12)
-            table.add_column("时间", style="yellow", width=16)
-            table.add_column("预览", style="white", width=50)
-            table.add_column("消息数", style="magenta", width=8)
+            # 创建表格显示（优化样式）
+            table = Table(
+                title=f"[bold yellow]🔍 搜索结果: '{keyword}'[/bold yellow]",
+                show_header=True,
+                header_style="bold yellow",
+                border_style="yellow",
+                box=rich.box.ROUNDED
+            )
+            table.add_column("序号", style="cyan bold", width=6, justify="center")
+            table.add_column("会话 ID", style="green", width=14)
+            table.add_column("时间", style="yellow", width=18)
+            table.add_column("预览", style="white", width=45)
+            table.add_column("消息数", style="magenta bold", width=8, justify="center")
             
             for i, session in enumerate(sessions, 1):
                 session_id = session.get("session_id", "N/A")
