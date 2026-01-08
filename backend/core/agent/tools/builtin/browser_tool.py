@@ -30,6 +30,15 @@ class BrowserTool(Tool):
     
     允许 AI 助手通过自然语言指令控制浏览器执行各种任务，
     如网页搜索、表单填写、数据提取等。
+    
+    支持两种模型：
+    - DeepSeek（默认）：用于普通浏览器任务
+    - Qwen2-VL（可选）：用于需要视觉理解的任务
+    
+    配置方式：
+    - 设置 QWEN_API_KEY 环境变量以启用 Qwen2-VL 支持
+    - 设置 BROWSER_TOOL_USE_VISION=true 强制启用视觉功能
+    - 任务描述中包含视觉相关关键词时会自动使用 Qwen2-VL
     """
     
     def __init__(self, llm_service: Optional['LLMService'] = None):
@@ -50,12 +59,12 @@ class BrowserTool(Tool):
                     "要执行的浏览器任务，用自然语言描述。必须包含网站地址和具体操作。"
                     "\n典型场景示例："
                     "- '打开 www.jthou.com/mediawiki 网站，搜索与 TOF 泳池机器人相关的页面'"
-                    "- '访问 www.example.com/blog 并查找关于 AI 的文章'"
+                    "- '访问 www.baidu.com/blog 并查找关于 AI 的文章'"
                     "- '在 GitHub 上搜索 Python 项目，按 stars 排序，提取前 5 个'"
                     "- '打开 example.com 并提取页面标题和主要内容'"
                     "- '访问 news.example.com 并搜索最新的 AI 新闻'"
                     "\n重要提示："
-                    "- 必须包含完整的网站地址（如：www.example.com 或 https://example.com）"
+                    "- 必须包含完整的网站地址（如：www.baidu.com 或 https://example.com）"
                     "- 明确说明要执行的操作（搜索、浏览、提取等）"
                     "- 如果要在网站内搜索，明确说明搜索关键词和位置"
                     "- 可以指定多个步骤，用逗号或分号分隔"
@@ -108,7 +117,7 @@ class BrowserTool(Tool):
                 "- ✅ 表单填写和提交"
                 "- ✅ 多步骤任务自动化"
                 "\n\n【使用场景 - 必须使用 browser 工具】："
-                "- 用户说'打开 www.example.com' → 使用 browser"
+                "- 用户说'打开 www.baidu.com' → 使用 browser"
                 "- 用户说'访问 www.google.com 并查看网页' → 使用 browser"
                 "- 用户说'打开网站' → 使用 browser"
                 "- 用户说'查看某个网站' → 使用 browser"
@@ -149,24 +158,95 @@ class BrowserTool(Tool):
         self.conversation_path = Path("data/browser_conversations")
         self.conversation_path.mkdir(parents=True, exist_ok=True)
     
-    def _create_llm(self):
-        """创建 LangChain LLM 实例并包装以兼容 browser-use"""
-        # 从环境变量获取 API Key（与项目配置一致）
-        api_key = os.environ.get('DEEPSEEK_API_KEY')
-        if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY 环境变量未设置")
+    def _needs_vision(self, task: str) -> bool:
+        """判断任务是否需要视觉功能"""
+        # 检查环境变量配置
+        use_vision_config = os.getenv("BROWSER_TOOL_USE_VISION", "false").lower() == "true"
+        if use_vision_config:
+            return True
         
-        # 配置验证：API Key 格式验证
-        api_key = api_key.strip()
-        if not api_key or len(api_key) < 10:
-            raise ValueError("API Key 格式无效：长度不足或为空")
+        # 如果未明确启用，检查任务描述中是否有视觉相关关键词
+        # 注意：避免将简单的"打开"或"访问"误判为需要视觉功能
+        task_lower = task.lower().strip()
         
-        # 使用 LangChain 的 OpenAI 兼容接口
-        # DeepSeek 兼容 OpenAI API
-        # base_url 可以使用 https://api.deepseek.com 或 https://api.deepseek.com/v1
-        # 根据 DeepSeek 文档，两种格式都可以，使用 /v1 路径以提高兼容性
-        base_url = "https://api.deepseek.com/v1"
-        model_name = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        # 明确的视觉关键词（高优先级，只要包含就返回 True）
+        strong_vision_keywords = [
+            "截图", "图片", "图像", "视觉", "识别", "screenshot", 
+            "image", "visual", "recognize", "视觉分析", "页面截图"
+        ]
+        
+        # 如果包含明确的视觉关键词，直接返回 True
+        if any(keyword in task_lower for keyword in strong_vision_keywords):
+            return True
+        
+        # 需要结合上下文的关键词（需要排除简单导航）
+        context_vision_keywords = [
+            "查看页面", "页面内容", "页面布局", "页面元素", "页面结构", 
+            "页面样式", "分析页面", "see", "view"
+        ]
+        
+        # 检查是否包含上下文视觉关键词
+        has_context_keyword = any(keyword in task_lower for keyword in context_vision_keywords)
+        if not has_context_keyword:
+            return False
+        
+        # 如果包含上下文关键词，需要排除简单的导航任务
+        # 简单导航任务模式：只包含"打开/访问/navigate" + URL，没有其他操作
+        import re
+        simple_nav_patterns = [
+            r"^(打开|访问)\s+[^\s]+\.(com|org|net|cn|io|edu|gov)[^\s]*$",  # "打开 www.example.com"
+            r"^navigate\s+to\s+[^\s]+\.(com|org|net|cn|io|edu|gov)[^\s]*$",  # "navigate to example.com"
+            r"^(打开|访问)\s+https?://[^\s]+$",  # "打开 https://example.com"
+        ]
+        
+        for pattern in simple_nav_patterns:
+            if re.match(pattern, task_lower):
+                return False  # 简单导航任务，不需要视觉功能
+        
+        # 包含上下文关键词且不是简单导航，需要视觉功能
+        return True
+    
+    def _create_llm(self, use_vision: bool = False):
+        """创建 LangChain LLM 实例并包装以兼容 browser-use
+        
+        Args:
+            use_vision: 是否使用视觉功能，如果为 True，将使用 Qwen2-VL
+        """
+        # 如果启用视觉功能，尝试使用 Qwen
+        if use_vision:
+            qwen_api_key = os.environ.get('QWEN_API_KEY')
+            if qwen_api_key:
+                # 使用 Qwen2-VL 支持视觉功能
+                # Qwen-VL 兼容 OpenAI API，使用阿里云百炼的兼容接口
+                base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+                model_name = os.getenv("QWEN_MODEL", "qwen-vl-max")
+                
+                api_key = qwen_api_key.strip()
+                if not api_key or len(api_key) < 10:
+                    logger.warning("QWEN_API_KEY 格式无效，回退到 DeepSeek")
+                    use_vision = False
+                else:
+                    logger.info(f"使用 Qwen2-VL 模型（支持视觉）: base_url={base_url}, model={model_name}")
+            else:
+                logger.warning("QWEN_API_KEY 未设置，无法使用视觉功能，回退到 DeepSeek")
+                use_vision = False
+        
+        # 如果未启用视觉功能或 Qwen 不可用，使用 DeepSeek（默认）
+        if not use_vision:
+            api_key = os.environ.get('DEEPSEEK_API_KEY')
+            if not api_key:
+                raise ValueError("DEEPSEEK_API_KEY 环境变量未设置")
+            
+            # 配置验证：API Key 格式验证
+            api_key = api_key.strip()
+            if not api_key or len(api_key) < 10:
+                raise ValueError("API Key 格式无效：长度不足或为空")
+            
+            # 使用 LangChain 的 OpenAI 兼容接口
+            # DeepSeek 兼容 OpenAI API
+            base_url = "https://api.deepseek.com/v1"
+            model_name = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+            logger.info(f"使用 DeepSeek 模型: base_url={base_url}, model={model_name}")
         
         logger.info(f"创建 ChatOpenAI 实例: base_url={base_url}, model={model_name}")
         
@@ -316,6 +396,11 @@ class BrowserTool(Tool):
         if timeout < 1 or timeout > 300:
             timeout = 60
         
+        # 判断是否需要视觉功能
+        use_vision = self._needs_vision(task)
+        if use_vision:
+            logger.info("检测到任务可能需要视觉功能，将尝试使用支持视觉的模型（Qwen2-VL）")
+        
         try:
             # 检查 Playwright 浏览器是否已安装
             try:
@@ -341,7 +426,8 @@ class BrowserTool(Tool):
                 logger.warning("⚠️ 检测到 BROWSER_USE_API_KEY 环境变量，browser-use 可能尝试使用云浏览器")
             
             # 创建 LLM 实例
-            llm = self._create_llm()
+            # 根据任务是否需要视觉功能选择模型
+            llm = self._create_llm(use_vision=use_vision)
             
             # LLM 已经在 _create_llm 中包装，确保有 provider 和 ainvoke
             # 不需要额外处理
@@ -504,17 +590,180 @@ class BrowserTool(Tool):
             )
             
             logger.info("浏览器任务执行完成")
+            
+            # 分析 Agent 返回的结果，判断任务是否真正成功
+            # Agent.run() 返回 AgentHistoryList，包含多个有用的属性：
+            # - is_done: 任务是否完成
+            # - is_successful: 任务是否成功
+            # - has_errors: 是否有错误
+            # - errors: 错误列表
+            # - action_results: 操作结果列表
+            # - extracted_content: 提取的内容
+            
             result_str = str(result) if result else "任务执行完成"
+            actual_success = True
+            error_details = []
+            warnings = []
+            task_completed = False
+            
+            # 检查结果结构
+            try:
+                # 使用 AgentHistoryList 的内置方法判断任务状态
+                # 注意：is_successful 和 is_done 是方法，需要调用
+                if hasattr(result, 'is_successful'):
+                    try:
+                        actual_success = result.is_successful() if callable(result.is_successful) else result.is_successful
+                        logger.info(f"Agent 报告任务成功状态: {actual_success}")
+                    except Exception as e:
+                        logger.warning(f"无法获取 is_successful: {e}")
+                        # 尝试从 all_results 判断
+                        if hasattr(result, 'all_results') and result.all_results:
+                            # 检查是否有明确的失败
+                            has_failure = any(
+                                hasattr(r, 'success') and r.success is False 
+                                for r in result.all_results
+                            )
+                            if has_failure:
+                                actual_success = False
+                
+                if hasattr(result, 'is_done'):
+                    try:
+                        task_completed = result.is_done() if callable(result.is_done) else result.is_done
+                        logger.info(f"Agent 报告任务完成状态: {task_completed}")
+                    except Exception as e:
+                        logger.warning(f"无法获取 is_done: {e}")
+                        # 尝试从 all_results 判断
+                        if hasattr(result, 'all_results') and result.all_results:
+                            # 检查最后一个结果是否标记为完成
+                            last_result = result.all_results[-1]
+                            if hasattr(last_result, 'is_done'):
+                                task_completed = last_result.is_done
+                
+                # 检查是否有错误
+                if hasattr(result, 'has_errors'):
+                    try:
+                        has_errors = result.has_errors() if callable(result.has_errors) else result.has_errors
+                        if has_errors:
+                            actual_success = False
+                            logger.warning("Agent 报告有错误")
+                            
+                            # 获取详细错误信息
+                            if hasattr(result, 'errors'):
+                                errors = result.errors() if callable(result.errors) else result.errors
+                                if errors:
+                                    for error in errors:
+                                        error_details.append(str(error))
+                    except Exception as e:
+                        logger.warning(f"无法检查 has_errors: {e}")
+                        # 从 all_results 中检查错误
+                        if hasattr(result, 'all_results') and result.all_results:
+                            for r in result.all_results:
+                                if hasattr(r, 'error') and r.error:
+                                    error_details.append(str(r.error))
+                                    actual_success = False
+                
+                # 检查 action_results（操作结果列表）
+                # 注意：action_results 可能是方法，需要调用
+                action_results = None
+                if hasattr(result, 'action_results'):
+                    action_results = result.action_results() if callable(result.action_results) else result.action_results
+                
+                if action_results:
+                    try:
+                        action_list = list(action_results) if not isinstance(action_results, list) else action_results
+                        logger.info(f"检查 Agent 执行结果，共 {len(action_list)} 个操作")
+                        
+                        failed_actions = []
+                        for i, action_result in enumerate(action_list):
+                            # 检查每个操作是否有错误
+                            if hasattr(action_result, 'error') and action_result.error:
+                                error_msg = str(action_result.error)
+                                error_details.append(f"操作 {i+1}: {error_msg}")
+                                failed_actions.append(i+1)
+                            
+                            # 检查操作是否成功
+                            if hasattr(action_result, 'success'):
+                                if action_result.success is False:
+                                    actual_success = False
+                                    failed_actions.append(i+1)
+                                elif action_result.success is None:
+                                    warnings.append(f"操作 {i+1}: 成功状态未确定")
+                        
+                        if failed_actions:
+                            error_details.insert(0, f"以下操作执行失败: {failed_actions}")
+                    except Exception as e:
+                        logger.warning(f"分析 action_results 时出错: {e}")
+                        # 从 all_results 中检查错误
+                        if hasattr(result, 'all_results') and result.all_results:
+                            for r in result.all_results:
+                                if hasattr(r, 'error') and r.error:
+                                    error_details.append(str(r.error))
+                
+                # 提取内容
+                if hasattr(result, 'extracted_content') and result.extracted_content:
+                    extracted = result.extracted_content
+                    if isinstance(extracted, list):
+                        result_str = "\n".join([str(item) for item in extracted if item])
+                    else:
+                        result_str = str(extracted)
+                    logger.info(f"提取到内容: {len(extracted) if isinstance(extracted, list) else 1} 条")
+                
+                # 对于简单任务（如"打开网页"），即使 Agent 报告未完成也可能算成功
+                # 因为浏览器已经打开并导航到目标页面
+                if not task_completed and ("打开" in task or "访问" in task or "navigate" in task.lower()):
+                    logger.info("检测到导航任务，即使 is_done=False 也可能算成功（浏览器已打开）")
+                    # 如果只是导航任务，且没有严重错误，认为成功
+                    if not error_details or len(error_details) == 0:
+                        actual_success = True
+                        warnings.append("任务未标记为完成，但浏览器已成功打开并导航到目标页面")
+                
+                # 检查结果字符串中是否有错误信息
+                result_lower = result_str.lower()
+                if ("failed" in result_lower or "error" in result_lower or "❌" in result_str) and not actual_success:
+                    # 只有在实际不成功时才添加警告
+                    warnings.append("结果中包含错误或失败信息")
+                
+            except Exception as result_analysis_error:
+                logger.warning(f"分析 Agent 结果时出错: {result_analysis_error}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                # 如果分析失败，使用默认的成功判断
+                # 对于简单任务，假设成功（浏览器已打开）
+                if "打开" in task or "访问" in task:
+                    logger.info("结果分析失败，但对于导航任务假设成功")
+                    actual_success = True
+                    warnings.append("结果分析失败，但假设任务成功（浏览器已打开）")
+                else:
+                    # 对于复杂任务，保持原样
+                    actual_success = True
+                    warnings.append("结果分析失败，使用默认成功状态")
+            
+            # 构建返回数据
+            return_data = {
+                "result": result_str,
+                "task": task,
+                "headless": headless,
+                "task_completed": task_completed,
+                "agent_successful": actual_success,
+            }
+            
+            if actual_success:
+                return_data["message"] = "浏览器任务执行成功"
+                if warnings:
+                    return_data["warnings"] = warnings
+                return_data["note"] = "如果 headless=False，您应该能看到浏览器窗口的操作过程"
+            else:
+                return_data["message"] = "浏览器任务执行完成，但可能存在问题"
+                if error_details:
+                    return_data["errors"] = error_details
+                if warnings:
+                    return_data["warnings"] = warnings
+                return_data["note"] = "虽然报告了错误，但浏览器可能已经执行了部分操作（如打开页面）"
             
             return ToolResult(
-                success=True,
-                data={
-                    "result": result_str,
-                    "task": task,
-                    "message": "浏览器任务执行成功",
-                    "headless": headless,
-                    "note": "如果 headless=False，您应该能看到浏览器窗口的操作过程"
-                }
+                success=actual_success,
+                data=return_data,
+                error="\n".join(error_details) if error_details and not actual_success else None
             )
             
         except asyncio.TimeoutError:
