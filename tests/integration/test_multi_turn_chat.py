@@ -9,7 +9,8 @@ from pathlib import Path
 os.environ.setdefault('DEEPSEEK_API_KEY', 'test_key_for_testing_1234567890')
 
 # 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent))
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 print("=" * 60)
 print("多轮对话上下文测试")

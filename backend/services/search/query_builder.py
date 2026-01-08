@@ -310,3 +310,4 @@ class QueryBuilder:
                     return False, "Potentially dangerous query detected"
         
         return True, None
+

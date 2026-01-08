@@ -53,6 +53,7 @@ class GoogleSearchTool(Tool):
                 "\n注意："
                 "- 每天有 100 次免费查询限制"
                 "- 建议在需要最新信息或本地无法获取的信息时使用"
+                "- 如果此工具不可用（缺少 API Key），可以使用 browser 工具在浏览器中直接搜索"
             ),
             parameters=parameters
         )

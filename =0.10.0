@@ -1,0 +1,12 @@
+Collecting mwclient
+  Downloading mwclient-0.11.0-py3-none-any.whl.metadata (3.7 kB)
+Requirement already satisfied: requests-oauthlib in ./venv/lib/python3.13/site-packages (from mwclient) (2.0.0)
+Requirement already satisfied: oauthlib>=3.0.0 in ./venv/lib/python3.13/site-packages (from requests-oauthlib->mwclient) (3.3.1)
+Requirement already satisfied: requests>=2.0.0 in ./venv/lib/python3.13/site-packages (from requests-oauthlib->mwclient) (2.32.5)
+Requirement already satisfied: charset_normalizer<4,>=2 in ./venv/lib/python3.13/site-packages (from requests>=2.0.0->requests-oauthlib->mwclient) (3.4.4)
+Requirement already satisfied: idna<4,>=2.5 in ./venv/lib/python3.13/site-packages (from requests>=2.0.0->requests-oauthlib->mwclient) (3.11)
+Requirement already satisfied: urllib3<3,>=1.21.1 in ./venv/lib/python3.13/site-packages (from requests>=2.0.0->requests-oauthlib->mwclient) (2.3.0)
+Requirement already satisfied: certifi>=2017.4.17 in ./venv/lib/python3.13/site-packages (from requests>=2.0.0->requests-oauthlib->mwclient) (2026.1.4)
+Downloading mwclient-0.11.0-py3-none-any.whl (33 kB)
+Installing collected packages: mwclient
+Successfully installed mwclient-0.11.0
