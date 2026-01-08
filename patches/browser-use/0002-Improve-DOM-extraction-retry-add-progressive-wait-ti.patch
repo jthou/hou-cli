@@ -1,0 +1,108 @@
+From 12898b3da308f76be64a7820bf7e1efc944d87d6 Mon Sep 17 00:00:00 2001
+From: jthou <jthou@hotmail.com>
+Date: Thu, 8 Jan 2026 17:19:29 +0800
+Subject: [PATCH 2/3] Improve DOM extraction retry: add progressive wait times
+ and better error handling
+
+- Increase base wait time to at least 1 second for initial page render
+- Add progressive retry with increasing wait times (3s, 5s)
+- Improve logging for retry attempts
+- Better handling of empty selector_map scenarios
+---
+ browser_use/browser/watchdogs/dom_watchdog.py | 68 +++++++++++--------
+ 1 file changed, 41 insertions(+), 27 deletions(-)
+
+diff --git a/browser_use/browser/watchdogs/dom_watchdog.py b/browser_use/browser/watchdogs/dom_watchdog.py
+index aefb5767..7741dead 100644
+--- a/browser_use/browser/watchdogs/dom_watchdog.py
++++ b/browser_use/browser/watchdogs/dom_watchdog.py
+@@ -277,20 +277,24 @@ class DOMWatchdog(BaseWatchdog):
+ 		if not not_a_meaningful_website:
+ 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
+ 			try:
++				# Get wait times from browser profile
++				minimum_wait = self.browser_session.browser_profile.minimum_wait_page_load_time or 0.25
++				network_idle_wait = self.browser_session.browser_profile.wait_for_network_idle_page_load_time or 0.5
++				
++				# Always wait at least minimum_wait, even if no pending requests
++				# This ensures the page has time to render initial content
++				base_wait = max(minimum_wait, 1.0)  # At least 1 second for initial render
++				
+ 				if pending_requests_before_wait:
+-					# Use browser profile settings for wait time, with minimum wait for critical resources
+-					# Get wait times from browser profile
+-					minimum_wait = self.browser_session.browser_profile.minimum_wait_page_load_time or 0.25
+-					network_idle_wait = self.browser_session.browser_profile.wait_for_network_idle_page_load_time or 0.5
+-					# Use the larger of the two, with a minimum of 0.3s for backward compatibility
+-					wait_time = max(minimum_wait, network_idle_wait, 0.3)
+-					self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Waiting {wait_time}s for page stability...')
++					# If there are pending requests, wait longer
++					wait_time = max(base_wait, network_idle_wait, 2.0)  # At least 2 seconds when requests are pending
++					self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Waiting {wait_time}s for page stability (pending requests detected)...')
+ 					await asyncio.sleep(wait_time)
+ 				else:
+-					# Even if no pending requests, wait a bit for page to settle
+-					minimum_wait = self.browser_session.browser_profile.minimum_wait_page_load_time or 0.25
+-					if minimum_wait > 0:
+-						await asyncio.sleep(minimum_wait)
++					# Even if no pending requests, wait for initial render
++					self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Waiting {base_wait}s for initial page render...')
++					await asyncio.sleep(base_wait)
++				
+ 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
+ 			except Exception as e:
+ 				self.logger.warning(
+@@ -399,24 +403,34 @@ class DOMWatchdog(BaseWatchdog):
+ 				try:
+ 					content = await dom_task
+ 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ DOM tree build completed')
+-					# Check if selector_map is empty - if so, retry once after a longer wait
++					# Check if selector_map is empty - if so, retry with progressively longer waits
+ 					if content and (not content.selector_map or len(content.selector_map) == 0):
+ 						self.logger.warning('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⚠️ selector_map is empty, retrying after longer wait...')
+-						# Wait longer for page to fully load
+-						wait_between_actions = self.browser_session.browser_profile.wait_between_actions or 0.5
+-						retry_wait = max(wait_between_actions, 2.0)  # At least 2 seconds
+-						await asyncio.sleep(retry_wait)
+-						# Retry DOM build
+-						try:
+-							previous_state = content
+-							content = await self._build_dom_tree_without_highlights(previous_state)
+-							if content and (not content.selector_map or len(content.selector_map) == 0):
+-								self.logger.warning('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⚠️ selector_map still empty after retry')
+-							else:
+-								self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Retry successful, got {len(content.selector_map) if content.selector_map else 0} elements')
+-						except Exception as retry_error:
+-							self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Retry failed: {retry_error}, using minimal state')
+-							content = SerializedDOMState(_root=None, selector_map={})
++						# Try up to 2 retries with increasing wait times
++						max_retries = 2
++						for retry_num in range(max_retries):
++							# Wait progressively longer: 3s, 5s
++							retry_wait = 3.0 + (retry_num * 2.0)
++							self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Retry {retry_num + 1}/{max_retries}, waiting {retry_wait}s...')
++							await asyncio.sleep(retry_wait)
++							
++							# Retry DOM build
++							try:
++								previous_state = content
++								content = await self._build_dom_tree_without_highlights(previous_state)
++								if content and content.selector_map and len(content.selector_map) > 0:
++									self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Retry {retry_num + 1} successful, got {len(content.selector_map)} elements')
++									break  # Success, exit retry loop
++								else:
++									if retry_num < max_retries - 1:
++										self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⚠️ Retry {retry_num + 1} still empty, will retry again...')
++									else:
++										self.logger.warning('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⚠️ selector_map still empty after all retries')
++							except Exception as retry_error:
++								self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Retry {retry_num + 1} failed: {retry_error}')
++								if retry_num == max_retries - 1:
++									# Last retry failed, use minimal state
++									content = SerializedDOMState(_root=None, selector_map={})
+ 				except Exception as e:
+ 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM build failed: {e}, using minimal state')
+ 					content = SerializedDOMState(_root=None, selector_map={})
+-- 
+2.43.0
+

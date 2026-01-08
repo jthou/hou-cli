@@ -1,0 +1,93 @@
+From 97f9c9b6770f36aa93cba97416a36aeee95f7e86 Mon Sep 17 00:00:00 2001
+From: jthou <jthou@hotmail.com>
+Date: Thu, 8 Jan 2026 22:00:16 +0800
+Subject: [PATCH 3/3] =?UTF-8?q?=E9=9B=86=E6=88=90=20DeepSeek=20=E4=BD=9C?=
+ =?UTF-8?q?=E4=B8=BA=E9=BB=98=E8=AE=A4=20LLM?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 在 Agent 初始化时优先使用 ChatDeepSeek（如果 DEEPSEEK_API_KEY 已设置）
+- 在 models.py 中添加 DeepSeek 支持
+- 确保 browser-use 可以直接使用 DeepSeek API
+---
+ browser_use/agent/service.py | 15 +++++++++++----
+ browser_use/llm/models.py    | 15 ++++++++++++++-
+ 2 files changed, 25 insertions(+), 5 deletions(-)
+
+diff --git a/browser_use/agent/service.py b/browser_use/agent/service.py
+index 5677cab8..c3c2a34d 100644
+--- a/browser_use/agent/service.py
++++ b/browser_use/agent/service.py
+@@ -3,6 +3,7 @@ import gc
+ import inspect
+ import json
+ import logging
++import os
+ import re
+ import tempfile
+ import time
+@@ -213,10 +214,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
+ 
+ 				llm = get_llm_by_name(default_llm_name)
+ 			else:
+-				# No default LLM specified, use the original default
+-				from browser_use import ChatBrowserUse
+-
+-				llm = ChatBrowserUse()
++				# No default LLM specified, use DeepSeek as default
++				# Check if DEEPSEEK_API_KEY is available
++				deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
++				if deepseek_api_key:
++					from browser_use.llm.deepseek.chat import ChatDeepSeek
++					llm = ChatDeepSeek(model='deepseek-chat', api_key=deepseek_api_key)
++				else:
++					# Fallback to original default if DeepSeek is not configured
++					from browser_use import ChatBrowserUse
++					llm = ChatBrowserUse()
+ 
+ 		# set flashmode = True if llm is ChatBrowserUse
+ 		if llm.provider == 'browser-use':
+diff --git a/browser_use/llm/models.py b/browser_use/llm/models.py
+index 023ffb68..a29487a8 100644
+--- a/browser_use/llm/models.py
++++ b/browser_use/llm/models.py
+@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
+ from browser_use.llm.azure.chat import ChatAzureOpenAI
+ from browser_use.llm.browser_use.chat import ChatBrowserUse
+ from browser_use.llm.cerebras.chat import ChatCerebras
++from browser_use.llm.deepseek.chat import ChatDeepSeek
+ from browser_use.llm.google.chat import ChatGoogle
+ from browser_use.llm.mistral.chat import ChatMistral
+ from browser_use.llm.openai.chat import ChatOpenAI
+@@ -202,6 +203,18 @@ def get_llm_by_name(model_name: str):
+ 		api_key = os.getenv('CEREBRAS_API_KEY')
+ 		return ChatCerebras(model=model, api_key=api_key)
+ 
++	# DeepSeek Models
++	elif provider == 'deepseek':
++		api_key = os.getenv('DEEPSEEK_API_KEY')
++		# DeepSeek model names: deepseek-chat, deepseek-reasoner, etc.
++		# If model_part is just 'chat', use 'deepseek-chat'
++		if model_part == 'chat':
++			model = 'deepseek-chat'
++		else:
++			# Handle other DeepSeek models like deepseek_reasoner -> deepseek-reasoner
++			model = f'deepseek-{model_part.replace("_", "-")}'
++		return ChatDeepSeek(model=model, api_key=api_key)
++
+ 	# Browser Use Models
+ 	elif provider == 'bu':
+ 		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
+@@ -210,7 +223,7 @@ def get_llm_by_name(model_name: str):
+ 		return ChatBrowserUse(model=model, api_key=api_key)
+ 
+ 	else:
+-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
++		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'deepseek', 'bu']
+ 
+ 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,94 @@
+From 170a218675d1abc528e838219625b468eecb1655 Mon Sep 17 00:00:00 2001
+From: jthou <jthou@hotmail.com>
+Date: Thu, 8 Jan 2026 17:16:47 +0800
+Subject: [PATCH 1/3] Fix items operation failure: improve DOM build retry and
+ error handling
+
+- Improve page stability wait time using browser profile settings
+- Add retry mechanism when selector_map is empty
+- Improve error messages for 'items' and DOM-related errors
+- Add better context for debugging DOM extraction failures
+---
+ browser_use/agent/service.py                  | 14 ++++++++
+ browser_use/browser/watchdogs/dom_watchdog.py | 33 +++++++++++++++++--
+ 2 files changed, 45 insertions(+), 2 deletions(-)
+
+diff --git a/browser_use/agent/service.py b/browser_use/agent/service.py
+index 448c410b..5677cab8 100644
+--- a/browser_use/agent/service.py
++++ b/browser_use/agent/service.py
+@@ -1147,6 +1147,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
+ 		# Handle all other exceptions
+ 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
+ 		error_msg = AgentError.format_error(error, include_trace=include_trace)
++		
++		# Improve error message for common issues
++		error_str_lower = error_msg.lower()
++		if error_str_lower == 'items' or error_str_lower.strip() == 'items':
++			# "items" error usually means DOM/selector_map extraction failed
++			error_msg = (
++				'DOM elements extraction failed (items operation). '
++				'This usually means the page is still loading or the DOM structure is not ready. '
++				'Possible causes: 1) Page not fully loaded 2) Network timeout 3) CDP connection issue'
++			)
++		elif 'selector_map' in error_str_lower or 'dom' in error_str_lower:
++			# Add context for DOM-related errors
++			error_msg = f'DOM extraction error: {error_msg}. The page may still be loading or the DOM structure may not be ready.'
++		
+ 		max_total_failures = self.settings.max_failures + int(self.settings.final_response_after_failure)
+ 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{max_total_failures} times: '
+ 		self.state.consecutive_failures += 1
+diff --git a/browser_use/browser/watchdogs/dom_watchdog.py b/browser_use/browser/watchdogs/dom_watchdog.py
+index 6cadcac8..aefb5767 100644
+--- a/browser_use/browser/watchdogs/dom_watchdog.py
++++ b/browser_use/browser/watchdogs/dom_watchdog.py
+@@ -278,8 +278,19 @@ class DOMWatchdog(BaseWatchdog):
+ 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
+ 			try:
+ 				if pending_requests_before_wait:
+-					# Reduced from 1s to 0.3s for faster DOM builds while still allowing critical resources to load
+-					await asyncio.sleep(0.3)
++					# Use browser profile settings for wait time, with minimum wait for critical resources
++					# Get wait times from browser profile
++					minimum_wait = self.browser_session.browser_profile.minimum_wait_page_load_time or 0.25
++					network_idle_wait = self.browser_session.browser_profile.wait_for_network_idle_page_load_time or 0.5
++					# Use the larger of the two, with a minimum of 0.3s for backward compatibility
++					wait_time = max(minimum_wait, network_idle_wait, 0.3)
++					self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Waiting {wait_time}s for page stability...')
++					await asyncio.sleep(wait_time)
++				else:
++					# Even if no pending requests, wait a bit for page to settle
++					minimum_wait = self.browser_session.browser_profile.minimum_wait_page_load_time or 0.25
++					if minimum_wait > 0:
++						await asyncio.sleep(minimum_wait)
+ 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
+ 			except Exception as e:
+ 				self.logger.warning(
+@@ -388,6 +399,24 @@ class DOMWatchdog(BaseWatchdog):
+ 				try:
+ 					content = await dom_task
+ 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ DOM tree build completed')
++					# Check if selector_map is empty - if so, retry once after a longer wait
++					if content and (not content.selector_map or len(content.selector_map) == 0):
++						self.logger.warning('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⚠️ selector_map is empty, retrying after longer wait...')
++						# Wait longer for page to fully load
++						wait_between_actions = self.browser_session.browser_profile.wait_between_actions or 0.5
++						retry_wait = max(wait_between_actions, 2.0)  # At least 2 seconds
++						await asyncio.sleep(retry_wait)
++						# Retry DOM build
++						try:
++							previous_state = content
++							content = await self._build_dom_tree_without_highlights(previous_state)
++							if content and (not content.selector_map or len(content.selector_map) == 0):
++								self.logger.warning('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⚠️ selector_map still empty after retry')
++							else:
++								self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Retry successful, got {len(content.selector_map) if content.selector_map else 0} elements')
++						except Exception as retry_error:
++							self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Retry failed: {retry_error}, using minimal state')
++							content = SerializedDOMState(_root=None, selector_map={})
+ 				except Exception as e:
+ 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM build failed: {e}, using minimal state')
+ 					content = SerializedDOMState(_root=None, selector_map={})
+-- 
+2.43.0
+
