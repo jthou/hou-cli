@@ -30,7 +30,20 @@ class LLMService:
         if not api_key or len(api_key) < 10:
             raise ValueError("API Key 格式无效：长度不足或为空")
         
-        self.client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        # 配置 httpx 客户端，跳过代理以避免连接超时
+        # 如果系统配置了代理但代理不可用，会导致连接超时
+        # 通过设置 trust_env=False 可以跳过环境变量中的代理配置
+        import httpx
+        http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=10.0),  # 连接超时 10 秒，总超时 60 秒
+            trust_env=False  # 跳过环境变量中的代理配置，直接连接
+        )
+        
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.deepseek.com",
+            http_client=http_client
+        )
         
         # 参数配置：验证和设置参数
         self.temperature = max(0.0, min(2.0, temperature))

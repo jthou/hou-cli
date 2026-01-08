@@ -1,6 +1,6 @@
 """命令处理器（类似 Cursor Agent 的命令模式）"""
 from typing import List, Dict, Any, Optional, Tuple
-from rich.console import Console
+from rich.console import Console, Group
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
@@ -221,13 +221,18 @@ class CommandHandler:
         content_parts.append("")
         content_parts.append(Text("💡 提示: 输入 /help 查看详细帮助", style="dim"))
         
-        return Panel(
+        panel = Panel(
             Group(*content_parts),
             border_style="cyan",
             title="[bold cyan]📖 命令提示[/bold cyan]",
             padding=(1, 2),
             box=rich.box.ROUNDED
         )
+        # 使用 Console 渲染 Panel 为字符串
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True)
+        console.print(panel)
+        return console.file.getvalue()
     
     def _show_context_help(self) -> str:
         """显示上下文管理命令帮助"""
@@ -243,12 +248,17 @@ class CommandHandler:
         
         hint_text.append("\n提示: 输入 /context <command> 执行命令，或 /context help 查看此帮助")
         
-        return Panel(
+        panel = Panel(
             hint_text,
             border_style="dim",
             title="上下文管理",
             padding=(1, 2)
         )
+        # 使用 Console 渲染 Panel 为字符串
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True)
+        console.print(panel)
+        return console.file.getvalue()
     
     def _handle_list(self, args: List[str]) -> str:
         """处理 /list 命令"""

@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test lint format clean run-backend run-frontend run
+.PHONY: help install install-dev test lint format clean run-backend run-backend-bg run-frontend run start stop-backend status-backend restart-backend install-browser-deps
 
 help: ## 显示帮助信息
 	@echo "可用命令："
@@ -31,10 +31,10 @@ clean: ## 清理构建文件
 	find . -type f -name "*.pyc" -delete
 
 run-backend: ## 启动后端服务（前台运行，用于调试）
-	@bash -c "source venv/bin/activate && python -m backend.main"
+	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh && python -m backend.main"
 
 run-backend-bg: ## 启动后端服务（后台运行）
-	@bash -c "source venv/bin/activate && python cli.py start"
+	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh && python cli.py start"
 
 run-frontend: ## 启动前端 CLI
 	@bash -c "source venv/bin/activate && python -m frontend.main chat"
@@ -49,8 +49,11 @@ restart-backend: ## 重启后端服务
 	@bash -c "source venv/bin/activate && python cli.py restart"
 
 start: ## 一键启动（后端+前端，推荐）
-	@bash -c "source venv/bin/activate && python cli.py start --wait && python -m frontend.main chat"
+	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh && python cli.py start --wait && python -m frontend.main chat"
 
 run: ## 启动后端（后台）+ 前端（交互式，推荐）
 	@make start
+
+install-browser-deps: ## 安装 browser-use 相关依赖（可选功能）
+	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh true"
 

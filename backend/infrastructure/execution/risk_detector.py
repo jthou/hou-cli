@@ -146,3 +146,4 @@ class RiskDetector:
         """
         return risk_level != RiskLevel.CRITICAL
 
+

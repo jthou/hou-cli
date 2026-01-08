@@ -61,3 +61,4 @@ class TestResultHandler:
         
         assert processed.success is True
         assert len(processed.output) <= len(result.output)  # 可能被截断
+

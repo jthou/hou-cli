@@ -51,91 +51,16 @@ class Orchestrator:
         # self.workflow_engine = WorkflowEngine(self)
     
     def _register_tools(self):
-        """注册所有可用工具"""
-        # 注册天气工具
-        try:
-            # 从环境变量读取 kid 和 sub（如果未提供）
-            jwt_auth = JWTAuth.from_env()
-            weather_tool = get_weather_tool(jwt_auth)
-            self.tool_registry.register(weather_tool)
-            self.debug.log_orchestrator_step("注册工具", {"weather_tool": "registered"})
-        except JWTAuthError as e:
-            # JWT 认证配置错误，记录详细错误信息
-            error_msg = f"JWT authentication configuration error: {str(e)}. Weather tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        except Exception as e:
-            # 其他工具注册失败，记录但不中断
-            error_msg = f"Failed to register weather tool: {str(e)}. Weather tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
+        """注册所有可用工具
         
-        # 注册文件搜索工具
-        try:
-            from backend.core.agent.tools.builtin.file_search_tool import FileSearchTool
-            file_search_tool = FileSearchTool()
-            self.tool_registry.register(file_search_tool)
-            self.debug.log_orchestrator_step("注册工具", {"file_search_tool": "registered"})
-            logger.info("File search tool registered successfully")
-        except Exception as e:
-            # 工具注册失败不应该阻止 Orchestrator 初始化
-            error_msg = f"Failed to register file search tool: {str(e)}. File search tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
+        工具注册顺序优化原则：
+        1. 最常用、最基础的工具放在前面（代码执行、文件搜索）
+        2. 网络搜索工具按通用性排序（google_search > browser > wikipedia > mediawiki）
+        3. 特定功能工具放在后面（天气、编辑器）
+        """
+        # ===== 1. 基础工具（最常用） =====
         
-        # 注册 MediaWiki 工具
-        try:
-            from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
-            mediawiki_tool = MediaWikiTool()
-            self.tool_registry.register(mediawiki_tool)
-            self.debug.log_orchestrator_step("注册工具", {"mediawiki_tool": "registered"})
-            logger.info("MediaWiki tool registered successfully")
-        except Exception as e:
-            # 工具注册失败不应该阻止 Orchestrator 初始化
-            error_msg = f"Failed to register MediaWiki tool: {str(e)}. MediaWiki tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册 Gvim 工具
-        try:
-            from backend.core.agent.tools.builtin.gvim_tool import GvimTool
-            gvim_tool = GvimTool()
-            self.tool_registry.register(gvim_tool)
-            self.debug.log_orchestrator_step("注册工具", {"gvim_tool": "registered"})
-            logger.info("Gvim tool registered successfully")
-        except Exception as e:
-            # 工具注册失败不应该阻止 Orchestrator 初始化
-            error_msg = f"Failed to register Gvim tool: {str(e)}. Gvim tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册 Google 搜索工具
-        try:
-            from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool
-            google_search_tool = GoogleSearchTool()
-            self.tool_registry.register(google_search_tool)
-            self.debug.log_orchestrator_step("注册工具", {"google_search_tool": "registered"})
-            logger.info("Google search tool registered successfully")
-        except Exception as e:
-            # 工具注册失败不应该阻止 Orchestrator 初始化
-            error_msg = f"Failed to register Google search tool: {str(e)}. Google search tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册 Wikipedia 搜索工具
-        try:
-            from backend.core.agent.tools.builtin.wikipedia_tool import WikipediaTool
-            wikipedia_tool = WikipediaTool()
-            self.tool_registry.register(wikipedia_tool)
-            self.debug.log_orchestrator_step("注册工具", {"wikipedia_tool": "registered"})
-            logger.info("Wikipedia search tool registered successfully")
-        except Exception as e:
-            # 工具注册失败不应该阻止 Orchestrator 初始化
-            error_msg = f"Failed to register Wikipedia search tool: {str(e)}. Wikipedia search tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册代码执行工具
+        # 注册代码执行工具（最基础、最常用）
         try:
             from backend.core.agent.tools.builtin.code_executor_tool import CodeExecutorTool
             code_executor_tool = CodeExecutorTool()
@@ -143,8 +68,119 @@ class Orchestrator:
             self.debug.log_orchestrator_step("注册工具", {"code_executor_tool": "registered"})
             logger.info("Code executor tool registered successfully")
         except Exception as e:
-            # 工具注册失败不应该阻止 Orchestrator 初始化
             error_msg = f"Failed to register code executor tool: {str(e)}. Code executor tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 Jupyter 工具（交互式代码执行）
+        try:
+            from backend.core.agent.tools.builtin.jupyter_tool import JupyterTool
+            jupyter_tool = JupyterTool()
+            self.tool_registry.register(jupyter_tool)
+            self.debug.log_orchestrator_step("注册工具", {"jupyter_tool": "registered"})
+            logger.info("Jupyter tool registered successfully")
+        except ImportError as e:
+            error_msg = f"Jupyter-client not installed: {str(e)}. Jupyter tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register Jupyter tool: {str(e)}. Jupyter tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册文件搜索工具（本地操作）
+        try:
+            from backend.core.agent.tools.builtin.file_search_tool import FileSearchTool
+            file_search_tool = FileSearchTool()
+            self.tool_registry.register(file_search_tool)
+            self.debug.log_orchestrator_step("注册工具", {"file_search_tool": "registered"})
+            logger.info("File search tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register file search tool: {str(e)}. File search tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # ===== 2. 网络搜索工具（按使用场景排序） =====
+        
+        # 注册浏览器工具（访问特定网站，放在 google_search 之前，优先使用）
+        # 当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
+        try:
+            from backend.core.agent.tools.builtin.browser_tool import BrowserTool
+            browser_tool = BrowserTool()
+            self.tool_registry.register(browser_tool)
+            self.debug.log_orchestrator_step("注册工具", {"browser_tool": "registered"})
+            logger.info("Browser tool registered successfully")
+        except ImportError as e:
+            error_msg = f"Browser-use not installed: {str(e)}. Browser tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register browser tool: {str(e)}. Browser tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 Google 搜索工具（用于在 Google 上搜索网络信息）
+        try:
+            from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool
+            google_search_tool = GoogleSearchTool()
+            self.tool_registry.register(google_search_tool)
+            self.debug.log_orchestrator_step("注册工具", {"google_search_tool": "registered"})
+            logger.info("Google search tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register Google search tool: {str(e)}. Google search tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 Wikipedia 搜索工具（特定网站搜索）
+        try:
+            from backend.core.agent.tools.builtin.wikipedia_tool import WikipediaTool
+            wikipedia_tool = WikipediaTool()
+            self.tool_registry.register(wikipedia_tool)
+            self.debug.log_orchestrator_step("注册工具", {"wikipedia_tool": "registered"})
+            logger.info("Wikipedia search tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register Wikipedia search tool: {str(e)}. Wikipedia search tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 MediaWiki 工具（特定网站搜索）
+        try:
+            from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
+            mediawiki_tool = MediaWikiTool()
+            self.tool_registry.register(mediawiki_tool)
+            self.debug.log_orchestrator_step("注册工具", {"mediawiki_tool": "registered"})
+            logger.info("MediaWiki tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register MediaWiki tool: {str(e)}. MediaWiki tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # ===== 3. 特定功能工具 =====
+        
+        # 注册天气工具
+        try:
+            jwt_auth = JWTAuth.from_env()
+            weather_tool = get_weather_tool(jwt_auth)
+            self.tool_registry.register(weather_tool)
+            self.debug.log_orchestrator_step("注册工具", {"weather_tool": "registered"})
+        except JWTAuthError as e:
+            error_msg = f"JWT authentication configuration error: {str(e)}. Weather tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register weather tool: {str(e)}. Weather tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 Gvim 工具（编辑器工具）
+        try:
+            from backend.core.agent.tools.builtin.gvim_tool import GvimTool
+            gvim_tool = GvimTool()
+            self.tool_registry.register(gvim_tool)
+            self.debug.log_orchestrator_step("注册工具", {"gvim_tool": "registered"})
+            logger.info("Gvim tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register Gvim tool: {str(e)}. Gvim tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
     
@@ -222,7 +258,18 @@ class Orchestrator:
 - 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
 - 不要过度思考，不要添加用户没有要求的额外功能
 
-重要：当用户询问天气信息时，你必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
+【重要】工具选择规则：
+1. **浏览器工具（browser）**：当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
+   - 例如："打开 www.google.com" → 使用 browser
+   - 例如："访问 www.example.com 并查看网页" → 使用 browser
+   - 例如："打开网站" → 使用 browser
+   - 如果用户提到具体的网站地址（如 www.google.com、example.com），优先使用 browser
+
+2. **Google 搜索工具（google_search）**：当用户要求"搜索"、"查找"网络信息时，使用 google_search
+   - 例如："搜索 Python 教程" → 使用 google_search
+   - 例如："查找关于 AI 的最新信息" → 使用 google_search
+
+3. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
 当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
 
@@ -407,7 +454,18 @@ class Orchestrator:
 - 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
 - 不要过度思考，不要添加用户没有要求的额外功能
 
-重要：当用户询问天气信息时，你必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息，也不要从历史对话记录中提取旧的天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
+【重要】工具选择规则：
+1. **浏览器工具（browser）**：当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
+   - 例如："打开 www.google.com" → 使用 browser
+   - 例如："访问 www.example.com 并查看网页" → 使用 browser
+   - 例如："打开网站" → 使用 browser
+   - 如果用户提到具体的网站地址（如 www.google.com、example.com），优先使用 browser
+
+2. **Google 搜索工具（google_search）**：当用户要求"搜索"、"查找"网络信息时，使用 google_search
+   - 例如："搜索 Python 教程" → 使用 google_search
+   - 例如："查找关于 AI 的最新信息" → 使用 google_search
+
+3. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息，也不要从历史对话记录中提取旧的天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
 当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
 

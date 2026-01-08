@@ -78,3 +78,4 @@ class TestSecureExecutor:
         
         assert result.success is False
         assert "too long" in result.error.lower() or "limit" in result.error.lower()
+
