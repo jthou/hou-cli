@@ -5,9 +5,11 @@ help: ## 显示帮助信息
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## 安装生产依赖
+	pip install -r requirements.txt
 	pip install -e .
 
 install-dev: ## 安装开发依赖
+	pip install -r requirements-dev.txt
 	pip install -e ".[dev]"
 
 test: ## 运行测试

@@ -724,9 +724,12 @@ class Orchestrator:
                         except json.JSONDecodeError:
                             tool_args = {}
                         
-                        # 执行工具
+                        # 执行工具（在异步上下文中，优先使用异步方法）
                         try:
-                            tool_result = self.tool_registry.execute(tool_name, **tool_args)
+                            if hasattr(self.tool_registry, 'execute_async'):
+                                tool_result = await self.tool_registry.execute_async(tool_name, **tool_args)
+                            else:
+                                tool_result = self.tool_registry.execute(tool_name, **tool_args)
                         except Exception as e:
                             logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
                             tool_result = ToolResult(
@@ -1026,9 +1029,12 @@ class Orchestrator:
                     except json.JSONDecodeError:
                         tool_args = {}
                     
-                    # 执行工具
+                    # 执行工具（在异步上下文中，优先使用异步方法）
                     try:
-                        tool_result = self.tool_registry.execute(tool_name, **tool_args)
+                        if hasattr(self.tool_registry, 'execute_async'):
+                            tool_result = await self.tool_registry.execute_async(tool_name, **tool_args)
+                        else:
+                            tool_result = self.tool_registry.execute(tool_name, **tool_args)
                     except Exception as e:
                         logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
                         tool_result = ToolResult(

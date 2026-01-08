@@ -21,8 +21,6 @@ pydantic>=2.0.0
 openai>=1.0.0
 
 # LangChain 生态
-# 注意：browser-use 需要 langchain>=0.3.25，但为了兼容性，我们使用较宽松的版本要求
-# 如果使用 browser-use，需要安装 requirements-dev.txt 中的更新版本
 langchain>=0.1.0
 langchain-community>=0.0.20
 langchain-core>=0.1.0
@@ -50,7 +48,7 @@ pexpect>=4.8.0
 pyyaml>=6.0.1
 
 # 环境变量管理
-python-dotenv>=1.0.1  # browser-use 需要 >=1.0.1
+python-dotenv>=1.0.1
 
 # ===== 认证和安全 =====
 # JWT 认证（和风天气 API）

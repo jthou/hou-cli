@@ -117,14 +117,24 @@ testpaths = ["tests", "backend"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-asyncio_mode = "auto"
+# 禁用 ROS 相关插件，避免依赖问题
 addopts = [
-    "--cov=backend",
-    "--cov=frontend",
-    "--cov=shared",
-    "--cov-report=term-missing",
-    "--cov-report=html",
+    "-p", "no:launch_testing",
+    "-p", "no:launch_testing_ros_pytest_entrypoint",
+    "-p", "no:ament_lint",
+    "-p", "no:ament_xmllint",
+    "-p", "no:ament_pep257",
+    "-p", "no:ament_copyright",
+    "-p", "no:ament_flake8",
 ]
+# 注释掉 coverage 选项，避免在没有安装 pytest-cov 时出错
+# addopts = [
+#     "--cov=backend",
+#     "--cov=frontend",
+#     "--cov=shared",
+#     "--cov-report=term-missing",
+#     "--cov-report=html",
+# ]
 
 [tool.coverage.run]
 source = ["backend", "frontend", "shared"]
