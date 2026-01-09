@@ -1,0 +1,206 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.1.0)'
+        required: true
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller build setuptools wheel
+      
+      - name: Build executable
+        run: |
+          python build\build.py --type exe
+      
+      - name: Create release package
+        shell: powershell
+        run: |
+          $version = ${{ github.ref_name }} -replace '^v', ''
+          if (-not $version) { $version = "0.1.0" }
+          Compress-Archive -Path dist\hou-cli-windows-release\* -DestinationPath dist\hou-cli-windows-amd64-$version.zip -Force
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hou-cli-windows-amd64
+          path: dist/hou-cli-windows-amd64-*.zip
+          retention-days: 30
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-20.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller build setuptools wheel
+      
+      - name: Build executable
+        run: |
+          python3 build/build.py --type exe
+      
+      - name: Create release package
+        run: |
+          VERSION=${{ github.ref_name }}
+          VERSION=${VERSION#v}
+          if [ -z "$VERSION" ]; then VERSION="0.1.0"; fi
+          cd dist/hou-cli-linux-release
+          tar -czf ../hou-cli-linux-amd64-$VERSION.tar.gz *
+          cd ../..
+      
+      - name: Calculate checksums
+        run: |
+          cd dist
+          sha256sum hou-cli-linux-amd64-*.tar.gz > checksums.txt
+          cat checksums.txt
+      
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hou-cli-linux-amd64
+          path: |
+            dist/hou-cli-linux-amd64-*.tar.gz
+            dist/checksums.txt
+          retention-days: 30
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller build setuptools wheel
+      
+      - name: Build executable
+        run: |
+          python3 build/build.py --type exe
+      
+      - name: Create release package
+        run: |
+          VERSION=${{ github.ref_name }}
+          VERSION=${VERSION#v}
+          if [ -z "$VERSION" ]; then VERSION="0.1.0"; fi
+          cd dist/hou-cli-macos-release
+          tar -czf ../hou-cli-macos-universal-$VERSION.tar.gz *
+          cd ../..
+      
+      - name: Calculate checksums
+        run: |
+          cd dist
+          shasum -a 256 hou-cli-macos-universal-*.tar.gz > checksums.txt
+          cat checksums.txt
+      
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hou-cli-macos-universal
+          path: |
+            dist/hou-cli-macos-universal-*.tar.gz
+            dist/checksums.txt
+          retention-days: 30
+
+  build-python-packages:
+    name: Build Python Packages
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build setuptools wheel
+      
+      - name: Build wheel and sdist
+        run: |
+          python -m build
+      
+      - name: Upload Python packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: hou-cli-python-packages
+          path: dist/*.whl dist/*.tar.gz
+          retention-days: 30
+
+  create-release:
+    name: Create Release
+    needs: [build-windows, build-linux, build-macos, build-python-packages]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            hou-cli-windows-amd64/*.zip
+            hou-cli-linux-amd64/*.tar.gz
+            hou-cli-linux-amd64/checksums.txt
+            hou-cli-macos-universal/*.tar.gz
+            hou-cli-macos-universal/checksums.txt
+            hou-cli-python-packages/*.whl
+            hou-cli-python-packages/*.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
