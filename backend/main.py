@@ -11,11 +11,24 @@ from shared.config import Config
 from rich.console import Console
 
 # 加载 .env 文件
-env_path = Path(__file__).parent.parent / '.env'
-if env_path.exists():
-    load_dotenv(env_path)
-else:
-    # 尝试从当前目录加载
+# 优先级：1. 用户配置目录 2. 项目根目录 3. 当前目录
+from shared.platform_utils import get_app_data_dir
+config_dir = Path.home() / ".config" / "hou-cli"
+env_paths = [
+    config_dir / ".env",  # 用户配置目录（推荐）
+    Path(__file__).parent.parent / '.env',  # 项目根目录（开发环境）
+    Path.cwd() / '.env',  # 当前目录
+]
+
+env_loaded = False
+for env_path in env_paths:
+    if env_path.exists():
+        load_dotenv(env_path)
+        env_loaded = True
+        break
+
+if not env_loaded:
+    # 如果都没找到，尝试从当前目录加载（兼容旧行为）
     load_dotenv()
 
 # 配置日志系统
@@ -86,11 +99,25 @@ async def global_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
+    # 检查配置
+    api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
+    if not api_key or len(api_key) < 10:
+        console.print("[bold yellow]⚠️  警告: DEEPSEEK_API_KEY 未配置或格式无效[/bold yellow]")
+        console.print("[dim]服务已启动，但无法处理 LLM 请求。请配置 ~/.config/hou-cli/.env[/dim]")
+        console.print("[dim]配置示例: /usr/share/hou-cli/env.example[/dim]\n")
+        return
+    
     try:
-        # 在启动时尝试初始化 Orchestrator，但不阻塞服务启动
+        # 在启动时尝试初始化 Orchestrator，验证配置
         from backend.core.agent.orchestrator import Orchestrator
         orchestrator = Orchestrator()
         console.print("[green]✓[/green] Orchestrator 初始化成功")
+    except ValueError as e:
+        # API Key 配置错误
+        console.print(f"[bold red]✗[/bold red] 配置错误: {str(e)}")
+        console.print("[dim]请检查 ~/.config/hou-cli/.env 文件中的 DEEPSEEK_API_KEY[/dim]\n")
+        import logging
+        logging.error(f"Configuration error: {str(e)}", exc_info=True)
     except Exception as e:
         console.print(f"[yellow]⚠[/yellow] Orchestrator 初始化失败（服务仍可启动）: {str(e)}")
         import logging

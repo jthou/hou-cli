@@ -16,11 +16,49 @@ from frontend.ui.stream_handler import StreamRenderer
 from frontend.ui.command_handler import CommandHandler
 
 # 加载 .env 文件
-env_path = Path(__file__).parent.parent / '.env'
-if env_path.exists():
-    load_dotenv(env_path)
-else:
-    # 尝试从当前目录加载
+# 优先级：1. 用户配置目录 2. 项目根目录 3. 当前目录
+# 注意：在打包后的环境中，不应该有项目根目录的 .env
+from shared.platform_utils import get_app_data_dir
+
+# 检测是否是打包后的环境
+# 方法1: 检查模块路径
+_is_packaged = False
+try:
+    _module_path = Path(__file__).absolute()
+    _is_packaged = '/opt/hou-cli' in str(_module_path) or '/usr/local/bin' in str(_module_path) or '/usr/share' in str(_module_path)
+except:
+    pass
+
+# 方法2: 检查 Python 可执行文件路径（更可靠）
+if not _is_packaged:
+    try:
+        import sys
+        _python_exe = Path(sys.executable).absolute()
+        _is_packaged = '/opt/hou-cli/venv' in str(_python_exe)
+    except:
+        pass
+
+config_dir = Path.home() / ".config" / "hou-cli"
+env_paths = [
+    config_dir / ".env",  # 用户配置目录（推荐，打包后环境）
+]
+
+# 如果不是打包后的环境，添加项目根目录和当前目录（开发环境）
+if not _is_packaged:
+    env_paths.extend([
+        Path(__file__).parent.parent / '.env',  # 项目根目录（开发环境）
+        Path.cwd() / '.env',  # 当前目录
+    ])
+
+env_loaded = False
+for env_path in env_paths:
+    if env_path.exists():
+        load_dotenv(env_path)
+        env_loaded = True
+        break
+
+if not env_loaded:
+    # 如果都没找到，尝试从当前目录加载（兼容旧行为）
     load_dotenv()
 
 console = Console()
@@ -242,11 +280,74 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
         show_error(e)
         return None
 
+def check_config():
+    """检查配置是否已设置"""
+    # 重新加载配置（确保使用最新的配置）
+    # 优先检查用户配置目录（打包后的环境）
+    config_dir = Path.home() / ".config" / "hou-cli"
+    user_env = config_dir / ".env"
+    
+    # 清除之前加载的环境变量（避免项目根目录的 .env 干扰）
+    if 'DEEPSEEK_API_KEY' in os.environ:
+        del os.environ['DEEPSEEK_API_KEY']
+    
+    # 如果用户配置文件存在，重新加载
+    if user_env.exists():
+        load_dotenv(user_env, override=True)
+    else:
+        # 如果没有用户配置，检查项目根目录（仅开发环境）
+        # 检测是否是打包后的环境
+        is_packaged = False
+        try:
+            # 方法1: 检查模块路径
+            _module_path = Path(__file__).absolute()
+            is_packaged = '/opt/hou-cli' in str(_module_path) or '/usr/local/bin' in str(_module_path) or '/usr/share' in str(_module_path)
+        except:
+            pass
+        
+        # 方法2: 检查 Python 可执行文件路径（更可靠）
+        if not is_packaged:
+            try:
+                import sys
+                _python_exe = Path(sys.executable).absolute()
+                is_packaged = '/opt/hou-cli/venv' in str(_python_exe)
+            except:
+                pass
+        
+        # 只在开发环境中使用项目根目录的 .env
+        if not is_packaged:
+            project_env = Path(__file__).parent.parent / '.env'
+            if project_env.exists():
+                load_dotenv(project_env, override=True)
+    
+    # 检查 API Key
+    api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
+    if not api_key or len(api_key) < 10:
+        from rich.panel import Panel
+        console.print(Panel(
+            "[bold yellow]⚠️  配置未完成[/bold yellow]\n\n"
+            "请先配置 API 密钥才能使用。\n\n"
+            "[bold]配置步骤：[/bold]\n"
+            "1. 编辑配置文件: [cyan]~/.config/hou-cli/.env[/cyan]\n"
+            "2. 填入你的 DEEPSEEK_API_KEY\n"
+            "3. 保存后重新运行\n\n"
+            "[dim]配置示例位置: /usr/share/hou-cli/env.example[/dim]\n"
+            "[dim]快速配置: cp /usr/share/hou-cli/env.example ~/.config/hou-cli/.env[/dim]",
+            border_style="yellow",
+            title="[bold yellow]配置提示[/bold yellow]"
+        ))
+        return False
+    return True
+
 @cli.command()
 @click.argument('message', required=False)
 @click.option('--stream/--no-stream', default=True, help='是否使用流式响应')
 def chat(message, stream):
     """与 Agent 对话"""
+    # 检查配置（在显示 banner 之前）
+    if not check_config():
+        sys.exit(1)
+    
     # 如果是交互式模式，先显示 banner（在连接之前显示，确保总是显示）
     banner_shown = False
     if not message:

@@ -22,6 +22,12 @@ PID_FILE = project_root / ".backend.pid"
 
 def check_venv():
     """检查是否在虚拟环境中"""
+    # 如果是通过 PyInstaller 打包的，跳过虚拟环境检查
+    if getattr(sys, 'frozen', False):
+        # 打包后的可执行文件，不需要虚拟环境
+        return
+    
+    # 开发环境才检查虚拟环境
     if not hasattr(sys, 'real_prefix') and not (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
         print("⚠️  警告: 未检测到虚拟环境")
         print("   建议先运行: source venv/bin/activate")
@@ -311,56 +317,74 @@ def main():
         backend_was_running = is_backend_running()
         pid = start_backend(background=not args.foreground)
         
-        if args.wait and pid:
-            # 等待后端启动完成
+        if args.wait:
+            # 如果使用了 --wait，等待后端启动后启动前端
             if not backend_was_running:
+                # 等待后端启动完成
                 print("⏳ 等待后端服务启动...")
                 # 先等待一下，让后端有时间启动
                 time.sleep(2)
-            else:
-                print("✅ 后端服务已在运行，跳过等待")
-                return
-            
-            max_retries = 20  # 增加重试次数
-            retry_count = 0
-            
-            while retry_count < max_retries:
-                try:
-                    # 先检查端口文件是否存在
-                    port_file = get_app_data_dir() / "port.txt"
-                    if not port_file.exists():
-                        time.sleep(0.5)
-                        retry_count += 1
-                        continue
-                    
-                    port = load_port()
-                    # 检查端口是否为有效值（不是默认值8000，且大于1024）
-                    if port and port != 8000 and port > 1024:
-                        # 使用 httpx 进行健康检查，配置 trust_env=False 跳过代理
-                        try:
-                            response = httpx.get(
-                                f"http://127.0.0.1:{port}/health", 
-                                timeout=2.0,
-                                trust_env=False  # 跳过代理，避免 502 错误
-                            )
-                            if response.status_code == 200:
-                                print("✅ 后端服务已就绪")
-                                return
-                        except httpx.RequestError:
-                            # 连接错误，继续重试
-                            pass
-                except Exception:
-                    # 其他错误，继续重试
-                    pass
-                except Exception:
-                    # 其他错误，继续重试
-                    pass
                 
-                time.sleep(0.5)
-                retry_count += 1
+                max_retries = 20  # 增加重试次数
+                retry_count = 0
+                
+                while retry_count < max_retries:
+                    try:
+                        # 先检查端口文件是否存在
+                        port_file = get_app_data_dir() / "port.txt"
+                        if not port_file.exists():
+                            time.sleep(0.5)
+                            retry_count += 1
+                            continue
+                        
+                        port = load_port()
+                        # 检查端口是否为有效值（不是默认值8000，且大于1024）
+                        if port and port != 8000 and port > 1024:
+                            # 使用 httpx 进行健康检查，配置 trust_env=False 跳过代理
+                            try:
+                                response = httpx.get(
+                                    f"http://127.0.0.1:{port}/health", 
+                                    timeout=2.0,
+                                    trust_env=False  # 跳过代理，避免 502 错误
+                                )
+                                if response.status_code == 200:
+                                    print("✅ 后端服务已就绪")
+                                    break
+                            except httpx.RequestError:
+                                # 连接错误，继续重试
+                                pass
+                    except Exception:
+                        # 其他错误，继续重试
+                        pass
+                    
+                    time.sleep(0.5)
+                    retry_count += 1
+                
+                if retry_count >= max_retries:
+                    print("⚠️  后端服务启动超时，但继续启动前端...")
+                    print("   如果前端无法连接，请手动检查后端状态")
+            else:
+                print("✅ 后端服务已在运行")
             
-            print("⚠️  后端服务启动超时，但继续启动前端...")
-            print("   如果前端无法连接，请手动检查后端状态: make status-backend")
+            # 无论后端是新启动还是已运行，都启动前端
+            if not args.foreground:
+                print("\n🚀 启动前端交互式界面...")
+                try:
+                    # 不设置 check=True，允许前端正常退出（如配置检查失败）
+                    result = subprocess.run(
+                        [sys.executable, "-m", "frontend.main", "chat"]
+                    )
+                    # 如果前端退出码不为 0，说明可能是配置错误
+                    if result.returncode != 0:
+                        print(f"\n⚠️  前端退出（退出码: {result.returncode}）")
+                        print("   可能是配置未完成，请检查 ~/.config/hou-cli/.env")
+                except KeyboardInterrupt:
+                    print("\n⏹️  前端已停止")
+                    stop_backend()
+                except Exception as e:
+                    print(f"❌ 前端启动失败: {e}")
+                    stop_backend()
+                    sys.exit(1)
         elif not args.foreground:
             print("\n💡 提示:")
             print("   - 后端已在后台运行")
