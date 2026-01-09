@@ -370,6 +370,7 @@ def chat(message, stream):
                     
                     result, new_session_id = command_handler.handle_command(msg)
                     if result:
+                        # result 可能是字符串或 Rich 对象（如 Panel）
                         console.print(result)
                     # 如果命令返回了新的会话 ID，更新当前会话
                     if new_session_id:

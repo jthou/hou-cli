@@ -23,6 +23,30 @@ except ImportError:
     _jupyter_available = False
     JupyterTool = None
 
+# 文件整理工具（可选，需要安装 Local-File-Organizer）
+try:
+    from .file_organizer_tool import FileOrganizerTool
+    _file_organizer_available = True
+except ImportError:
+    _file_organizer_available = False
+    FileOrganizerTool = None
+
+# PDF解析工具（可选，需要安装相应的后端）
+try:
+    from .pdf_parser_tool import PDFParserTool
+    _pdf_parser_available = True
+except ImportError:
+    _pdf_parser_available = False
+    PDFParserTool = None
+
+# 知乎直达工具（需要 browser 工具支持）
+try:
+    from .zhihu_zhida_tool import ZhihuZhidaTool
+    _zhihu_zhida_available = True
+except ImportError:
+    _zhihu_zhida_available = False
+    ZhihuZhidaTool = None
+
 # 构建 __all__ 列表
 __all__ = [
     "WeatherTool",
@@ -38,3 +62,12 @@ if _browser_available:
 
 if _jupyter_available:
     __all__.append("JupyterTool")
+
+if _file_organizer_available:
+    __all__.append("FileOrganizerTool")
+
+if _pdf_parser_available:
+    __all__.append("PDFParserTool")
+
+if _zhihu_zhida_available:
+    __all__.append("ZhihuZhidaTool")

@@ -38,11 +38,11 @@ class CommandHandler:
             "quit": ("退出程序", ""),
         }
     
-    def handle_command(self, input_text: str) -> Tuple[Optional[str], Optional[str]]:
+    def handle_command(self, input_text: str) -> Tuple[Optional[Any], Optional[str]]:
         """处理命令输入
         
         Returns:
-            (结果字符串, 新的会话ID) - 如果处理了命令，返回结果字符串和可选的会话ID；如果不是命令，返回 (None, None)
+            (结果, 新的会话ID) - 如果处理了命令，返回结果（可以是字符串或 Rich 对象如 Panel）和可选的会话ID；如果不是命令，返回 (None, None)
         """
         if not input_text.startswith('/'):
             return (None, None)  # 不是命令
@@ -157,30 +157,29 @@ class CommandHandler:
             )
             return (str(error_panel), None)
     
-    def _show_command_hint(self) -> str:
+    def _show_command_hint(self) -> Panel:
         """显示命令提示菜单（优化版）"""
-        # 使用表格显示命令，更清晰
-        commands_table = Table.grid(padding=(0, 2), expand=False)
-        commands_table.add_column(style="cyan bold", width=20)
-        commands_table.add_column(style="white", width=50)
+        content_parts = []
         
         # 显示顶级命令
-        for cmd, (desc, _) in self.top_level_commands.items():
-            commands_table.add_row(f"/{cmd}", desc)
-        
-        # 构建内容
-        content_parts = []
         content_parts.append(Text("📋 可用命令", style="bold cyan"))
         content_parts.append("")
+        commands_table = Table(show_header=False, box=None, padding=(0, 1))
+        commands_table.add_column(style="cyan bold", width=18, no_wrap=True)
+        commands_table.add_column(style="white")
+        
+        for cmd, (desc, _) in self.top_level_commands.items():
+            commands_table.add_row(f"/{cmd}", desc)
         content_parts.append(commands_table)
         
-        # 如果是 context 命令，显示子命令
+        # 显示上下文管理子命令
         content_parts.append("")
         content_parts.append(Text("📁 上下文管理子命令", style="bold yellow"))
         content_parts.append("")
-        context_table = Table.grid(padding=(0, 2), expand=False)
-        context_table.add_column(style="yellow", width=25)
-        context_table.add_column(style="white", width=45)
+        context_table = Table(show_header=False, box=None, padding=(0, 1))
+        context_table.add_column(style="yellow", width=28, no_wrap=True)
+        context_table.add_column(style="white")
+        
         for sub_cmd, (sub_desc, sub_args) in self.context_commands.items():
             cmd_str = f"/context {sub_cmd}"
             if sub_args:
@@ -188,7 +187,7 @@ class CommandHandler:
             context_table.add_row(cmd_str, sub_desc)
         content_parts.append(context_table)
         
-        # 显示可用工具（使用表格）
+        # 显示可用工具
         content_parts.append("")
         content_parts.append(Text("🛠️  可用工具", style="bold green"))
         content_parts.append("")
@@ -196,20 +195,25 @@ class CommandHandler:
             if self.client:
                 tools = self.client.list_tools()
                 if tools:
-                    tools_table = Table.grid(padding=(0, 2), expand=False)
-                    tools_table.add_column(style="green", width=20)
-                    tools_table.add_column(style="dim", width=50)
+                    tools_table = Table(show_header=False, box=None, padding=(0, 1))
+                    tools_table.add_column(style="green bold", width=18, no_wrap=True)
+                    tools_table.add_column(style="dim")
+                    
                     for tool in tools:
                         tool_name = tool.get("name", "unknown")
                         tool_desc = tool.get("description", "")
-                        # 截断描述（取第一行或前 50 个字符）
+                        # 处理描述：取第一行，清理空白，适当截断
                         if tool_desc:
-                            first_line = tool_desc.split('\n')[0]
-                            if len(first_line) > 50:
-                                tool_desc = first_line[:50] + "..."
+                            first_line = tool_desc.split('\n')[0].strip()
+                            # 移除多余的空白字符
+                            first_line = ' '.join(first_line.split())
+                            if len(first_line) > 65:
+                                tool_desc = first_line[:62] + "..."
                             else:
                                 tool_desc = first_line
-                        tools_table.add_row(f"• {tool_name}", tool_desc or "[dim]无描述[/dim]")
+                        else:
+                            tool_desc = "[dim]无描述[/dim]"
+                        tools_table.add_row(f"• {tool_name}", tool_desc)
                     content_parts.append(tools_table)
                 else:
                     content_parts.append(Text("  [dim]暂无可用工具[/dim]"))
@@ -219,7 +223,7 @@ class CommandHandler:
             content_parts.append(Text(f"  [dim]无法获取工具列表: {str(e)[:50]}...[/dim]"))
         
         content_parts.append("")
-        content_parts.append(Text("💡 提示: 输入 /help 查看详细帮助", style="dim"))
+        content_parts.append(Text("💡 提示: 输入 /help <命令> 查看详细帮助", style="dim"))
         
         panel = Panel(
             Group(*content_parts),
@@ -228,13 +232,11 @@ class CommandHandler:
             padding=(1, 2),
             box=rich.box.ROUNDED
         )
-        # 使用 Console 渲染 Panel 为字符串
-        from io import StringIO
-        console = Console(file=StringIO(), force_terminal=True)
-        console.print(panel)
-        return console.file.getvalue()
+        # 直接返回 Panel 对象，让调用者的 Console 来处理渲染
+        # 这样可以确保格式正确显示
+        return panel
     
-    def _show_context_help(self) -> str:
+    def _show_context_help(self) -> Panel:
         """显示上下文管理命令帮助"""
         hint_text = Text()
         hint_text.append("上下文管理命令:\n")
@@ -254,11 +256,8 @@ class CommandHandler:
             title="上下文管理",
             padding=(1, 2)
         )
-        # 使用 Console 渲染 Panel 为字符串
-        from io import StringIO
-        console = Console(file=StringIO(), force_terminal=True)
-        console.print(panel)
-        return console.file.getvalue()
+        # 直接返回 Panel 对象，让调用者的 Console 来处理渲染
+        return panel
     
     def _handle_list(self, args: List[str]) -> str:
         """处理 /list 命令"""

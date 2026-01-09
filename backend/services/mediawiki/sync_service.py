@@ -35,7 +35,7 @@ class MediaWikiSyncService:
         
         # 同步数据目录
         from shared.platform_utils import get_app_data_dir
-        self.sync_data_dir = sync_data_dir or (get_app_data_dir() / "data" / "mediawiki_sync")
+        self.sync_data_dir = sync_data_dir or (get_app_data_dir() / "mediawiki_sync")
         self.sync_data_dir.mkdir(parents=True, exist_ok=True)
         
         # 同步状态文件

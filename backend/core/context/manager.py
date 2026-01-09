@@ -42,7 +42,10 @@ class ContextManager:
         """
         # 默认使用 FileStorageBackend（持久化）
         if storage_backend is None:
-            storage_dir = storage_dir or Path("data/contexts")
+            # 如果未指定 storage_dir，使用项目配置目录
+            if storage_dir is None:
+                from shared.platform_utils import get_app_data_dir
+                storage_dir = get_app_data_dir() / "contexts"
             self.storage = FileStorageBackend(storage_dir=storage_dir)
         else:
             self.storage = storage_backend

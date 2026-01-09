@@ -6,6 +6,7 @@ import logging
 from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
+from shared.platform_utils import get_app_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,37 @@ class BrowserTool(Tool):
                 ),
                 required=False,
                 default=None
+            ),
+            ToolParameter(
+                name="user_data_dir",
+                type="string",
+                description=(
+                    "浏览器用户数据目录路径（可选）。"
+                    "用于保存登录状态、cookies、浏览器设置等。"
+                    "如果不提供，每次启动都是新的浏览器会话（无登录状态）。"
+                    "如果提供，会复用该目录中的登录状态和 cookies。"
+                    "\n推荐路径（跨平台）："
+                    "- macOS: ~/Library/Application Support/hou-cli/browser-profiles/{site_name}"
+                    "- Linux: ~/.local/share/hou-cli/browser-profiles/{site_name}"
+                    "- Windows: %LOCALAPPDATA%\\hou-cli\\browser-profiles\\{site_name}"
+                    "\n示例："
+                    "- 知乎: 'zhihu' 或完整路径"
+                    "- GitHub: 'github' 或完整路径"
+                    "\n如果只提供站点名称（如 'zhihu'），会自动使用项目配置目录。"
+                ),
+                required=False,
+                default=None
+            ),
+            ToolParameter(
+                name="save_session",
+                type="boolean",
+                description=(
+                    "是否保存当前会话的登录状态（默认 false）。"
+                    "如果为 true，会在 user_data_dir 中保存 cookies 和登录信息，"
+                    "下次使用相同的 user_data_dir 时会自动恢复登录状态。"
+                ),
+                required=False,
+                default=False
             )
         ]
 
@@ -101,6 +133,10 @@ class BrowserTool(Tool):
             "浏览器自动化工具。"
             "当用户要求'打开'、'访问'、'查看'网站时使用此工具。"
             "支持可视化和无头模式两种模式。"
+            "\n会话管理："
+            "- 支持通过 user_data_dir 参数保存登录状态和 cookies"
+            "- 可以复用已登录的浏览器会话，适合需要登录的网站（如知乎、GitHub等）"
+            "- 使用示例：user_data_dir='/path/to/profile' 来保存和复用登录状态"
         ) if BROWSER_USE_AVAILABLE else (
             "浏览器自动化工具（需要安装依赖）"
         )
@@ -112,6 +148,25 @@ class BrowserTool(Tool):
         )
 
         self.llm_service = llm_service
+    
+    def _get_browser_profile_dir(self, site_name: Optional[str] = None) -> Path:
+        """
+        获取浏览器配置文件目录（跨平台）
+        
+        Args:
+            site_name: 站点名称（如 'zhihu'、'github'），如果提供，会创建子目录
+            
+        Returns:
+            配置文件目录路径
+        """
+        from shared.platform_utils import get_app_data_dir
+        base = get_app_data_dir()
+        profile_dir = base / "browser-profiles"
+        if site_name:
+            profile_dir = profile_dir / site_name
+        
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        return profile_dir
 
     def _create_llm(self):
         """创建 LLM 实例（使用 DeepSeek）"""
@@ -149,6 +204,8 @@ class BrowserTool(Tool):
         timeout = kwargs.get("timeout", 60)
         keep_alive = kwargs.get("keep_alive", False)
         extend_system_message = kwargs.get("extend_system_message", None)
+        user_data_dir = kwargs.get("user_data_dir", None)
+        save_session = kwargs.get("save_session", False)
 
         # 限制超时时间范围：最小10秒，最大300秒（5分钟）
         if timeout < 10:
@@ -168,6 +225,22 @@ class BrowserTool(Tool):
             "use_cloud": False,
             "keep_alive": keep_alive,  # 支持链式任务
         }
+        
+        # 如果提供了 user_data_dir，使用它来保存登录状态
+        if user_data_dir:
+            # 如果 user_data_dir 是相对路径或简单的站点名称，使用项目配置目录
+            user_data_path = Path(user_data_dir)
+            if not user_data_path.is_absolute() and '/' not in str(user_data_path) and '\\' not in str(user_data_path):
+                # 看起来是站点名称（如 'zhihu'），使用项目配置目录
+                user_data_path = self._get_browser_profile_dir(user_data_dir)
+                logger.info(f"使用站点名称 '{user_data_dir}'，配置文件目录: {user_data_path}")
+            else:
+                # 是完整路径，直接使用（支持 ~ 展开）
+                user_data_path = user_data_path.expanduser()
+                user_data_path.mkdir(parents=True, exist_ok=True)
+            
+            browser_kwargs["user_data_dir"] = str(user_data_path.resolve())
+            logger.info(f"使用用户数据目录保存登录状态: {browser_kwargs['user_data_dir']}")
 
         if headless:
             # 无头模式：减少等待时间以提高速度

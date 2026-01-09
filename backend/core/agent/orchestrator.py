@@ -100,6 +100,54 @@ class Orchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册文件整理工具（本地操作）
+        try:
+            from backend.core.agent.tools.builtin.file_organizer_tool import FileOrganizerTool
+            file_organizer_tool = FileOrganizerTool()
+            self.tool_registry.register(file_organizer_tool)
+            self.debug.log_orchestrator_step("注册工具", {"file_organizer_tool": "registered"})
+            logger.info("File organizer tool registered successfully")
+        except ImportError as e:
+            error_msg = f"Local-File-Organizer not installed: {str(e)}. File organizer tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register file organizer tool: {str(e)}. File organizer tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册PDF解析工具（文档处理）
+        try:
+            from backend.core.agent.tools.builtin.pdf_parser_tool import PDFParserTool
+            pdf_parser_tool = PDFParserTool()
+            self.tool_registry.register(pdf_parser_tool)
+            self.debug.log_orchestrator_step("注册工具", {"pdf_parser_tool": "registered"})
+            logger.info("PDF parser tool registered successfully")
+        except ImportError as e:
+            error_msg = f"PDF parser dependencies not installed: {str(e)}. PDF parser tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register PDF parser tool: {str(e)}. PDF parser tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册知乎直达工具（知识库）
+        try:
+            from backend.core.agent.tools.builtin.zhihu_zhida_tool import ZhihuZhidaTool
+            zhihu_zhida_tool = ZhihuZhidaTool()
+            self.tool_registry.register(zhihu_zhida_tool)
+            self.debug.log_orchestrator_step("注册工具", {"zhihu_zhida_tool": "registered"})
+            logger.info("Zhihu Zhida tool registered successfully")
+        except ImportError as e:
+            error_msg = f"Zhihu Zhida tool dependencies not available: {str(e)}. Zhihu Zhida tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register Zhihu Zhida tool: {str(e)}. Zhihu Zhida tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
         # ===== 2. 网络搜索工具（按使用场景排序） =====
         
         # 注册浏览器工具（访问特定网站，放在 google_search 之前，优先使用）

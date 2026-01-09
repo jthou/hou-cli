@@ -33,9 +33,15 @@ class GvimService:
         """初始化 Gvim 服务
         
         Args:
-            tmpdir: 临时文件目录，默认使用系统临时目录
+            tmpdir: 临时文件目录，默认使用项目配置目录下的 tmp
         """
-        self.tmpdir = tmpdir or os.getenv("TMPDIR") or tempfile.gettempdir()
+        if tmpdir is None:
+            from shared.platform_utils import get_app_data_dir
+            tmpdir = str(get_app_data_dir() / "tmp")
+        else:
+            # 如果提供了 tmpdir，使用它（支持环境变量或系统临时目录）
+            tmpdir = tmpdir or os.getenv("TMPDIR") or tempfile.gettempdir()
+        self.tmpdir = tmpdir
         # 确保临时目录存在
         Path(self.tmpdir).mkdir(parents=True, exist_ok=True)
         

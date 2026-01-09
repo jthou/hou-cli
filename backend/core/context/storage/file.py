@@ -12,7 +12,15 @@ from backend.core.context.models import Message, Session
 class FileStorageBackend(StorageBackend):
     """文件存储后端"""
     
-    def __init__(self, storage_dir: Path = Path("data/contexts")):
+    def __init__(self, storage_dir: Optional[Path] = None):
+        """初始化文件存储后端
+        
+        Args:
+            storage_dir: 存储目录，如果为 None，使用项目配置目录下的 contexts
+        """
+        if storage_dir is None:
+            from shared.platform_utils import get_app_data_dir
+            storage_dir = get_app_data_dir() / "contexts"
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.sessions_file = self.storage_dir / "sessions.json"

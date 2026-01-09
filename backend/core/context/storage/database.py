@@ -12,13 +12,16 @@ from backend.core.context.storage.base import StorageBackend
 class DatabaseStorageBackend(StorageBackend):
     """数据库存储后端（SQLite）"""
     
-    def __init__(self, db_path: str = "data/contexts.db"):
+    def __init__(self, db_path: Optional[str] = None):
         """
         初始化数据库存储后端
         
         Args:
-            db_path: 数据库文件路径
+            db_path: 数据库文件路径，如果为 None，使用项目配置目录下的 contexts.db
         """
+        if db_path is None:
+            from shared.platform_utils import get_app_data_dir
+            db_path = str(get_app_data_dir() / "contexts.db")
         self.db_path = db_path
         # 确保目录存在
         db_file = Path(db_path)
