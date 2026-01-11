@@ -1,0 +1,72 @@
+# External Dependencies
+
+This directory contains external libraries that are integrated directly from source code using git submodules.
+
+## Integrated Libraries
+
+### 1. browser-use
+- **Purpose**: Browser automation and web scraping
+- **Repository**: https://github.com/browser-use/browser-use
+- **Usage**: Used for browser automation tasks
+
+### 2. you-get
+- **Purpose**: Universal video downloader (supports multiple platforms)
+- **Repository**: https://github.com/soimort/you-get
+- **Usage**: Primary video download tool for YouTube, Bilibili, Youku, etc.
+- **Priority**: **Primary** - Use this for most video download needs
+
+### 3. bili23-downloader
+- **Purpose**: Bilibili-specific video downloader
+- **Repository**: https://github.com/ScottSloan/Bili23-Downloader
+- **Usage**: Use only when you-get doesn't meet specific Bilibili requirements
+- **Priority**: **Secondary** - Use only for special Bilibili features
+
+### 4. yt-dlp
+- **Purpose**: Powerful video downloader with advanced subtitle and audio extraction
+- **Repository**: https://github.com/yt-dlp/yt-dlp
+- **Usage**: Primary tool for YouTube and other platforms, especially for subtitle-only and audio-only downloads
+- **Priority**: **Primary** - Use for YouTube and when subtitle/audio extraction is needed
+
+## Managing Submodules
+
+### Initial Setup
+```bash
+# Clone repository with submodules
+git clone --recursive <repo-url>
+
+# Or initialize existing repository
+git submodule update --init --recursive
+```
+
+### Updating Submodules
+```bash
+# Update all submodules to latest
+git submodule update --remote
+
+# Update specific submodule
+git submodule update --remote backend/externals/you-get
+```
+
+### Working with Submodules
+```bash
+# Enter submodule directory
+cd backend/externals/you-get
+
+# Make changes and commit
+git add .
+git commit -m "Your changes"
+git push
+
+# Return to main repository and update submodule reference
+cd ../../..
+git add backend/externals/you-get
+git commit -m "Update you-get submodule"
+```
+
+## Integration Guidelines
+
+1. **Prefer you-get** for most video download tasks (more universal)
+2. **Use bili23-downloader** only when you-get doesn't support specific Bilibili features
+3. **Modify submodule code** if needed, but document changes clearly
+4. **Keep submodules updated** to get bug fixes and new features
+

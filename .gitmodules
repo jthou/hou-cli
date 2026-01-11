@@ -1,3 +1,12 @@
 [submodule "backend/externals/browser-use"]
 	path = backend/externals/browser-use
 	url = https://github.com/browser-use/browser-use.git
+[submodule "backend/externals/you-get"]
+	path = backend/externals/you-get
+	url = https://github.com/soimort/you-get.git
+[submodule "backend/externals/bili23-downloader"]
+	path = backend/externals/bili23-downloader
+	url = https://github.com/ScottSloan/Bili23-Downloader.git
+[submodule "backend/externals/yt-dlp"]
+	path = backend/externals/yt-dlp
+	url = https://github.com/yt-dlp/yt-dlp.git

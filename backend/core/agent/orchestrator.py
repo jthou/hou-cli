@@ -231,6 +231,18 @@ class Orchestrator:
             error_msg = f"Failed to register Gvim tool: {str(e)}. Gvim tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
+        
+        # 注册视频下载工具
+        try:
+            from backend.core.agent.tools.builtin.video_downloader_tool import VideoDownloaderTool
+            video_downloader_tool = VideoDownloaderTool()
+            self.tool_registry.register(video_downloader_tool)
+            self.debug.log_orchestrator_step("注册工具", {"video_downloader_tool": "registered"})
+            logger.info("Video downloader tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register video downloader tool: {str(e)}. Video downloader tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
     
     def _init_auto_code_executor(self):
         """初始化自动代码执行器"""

@@ -47,6 +47,14 @@ except ImportError:
     _zhihu_zhida_available = False
     ZhihuZhidaTool = None
 
+# 视频下载工具（需要 you-get、bili23-downloader 或 yt-dlp）
+try:
+    from .video_downloader_tool import VideoDownloaderTool
+    _video_downloader_available = True
+except ImportError:
+    _video_downloader_available = False
+    VideoDownloaderTool = None
+
 # 构建 __all__ 列表
 __all__ = [
     "WeatherTool",
@@ -71,3 +79,6 @@ if _pdf_parser_available:
 
 if _zhihu_zhida_available:
     __all__.append("ZhihuZhidaTool")
+
+if _video_downloader_available:
+    __all__.append("VideoDownloaderTool")
