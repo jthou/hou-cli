@@ -27,6 +27,12 @@ This directory contains external libraries that are integrated directly from sou
 - **Usage**: Primary tool for YouTube and other platforms, especially for subtitle-only and audio-only downloads
 - **Priority**: **Primary** - Use for YouTube and when subtitle/audio extraction is needed
 
+### 5. ffmpeg
+- **Purpose**: Complete, cross-platform solution to record, convert and stream audio and video
+- **Repository**: https://github.com/FFmpeg/FFmpeg
+- **Usage**: Required for audio extraction and video format conversion (used by yt-dlp and bili23-downloader)
+- **Priority**: **Required** - System dependency for video/audio processing
+
 ## Managing Submodules
 
 ### Initial Setup
