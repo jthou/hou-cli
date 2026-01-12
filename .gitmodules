@@ -13,3 +13,6 @@
 [submodule "backend/externals/ffmpeg"]
 	path = backend/externals/ffmpeg
 	url = https://github.com/FFmpeg/FFmpeg.git
+[submodule "backend/externals/whisper"]
+	path = backend/externals/whisper
+	url = https://github.com/openai/whisper.git

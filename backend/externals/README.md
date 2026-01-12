@@ -33,6 +33,13 @@ This directory contains external libraries that are integrated directly from sou
 - **Usage**: Required for audio extraction and video format conversion (used by yt-dlp and bili23-downloader)
 - **Priority**: **Required** - System dependency for video/audio processing
 
+### 6. whisper
+- **Purpose**: Speech recognition and transcription tool
+- **Repository**: https://github.com/openai/whisper
+- **Usage**: Speech-to-text transcription, subtitle generation, audio transcription
+- **Priority**: **Optional** - For speech recognition features
+- **Installation**: `pip install openai-whisper`
+
 ## Managing Submodules
 
 ### Initial Setup
