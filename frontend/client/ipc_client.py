@@ -32,29 +32,102 @@ class IPCClient:
         return base / "port.txt"
     
     def _load_port(self) -> int:
-        """加载端口号"""
+        """加载端口号（优先使用端口文件，如果不可用则尝试发现）"""
         port_file = self._get_port_file()
         
-        # 重试读取端口文件
-        for _ in range(self.max_retries):
-            if port_file.exists():
-                try:
-                    port = int(port_file.read_text().strip())
+        # 1. 尝试从端口文件读取
+        if port_file.exists():
+            try:
+                port = int(port_file.read_text().strip())
+                # 验证端口是否可用
+                if self._verify_port(port):
                     return port
-                except (ValueError, FileNotFoundError):
-                    pass
-            time.sleep(self.retry_delay)
+            except (ValueError, FileNotFoundError):
+                pass
         
-        raise ConnectionError("无法连接到后端服务：端口文件不存在")
+        # 2. 如果端口文件不存在或端口不可用，尝试发现后端端口
+        discovered_port = self._discover_backend_port()
+        if discovered_port:
+            return discovered_port
+        
+        # 3. 如果都失败，抛出异常
+        raise ConnectionError("无法连接到后端服务：端口文件不存在且无法发现后端服务")
+    
+    def _verify_port(self, port: int) -> bool:
+        """验证端口是否可用（通过健康检查）"""
+        try:
+            temp_client = httpx.Client(timeout=2.0, trust_env=False)
+            response = temp_client.get(f"http://127.0.0.1:{port}/health", timeout=2.0)
+            temp_client.close()
+            return response.status_code == 200
+        except Exception:
+            return False
+    
+    def _discover_backend_port(self) -> Optional[int]:
+        """尝试发现后端端口（扫描常见端口范围）"""
+        # 从端口文件读取的端口附近开始扫描（如果存在）
+        port_file = self._get_port_file()
+        start_port = None
+        if port_file.exists():
+            try:
+                start_port = int(port_file.read_text().strip())
+            except (ValueError, FileNotFoundError):
+                pass
+        
+        # 扫描范围：从 start_port 开始，前后各扫描 100 个端口
+        # 如果没有 start_port，从 8000 开始扫描到 8100
+        if start_port:
+            ports_to_try = []
+            # 先尝试 start_port 本身
+            ports_to_try.append(start_port)
+            # 然后尝试 start_port 附近的端口（±100）
+            for offset in range(1, 101):
+                if start_port + offset <= 65535:
+                    ports_to_try.append(start_port + offset)
+                if start_port - offset >= 1024:
+                    ports_to_try.append(start_port - offset)
+        else:
+            # 从 8000 开始扫描到 8100
+            ports_to_try = list(range(8000, 8101))
+        
+        # 尝试每个端口
+        for port in ports_to_try:
+            if self._verify_port(port):
+                # 发现可用端口，更新端口文件
+                try:
+                    port_file.write_text(str(port))
+                except Exception:
+                    pass  # 忽略写入错误
+                return port
+        
+        return None
     
     def _connect(self):
         """连接到后端服务"""
-        self.port = self._load_port()
-        self.base_url = f"http://127.0.0.1:{self.port}"
+        try:
+            self.port = self._load_port()
+            self.base_url = f"http://127.0.0.1:{self.port}"
+        except ConnectionError as e:
+            # 如果加载端口失败，尝试发现后端
+            discovered_port = self._discover_backend_port()
+            if discovered_port:
+                self.port = discovered_port
+                self.base_url = f"http://127.0.0.1:{self.port}"
+            else:
+                raise ConnectionError(f"无法连接到后端服务\n提示: 请检查后端服务是否正常运行")
         
         # 先验证连接（使用临时客户端）
         if not self.health_check():
-            raise ConnectionError(f"无法连接到后端服务：{self.base_url}\n提示: 请检查后端服务是否正常运行")
+            # 如果健康检查失败，再次尝试发现端口
+            discovered_port = self._discover_backend_port()
+            if discovered_port:
+                self.port = discovered_port
+                self.base_url = f"http://127.0.0.1:{self.port}"
+                # 再次验证
+                if not self.health_check():
+                    raise ConnectionError(f"无法连接到后端服务：{self.base_url}\n提示: 请检查后端服务是否正常运行")
+            else:
+                raise ConnectionError(f"无法连接到后端服务：{self.base_url}\n提示: 请检查后端服务是否正常运行")
         
         # 连接验证成功后，创建持久客户端
         # 配置代理：跳过本地地址（127.0.0.1, localhost），避免代理问题

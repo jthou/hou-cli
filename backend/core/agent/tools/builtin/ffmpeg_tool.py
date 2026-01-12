@@ -144,7 +144,11 @@ def _probe_media_file(file_path: Path) -> Dict[str, Any]:
 
 def _extract_audio(input_file: Path, output_file: Path, audio_format: str = 'mp3', 
                    audio_quality: str = '192k') -> Dict[str, Any]:
-    """提取音频"""
+    """提取音频（提取完整音频，不截断）
+    
+    注意：此函数会提取完整的音频，不会使用任何时间限制参数。
+    如需提取部分音频，请使用 _cut_video 函数。
+    """
     ffmpeg = _find_ffmpeg_binary('ffmpeg')
     if not ffmpeg:
         return {'success': False, 'error': 'ffmpeg not found'}
@@ -324,7 +328,7 @@ class FFmpegTool(Tool):
             ToolParameter(
                 name="operation",
                 type="string",
-                description="操作类型：'probe'（分析媒体文件）、'extract_audio'（提取音频）、'cut'（裁剪视频）、'convert'（转换格式）、'merge'（合并视频）、'play'（播放媒体文件）、'custom'（自定义命令）",
+                description="操作类型：'probe'（分析媒体文件）、'extract_audio'（提取音频，默认提取完整音频）、'cut'（裁剪视频片段）、'convert'（转换格式）、'merge'（合并视频）、'play'（播放媒体文件）、'custom'（自定义命令）",
                 required=True,
                 enum=["probe", "extract_audio", "cut", "convert", "merge", "play", "custom"]
             ),
@@ -411,12 +415,13 @@ class FFmpegTool(Tool):
                 "FFmpeg 视频/音频处理工具集。"
                 "\n\n支持的操作："
                 "\n1. probe - 分析媒体文件信息（使用 ffprobe）"
-                "\n2. extract_audio - 从视频中提取音频"
-                "\n3. cut - 裁剪视频片段"
-                "\n4. convert - 转换视频/音频格式"
+                "\n2. extract_audio - 从视频中提取音频（默认提取完整音频，除非使用 cut 操作）"
+                "\n3. cut - 裁剪视频片段（需要指定 start_time 和 duration/end_time）"
+                "\n4. convert - 转换视频/音频格式（默认转换完整文件）"
                 "\n5. merge - 合并多个视频文件"
                 "\n6. play - 播放媒体文件（使用 ffplay）"
                 "\n7. custom - 执行自定义 FFmpeg 命令"
+                "\n\n重要：除非明确指定了时间范围（如 cut 操作），否则所有操作都会处理完整文件。"
                 "\n\n注意："
                 "\n- 对于复杂的视频处理任务（如滤镜、特效、多轨道处理等），"
                 "\n  建议使用编程方式调用 FFmpeg API 或编写脚本。"
@@ -506,11 +511,18 @@ class FFmpegTool(Tool):
         )
     
     def _execute_extract_audio(self, kwargs: Dict[str, Any]) -> ToolResult:
-        """执行音频提取"""
+        """执行音频提取（默认提取完整音频）"""
         input_file = kwargs.get('input_file')
         output_file = kwargs.get('output_file')
         if not input_file or not output_file:
             return ToolResult(success=False, error="input_file 和 output_file 参数是必需的")
+        
+        # 检查是否有时间限制参数（不应该在 extract_audio 中使用）
+        if kwargs.get('start_time') or kwargs.get('duration') or kwargs.get('end_time'):
+            return ToolResult(
+                success=False, 
+                error="extract_audio 操作不支持时间限制参数。如需提取部分音频，请使用 cut 操作。"
+            )
         
         input_path = Path(input_file).expanduser()
         output_path = Path(output_file).expanduser()

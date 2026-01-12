@@ -63,6 +63,14 @@ except ImportError:
     _ffmpeg_available = False
     FFmpegTool = None
 
+# Whisper 工具（需要 openai-whisper）
+try:
+    from .whisper_tool import WhisperTool
+    _whisper_available = True
+except ImportError:
+    _whisper_available = False
+    WhisperTool = None
+
 # 构建 __all__ 列表
 __all__ = [
     "WeatherTool",
@@ -93,3 +101,6 @@ if _video_downloader_available:
 
 if _ffmpeg_available:
     __all__.append("FFmpegTool")
+
+if _whisper_available:
+    __all__.append("WhisperTool")

@@ -255,6 +255,18 @@ class Orchestrator:
             error_msg = f"Failed to register FFmpeg tool: {str(e)}. FFmpeg tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
+        
+        # 注册 Whisper 工具（语音转文字）
+        try:
+            from backend.core.agent.tools.builtin.whisper_tool import WhisperTool
+            whisper_tool = WhisperTool()
+            self.tool_registry.register(whisper_tool)
+            self.debug.log_orchestrator_step("注册工具", {"whisper_tool": "registered"})
+            logger.info("Whisper tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register Whisper tool: {str(e)}. Whisper tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
     
     def _init_auto_code_executor(self):
         """初始化自动代码执行器"""
@@ -796,12 +808,74 @@ class Orchestrator:
                         except json.JSONDecodeError:
                             tool_args = {}
                         
-                        # 执行工具（在异步上下文中，优先使用异步方法）
+                        # 执行工具（支持进度报告）
                         try:
-                            if hasattr(self.tool_registry, 'execute_async'):
-                                tool_result = await self.tool_registry.execute_async(tool_name, **tool_args)
+                            # 获取工具实例
+                            tool = self.tool_registry.get_tool(tool_name)
+                            
+                            if tool and hasattr(tool, 'set_progress_callback'):
+                                # 创建一个队列来收集进度消息
+                                import queue
+                                progress_queue = queue.Queue()
+                                
+                                def progress_callback(message: str):
+                                    """工具进度回调（收集到队列）"""
+                                    progress_queue.put(message)
+                                
+                                tool.set_progress_callback(progress_callback)
+                                
+                                # 在后台线程中执行工具，同时定期检查进度
+                                import asyncio
+                                import concurrent.futures
+                                
+                                loop = asyncio.get_event_loop()
+                                executor = concurrent.futures.ThreadPoolExecutor()
+                                
+                                # 启动工具执行任务
+                                tool_future = loop.run_in_executor(
+                                    executor,
+                                    lambda: self.tool_registry.execute(tool_name, **tool_args)
+                                )
+                                
+                                # 定期检查进度并发送
+                                while not tool_future.done():
+                                    try:
+                                        # 检查进度队列
+                                        while not progress_queue.empty():
+                                            progress_msg = progress_queue.get_nowait()
+                                            progress_info = {
+                                                "type": "progress",
+                                                "category": "tool",
+                                                "tool_name": tool_name,
+                                                "message": progress_msg
+                                            }
+                                            yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
+                                        
+                                        # 等待一小段时间
+                                        await asyncio.sleep(1)
+                                    except Exception as e:
+                                        logger.warning(f"进度检查错误: {e}")
+                                        break
+                                
+                                # 获取最终结果
+                                tool_result = await tool_future
+                                
+                                # 发送剩余的进度消息
+                                while not progress_queue.empty():
+                                    progress_msg = progress_queue.get_nowait()
+                                    progress_info = {
+                                        "type": "progress",
+                                        "category": "tool",
+                                        "tool_name": tool_name,
+                                        "message": progress_msg
+                                    }
+                                    yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
                             else:
-                                tool_result = self.tool_registry.execute(tool_name, **tool_args)
+                                # 没有进度回调支持，直接执行
+                                if hasattr(self.tool_registry, 'execute_async'):
+                                    tool_result = await self.tool_registry.execute_async(tool_name, **tool_args)
+                                else:
+                                    tool_result = self.tool_registry.execute(tool_name, **tool_args)
                         except Exception as e:
                             logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
                             tool_result = ToolResult(
@@ -1101,18 +1175,90 @@ class Orchestrator:
                     except json.JSONDecodeError:
                         tool_args = {}
                     
-                    # 执行工具（在异步上下文中，优先使用异步方法）
-                    try:
-                        if hasattr(self.tool_registry, 'execute_async'):
-                            tool_result = await self.tool_registry.execute_async(tool_name, **tool_args)
-                        else:
-                            tool_result = self.tool_registry.execute(tool_name, **tool_args)
-                    except Exception as e:
-                        logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
-                        tool_result = ToolResult(
-                            success=False,
-                            error=f"工具执行失败: {str(e)}"
-                        )
+                        # 执行工具（支持进度报告）
+                        try:
+                            # 获取工具实例
+                            tool = self.tool_registry.get_tool(tool_name)
+                            
+                            if tool and hasattr(tool, 'set_progress_callback'):
+                                # 创建进度队列和回调
+                                import queue
+                                progress_queue = queue.Queue()
+                                
+                                def progress_callback(message: str):
+                                    """工具进度回调（收集到队列）"""
+                                    progress_queue.put(message)
+                                
+                                tool.set_progress_callback(progress_callback)
+                                
+                                # 在后台线程中执行工具，同时定期检查进度
+                                import asyncio
+                                import concurrent.futures
+                                
+                                loop = asyncio.get_event_loop()
+                                
+                                # 启动工具执行任务（在线程池中）
+                                tool_future = loop.run_in_executor(
+                                    None,
+                                    lambda: self.tool_registry.execute(tool_name, **tool_args)
+                                )
+                                
+                                # 定期检查进度并发送
+                                while not tool_future.done():
+                                    try:
+                                        # 检查进度队列并发送所有进度消息
+                                        progress_sent = False
+                                        while not progress_queue.empty():
+                                            try:
+                                                progress_msg = progress_queue.get_nowait()
+                                                progress_info = {
+                                                    "type": "progress",
+                                                    "category": "tool",
+                                                    "tool_name": tool_name,
+                                                    "message": progress_msg
+                                                }
+                                                yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
+                                                progress_sent = True
+                                            except queue.Empty:
+                                                break
+                                        
+                                        # 如果没有进度消息，等待一小段时间
+                                        if not progress_sent:
+                                            await asyncio.sleep(2)  # 每2秒检查一次
+                                        else:
+                                            await asyncio.sleep(0.1)  # 有进度时快速检查
+                                    except Exception as e:
+                                        logger.warning(f"进度检查错误: {e}")
+                                        await asyncio.sleep(1)
+                                
+                                # 发送剩余的进度消息
+                                while not progress_queue.empty():
+                                    try:
+                                        progress_msg = progress_queue.get_nowait()
+                                        progress_info = {
+                                            "type": "progress",
+                                            "category": "tool",
+                                            "tool_name": tool_name,
+                                            "message": progress_msg
+                                        }
+                                        yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
+                                    except queue.Empty:
+                                        break
+                                
+                                # 获取最终结果
+                                tool_result = await tool_future
+                            else:
+                                # 没有进度回调支持，直接执行
+                                if hasattr(self.tool_registry, 'execute_async'):
+                                    tool_result = await self.tool_registry.execute_async(tool_name, **tool_args)
+                                else:
+                                    tool_result = self.tool_registry.execute(tool_name, **tool_args)
+                        except Exception as e:
+                            logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}", exc_info=True)
+                            tool_result = ToolResult(
+                                success=False,
+                                error=f"工具执行失败: {str(e)}"
+                            )
                     
                     # 记录详细的执行结果
                     if not tool_result.success:

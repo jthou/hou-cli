@@ -38,7 +38,17 @@ This directory contains external libraries that are integrated directly from sou
 - **Repository**: https://github.com/openai/whisper
 - **Usage**: Speech-to-text transcription, subtitle generation, audio transcription
 - **Priority**: **Optional** - For speech recognition features
-- **Installation**: `pip install openai-whisper`
+- **Installation**: 
+  ```bash
+  # 从本地源码安装（推荐，使用我们下载的版本）
+  pip install -e backend/externals/whisper
+  
+  # 这会自动安装所有依赖：
+  # - PyTorch (深度学习框架)
+  # - tiktoken (OpenAI 的快速分词器)
+  # - numpy, numba, tqdm, more-itertools 等
+  ```
+- **Note**: 下载源码只是获取了源代码文件，还需要安装 Python 依赖包才能运行。使用 `pip install -e` 可以从本地源码安装并自动安装所有依赖。
 
 ## Managing Submodules
 
