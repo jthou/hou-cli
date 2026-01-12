@@ -243,6 +243,18 @@ class Orchestrator:
             error_msg = f"Failed to register video downloader tool: {str(e)}. Video downloader tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
+        
+        # 注册 FFmpeg 工具
+        try:
+            from backend.core.agent.tools.builtin.ffmpeg_tool import FFmpegTool
+            ffmpeg_tool = FFmpegTool()
+            self.tool_registry.register(ffmpeg_tool)
+            self.debug.log_orchestrator_step("注册工具", {"ffmpeg_tool": "registered"})
+            logger.info("FFmpeg tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register FFmpeg tool: {str(e)}. FFmpeg tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
     
     def _init_auto_code_executor(self):
         """初始化自动代码执行器"""

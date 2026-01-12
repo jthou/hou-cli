@@ -252,6 +252,38 @@ def _get_yt_dlp_path() -> Path:
     return project_root / "backend" / "externals" / "yt-dlp"
 
 
+def _get_ffmpeg_path() -> Path:
+    """获取 FFmpeg 可执行文件路径"""
+    current_file = Path(__file__).resolve()
+    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
+    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
+    current = current_file.parent
+    while current.name != 'backend' and len(current.parts) > 1:
+        current = current.parent
+    if current.name == 'backend':
+        project_root = current.parent
+    else:
+        # 如果找不到，使用向上5级的方式（向后兼容）
+        project_root = current_file.parent.parent.parent.parent.parent
+    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+
+
+def _get_ffmpeg_bin_dir() -> Path:
+    """获取 FFmpeg bin 目录路径"""
+    current_file = Path(__file__).resolve()
+    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
+    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
+    current = current_file.parent
+    while current.name != 'backend' and len(current.parts) > 1:
+        current = current.parent
+    if current.name == 'backend':
+        project_root = current.parent
+    else:
+        # 如果找不到，使用向上5级的方式（向后兼容）
+        project_root = current_file.parent.parent.parent.parent.parent
+    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin"
+
+
 class YtDlpDownloader(DownloaderAdapter):
     """yt-dlp 适配器"""
     
@@ -288,10 +320,19 @@ class YtDlpDownloader(DownloaderAdapter):
                 sys.path.insert(0, str(yt_dlp_path))
             
             import yt_dlp  # type: ignore
+            import os
+            
+            # 尝试使用项目中的 FFmpeg（如果存在）
+            ffmpeg_bin_dir = _get_ffmpeg_bin_dir()
+            use_local_ffmpeg = ffmpeg_bin_dir.exists()
             
             ydl_opts: Dict[str, Any] = {
                 'outtmpl': str(output_dir / '%(title)s.%(ext)s'),
             }
+            
+            # 如果使用本地 FFmpeg，设置路径
+            if use_local_ffmpeg:
+                ydl_opts['ffmpeg_location'] = str(ffmpeg_bin_dir)
             
             # 只下载字幕
             if options.get('download_subtitle_only'):
@@ -318,16 +359,27 @@ class YtDlpDownloader(DownloaderAdapter):
                     if options.get('subtitle_languages'):
                         ydl_opts['subtitleslangs'] = options['subtitle_languages']
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return DownloadResult(
-                    success=True,
-                    data={
-                        'tool': 'yt-dlp',
-                        'output_dir': str(output_dir),
-                        'title': info.get('title', ''),
-                    }
-                )
+            # 临时设置 PATH 环境变量（如果使用本地 FFmpeg）
+            old_path = None
+            if use_local_ffmpeg:
+                old_path = os.environ.get('PATH', '')
+                os.environ['PATH'] = str(ffmpeg_bin_dir) + os.pathsep + old_path
+            
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    return DownloadResult(
+                        success=True,
+                        data={
+                            'tool': 'yt-dlp',
+                            'output_dir': str(output_dir),
+                            'title': info.get('title', ''),
+                        }
+                    )
+            finally:
+                # 恢复 PATH
+                if old_path is not None:
+                    os.environ['PATH'] = old_path
         except Exception as e:
             return DownloadResult(success=False, error=f"yt-dlp error: {str(e)}")
     

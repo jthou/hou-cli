@@ -55,6 +55,14 @@ except ImportError:
     _video_downloader_available = False
     VideoDownloaderTool = None
 
+# FFmpeg 工具（需要 FFmpeg）
+try:
+    from .ffmpeg_tool import FFmpegTool
+    _ffmpeg_available = True
+except ImportError:
+    _ffmpeg_available = False
+    FFmpegTool = None
+
 # 构建 __all__ 列表
 __all__ = [
     "WeatherTool",
@@ -82,3 +90,6 @@ if _zhihu_zhida_available:
 
 if _video_downloader_available:
     __all__.append("VideoDownloaderTool")
+
+if _ffmpeg_available:
+    __all__.append("FFmpegTool")
