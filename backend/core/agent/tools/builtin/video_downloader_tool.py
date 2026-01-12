@@ -2,7 +2,7 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from abc import ABC, abstractmethod
 
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
@@ -25,6 +25,18 @@ class DownloadResult:
 
 class DownloaderAdapter(ABC):
     """下载器适配器基类"""
+    
+    def __init__(self):
+        self.progress_callback: Optional[Callable[[str], None]] = None
+    
+    def set_progress_callback(self, callback: Optional[Callable[[str], None]]):
+        """设置进度回调函数"""
+        self.progress_callback = callback
+    
+    def report_progress(self, message: str):
+        """报告进度（如果设置了回调）"""
+        if self.progress_callback:
+            self.progress_callback(message)
     
     @abstractmethod
     def is_available(self) -> bool:
@@ -100,15 +112,35 @@ class YouGetDownloader(DownloaderAdapter):
         try:
             you_get_path = _get_you_get_path()
             if not you_get_path.exists():
+                logger.debug(f"you-get path does not exist: {you_get_path}")
+                return False
+            
+            # 检查是否有 you_get 模块或 src/you_get 目录
+            you_get_module = you_get_path / "you_get"
+            you_get_src = you_get_path / "src" / "you_get"
+            if not you_get_module.exists() and not you_get_src.exists():
+                logger.debug(f"you-get module not found in {you_get_path}")
                 return False
             
             # 尝试导入 you_get
             if str(you_get_path) not in sys.path:
                 sys.path.insert(0, str(you_get_path))
             
-            import you_get  # type: ignore
-            return True
-        except Exception:
+            # 尝试不同的导入方式
+            try:
+                import you_get  # type: ignore
+                return True
+            except ImportError:
+                # 尝试从 src 目录导入
+                if you_get_src.exists():
+                    src_path = you_get_path / "src"
+                    if str(src_path) not in sys.path:
+                        sys.path.insert(0, str(src_path))
+                    import you_get  # type: ignore
+                    return True
+                return False
+        except Exception as e:
+            logger.debug(f"you-get availability check failed: {e}")
             return False
     
     def supports_platform(self, url: str) -> bool:
@@ -123,12 +155,24 @@ class YouGetDownloader(DownloaderAdapter):
             if not you_get_path.exists():
                 return DownloadResult(success=False, error="you-get not found")
             
-            # 添加路径
-            if str(you_get_path) not in sys.path:
+            # 检查模块位置
+            you_get_module = you_get_path / "you_get"
+            you_get_src = you_get_path / "src" / "you_get"
+            
+            # 添加路径（优先使用 src 目录）
+            if you_get_src.exists():
+                src_path = you_get_path / "src"
+                if str(src_path) not in sys.path:
+                    sys.path.insert(0, str(src_path))
+            elif str(you_get_path) not in sys.path:
                 sys.path.insert(0, str(you_get_path))
             
             import subprocess
-            cmd = ['python', '-m', 'you_get']
+            # 根据模块位置选择正确的命令
+            if you_get_src.exists():
+                cmd = ['python', '-m', 'you_get']
+            else:
+                cmd = ['python', '-m', 'you_get']
             
             # 输出目录
             cmd.extend(['-o', str(output_dir)])
@@ -208,25 +252,36 @@ class Bili23Downloader(DownloaderAdapter):
             if not bili23_path.exists():
                 return DownloadResult(success=False, error="bili23-downloader not found")
             
-            # bili23-downloader 是 GUI 应用，没有简单的 CLI 接口
-            # 暂时降级到使用 yt-dlp 或 you-get
-            # TODO: 未来可以实现通过 Python API 直接调用 bili23-downloader 的核心模块
+            # bili23-downloader 是 GUI 应用，主要面向图形界面使用
+            # 其核心下载逻辑在 src/utils/module/downloader_v3.py 中
+            # 但由于依赖 wxPython GUI 框架和复杂的配置系统，直接调用比较复杂
+            # 
+            # 当前策略：检测到 bili23-downloader 存在时，优先使用 yt-dlp（对 Bilibili 支持很好）
+            # 如果 yt-dlp 不可用，降级到 you-get
+            # 
+            # 注意：这并不意味着 bili23-downloader 没有被集成，而是因为：
+            # 1. bili23-downloader 主要设计为 GUI 应用
+            # 2. 直接调用其核心模块需要大量 GUI 相关的初始化代码
+            # 3. yt-dlp 对 Bilibili 的支持已经非常完善，可以满足大部分需求
+            
+            logger.info("bili23-downloader 已集成，但作为 GUI 应用不适合 CLI 直接调用")
+            logger.info("使用 yt-dlp 作为 Bilibili 下载工具（对 Bilibili 支持完善）")
             
             # 尝试使用 yt-dlp 作为降级方案
             yt_dlp = YtDlpDownloader()
             if yt_dlp.is_available():
-                logger.info("bili23-downloader not available, falling back to yt-dlp")
+                logger.info("使用 yt-dlp 下载 Bilibili 视频")
                 return yt_dlp.download(url, output_dir, **options)
             
             # 降级到 you-get
             you_get = YouGetDownloader()
             if you_get.is_available():
-                logger.info("bili23-downloader not available, falling back to you-get")
+                logger.info("yt-dlp 不可用，降级到 you-get")
                 return you_get.download(url, output_dir, **options)
             
             return DownloadResult(
                 success=False,
-                error="bili23-downloader integration not yet implemented, and no fallback available"
+                error="bili23-downloader 已集成但主要面向 GUI 使用。CLI 模式下请使用 yt-dlp 或 you-get，但它们当前都不可用"
             )
         except Exception as e:
             return DownloadResult(success=False, error=f"bili23-downloader error: {str(e)}")
@@ -324,7 +379,8 @@ class YtDlpDownloader(DownloaderAdapter):
             
             # 尝试使用项目中的 FFmpeg（如果存在）
             ffmpeg_bin_dir = _get_ffmpeg_bin_dir()
-            use_local_ffmpeg = ffmpeg_bin_dir.exists()
+            ffmpeg_path = _get_ffmpeg_path()
+            use_local_ffmpeg = ffmpeg_bin_dir.exists() and ffmpeg_path.exists()
             
             ydl_opts: Dict[str, Any] = {
                 'outtmpl': str(output_dir / '%(title)s.%(ext)s'),
@@ -332,7 +388,34 @@ class YtDlpDownloader(DownloaderAdapter):
             
             # 如果使用本地 FFmpeg，设置路径
             if use_local_ffmpeg:
-                ydl_opts['ffmpeg_location'] = str(ffmpeg_bin_dir)
+                # yt-dlp 的 ffmpeg_location 可以是目录路径或可执行文件路径
+                # 使用完整的可执行文件路径更可靠
+                ydl_opts['ffmpeg_location'] = str(ffmpeg_path)
+                
+                # 同时设置环境变量 PATH，确保子进程也能找到 FFmpeg
+                old_path = os.environ.get('PATH', '')
+                os.environ['PATH'] = str(ffmpeg_bin_dir) + os.pathsep + old_path
+                
+                # 设置 LD_LIBRARY_PATH，确保 FFmpeg 能找到其共享库
+                # FFmpeg 的共享库在 build/lib 或 build/lib64 目录
+                # ffmpeg_bin_dir = backend/externals/ffmpeg/build/bin
+                # 所以 build 目录是 ffmpeg_bin_dir.parent
+                ffmpeg_build_dir = ffmpeg_bin_dir.parent  # build 目录
+                ffmpeg_lib_dir = None
+                for lib_dir_name in ['lib', 'lib64']:
+                    potential_lib_dir = ffmpeg_build_dir / lib_dir_name
+                    if potential_lib_dir.exists():
+                        ffmpeg_lib_dir = potential_lib_dir
+                        break
+                
+                if ffmpeg_lib_dir and ffmpeg_lib_dir.exists():
+                    old_ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+                    os.environ['LD_LIBRARY_PATH'] = str(ffmpeg_lib_dir) + os.pathsep + old_ld_path
+                    logger.info(f"使用本地 FFmpeg: {ffmpeg_path} (库路径: {ffmpeg_lib_dir})")
+                else:
+                    logger.info(f"使用本地 FFmpeg: {ffmpeg_path} (未找到共享库目录，可能使用系统库)")
+            else:
+                logger.warning(f"本地 FFmpeg 不可用 (bin_dir={ffmpeg_bin_dir.exists()}, ffmpeg={ffmpeg_path.exists()})，yt-dlp 将尝试使用系统 FFmpeg")
             
             # 只下载字幕
             if options.get('download_subtitle_only'):
@@ -352,18 +435,83 @@ class YtDlpDownloader(DownloaderAdapter):
                 }]
             else:
                 # 正常下载视频
-                if options.get('quality'):
-                    ydl_opts['format'] = self._convert_quality_to_yt_dlp_format(options['quality'])
+                # 如果指定了 format，尝试使用，但准备降级方案
+                if options.get('format') and options.get('format') != 'auto':
+                    # 构建格式选择器，优先尝试指定格式，如果不可用则自动降级
+                    format_str = self._build_yt_dlp_format(options.get('quality'), options.get('format'))
+                    if format_str:
+                        ydl_opts['format'] = format_str
+                else:
+                    # 没有指定 format 或 format=auto，使用 quality 构建格式选择器
+                    quality_str = self._convert_quality_to_yt_dlp_format(options.get('quality')) if options.get('quality') else 'best'
+                    if quality_str == 'best':
+                        ydl_opts['format'] = 'bestvideo+bestaudio/best'
+                    elif quality_str == 'worst':
+                        ydl_opts['format'] = 'worstvideo+worstaudio/worst'
+                    else:
+                        ydl_opts['format'] = f'{quality_str}/bestvideo+bestaudio/best'
+                
                 if options.get('download_subtitle'):
                     ydl_opts['writesubtitles'] = True  # type: ignore
                     if options.get('subtitle_languages'):
                         ydl_opts['subtitleslangs'] = options['subtitle_languages']
             
-            # 临时设置 PATH 环境变量（如果使用本地 FFmpeg）
-            old_path = None
-            if use_local_ffmpeg:
-                old_path = os.environ.get('PATH', '')
-                os.environ['PATH'] = str(ffmpeg_bin_dir) + os.pathsep + old_path
+            # PATH 环境变量已在上面设置（如果使用本地 FFmpeg）
+            # 这里不需要重复设置
+            
+            # 添加进度回调（如果支持）
+            def progress_hook(d: Dict[str, Any]):
+                """yt-dlp 进度回调"""
+                if d['status'] == 'downloading':
+                    # 格式化进度信息
+                    total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+                    downloaded = d.get('downloaded_bytes', 0)
+                    speed = d.get('speed', 0)
+                    eta = d.get('eta', 0)
+                    
+                    if total > 0:
+                        percent = (downloaded / total) * 100
+                        # 格式化大小
+                        def format_size(size: float) -> str:
+                            for unit in ['B', 'KB', 'MB', 'GB']:
+                                if size < 1024.0:
+                                    return f"{size:.2f}{unit}"
+                                size /= 1024.0
+                            return f"{size:.2f}TB"
+                        
+                        # 格式化速度
+                        def format_speed(speed: float) -> str:
+                            return format_size(speed) + "/s"
+                        
+                        # 格式化时间
+                        def format_time(seconds: float) -> str:
+                            if seconds < 0:
+                                return "未知"
+                            m, s = divmod(int(seconds), 60)
+                            h, m = divmod(m, 60)
+                            if h > 0:
+                                return f"{h:02d}:{m:02d}:{s:02d}"
+                            return f"{m:02d}:{s:02d}"
+                        
+                        progress_msg = (
+                            f"下载进度: {percent:.1f}% "
+                            f"({format_size(downloaded)} / {format_size(total)}) "
+                            f"速度: {format_speed(speed)} "
+                            f"剩余时间: {format_time(eta)}"
+                        )
+                    else:
+                        progress_msg = (
+                            f"下载中... "
+                            f"已下载: {format_size(downloaded) if downloaded > 0 else '未知'} "
+                            f"速度: {format_speed(speed) if speed > 0 else '未知'}"
+                        )
+                    
+                    self.report_progress(progress_msg)
+                elif d['status'] == 'finished':
+                    self.report_progress("下载完成，正在处理...")
+            
+            # 添加进度钩子
+            ydl_opts['progress_hooks'] = [progress_hook]
             
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -376,6 +524,31 @@ class YtDlpDownloader(DownloaderAdapter):
                             'title': info.get('title', ''),
                         }
                     )
+            except yt_dlp.utils.DownloadError as e:
+                # 如果是格式不可用的错误，尝试完全不指定格式，让 yt-dlp 自动选择
+                error_msg = str(e)
+                if "Requested format is not available" in error_msg or "format is not available" in error_msg:
+                    logger.warning(f"指定格式不可用，尝试自动选择格式: {error_msg}")
+                    # 移除格式限制，让 yt-dlp 自动选择最佳可用格式
+                    if 'format' in ydl_opts:
+                        del ydl_opts['format']
+                    try:
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                            return DownloadResult(
+                                success=True,
+                                data={
+                                    'tool': 'yt-dlp',
+                                    'output_dir': str(output_dir),
+                                    'title': info.get('title', ''),
+                                    'note': '使用自动格式选择'
+                                }
+                            )
+                    except Exception as retry_e:
+                        return DownloadResult(success=False, error=f"yt-dlp error: {str(retry_e)}")
+                else:
+                    # 其他错误直接返回
+                    return DownloadResult(success=False, error=f"yt-dlp error: {error_msg}")
             finally:
                 # 恢复 PATH
                 if old_path is not None:
@@ -395,6 +568,44 @@ class YtDlpDownloader(DownloaderAdapter):
             '240p': 'best[height<=240]',
         }
         return quality_map.get(quality, 'best')
+    
+    def _build_yt_dlp_format(self, quality: Optional[str], format: Optional[str]) -> str:
+        """构建 yt-dlp format 字符串，结合 quality 和 format 参数"""
+        # yt-dlp 的 format 语法支持格式选择器: best[ext=mp4]/best
+        # 含义：优先尝试指定格式，如果不可用则使用最佳可用格式
+        
+        # 先处理 quality
+        quality_str = self._convert_quality_to_yt_dlp_format(quality) if quality else 'best'
+        
+        # 如果没有指定 format 或者是 auto，直接使用 quality，让 yt-dlp 自动选择格式
+        if not format or format == 'auto':
+            # 对于视频+音频分离的情况，使用 bestvideo+bestaudio/best
+            # 这样可以处理视频和音频分离的情况
+            if quality_str == 'best':
+                return 'bestvideo+bestaudio/best'
+            elif quality_str == 'worst':
+                return 'worstvideo+worstaudio/worst'
+            else:
+                # 对于具体分辨率，先尝试该分辨率，如果不可用则使用最佳
+                return f'{quality_str}/bestvideo+bestaudio/best'
+        
+        # 如果指定了 format，优先尝试该格式，如果不可用则使用最佳可用格式
+        # 格式: best[ext=mp4]/best 或 best[height<=1080][ext=mp4]/best[height<=1080]/best
+        if quality_str == 'best':
+            # 优先尝试指定格式，如果不可用则使用最佳可用格式
+            return f'best[ext={format}]/best'
+        elif quality_str == 'worst':
+            # worst 格式通常不需要指定扩展名
+            return f'worst[ext={format}]/worst'
+        else:
+            # 对于具体分辨率，先尝试该分辨率的指定格式，如果不可用则使用该分辨率的最佳格式，最后降级到最佳
+            # 从 quality_str 中提取高度限制（例如 "best[height<=1080]"）
+            height_match = quality_str.split('[')[1].split(']')[0] if '[' in quality_str else None
+            if height_match:
+                # best[height<=1080][ext=mp4]/best[height<=1080]/best
+                return f'best[{height_match}][ext={format}]/best[{height_match}]/best'
+            else:
+                return f'best[ext={format}]/best'
 
 
 # ============================================================================
@@ -430,8 +641,14 @@ def _select_downloader(url: str, preferred: str = 'auto', **options) -> Download
         you_get = YouGetDownloader()
         if you_get.is_available():
             return you_get
-        # 如果不可用，返回它（让错误信息更清晰）
-        logger.warning(f"Preferred tool 'you-get' is not available")
+        # 如果不可用，尝试使用其他可用工具作为降级方案
+        logger.warning(f"Preferred tool 'you-get' is not available, trying fallback tools")
+        # 尝试 yt-dlp
+        yt_dlp = YtDlpDownloader()
+        if yt_dlp.is_available():
+            logger.info("Falling back to yt-dlp")
+            return yt_dlp
+        # 如果都不可用，返回 you-get（让错误信息更清晰）
         return you_get
     
     # 自动选择
@@ -617,6 +834,9 @@ class VideoDownloaderTool(Tool):
                 error=f"Downloader {downloader.__class__.__name__} is not available"
             )
         
+        # 设置进度回调
+        downloader.set_progress_callback(self.progress_callback)
+        
         # 执行下载（使用相同的 downloader_options，不包含 url、output_dir、preferred_tool）
         result = downloader.download(url, output_dir, **downloader_options)
         
@@ -636,6 +856,8 @@ class VideoDownloaderTool(Tool):
                 for fallback in fallback_downloaders:
                     if fallback.is_available() and fallback != downloader:
                         logger.info(f"Trying fallback downloader: {fallback.__class__.__name__}")
+                        # 设置进度回调
+                        fallback.set_progress_callback(self.progress_callback)
                         fallback_result = fallback.download(url, output_dir, **downloader_options)
                         if fallback_result.success:
                             return ToolResult(

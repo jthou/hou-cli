@@ -230,8 +230,18 @@ def start_backend(background=True):
             sys.exit(1)
         return None
 
-def stop_backend():
-    """停止后端服务"""
+def stop_backend(cleanup=False):
+    """停止后端服务
+    
+    Args:
+        cleanup: 是否清除运行环境（默认 False）
+    """
+    if cleanup:
+        # 清除运行环境（包括停止进程、清理 PID 文件等）
+        cleanup_environment()
+        return True
+    
+    # 简单停止（保留 PID 文件）
     pid = get_backend_pid()
     if pid is None:
         print("❌ 未找到后端进程 PID")
@@ -285,23 +295,21 @@ def main():
         action="store_true",
         help="等待后端启动完成（用于后续启动前端）"
     )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="停止时清除运行环境（仅用于 stop 命令）"
+    )
     
     args = parser.parse_args()
     
     if args.command == "stop":
-        stop_backend()
-        return
-    
-    if args.command == "status":
-        if is_backend_running():
-            pid = get_backend_pid()
-            print(f"✅ 后端服务正在运行 (PID: {pid})")
-        else:
-            print("❌ 后端服务未运行")
+        stop_backend(cleanup=args.cleanup)
         return
     
     if args.command == "restart":
-        stop_backend()
+        # 重启时总是先清理环境
+        cleanup_environment()
         time.sleep(1)
         args.command = "start"
     
