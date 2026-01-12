@@ -819,12 +819,42 @@ class Orchestrator:
                             continue
                         
                         # 发送工具调用信息
+                        # 使用安全的 JSON 序列化，清理不可序列化的对象
+                        def safe_serialize_tool_result(obj):
+                            """安全序列化工具结果，清理不可序列化的对象"""
+                            if obj is None:
+                                return None
+                            if isinstance(obj, (str, int, float, bool)):
+                                return obj
+                            if isinstance(obj, dict):
+                                cleaned = {}
+                                for k, v in obj.items():
+                                    try:
+                                        # 尝试序列化值
+                                        json.dumps(v, ensure_ascii=False)
+                                        cleaned[k] = safe_serialize_tool_result(v)
+                                    except (TypeError, ValueError):
+                                        # 不可序列化，转换为字符串描述
+                                        cleaned[k] = f"[{type(v).__name__}对象]"
+                                return cleaned
+                            if isinstance(obj, list):
+                                cleaned = []
+                                for item in obj:
+                                    try:
+                                        json.dumps(item, ensure_ascii=False)
+                                        cleaned.append(safe_serialize_tool_result(item))
+                                    except (TypeError, ValueError):
+                                        cleaned.append(f"[{type(item).__name__}对象]")
+                                return cleaned
+                            # 其他类型，尝试转换为字符串
+                            return str(obj)
+                        
                         tool_info = {
                             "type": "tool",
                             "name": tool_name,
                             "args": tool_args,
                             "success": tool_result.success,
-                            "result": tool_result.data if tool_result.success else None,
+                            "result": safe_serialize_tool_result(tool_result.data) if tool_result.success else None,
                             "error": tool_result.error if not tool_result.success else None
                         }
                         yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"

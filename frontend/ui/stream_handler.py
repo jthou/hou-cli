@@ -429,22 +429,67 @@ class StreamRenderer:
             if result:
                 # 格式化结果
                 if isinstance(result, dict):
+                    # PDF 工具特殊处理
+                    if tool_name == "pdf_parser":
+                        if "content" in result:
+                            content = result.get("content", "")
+                            output_path = result.get("output_path", "")
+                            backend = result.get("backend", "unknown")
+                            content_length = result.get("content_length", 0)
+                            
+                            content_lines.append(f"\n[bold]后端:[/bold] {backend}")
+                            if output_path:
+                                content_lines.append(f"[bold]输出文件:[/bold] {output_path}")
+                            if content_length:
+                                content_lines.append(f"[bold]内容长度:[/bold] {content_length} 字符")
+                            
+                            # 显示内容预览（前500字符）
+                            if content:
+                                preview = content[:500] if len(content) > 500 else content
+                                content_lines.append(f"\n[bold]内容预览:[/bold]")
+                                content_lines.append(f"[dim]{preview}[/dim]")
+                                if len(content) > 500:
+                                    content_lines.append(f"[dim]... (还有 {len(content) - 500} 字符，请查看输出文件)[/dim]")
+                        else:
+                            # 其他 PDF 结果格式
+                            result_str = json.dumps(result, ensure_ascii=False, indent=2)
+                            if len(result_str) > 500:
+                                result_str = result_str[:500] + "..."
+                            content_lines.append(f"\n[dim]{result_str}[/dim]")
                     # 如果是文件搜索结果，显示摘要
-                    if "summary" in result:
+                    elif "summary" in result:
                         content_lines.append(f"\n[dim]{result['summary']}[/dim]")
                     elif "results" in result:
                         count = result.get("count", 0)
                         total = result.get("total", 0)
                         content_lines.append(f"\n[dim]找到 {count}/{total} 个结果[/dim]")
                     else:
-                        result_str = json.dumps(result, ensure_ascii=False, indent=2)
-                        if len(result_str) > 200:
-                            result_str = result_str[:200] + "..."
+                        # 清理不可序列化的对象（如 Panel）
+                        cleaned_result = {}
+                        for k, v in result.items():
+                            if isinstance(v, (str, int, float, bool, type(None))):
+                                cleaned_result[k] = v
+                            elif isinstance(v, (dict, list)):
+                                try:
+                                    json.dumps(v, ensure_ascii=False)
+                                    cleaned_result[k] = v
+                                except (TypeError, ValueError):
+                                    cleaned_result[k] = f"[{type(v).__name__}对象]"
+                            else:
+                                cleaned_result[k] = f"[{type(v).__name__}对象]"
+                        
+                        result_str = json.dumps(cleaned_result, ensure_ascii=False, indent=2)
+                        if len(result_str) > 500:
+                            result_str = result_str[:500] + "..."
                         content_lines.append(f"\n[dim]{result_str}[/dim]")
                 else:
+                    # 非字典结果，清理不可序列化的对象
                     result_str = str(result)
-                    if len(result_str) > 200:
-                        result_str = result_str[:200] + "..."
+                    # 检查是否是 Panel 对象
+                    if "Panel object" in result_str or "<rich.panel.Panel" in result_str:
+                        result_str = "[Panel对象，无法直接显示]"
+                    if len(result_str) > 500:
+                        result_str = result_str[:500] + "..."
                     content_lines.append(f"\n[dim]{result_str}[/dim]")
         else:
             content_lines.append(f"[red]✗ 执行失败[/red]")
