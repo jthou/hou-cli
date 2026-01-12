@@ -1,7 +1,7 @@
 """Tool 基类和接口定义"""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 
 
 @dataclass
@@ -38,6 +38,16 @@ class Tool(ABC):
         self.name = name
         self.description = description
         self.parameters = parameters or []
+        self.progress_callback: Optional[Callable[[str], None]] = None
+    
+    def set_progress_callback(self, callback: Optional[Callable[[str], None]]):
+        """设置进度回调函数"""
+        self.progress_callback = callback
+    
+    def report_progress(self, message: str):
+        """报告进度（如果设置了回调）"""
+        if self.progress_callback:
+            self.progress_callback(message)
     
     @abstractmethod
     def execute(self, **kwargs) -> ToolResult:

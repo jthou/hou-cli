@@ -47,6 +47,30 @@ except ImportError:
     _zhihu_zhida_available = False
     ZhihuZhidaTool = None
 
+# 视频下载工具（需要 you-get、bili23-downloader 或 yt-dlp）
+try:
+    from .video_downloader_tool import VideoDownloaderTool
+    _video_downloader_available = True
+except ImportError:
+    _video_downloader_available = False
+    VideoDownloaderTool = None
+
+# FFmpeg 工具（需要 FFmpeg）
+try:
+    from .ffmpeg_tool import FFmpegTool
+    _ffmpeg_available = True
+except ImportError:
+    _ffmpeg_available = False
+    FFmpegTool = None
+
+# Whisper 工具（需要 openai-whisper）
+try:
+    from .whisper_tool import WhisperTool
+    _whisper_available = True
+except ImportError:
+    _whisper_available = False
+    WhisperTool = None
+
 # 构建 __all__ 列表
 __all__ = [
     "WeatherTool",
@@ -71,3 +95,12 @@ if _pdf_parser_available:
 
 if _zhihu_zhida_available:
     __all__.append("ZhihuZhidaTool")
+
+if _video_downloader_available:
+    __all__.append("VideoDownloaderTool")
+
+if _ffmpeg_available:
+    __all__.append("FFmpegTool")
+
+if _whisper_available:
+    __all__.append("WhisperTool")
