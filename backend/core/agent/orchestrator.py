@@ -807,8 +807,27 @@ class Orchestrator:
                         # 解析参数
                         try:
                             tool_args = json.loads(tool_args_str)
-                        except json.JSONDecodeError:
-                            tool_args = {}
+                        except json.JSONDecodeError as e:
+                            logger.error(
+                                f"工具参数 JSON 解析失败: {tool_name}, "
+                                f"错误: {str(e)}, "
+                                f"参数长度: {len(tool_args_str)}, "
+                                f"前500字符: {repr(tool_args_str[:500])}"
+                            )
+                            # JSON 解析失败时，返回错误而不是使用空字典
+                            tool_result = ToolResult(
+                                success=False,
+                                error=f"工具参数 JSON 解析失败: {str(e)}。请检查参数格式是否正确。"
+                            )
+                            tool_info = {
+                                "type": "tool",
+                                "name": tool_name,
+                                "args": {},
+                                "success": False,
+                                "error": tool_result.error
+                            }
+                            yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                            continue
                         
                         # 执行工具（支持进度报告）
                         try:
@@ -1224,13 +1243,32 @@ class Orchestrator:
                         tool_name = tool_call.function.name
                     tool_args_str = tool_call.function.arguments
                     
-                    self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str})
+                    self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str[:200] + "..." if len(tool_args_str) > 200 else tool_args_str})
                     
                     # 解析参数
                     try:
                         tool_args = json.loads(tool_args_str)
-                    except json.JSONDecodeError:
-                        tool_args = {}
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            f"工具参数 JSON 解析失败: {tool_name}, "
+                            f"错误: {str(e)}, "
+                            f"参数长度: {len(tool_args_str)}, "
+                            f"前500字符: {repr(tool_args_str[:500])}"
+                        )
+                        # JSON 解析失败时，返回错误而不是使用空字典
+                        tool_result = ToolResult(
+                            success=False,
+                            error=f"工具参数 JSON 解析失败: {str(e)}。请检查参数格式是否正确。"
+                        )
+                        tool_info = {
+                            "type": "tool",
+                            "name": tool_name,
+                            "args": {},
+                            "success": False,
+                            "error": tool_result.error
+                        }
+                        yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                        continue
                     
                         # 执行工具（支持进度报告）
                         try:

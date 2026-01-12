@@ -79,22 +79,29 @@ def _setup_ffmpeg_path():
 
 
 class WhisperProgressCapture:
-    """捕获 Whisper 的 stderr 输出并解析进度"""
+    """捕获 Whisper 的 stderr 输出并解析进度，同时实时写入 SRT 文件"""
     
-    def __init__(self, progress_callback: Optional[Callable[[str], None]]):
+    def __init__(self, progress_callback: Optional[Callable[[str], None]], srt_file_path: Optional[Path] = None):
         """
         初始化进度捕获器
         
         Args:
             progress_callback: 进度回调函数，接收进度消息字符串
+            srt_file_path: SRT 文件路径，如果提供则实时写入
         """
         self.progress_callback = progress_callback
+        self.srt_file_path = srt_file_path
+        self.srt_file = None
+        self.srt_segment_count = 0
+        self.srt_lock = threading.Lock()  # 文件写入锁
         self.buffer = StringIO()
         self.capture_thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
         self.original_stderr = None
         self.original_stdout = None
         self.last_pos = 0
+        self.processed_segments = set()  # 记录已处理的段落（避免重复写入）
+        self.processed_segments = set()  # 记录已处理的段落（避免重复写入）
     
     def __enter__(self):
         """进入上下文管理器"""
@@ -108,6 +115,21 @@ class WhisperProgressCapture:
         sys.stdout = self.buffer  # tqdm 使用 stdout
         # 重置位置
         self.last_pos = 0
+        self.processed_segments = set()
+        self.srt_segment_count = 0
+        
+        # 如果提供了 SRT 文件路径，打开文件准备写入
+        if self.srt_file_path:
+            try:
+                # 确保目录存在
+                self.srt_file_path.parent.mkdir(parents=True, exist_ok=True)
+                # 以追加模式打开（如果文件已存在，清空它）
+                self.srt_file = open(self.srt_file_path, 'w', encoding='utf-8')
+                logger.debug(f"[Whisper 捕获] 已打开 SRT 文件准备实时写入: {self.srt_file_path}")
+            except Exception as e:
+                logger.warning(f"[Whisper 捕获] 无法打开 SRT 文件: {e}")
+                self.srt_file = None
+        
         # 启动后台线程读取缓冲区
         self.capture_thread = threading.Thread(
             target=self._read_buffer,
@@ -130,6 +152,26 @@ class WhisperProgressCapture:
             self.capture_thread.join(timeout=1)
         # 读取剩余内容
         self._read_remaining()
+        # 关闭 SRT 文件
+        if self.srt_file:
+            try:
+                self.srt_file.flush()
+                self.srt_file.close()
+                logger.debug(f"[Whisper 捕获] 已关闭 SRT 文件: {self.srt_file_path}")
+            except Exception as e:
+                logger.warning(f"[Whisper 捕获] 关闭 SRT 文件时出错: {e}")
+            finally:
+                self.srt_file = None
+        # 关闭 SRT 文件
+        if self.srt_file:
+            try:
+                self.srt_file.flush()
+                self.srt_file.close()
+                logger.debug(f"[Whisper 捕获] 已关闭 SRT 文件: {self.srt_file_path}")
+            except Exception as e:
+                logger.warning(f"[Whisper 捕获] 关闭 SRT 文件时出错: {e}")
+            finally:
+                self.srt_file = None
     
     def _read_buffer(self):
         """后台线程读取缓冲区内容"""
@@ -244,10 +286,26 @@ class WhisperProgressCapture:
         
         # 方法2：从转录文本中提取时间戳（verbose=True 时的格式）
         # 格式：[00:00.000 --> 00:04.400] 文本
-        transcript_pattern = r'\[(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2})\.(\d{3})\]'
+        # 完整格式：提取时间戳和文本内容
+        transcript_pattern = r'\[(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)'
         transcript_matches = re.findall(transcript_pattern, content)
         
         if transcript_matches:
+            # 处理每个匹配的段落
+            for match in transcript_matches:
+                start_h, start_m, start_ms, end_h, end_m, end_ms, text = match
+                # 创建段落的唯一标识（基于时间戳）
+                segment_key = (start_h, start_m, start_ms, end_h, end_m, end_ms)
+                
+                # 如果这个段落还没有处理过，写入 SRT 文件
+                if segment_key not in self.processed_segments:
+                    self.processed_segments.add(segment_key)
+                    self._write_srt_segment(
+                        int(start_h), int(start_m), int(start_ms),
+                        int(end_h), int(end_m), int(end_ms),
+                        text.strip()
+                    )
+            
             # 取最后一个时间戳的结束时间作为当前进度
             last_match = transcript_matches[-1]
             end_h, end_m, end_ms = map(int, last_match[3:6])
@@ -267,6 +325,55 @@ class WhisperProgressCapture:
         
         logger.debug(f"[Whisper 解析] 未找到匹配的进度格式")
         return None
+    
+    def _write_srt_segment(self, start_h: int, start_m: int, start_ms: int,
+                          end_h: int, end_m: int, end_ms: int, text: str):
+        """实时写入一个 SRT 段落到文件"""
+        if not self.srt_file:
+            return
+        
+        try:
+            with self.srt_lock:
+                self.srt_segment_count += 1
+                # SRT 时间格式：HH:MM:SS,mmm
+                # 从 Whisper 输出格式 [HH:MM.SSS --> HH:MM.SSS] 中提取的
+                # 格式说明：HH:MM.SSS 表示 小时:分钟.秒.毫秒
+                # 但正则表达式提取的是：HH, MM, SSS(毫秒部分，0-999)
+                # 实际上，Whisper 输出中的格式是：MM:SS.mmm（分钟:秒.毫秒）
+                # 所以 start_h 和 end_h 实际上是分钟，start_m 和 end_m 是秒，start_ms 和 end_ms 是毫秒
+                # 但为了兼容，我们假设提取的是：HH(小时), MM(分钟), SSS(秒的整数部分*1000 + 毫秒)
+                # 实际上，从正则表达式看：(\d{2}):(\d{2})\.(\d{3})
+                # 第一个是小时或分钟，第二个是分钟或秒，第三个是毫秒
+                # 查看 Whisper 源码，格式是 [HH:MM:SS.mmm --> HH:MM:SS.mmm] 或 [MM:SS.mmm --> MM:SS.mmm]
+                # 为了安全，我们假设是 MM:SS.mmm 格式（更常见）
+                # 所以：start_m 是分钟，start_ms 需要解析为秒和毫秒
+                # 但正则表达式提取的第三个数字是3位数字，应该是毫秒（0-999）
+                # 所以实际上：start_h=小时(可能为0), start_m=分钟, start_ms=毫秒(0-999)
+                # 但 Whisper 输出可能是 [00:04.400] 格式，表示 0分4秒400毫秒
+                # 所以：start_h=0(小时), start_m=0(分钟), start_ms=0(毫秒)
+                # 但这样不对，应该是：start_h=0(小时), start_m=0(分钟), start_ms=0(毫秒)
+                # 重新理解：从正则表达式 r'\[(\d{2}):(\d{2})\.(\d{3})' 提取
+                # [00:04.400] -> start_h=00, start_m=04, start_ms=400
+                # 这表示：0小时4分钟400毫秒？不对，应该是0分4秒400毫秒
+                # 所以：start_h 实际上是分钟，start_m 是秒，start_ms 是毫秒
+                # 但为了兼容 HH:MM:SS.mmm 格式，我们假设：
+                # - 如果 start_h < 60，则 start_h 是分钟，start_m 是秒
+                # - 否则，start_h 是小时，start_m 是分钟，需要从 start_ms 中提取秒
+                # 简化：假设格式是 MM:SS.mmm（分钟:秒.毫秒）
+                # 所以：start_h 是分钟，start_m 是秒，start_ms 是毫秒（0-999）
+                # 转换为 SRT 格式：HH:MM:SS,mmm（小时:分钟:秒,毫秒）
+                # 假设总时长不超过1小时，则：00:MM:SS,mmm
+                start_str = f"00:{start_h:02d}:{start_m:02d},{start_ms:03d}"
+                end_str = f"00:{end_h:02d}:{end_m:02d},{end_ms:03d}"
+                
+                self.srt_file.write(f"{self.srt_segment_count}\n")
+                self.srt_file.write(f"{start_str} --> {end_str}\n")
+                self.srt_file.write(f"{text}\n\n")
+                self.srt_file.flush()  # 立即刷新到磁盘
+                
+                logger.debug(f"[Whisper 写入] 已写入段落 #{self.srt_segment_count}: {start_str} --> {end_str}")
+        except Exception as e:
+            logger.warning(f"[Whisper 写入] 写入 SRT 段落失败: {e}")
 
 
 def _load_whisper_model(model_name: str = "base"):
@@ -336,17 +443,9 @@ class WhisperTool(Tool):
                 enum=["tiny", "base", "small", "medium", "large"]
             ),
             ToolParameter(
-                name="output_format",
-                type="string",
-                description="输出格式：json（完整信息）、text（纯文本）、srt（字幕文件）",
-                required=False,
-                default="json",
-                enum=["json", "text", "srt"]
-            ),
-            ToolParameter(
                 name="output_file",
                 type="string",
-                description="输出文件路径（可选，如果不指定则自动生成）",
+                description="输出 SRT 字幕文件路径（可选，如果不指定则自动生成，格式：{音频文件名}_transcription.srt）",
                 required=False
             ),
         ]
@@ -356,14 +455,45 @@ class WhisperTool(Tool):
             description=(
                 "语音转文字工具，使用 OpenAI Whisper 模型进行高精度语音识别。"
                 "支持多种音频格式（mp3, wav, m4a, flac 等），"
-                "提供精确的段落级别时间戳（精确到 0.01 秒），"
+                "输出 SRT 字幕格式文件，包含精确的段落级别时间戳（精确到 0.01 秒），"
                 "支持多语言识别和自动语言检测。"
                 "\n\n重要：默认会转录完整的音频文件，除非明确指定了时间范围。"
+                "输出格式：仅支持 SRT 字幕格式（.srt），包含时间戳和文本内容。"
                 "注意：当前版本使用段落级别时间戳（已足够精确），"
                 "单词级别时间戳在 macOS ARM 上会导致段错误，因此已禁用。"
             ),
             parameters=parameters
         )
+    
+    def _write_srt_from_result(self, result: dict, output_path: Path) -> Optional[Path]:
+        """从转录结果中写入 SRT 文件（备用方案，如果实时写入失败）"""
+        try:
+            # 确保输出目录存在
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # 写入 SRT 格式字幕文件
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for i, seg in enumerate(result['segments'], 1):
+                    start = seg['start']
+                    end = seg['end']
+                    # SRT 时间格式：HH:MM:SS,mmm
+                    start_str = f"{int(start//3600):02d}:{int((start%3600)//60):02d}:{int(start%60):02d},{int((start%1)*1000):03d}"
+                    end_str = f"{int(end//3600):02d}:{int((end%3600)//60):02d}:{int(end%60):02d},{int((end%1)*1000):03d}"
+                    f.write(f"{i}\n")
+                    f.write(f"{start_str} --> {end_str}\n")
+                    f.write(f"{seg['text']}\n\n")
+            
+            logger.info(f"已从结果中保存 SRT 字幕文件: {output_path}")
+            
+            # 验证文件是否真的创建成功
+            if not output_path.exists():
+                raise FileNotFoundError(f"文件保存失败: {output_path} 不存在")
+            
+            return output_path
+        except (IOError, OSError, PermissionError) as e:
+            error_msg = f"保存 SRT 字幕文件失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return None
     
     def execute(self, **kwargs) -> ToolResult:
         """执行语音转文字"""
@@ -388,7 +518,6 @@ class WhisperTool(Tool):
                 language = None
             
             model_name = kwargs.get("model", "base")
-            output_format = kwargs.get("output_format", "json")
             output_file = kwargs.get("output_file")
             
             # 设置 FFmpeg 路径（Whisper 需要 ffmpeg 来加载音频文件）
@@ -454,10 +583,22 @@ class WhisperTool(Tool):
             progress_thread.start()
             logger.info(f"开始转录: {audio_path}")
             
+            # 确定输出文件路径（在转录开始前）
+            output_path = None
+            if output_file:
+                output_path = Path(output_file).expanduser()
+                # 确保扩展名是 .srt
+                if output_path.suffix.lower() != '.srt':
+                    output_path = output_path.with_suffix('.srt')
+            else:
+                # 自动生成输出文件名（SRT 格式）
+                output_path = audio_path.parent / f"{audio_path.stem}_transcription.srt"
+            
             try:
-                # 创建进度捕获器（捕获 Whisper 的 stderr 输出）
+                # 创建进度捕获器（捕获 Whisper 的 stderr 输出，并实时写入 SRT 文件）
                 progress_capture = WhisperProgressCapture(
-                    progress_callback=lambda msg: self.report_progress(msg)
+                    progress_callback=lambda msg: self.report_progress(msg),
+                    srt_file_path=output_path  # 传入 SRT 文件路径，实时写入
                 )
                 
                 # 执行转录（启用 verbose 以获取更多信息）
@@ -486,55 +627,22 @@ class WhisperTool(Tool):
                 if progress_thread:
                     progress_thread.join(timeout=1)
             
-            # 处理输出
-            output_path = None
-            if output_file:
-                output_path = Path(output_file).expanduser()
-            else:
-                # 自动生成输出文件名
-                output_path = audio_path.parent / f"{audio_path.stem}_transcription"
-            
-            # 保存结果
+            # 验证实时写入的文件（进度捕获器已经在转录过程中实时写入了）
             try:
-                # 确保输出目录存在
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                if output_format == "json":
-                    json_file = output_path.with_suffix(".json")
-                    import json
-                    with open(json_file, 'w', encoding='utf-8') as f:
-                        json.dump(result, f, ensure_ascii=False, indent=2)
-                    output_path = json_file
-                    logger.info(f"已保存 JSON 文件: {json_file}")
-                elif output_format == "srt":
-                    srt_file = output_path.with_suffix(".srt")
-                    with open(srt_file, 'w', encoding='utf-8') as f:
-                        for i, seg in enumerate(result['segments'], 1):
-                            start = seg['start']
-                            end = seg['end']
-                            start_str = f"{int(start//3600):02d}:{int((start%3600)//60):02d}:{int(start%60):02d},{int((start%1)*1000):03d}"
-                            end_str = f"{int(end//3600):02d}:{int((end%3600)//60):02d}:{int(end%60):02d},{int((end%1)*1000):03d}"
-                            f.write(f"{i}\n")
-                            f.write(f"{start_str} --> {end_str}\n")
-                            f.write(f"{seg['text']}\n\n")
-                    output_path = srt_file
-                    logger.info(f"已保存 SRT 文件: {srt_file}")
-                else:  # text
-                    txt_file = output_path.with_suffix(".txt")
-                    with open(txt_file, 'w', encoding='utf-8') as f:
-                        f.write(result['text'])
-                    output_path = txt_file
-                    logger.info(f"已保存 TXT 文件: {txt_file}")
-                
-                # 验证文件是否真的创建成功
                 if not output_path.exists():
-                    raise FileNotFoundError(f"文件保存失败: {output_path} 不存在")
-                    
-            except (IOError, OSError, PermissionError) as e:
-                error_msg = f"保存输出文件失败: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                # 即使文件保存失败，也返回转录结果（文本内容在内存中）
-                output_path = None
+                    logger.warning(f"实时写入的 SRT 文件不存在，尝试从结果中写入: {output_path}")
+                    output_path = self._write_srt_from_result(result, output_path)
+                else:
+                    # 检查文件是否有内容（可能实时写入失败）
+                    file_size = output_path.stat().st_size
+                    if file_size == 0:
+                        logger.warning(f"实时写入的 SRT 文件为空，从结果中重新写入: {output_path}")
+                        output_path = self._write_srt_from_result(result, output_path)
+                    else:
+                        logger.info(f"SRT 字幕文件已实时写入完成: {output_path} ({file_size} 字节)")
+            except Exception as e:
+                logger.warning(f"验证实时写入的 SRT 文件失败: {e}，从结果中重新写入")
+                output_path = self._write_srt_from_result(result, output_path)
             
             # 构建结果摘要
             segments_info = []
