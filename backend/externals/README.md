@@ -2,6 +2,8 @@
 
 This directory contains external libraries that are integrated directly from source code using git submodules.
 
+> 📖 **环境准备指南**：如果是在新机器上设置开发环境，请先查看 [SETUP.md](./SETUP.md) 了解如何初始化 submodule、编译 FFmpeg、安装 Whisper 等完整流程。
+
 ## Integrated Libraries
 
 ### 1. browser-use
