@@ -145,13 +145,22 @@ def find_free_port() -> int:
     return port
 
 def is_port_available(port: int) -> bool:
-    """检查端口是否可用"""
+    """检查端口是否可用（可以绑定）"""
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('127.0.0.1', port))
             return True
     except OSError:
+        return False
+
+def is_backend_running_on_port(port: int) -> bool:
+    """检查指定端口上是否有后端服务在运行"""
+    try:
+        import httpx
+        response = httpx.get(f"http://127.0.0.1:{port}/health", timeout=1.0, trust_env=False)
+        return response.status_code == 200
+    except Exception:
         return False
 
 def main():
@@ -179,9 +188,16 @@ def main():
         if port_file.exists():
             try:
                 saved_port = load_port()
+                # 先检查端口是否可用（可以绑定）
                 if is_port_available(saved_port):
                     port = saved_port
                     console.print(f"[dim]使用之前保存的端口: {port}[/dim]")
+                # 如果端口不可绑定，检查是否是后端服务已经在运行
+                elif is_backend_running_on_port(saved_port):
+                    # 后端已经在运行，不启动新实例
+                    console.print(f"[green]✓[/green] 后端服务已在端口 {saved_port} 上运行")
+                    console.print(f"[dim]如需重启，请先运行: python cli.py stop[/dim]")
+                    return  # 直接返回，不启动新实例
             except (ValueError, OSError):
                 # 端口文件损坏或端口不可用，忽略
                 pass
@@ -191,9 +207,6 @@ def main():
         port = find_free_port()
         console.print(f"[dim]分配新端口: {port}[/dim]")
     
-    # 保存端口号（供前端读取，即使从环境变量读取也保存）
-    save_port(port)
-    
     # 输出环境信息（开发环境）
     if config.is_development:
         console.print(f"[dim]环境: 开发模式[/dim]")
@@ -202,10 +215,16 @@ def main():
     
     print(f"后端服务启动在 http://127.0.0.1:{port}")
     
+    # 保存端口号（供前端读取，在启动前保存，确保前端能立即读取）
+    save_port(port)
+    
     # 启动服务器（仅监听 localhost）
     uvicorn_log_level = "debug" if config.is_development else "info"
+    
+    # 启动服务器（不使用 reload 模式，需要手动重启）
+    # 开发环境和生产环境都使用相同的启动方式
     uvicorn.run(
-        app,
+        app,  # 直接传递应用对象
         host="127.0.0.1",
         port=port,
         log_level=uvicorn_log_level

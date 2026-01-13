@@ -429,22 +429,67 @@ class StreamRenderer:
             if result:
                 # 格式化结果
                 if isinstance(result, dict):
+                    # PDF 工具特殊处理
+                    if tool_name == "pdf_parser":
+                        if "content" in result:
+                            content = result.get("content", "")
+                            output_path = result.get("output_path", "")
+                            backend = result.get("backend", "unknown")
+                            content_length = result.get("content_length", 0)
+                            
+                            content_lines.append(f"\n[bold]后端:[/bold] {backend}")
+                            if output_path:
+                                content_lines.append(f"[bold]输出文件:[/bold] {output_path}")
+                            if content_length:
+                                content_lines.append(f"[bold]内容长度:[/bold] {content_length} 字符")
+                            
+                            # 显示内容预览（前500字符）
+                            if content:
+                                preview = content[:500] if len(content) > 500 else content
+                                content_lines.append(f"\n[bold]内容预览:[/bold]")
+                                content_lines.append(f"[dim]{preview}[/dim]")
+                                if len(content) > 500:
+                                    content_lines.append(f"[dim]... (还有 {len(content) - 500} 字符，请查看输出文件)[/dim]")
+                        else:
+                            # 其他 PDF 结果格式
+                            result_str = json.dumps(result, ensure_ascii=False, indent=2)
+                            if len(result_str) > 500:
+                                result_str = result_str[:500] + "..."
+                            content_lines.append(f"\n[dim]{result_str}[/dim]")
                     # 如果是文件搜索结果，显示摘要
-                    if "summary" in result:
+                    elif "summary" in result:
                         content_lines.append(f"\n[dim]{result['summary']}[/dim]")
                     elif "results" in result:
                         count = result.get("count", 0)
                         total = result.get("total", 0)
                         content_lines.append(f"\n[dim]找到 {count}/{total} 个结果[/dim]")
                     else:
-                        result_str = json.dumps(result, ensure_ascii=False, indent=2)
-                        if len(result_str) > 200:
-                            result_str = result_str[:200] + "..."
+                        # 清理不可序列化的对象（如 Panel）
+                        cleaned_result = {}
+                        for k, v in result.items():
+                            if isinstance(v, (str, int, float, bool, type(None))):
+                                cleaned_result[k] = v
+                            elif isinstance(v, (dict, list)):
+                                try:
+                                    json.dumps(v, ensure_ascii=False)
+                                    cleaned_result[k] = v
+                                except (TypeError, ValueError):
+                                    cleaned_result[k] = f"[{type(v).__name__}对象]"
+                            else:
+                                cleaned_result[k] = f"[{type(v).__name__}对象]"
+                        
+                        result_str = json.dumps(cleaned_result, ensure_ascii=False, indent=2)
+                        if len(result_str) > 500:
+                            result_str = result_str[:500] + "..."
                         content_lines.append(f"\n[dim]{result_str}[/dim]")
                 else:
+                    # 非字典结果，清理不可序列化的对象
                     result_str = str(result)
-                    if len(result_str) > 200:
-                        result_str = result_str[:200] + "..."
+                    # 检查是否是 Panel 对象
+                    if "Panel object" in result_str or "<rich.panel.Panel" in result_str:
+                        result_str = "[Panel对象，无法直接显示]"
+                    if len(result_str) > 500:
+                        result_str = result_str[:500] + "..."
                     content_lines.append(f"\n[dim]{result_str}[/dim]")
         else:
             content_lines.append(f"[red]✗ 执行失败[/red]")
@@ -481,6 +526,63 @@ class StreamRenderer:
             # TODO: 将确认结果返回给后端（需要实现确认结果传递机制）
         else:
             console.print("[red]✗ 用户已取消执行[/red]")
+    
+    def _render_progress_info(self, progress_data: dict, console: Console, in_live_context: bool = False):
+        """渲染进度信息（多行显示）
+        
+        Args:
+            progress_data: 进度数据，格式：
+                {
+                    "type": "progress",
+                    "category": "tool",
+                    "tool_name": "whisper",
+                    "message": "转录进行中... 已用时: 00:30"
+                }
+            console: Rich Console 实例
+            in_live_context: 是否在 Live 上下文中（如果在 Live 中，需要返回 Rich Text 对象）
+        """
+        tool_name = progress_data.get("tool_name", "unknown")
+        message = progress_data.get("message", "")
+        
+        # 根据工具名称选择图标
+        tool_icons = {
+            "whisper": "🎤",
+            "video_downloader": "📥",
+            "ffmpeg": "🎬",
+            "jupyter": "📓",
+        }
+        
+        icon = tool_icons.get(tool_name, "📊")
+        
+        # 根据消息类型选择样式
+        if "完成" in message:
+            # 完成消息，使用绿色
+            style = "green"
+        elif "错误" in message or "失败" in message:
+            # 错误消息，使用红色
+            style = "red"
+        elif "进行中" in message or "加载" in message or "处理" in message:
+            # 进行中消息，使用青色
+            style = "cyan"
+        else:
+            # 默认样式
+            style = "dim cyan"
+        
+        # 先打印一个点（不换行），表示收到了进度消息
+        import sys
+        sys.stdout.write(".")
+        sys.stdout.flush()
+        
+        # 格式化进度消息（使用 Rich 标记字符串）
+        progress_text = f"[{style}]{icon} {tool_name}[/{style}]: {message}\n"
+        
+        if in_live_context:
+            # 在 Live 上下文中，返回格式化的字符串（Rich 标记会被 live.update 正确渲染）
+            return progress_text
+        else:
+            # 不在 Live 上下文中，直接打印
+            console.print(progress_text, end="")
+            return None
     
     async def render_stream(
         self,
@@ -578,6 +680,57 @@ class StreamRenderer:
                                     # #endregion
                                     # JSON 解析失败，跳过
                                     pass
+                            elif line.startswith("__PROGRESS__:"):
+                                try:
+                                    json_str = line[13:]  # 移除 "__PROGRESS__:" 前缀（13个字符）
+                                    # 调试：打印原始 JSON 字符串
+                                    import sys
+                                    sys.stdout.write(f"\n[DEBUG] ✅ 收到进度消息\n")
+                                    sys.stdout.write(f"[DEBUG] 原始行长度: {len(line)}\n")
+                                    sys.stdout.write(f"[DEBUG] JSON 字符串长度: {len(json_str)}\n")
+                                    sys.stdout.write(f"[DEBUG] JSON 字符串前200字符: {repr(json_str[:200])}\n")
+                                    sys.stdout.flush()
+                                    # 清理 JSON 字符串中的无效字符
+                                    json_str = self._clean_unicode(json_str)
+                                    sys.stdout.write(f"[DEBUG] 清理后 JSON 字符串前200字符: {repr(json_str[:200])}\n")
+                                    sys.stdout.flush()
+                                    progress_data = json.loads(json_str)
+                                    sys.stdout.write(f"[DEBUG] ✅ JSON 解析成功: {progress_data}\n")
+                                    sys.stdout.flush()
+                                    # 渲染进度信息（在 Live 上下文中，返回格式化的字符串）
+                                    progress_text = self._render_progress_info(progress_data, console, in_live_context=True)
+                                    # 调试：打印 progress_text 内容
+                                    sys.stdout.write(f"[DEBUG] progress_text: {repr(progress_text)}\n")
+                                    sys.stdout.write(f"[DEBUG] progress_text is None: {progress_text is None}\n")
+                                    sys.stdout.write(f"[DEBUG] progress_text length: {len(progress_text) if progress_text else 0}\n")
+                                    sys.stdout.flush()
+                                    if progress_text:
+                                        # 直接添加到 full_content（Rich 标记字符串会被 live.update 正确渲染）
+                                        full_content += progress_text
+                                        # 使用 Text 对象确保 Rich 标记被正确渲染
+                                        live_text = Text.from_markup(full_content) if full_content else Text("")
+                                        live.update(live_text)
+                                    else:
+                                        # 如果没有返回文本，至少打印一个点
+                                        sys.stdout.write(".")
+                                        sys.stdout.flush()
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
+                                    # JSON 解析失败，至少打印一个点表示收到了消息
+                                    import sys
+                                    import logging
+                                    logger = logging.getLogger(__name__)
+                                    # 调试：打印异常信息
+                                    sys.stdout.write(f"\n[DEBUG] 进度消息 JSON 解析失败!\n")
+                                    sys.stdout.write(f"[DEBUG] 异常类型: {type(e).__name__}\n")
+                                    sys.stdout.write(f"[DEBUG] 异常消息: {str(e)}\n")
+                                    sys.stdout.write(f"[DEBUG] 原始数据长度: {len(line)}\n")
+                                    sys.stdout.write(f"[DEBUG] 原始数据前100字符: {repr(line[:100])}\n")
+                                    sys.stdout.write(f"[DEBUG] 原始数据完整内容: {repr(line)}\n")
+                                    sys.stdout.flush()
+                                    logger.debug(f"进度消息 JSON 解析失败: {e}, 原始数据: {line[:100]}")
+                                    sys.stdout.write(".")
+                                    sys.stdout.flush()
+                                    pass
                             elif line.startswith("__CONFIRM__:"):
                                 try:
                                     # #region agent log
@@ -614,8 +767,10 @@ class StreamRenderer:
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
-                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:")):
-                            live.update(full_content + buffer)
+                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__PROGRESS__:")):
+                            # 使用 Text 对象确保 Rich 标记被正确渲染
+                            live_text = Text.from_markup(full_content + buffer) if (full_content + buffer) else Text("")
+                            live.update(live_text)
                     except KeyboardInterrupt:
                         # 用户按 Ctrl+C，终止流式处理
                         raise  # 重新抛出，让外层处理

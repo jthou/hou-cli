@@ -55,3 +55,6 @@ backend/externals/ffmpeg/build/
 
 # Development entry point (避免与系统级 hou-cli 冲突)
 venv/bin/hou-cli
+
+# 子模块构建产物（不提交编译后的文件）
+backend/externals/ffmpeg/build/

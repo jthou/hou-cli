@@ -1,6 +1,7 @@
 """Agent 编排器"""
 import os
 import logging
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
 from dotenv import load_dotenv
@@ -670,11 +671,12 @@ class Orchestrator:
                     user_prompt=user_prompt,
                     tools=tools
                 ):
-                    # 检查是否是调试信息或工具调用信息
-                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:"):
+                    # 检查是否是调试信息、工具调用信息或进度信息
+                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:") or chunk.startswith("__PROGRESS__:"):
+                        # 这些消息只用于前端显示，不存入上下文
                         yield chunk
                     else:
-                        # 内容块
+                        # 内容块（存入上下文）
                         full_response += chunk
                         yield chunk
                 
@@ -805,8 +807,27 @@ class Orchestrator:
                         # 解析参数
                         try:
                             tool_args = json.loads(tool_args_str)
-                        except json.JSONDecodeError:
-                            tool_args = {}
+                        except json.JSONDecodeError as e:
+                            logger.error(
+                                f"工具参数 JSON 解析失败: {tool_name}, "
+                                f"错误: {str(e)}, "
+                                f"参数长度: {len(tool_args_str)}, "
+                                f"前500字符: {repr(tool_args_str[:500])}"
+                            )
+                            # JSON 解析失败时，返回错误而不是使用空字典
+                            tool_result = ToolResult(
+                                success=False,
+                                error=f"工具参数 JSON 解析失败: {str(e)}。请检查参数格式是否正确。"
+                            )
+                            tool_info = {
+                                "type": "tool",
+                                "name": tool_name,
+                                "args": {},
+                                "success": False,
+                                "error": tool_result.error
+                            }
+                            yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                            continue
                         
                         # 执行工具（支持进度报告）
                         try:
@@ -837,10 +858,14 @@ class Orchestrator:
                                     lambda: self.tool_registry.execute(tool_name, **tool_args)
                                 )
                                 
-                                # 定期检查进度并发送
+                                # 定期检查进度并发送（包含心跳机制）
+                                last_heartbeat_time = time.time()
+                                heartbeat_interval = 10  # 每10秒发送一次心跳
+                                
                                 while not tool_future.done():
                                     try:
                                         # 检查进度队列
+                                        has_progress = False
                                         while not progress_queue.empty():
                                             progress_msg = progress_queue.get_nowait()
                                             progress_info = {
@@ -850,6 +875,20 @@ class Orchestrator:
                                                 "message": progress_msg
                                             }
                                             yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
+                                            has_progress = True
+                                            last_heartbeat_time = time.time()  # 有进度消息时重置心跳时间
+                                        
+                                        # 如果没有进度消息且超过心跳间隔，发送心跳消息
+                                        current_time = time.time()
+                                        if not has_progress and (current_time - last_heartbeat_time) >= heartbeat_interval:
+                                            heartbeat_info = {
+                                                "type": "progress",
+                                                "category": "tool",
+                                                "tool_name": tool_name,
+                                                "message": "正在处理中，请稍候..."
+                                            }
+                                            yield f"__PROGRESS__:{json.dumps(heartbeat_info, ensure_ascii=False)}\n"
+                                            last_heartbeat_time = current_time
                                         
                                         # 等待一小段时间
                                         await asyncio.sleep(1)
@@ -917,12 +956,42 @@ class Orchestrator:
                             continue
                         
                         # 发送工具调用信息
+                        # 使用安全的 JSON 序列化，清理不可序列化的对象
+                        def safe_serialize_tool_result(obj):
+                            """安全序列化工具结果，清理不可序列化的对象"""
+                            if obj is None:
+                                return None
+                            if isinstance(obj, (str, int, float, bool)):
+                                return obj
+                            if isinstance(obj, dict):
+                                cleaned = {}
+                                for k, v in obj.items():
+                                    try:
+                                        # 尝试序列化值
+                                        json.dumps(v, ensure_ascii=False)
+                                        cleaned[k] = safe_serialize_tool_result(v)
+                                    except (TypeError, ValueError):
+                                        # 不可序列化，转换为字符串描述
+                                        cleaned[k] = f"[{type(v).__name__}对象]"
+                                return cleaned
+                            if isinstance(obj, list):
+                                cleaned = []
+                                for item in obj:
+                                    try:
+                                        json.dumps(item, ensure_ascii=False)
+                                        cleaned.append(safe_serialize_tool_result(item))
+                                    except (TypeError, ValueError):
+                                        cleaned.append(f"[{type(item).__name__}对象]")
+                                return cleaned
+                            # 其他类型，尝试转换为字符串
+                            return str(obj)
+                        
                         tool_info = {
                             "type": "tool",
                             "name": tool_name,
                             "args": tool_args,
                             "success": tool_result.success,
-                            "result": tool_result.data if tool_result.success else None,
+                            "result": safe_serialize_tool_result(tool_result.data) if tool_result.success else None,
                             "error": tool_result.error if not tool_result.success else None
                         }
                         yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
@@ -1005,9 +1074,11 @@ class Orchestrator:
                                     return json.dumps({"error": f"序列化失败: {str(e)[:100]}"}, ensure_ascii=False)
                         
                         if not tool_result.success:
+                            # 对于失败的工具，明确传递错误信息，避免 LLM 创建模拟数据
                             tool_result_content = safe_json_dumps({
                                 "error": tool_result.error,
-                                "success": False
+                                "success": False,
+                                "note": "工具执行失败，请勿创建模拟或虚假数据。如果任务需要此工具，请先修复工具问题。"
                             })
                         else:
                             tool_result_content = safe_json_dumps(tool_result.data)
@@ -1119,7 +1190,9 @@ class Orchestrator:
                     response = await self.llm_service.chat(messages=messages, tools=tools)
                 except Exception as e:
                     logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
-                    return f"抱歉，处理您的请求时出现错误：{str(e)}"
+                    error_msg = f"抱歉，处理您的请求时出现错误：{str(e)}"
+                    yield error_msg
+                    return
                 
                 # 检查响应类型
                 if isinstance(response, str):
@@ -1148,14 +1221,17 @@ class Orchestrator:
                                 continue
                             else:
                                 # 没有代码执行，直接返回
-                                return response
+                                yield response
+                                return
                         except Exception as e:
                             logger.error(f"自动代码执行失败: {str(e)}", exc_info=True)
                             # 执行失败，返回原始回复
-                            return response
+                            yield response
+                            return
                     else:
                         # 未启用自动代码执行，直接返回
-                        return response
+                        yield response
+                        return
                 
                 # 检查是否有工具调用
                 if hasattr(response, 'tool_calls') and response.tool_calls:
@@ -1167,13 +1243,32 @@ class Orchestrator:
                         tool_name = tool_call.function.name
                     tool_args_str = tool_call.function.arguments
                     
-                    self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str})
+                    self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str[:200] + "..." if len(tool_args_str) > 200 else tool_args_str})
                     
                     # 解析参数
                     try:
                         tool_args = json.loads(tool_args_str)
-                    except json.JSONDecodeError:
-                        tool_args = {}
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            f"工具参数 JSON 解析失败: {tool_name}, "
+                            f"错误: {str(e)}, "
+                            f"参数长度: {len(tool_args_str)}, "
+                            f"前500字符: {repr(tool_args_str[:500])}"
+                        )
+                        # JSON 解析失败时，返回错误而不是使用空字典
+                        tool_result = ToolResult(
+                            success=False,
+                            error=f"工具参数 JSON 解析失败: {str(e)}。请检查参数格式是否正确。"
+                        )
+                        tool_info = {
+                            "type": "tool",
+                            "name": tool_name,
+                            "args": {},
+                            "success": False,
+                            "error": tool_result.error
+                        }
+                        yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                        continue
                     
                         # 执行工具（支持进度报告）
                         try:
@@ -1203,11 +1298,14 @@ class Orchestrator:
                                     lambda: self.tool_registry.execute(tool_name, **tool_args)
                                 )
                                 
-                                # 定期检查进度并发送
+                                # 定期检查进度并发送（包含心跳机制）
+                                last_heartbeat_time = time.time()
+                                heartbeat_interval = 10  # 每10秒发送一次心跳
+                                
                                 while not tool_future.done():
                                     try:
                                         # 检查进度队列并发送所有进度消息
-                                        progress_sent = False
+                                        has_progress = False
                                         while not progress_queue.empty():
                                             try:
                                                 progress_msg = progress_queue.get_nowait()
@@ -1218,15 +1316,28 @@ class Orchestrator:
                                                     "message": progress_msg
                                                 }
                                                 yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
-                                                progress_sent = True
+                                                has_progress = True
+                                                last_heartbeat_time = time.time()  # 有进度消息时重置心跳时间
                                             except queue.Empty:
                                                 break
                                         
-                                        # 如果没有进度消息，等待一小段时间
-                                        if not progress_sent:
-                                            await asyncio.sleep(2)  # 每2秒检查一次
-                                        else:
+                                        # 如果没有进度消息且超过心跳间隔，发送心跳消息
+                                        current_time = time.time()
+                                        if not has_progress and (current_time - last_heartbeat_time) >= heartbeat_interval:
+                                            heartbeat_info = {
+                                                "type": "progress",
+                                                "category": "tool",
+                                                "tool_name": tool_name,
+                                                "message": "正在处理中，请稍候..."
+                                            }
+                                            yield f"__PROGRESS__:{json.dumps(heartbeat_info, ensure_ascii=False)}\n"
+                                            last_heartbeat_time = current_time
+                                        
+                                        # 等待一小段时间
+                                        if has_progress:
                                             await asyncio.sleep(0.1)  # 有进度时快速检查
+                                        else:
+                                            await asyncio.sleep(1)  # 无进度时正常检查
                                     except Exception as e:
                                         logger.warning(f"进度检查错误: {e}")
                                         await asyncio.sleep(1)
@@ -1340,17 +1451,21 @@ class Orchestrator:
                 
                 # 如果没有工具调用，返回内容
                 if hasattr(response, 'content') and response.content:
-                    return response.content
+                    yield response.content
+                    return
                 
                 # 如果都没有，返回空字符串
-                return ""
+                yield ""
+                return
             
             # 达到最大迭代次数，返回错误信息
             self.debug.log_orchestrator_step("达到最大工具调用迭代次数", {"max_iterations": max_iterations})
-            return "抱歉，工具调用未能成功获取信息。"
+            yield "抱歉，工具调用未能成功获取信息。"
+            return
         except Exception as e:
-            logger.error(f"_chat_with_tools 执行失败: {str(e)}", exc_info=True)
-            return f"抱歉，处理您的请求时出现错误：{str(e)}"
+            logger.error(f"_chat_with_tools_stream 执行失败: {str(e)}", exc_info=True)
+            yield f"抱歉，处理您的请求时出现错误：{str(e)}"
+            return
     
     async def _select_model(self, task: str) -> str:
         """
