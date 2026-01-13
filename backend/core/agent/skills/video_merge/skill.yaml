@@ -1,0 +1,617 @@
+# 视频合并技能配置
+# Video Merge Skill Configuration
+
+name: video_merge
+version: 1.0.0
+description: 合并多个视频文件，支持转场效果（淡入淡出、交叉溶解、滑动等）
+category: media_processing
+priority: P1
+
+# 技能参数定义
+parameters:
+  - name: input_files
+    type: array
+    description: 要合并的视频文件列表（至少2个文件）
+    required: true
+  - name: output_file
+    type: string
+    description: 输出视频文件路径
+    required: true
+  - name: transition_type
+    type: string
+    description: 转场类型（none/fade/crossfade/slide/zoom，默认：none）
+    required: false
+    default: none
+    enum: [none, fade, crossfade, slide, zoom]
+  - name: transition_duration
+    type: number
+    description: 转场持续时间（秒，默认：1.0）
+    required: false
+    default: 1.0
+  - name: video_codec
+    type: string
+    description: 视频编码器（默认：libx264，合并需要重新编码）
+    required: false
+    default: libx264
+    enum: [libx264, libx265, copy]
+  - name: audio_codec
+    type: string
+    description: 音频编码器（默认：aac）
+    required: false
+    default: aac
+    enum: [aac, mp3, copy]
+
+# 依赖的工具和技能
+dependencies:
+  tools:
+    - name: ffmpeg
+      version: ">=1.0.0"
+    - name: execute_code
+      version: ">=1.0.0"
+  skills: []
+
+# 工作流定义
+workflow:
+  steps:
+    # 步骤 1: 检查输入文件
+    - name: check_input_files
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          from pathlib import Path
+          
+          # 解析输入文件列表
+          input_files_str = """${input.input_files}"""
+          try:
+              if isinstance(input_files_str, list):
+                  input_files = input_files_str
+              else:
+                  input_files = json.loads(input_files_str) if isinstance(input_files_str, str) else eval(input_files_str)
+          except:
+              input_files = []
+          
+          if not isinstance(input_files, list) or len(input_files) < 2:
+              raise ValueError("input_files 必须包含至少 2 个文件")
+          
+          missing_files = []
+          valid_files = []
+          
+          for file_path in input_files:
+              path = Path(str(file_path)).expanduser().resolve()
+              if not path.exists():
+                  missing_files.append(str(file_path))
+              else:
+                  valid_files.append(str(path))
+          
+          if missing_files:
+              raise FileNotFoundError(f"文件不存在: {missing_files}")
+          
+          # 输出结果
+          print("=== VALID_FILES ===")
+          print(f"COUNT: {len(valid_files)}")
+          for f in valid_files:
+              print(f"FILE: {f}")
+      outputs:
+        valid_files: ${result.stdout}
+        file_count: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "输入文件检查失败"
+    
+    # 步骤 2: 分析所有视频（获取分辨率、帧率等）
+    - name: probe_all_videos
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          import subprocess
+          from pathlib import Path
+          
+          def get_ffmpeg_path():
+              """获取 FFmpeg 路径"""
+              current_file = Path(__file__).resolve()
+              current = current_file.parent
+              while current.name != 'backend' and len(current.parts) > 1:
+                  current = current.parent
+              if current.name == 'backend':
+                  project_root = current.parent
+              else:
+                  project_root = current_file.parent.parent.parent.parent.parent
+              
+              ffprobe_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffprobe"
+              if ffprobe_path.exists():
+                  return str(ffprobe_path)
+              
+              import shutil
+              system_ffprobe = shutil.which('ffprobe')
+              if system_ffprobe:
+                  return system_ffprobe
+              
+              raise FileNotFoundError("FFprobe 未找到")
+          
+          # 从步骤 1 的输出中提取文件列表
+          step1_output = """${steps[0].valid_files}"""
+          valid_files = []
+          
+          if "=== VALID_FILES ===" in step1_output:
+              for line in step1_output.split('\n'):
+                  if line.startswith('FILE: '):
+                      valid_files.append(line[6:].strip())
+          
+          if not valid_files:
+              raise ValueError("未找到有效的输入文件")
+          
+          ffprobe = get_ffmpeg_path()
+          video_infos = []
+          
+          # 分析每个视频
+          for i, video_file in enumerate(valid_files):
+              try:
+                  cmd = [
+                      ffprobe,
+                      '-v', 'quiet',
+                      '-print_format', 'json',
+                      '-show_format',
+                      '-show_streams',
+                      video_file
+                  ]
+                  
+                  result = subprocess.run(
+                      cmd,
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  
+                  info = json.loads(result.stdout)
+                  
+                  # 提取关键信息
+                  format_info = info.get('format', {})
+                  streams = info.get('streams', [])
+                  
+                  video_streams = [s for s in streams if s.get('codec_type') == 'video']
+                  audio_streams = [s for s in streams if s.get('codec_type') == 'audio']
+                  
+                  video_info = {
+                      'file': video_file,
+                      'index': i,
+                      'duration': float(format_info.get('duration', 0)),
+                      'size': int(format_info.get('size', 0)),
+                      'bitrate': format_info.get('bit_rate', ''),
+                      'format': format_info.get('format_name', ''),
+                      'video_streams': len(video_streams),
+                      'audio_streams': len(audio_streams)
+                  }
+                  
+                  # 提取视频流信息
+                  if video_streams:
+                      v = video_streams[0]
+                      video_info['width'] = int(v.get('width', 0))
+                      video_info['height'] = int(v.get('height', 0))
+                      # 解析帧率（格式：30/1 或 29.97/1）
+                      fps_str = v.get('r_frame_rate', '30/1')
+                      try:
+                          if '/' in fps_str:
+                              num, den = map(float, fps_str.split('/'))
+                              video_info['fps'] = num / den if den != 0 else 30.0
+                          else:
+                              video_info['fps'] = float(fps_str)
+                      except:
+                          video_info['fps'] = 30.0
+                      video_info['video_codec'] = v.get('codec_name', '')
+                  
+                  # 提取音频流信息
+                  if audio_streams:
+                      a = audio_streams[0]
+                      video_info['audio_codec'] = a.get('codec_name', '')
+                      video_info['sample_rate'] = int(a.get('sample_rate', 0))
+                  
+                  video_infos.append(video_info)
+              except Exception as e:
+                  print(f"警告: 分析视频 {video_file} 失败: {e}")
+                  continue
+          
+          if not video_infos:
+              raise ValueError("所有视频分析失败")
+          
+          # 输出结果
+          print("=== VIDEO_INFOS ===")
+          print(json.dumps(video_infos, indent=2, ensure_ascii=False))
+      outputs:
+        video_infos: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "视频分析失败"
+    
+    # 步骤 3: 统一视频参数（如果需要转场）
+    - name: normalize_videos
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          
+          def get_ffmpeg_path():
+              """获取 FFmpeg 路径"""
+              current_file = Path(__file__).resolve()
+              current = current_file.parent
+              while current.name != 'backend' and len(current.parts) > 1:
+                  current = current.parent
+              if current.name == 'backend':
+                  project_root = current.parent
+              else:
+                  project_root = current_file.parent.parent.parent.parent.parent
+              
+              ffmpeg_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+              if ffmpeg_path.exists():
+                  return str(ffmpeg_path)
+              
+              import shutil
+              system_ffmpeg = shutil.which('ffmpeg')
+              if system_ffmpeg:
+                  return system_ffmpeg
+              
+              raise FileNotFoundError("FFmpeg 未找到")
+          
+          # 检查是否需要转场
+          transition_type = "${input.transition_type | default('none')}"
+          needs_normalization = transition_type != 'none'
+          
+          if not needs_normalization:
+              # 不需要统一参数，直接输出原始文件列表
+              step1_output = """${steps[0].valid_files}"""
+              valid_files = []
+              
+              if "=== VALID_FILES ===" in step1_output:
+                  for line in step1_output.split('\n'):
+                      if line.startswith('FILE: '):
+                          valid_files.append(line[6:].strip())
+              
+              print("=== NORMALIZED_FILES ===")
+              for f in valid_files:
+                  print(f"FILE: {f}")
+              print("NORMALIZATION: skipped")
+              return
+          
+          # 从步骤 2 的输出中提取视频信息
+          step2_output = """${steps[2].video_infos}"""
+          video_infos = []
+          
+          if "=== VIDEO_INFOS ===" in step2_output:
+              json_start = step2_output.find("{")
+              if json_start >= 0:
+                  json_end = step2_output.rfind("]") + 1
+                  json_str = step2_output[json_start:json_end]
+                  try:
+                      video_infos = json.loads(json_str)
+                  except:
+                      pass
+          
+          if not video_infos:
+              raise ValueError("无法解析视频信息")
+          
+          # 确定统一的目标参数（使用第一个视频的参数，或选择最常见的参数）
+          target_width = video_infos[0].get('width', 1920)
+          target_height = video_infos[0].get('height', 1080)
+          target_fps = video_infos[0].get('fps', 30.0)
+          
+          # 创建临时目录
+          temp_dir = Path(tempfile.mkdtemp(prefix="video_merge_"))
+          ffmpeg = get_ffmpeg_path()
+          
+          normalized_files = []
+          
+          # 统一每个视频的参数
+          for i, video_info in enumerate(video_infos):
+              input_file = video_info['file']
+              output_file = temp_dir / f"normalized_{i}.mp4"
+              
+              width = video_info.get('width', target_width)
+              height = video_info.get('height', target_height)
+              fps = video_info.get('fps', target_fps)
+              
+              # 如果参数已经匹配，直接复制
+              if width == target_width and height == target_height and abs(fps - target_fps) < 0.1:
+                  import shutil
+                  shutil.copy2(input_file, output_file)
+                  normalized_files.append(str(output_file))
+                  continue
+              
+              # 构建 FFmpeg 命令（统一分辨率、帧率）
+              cmd = [
+                  ffmpeg,
+                  '-i', input_file,
+                  '-vf', f'scale={target_width}:{target_height},fps={target_fps}',
+                  '-c:v', 'libx264',
+                  '-c:a', 'aac',
+                  '-y',
+                  str(output_file)
+              ]
+              
+              try:
+                  result = subprocess.run(
+                      cmd,
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  normalized_files.append(str(output_file))
+                  print(f"NORMALIZED_{i}: {output_file}")
+              except subprocess.CalledProcessError as e:
+                  print(f"警告: 统一视频 {i} 失败: {e.stderr}")
+                  # 如果失败，使用原文件
+                  normalized_files.append(input_file)
+          
+          # 输出结果
+          print("=== NORMALIZED_FILES ===")
+          for f in normalized_files:
+              print(f"FILE: {f}")
+          print(f"TEMP_DIR: {temp_dir}")
+          print(f"TARGET_WIDTH: {target_width}")
+          print(f"TARGET_HEIGHT: {target_height}")
+          print(f"TARGET_FPS: {target_fps}")
+      outputs:
+        normalized_files: ${result.stdout}
+        temp_dir: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "视频参数统一失败"
+    
+    # 步骤 4: 应用转场效果并合并视频
+    - name: merge_videos
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          
+          def get_ffmpeg_path():
+              """获取 FFmpeg 路径"""
+              current_file = Path(__file__).resolve()
+              current = current_file.parent
+              while current.name != 'backend' and len(current.parts) > 1:
+                  current = current.parent
+              if current.name == 'backend':
+                  project_root = current.parent
+              else:
+                  project_root = current_file.parent.parent.parent.parent.parent
+              
+              ffmpeg_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+              if ffmpeg_path.exists():
+                  return str(ffmpeg_path)
+              
+              import shutil
+              system_ffmpeg = shutil.which('ffmpeg')
+              if system_ffmpeg:
+                  return system_ffmpeg
+              
+              raise FileNotFoundError("FFmpeg 未找到")
+          
+          # 解析输入
+          transition_type = "${input.transition_type | default('none')}"
+          transition_duration = float("${input.transition_duration | default(1.0)}")
+          video_codec = "${input.video_codec | default('libx264')}"
+          audio_codec = "${input.audio_codec | default('aac')}"
+          output_file = Path("${input.output_file}")
+          output_file.parent.mkdir(parents=True, exist_ok=True)
+          
+          # 从步骤 3 的输出中提取文件列表
+          step3_output = """${steps[2].normalized_files}"""
+          input_files = []
+          
+          if "=== NORMALIZED_FILES ===" in step3_output:
+              for line in step3_output.split('\n'):
+                  if line.startswith('FILE: '):
+                      input_files.append(line[6:].strip())
+          
+          # 如果没有归一化文件，从步骤 1 获取原始文件
+          if not input_files:
+              step1_output = """${steps[0].valid_files}"""
+              if "=== VALID_FILES ===" in step1_output:
+                  for line in step1_output.split('\n'):
+                      if line.startswith('FILE: '):
+                          input_files.append(line[6:].strip())
+          
+          if not input_files or len(input_files) < 2:
+              raise ValueError("需要至少 2 个输入文件")
+          
+          ffmpeg = get_ffmpeg_path()
+          
+          # 如果不需要转场，直接使用 concat demuxer 合并
+          if transition_type == 'none':
+              # 创建文件列表
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                  for video_file in input_files:
+                      f.write(f"file '{Path(video_file).absolute()}'\n")
+                  concat_file = Path(f.name)
+              
+              try:
+                  cmd = [
+                      ffmpeg,
+                      '-f', 'concat',
+                      '-safe', '0',
+                      '-i', str(concat_file),
+                      '-c', 'copy' if video_codec == 'copy' else video_codec,
+                      '-c:a', audio_codec if audio_codec != 'copy' else 'copy',
+                      '-y',
+                      str(output_file)
+                  ]
+                  
+                  result = subprocess.run(
+                      cmd,
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  
+                  print(f"OUTPUT_FILE: {output_file}")
+              finally:
+                  concat_file.unlink(missing_ok=True)
+          else:
+              # 需要转场效果，使用 xfade 滤镜
+              # 首先使用 ffprobe 获取每个视频的时长
+              import shutil
+              ffprobe = shutil.which('ffprobe')
+              if not ffprobe:
+                  # 尝试项目中的 ffprobe
+                  current_file = Path(__file__).resolve()
+                  current = current_file.parent
+                  while current.name != 'backend' and len(current.parts) > 1:
+                      current = current.parent
+                  if current.name == 'backend':
+                      project_root = current.parent
+                      ffprobe_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffprobe"
+                      if ffprobe_path.exists():
+                          ffprobe = str(ffprobe_path)
+              
+              video_durations = []
+              for video_file in input_files:
+                  try:
+                      cmd = [
+                          ffprobe,
+                          '-v', 'error',
+                          '-show_entries', 'format=duration',
+                          '-of', 'default=noprint_wrappers=1:nokey=1',
+                          video_file
+                      ]
+                      result = subprocess.run(
+                          cmd,
+                          capture_output=True,
+                          text=True,
+                          check=True
+                      )
+                      duration = float(result.stdout.strip())
+                      video_durations.append(duration)
+                  except:
+                      # 如果无法获取时长，使用默认值
+                      video_durations.append(10.0)
+              
+              # 构建输入参数
+              input_args = []
+              for video_file in input_files:
+                  input_args.extend(['-i', video_file])
+              
+              # 计算转场偏移（每个视频的结束时间减去转场时长）
+              offsets = []
+              current_offset = 0
+              for i, duration in enumerate(video_durations[:-1]):
+                  offsets.append(current_offset + duration - transition_duration)
+                  current_offset += duration
+              
+              # 构建 xfade 滤镜链（简化版：只支持两个视频的转场）
+              if len(input_files) == 2:
+                  # 两个视频的简单转场
+                  filter_complex = f"[0:v][1:v]xfade=transition={transition_type}:duration={transition_duration}:offset={offsets[0]}[v]"
+                  cmd = [
+                      ffmpeg
+                  ] + input_args + [
+                      '-filter_complex', filter_complex,
+                      '-map', '[v]',
+                      '-map', '0:a?',  # 使用第一个视频的音频
+                      '-c:v', video_codec,
+                      '-c:a', audio_codec,
+                      '-y',
+                      str(output_file)
+                  ]
+              else:
+                  # 多个视频：先合并前两个，再依次合并
+                  # 简化处理：先合并所有视频（无转场），然后提示用户转场功能仅支持两个视频
+                  print(f"警告: 转场效果目前仅支持 2 个视频，将使用简单合并")
+                  # 使用 concat demuxer 合并
+                  with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                      for video_file in input_files:
+                          f.write(f"file '{Path(video_file).absolute()}'\n")
+                      concat_file = Path(f.name)
+                  
+                  try:
+                      cmd = [
+                          ffmpeg,
+                          '-f', 'concat',
+                          '-safe', '0',
+                          '-i', str(concat_file),
+                          '-c:v', video_codec,
+                          '-c:a', audio_codec,
+                          '-y',
+                          str(output_file)
+                      ]
+                  finally:
+                      concat_file.unlink(missing_ok=True)
+              
+              try:
+                  result = subprocess.run(
+                      cmd,
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  
+                  print(f"OUTPUT_FILE: {output_file}")
+              except subprocess.CalledProcessError as e:
+                  raise Exception(f"转场合并失败: {e.stderr}")
+          
+          # 清理临时文件（如果需要）
+          # 注意：这里不清理，因为可能还需要调试
+      outputs:
+        merged_video: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "视频合并失败"
+
+# 输出格式定义
+output:
+  format: object
+  fields:
+    - name: input_files
+      type: array
+      description: 输入视频文件列表
+    - name: output_file
+      type: string
+      description: 输出视频文件路径
+    - name: transition_type
+      type: string
+      description: 使用的转场类型
+    - name: file_count
+      type: integer
+      description: 合并的文件数量
+
+# 使用示例
+examples:
+  - user_input: "合并这两个视频文件"
+    parameters:
+      input_files: ["/path/to/video1.mp4", "/path/to/video2.mp4"]
+      output_file: "/path/to/output.mp4"
+      transition_type: none
+    description: "简单合并，无转场"
+  
+  - user_input: "合并视频并添加淡入淡出转场"
+    parameters:
+      input_files: ["/path/to/video1.mp4", "/path/to/video2.mp4"]
+      output_file: "/path/to/output.mp4"
+      transition_type: fade
+      transition_duration: 1.5
+    description: "带转场效果的合并"
+
+# 错误处理策略
+error_handling:
+  global:
+    on_error: fail
+    return_intermediate: false
+  steps:
+    - step: check_input_files
+      on_error: fail
+      message: "输入文件检查失败"
+    - step: probe_all_videos
+      on_error: fail
+      message: "视频分析失败"
+    - step: normalize_videos
+      on_error: skip
+      message: "视频参数统一失败，使用原始文件"
+    - step: merge_videos
+      on_error: fail
+      message: "视频合并失败"
+

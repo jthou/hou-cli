@@ -1,0 +1,393 @@
+# 字幕叠加技能配置
+# Video Subtitle Overlay Skill Configuration
+
+name: video_subtitle_overlay
+version: 1.0.0
+description: 在视频上叠加字幕，支持 SRT 格式，可自定义字幕样式
+category: media_processing
+priority: P1
+
+# 技能参数定义
+parameters:
+  - name: input_file
+    type: string
+    description: 输入视频文件路径
+    required: true
+  - name: output_file
+    type: string
+    description: 输出视频文件路径
+    required: true
+  - name: subtitle_file
+    type: string
+    description: SRT 字幕文件路径
+    required: true
+  - name: subtitle_style
+    type: object
+    description: 字幕样式配置（可选）
+    required: false
+    properties:
+      font_name:
+        type: string
+        description: 字体名称（默认：Arial）
+        default: Arial
+      font_size:
+        type: integer
+        description: 字体大小（默认：24）
+        default: 24
+      font_color:
+        type: string
+        description: 字体颜色（默认：white，支持颜色名称或十六进制）
+        default: white
+      background_color:
+        type: string
+        description: 背景颜色（默认：black，支持颜色名称或十六进制）
+        default: black
+      position:
+        type: string
+        description: 位置（bottom/top，默认：bottom）
+        default: bottom
+        enum: [bottom, top]
+      margin_v:
+        type: integer
+        description: 垂直边距（默认：20）
+        default: 20
+  - name: hard_subtitle
+    type: boolean
+    description: 是否硬字幕（嵌入视频流，默认：true）
+    required: false
+    default: true
+  - name: video_codec
+    type: string
+    description: 视频编码器（默认：libx264，硬字幕需要重新编码）
+    required: false
+    default: libx264
+    enum: [libx264, libx265, copy]
+  - name: audio_codec
+    type: string
+    description: 音频编码器（默认：copy）
+    required: false
+    default: copy
+    enum: [copy, aac, mp3]
+
+# 依赖的工具和技能
+dependencies:
+  tools:
+    - name: ffmpeg
+      version: ">=1.0.0"
+    - name: execute_code
+      version: ">=1.0.0"
+  skills: []
+
+# 工作流定义
+workflow:
+  steps:
+    # 步骤 1: 验证字幕文件
+    - name: validate_subtitle
+      type: code_executor
+      inputs:
+        code: |
+          from pathlib import Path
+          
+          subtitle_file = Path("${input.subtitle_file}").expanduser().resolve()
+          if not subtitle_file.exists():
+              raise FileNotFoundError(f"字幕文件不存在: {subtitle_file}")
+          
+          # 验证 SRT 格式
+          try:
+              with open(subtitle_file, 'r', encoding='utf-8') as f:
+                  content = f.read()
+          except UnicodeDecodeError:
+              # 尝试其他编码
+              try:
+                  with open(subtitle_file, 'r', encoding='gbk') as f:
+                      content = f.read()
+              except:
+                  with open(subtitle_file, 'r', encoding='latin-1') as f:
+                      content = f.read()
+          
+          # 简单的格式检查
+          if '-->' not in content:
+              raise ValueError("字幕文件格式不正确（不是 SRT 格式，缺少时间戳分隔符 '-->'）")
+          
+          # 统计字幕条目数量
+          subtitle_count = content.count('-->')
+          
+          print(f"SUBTITLE_FILE: {subtitle_file}")
+          print(f"SUBTITLE_COUNT: {subtitle_count}")
+          print(f"FILE_SIZE: {subtitle_file.stat().st_size}")
+      outputs:
+        subtitle_valid: ${result.stdout}
+        subtitle_count: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "字幕文件验证失败"
+    
+    # 步骤 2: 验证输入视频文件
+    - name: validate_video
+      type: tool
+      tool: ffmpeg
+      inputs:
+        operation: probe
+        input_file: ${input.input_file}
+      outputs:
+        video_info: ${result.data}
+        video_duration: ${result.data.format.duration}
+      error_handling:
+        on_error: fail
+        message: "输入视频文件验证失败"
+    
+    # 步骤 3: 生成字幕样式配置
+    - name: generate_subtitle_style
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          
+          # 解析字幕样式配置
+          style_str = """${input.subtitle_style | default({})}"""
+          try:
+              if isinstance(style_str, dict):
+                  style = style_str
+              elif isinstance(style_str, str):
+                  style = json.loads(style_str) if style_str else {}
+              else:
+                  style = {}
+          except:
+              style = {}
+          
+          # 默认样式
+          font_name = style.get('font_name', 'Arial')
+          font_size = style.get('font_size', 24)
+          font_color = style.get('font_color', 'white')
+          bg_color = style.get('background_color', 'black')
+          position = style.get('position', 'bottom')
+          margin_v = style.get('margin_v', 20)
+          
+          # 颜色转换函数（将颜色名称或十六进制转换为 ASS 格式）
+          def color_to_ass(color_str):
+              """将颜色转换为 ASS 格式（&HBBGGRR）"""
+              color_str = str(color_str).lower().strip()
+              
+              # 预定义颜色映射
+              color_map = {
+                  'white': 'FFFFFF',
+                  'black': '000000',
+                  'red': '0000FF',
+                  'green': '00FF00',
+                  'blue': 'FF0000',
+                  'yellow': '00FFFF',
+                  'cyan': 'FFFF00',
+                  'magenta': 'FF00FF'
+              }
+              
+              if color_str in color_map:
+                  hex_color = color_map[color_str]
+              elif color_str.startswith('#'):
+                  hex_color = color_str[1:]
+              elif len(color_str) == 6:
+                  hex_color = color_str
+              else:
+                  hex_color = 'FFFFFF'  # 默认白色
+              
+              # ASS 格式是 BGR（不是 RGB）
+              if len(hex_color) == 6:
+                  r = hex_color[0:2]
+                  g = hex_color[2:4]
+                  b = hex_color[4:6]
+                  return f"&H{b}{g}{r}"
+              return "&HFFFFFF"
+          
+          # 生成 ASS 样式字符串
+          primary_color = color_to_ass(font_color)
+          back_color = color_to_ass(bg_color)
+          
+          # 根据位置设置对齐方式
+          alignment = "2" if position == "bottom" else "8"  # 2=底部居中, 8=顶部居中
+          
+          # 生成 force_style 字符串
+          force_style = (
+              f"FontName={font_name},"
+              f"FontSize={font_size},"
+              f"PrimaryColour={primary_color},"
+              f"BackColour={back_color},"
+              f"Alignment={alignment},"
+              f"MarginV={margin_v}"
+          )
+          
+          # 输出结果
+          print("=== SUBTITLE_STYLE ===")
+          print(f"FONT_NAME: {font_name}")
+          print(f"FONT_SIZE: {font_size}")
+          print(f"PRIMARY_COLOR: {primary_color}")
+          print(f"BACK_COLOR: {back_color}")
+          print(f"ALIGNMENT: {alignment}")
+          print(f"MARGIN_V: {margin_v}")
+          print(f"FORCE_STYLE: {force_style}")
+      outputs:
+        subtitle_style: ${result.stdout}
+        force_style: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "字幕样式配置生成失败"
+    
+    # 步骤 4: 叠加字幕
+    - name: overlay_subtitle
+      type: code_executor
+      inputs:
+        code: |
+          import subprocess
+          import json
+          from pathlib import Path
+          
+          def get_ffmpeg_path():
+              """获取 FFmpeg 路径"""
+              current_file = Path(__file__).resolve()
+              current = current_file.parent
+              while current.name != 'backend' and len(current.parts) > 1:
+                  current = current.parent
+              if current.name == 'backend':
+                  project_root = current.parent
+              else:
+                  project_root = current_file.parent.parent.parent.parent.parent
+              
+              ffmpeg_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+              if ffmpeg_path.exists():
+                  return str(ffmpeg_path)
+              
+              import shutil
+              system_ffmpeg = shutil.which('ffmpeg')
+              if system_ffmpeg:
+                  return system_ffmpeg
+              
+              raise FileNotFoundError("FFmpeg 未找到")
+          
+          # 解析输入
+          input_file = Path("${input.input_file}").expanduser().resolve()
+          output_file = Path("${input.output_file}").expanduser().resolve()
+          subtitle_file = Path("${input.subtitle_file}").expanduser().resolve()
+          hard_subtitle = "${input.hard_subtitle | default(true)}"
+          hard_subtitle = hard_subtitle.lower() in ('true', '1', 'yes', 'on') if isinstance(hard_subtitle, str) else bool(hard_subtitle)
+          
+          video_codec = "${input.video_codec | default('libx264')}"
+          audio_codec = "${input.audio_codec | default('copy')}"
+          
+          # 从步骤 3 的输出中提取 force_style
+          step3_output = """${steps[2].force_style}"""
+          force_style = ""
+          
+          if "FORCE_STYLE:" in step3_output:
+              for line in step3_output.split('\n'):
+                  if line.startswith('FORCE_STYLE: '):
+                      force_style = line[13:].strip()
+                      break
+          
+          if not force_style:
+              # 使用默认样式
+              force_style = "FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,BackColour=&H000000,Alignment=2,MarginV=20"
+          
+          # 确保输出目录存在
+          output_file.parent.mkdir(parents=True, exist_ok=True)
+          
+          ffmpeg = get_ffmpeg_path()
+          
+          # 构建字幕滤镜
+          # 使用 subtitles 滤镜（支持 SRT 格式）
+          # 注意：subtitle_file 路径需要转义，特别是包含空格或特殊字符时
+          subtitle_path_escaped = str(subtitle_file).replace("'", "\\'").replace(":", "\\:")
+          
+          if force_style:
+              subtitle_filter = f"subtitles='{subtitle_path_escaped}':force_style='{force_style}'"
+          else:
+              subtitle_filter = f"subtitles='{subtitle_path_escaped}'"
+          
+          # 构建 FFmpeg 命令
+          # 注意：字幕叠加需要重新编码视频，不能使用 copy
+          if video_codec == 'copy':
+              video_codec = 'libx264'
+          
+          cmd = [
+              ffmpeg,
+              '-i', str(input_file),
+              '-vf', subtitle_filter,
+              '-c:v', video_codec,
+              '-c:a', audio_codec if audio_codec != 'copy' else 'copy',
+              '-y',  # 覆盖输出文件
+              str(output_file)
+          ]
+          
+          try:
+              result = subprocess.run(
+                  cmd,
+                  capture_output=True,
+                  text=True,
+                  check=True
+              )
+              
+              print(f"OUTPUT_FILE: {output_file}")
+              print(f"SUBTITLE_OVERLAYED: true")
+          except subprocess.CalledProcessError as e:
+              error_msg = f"字幕叠加失败: {e.stderr}"
+              print(f"ERROR: {error_msg}")
+              raise Exception(error_msg)
+      outputs:
+        output_video: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "字幕叠加失败"
+
+# 输出格式定义
+output:
+  format: object
+  fields:
+    - name: input_file
+      type: string
+      description: 输入视频文件路径
+    - name: output_file
+      type: string
+      description: 输出视频文件路径
+    - name: subtitle_file
+      type: string
+      description: 字幕文件路径
+    - name: subtitle_count
+      type: integer
+      description: 字幕条目数量
+
+# 使用示例
+examples:
+  - user_input: "给视频添加字幕"
+    parameters:
+      input_file: "/path/to/video.mp4"
+      output_file: "/path/to/output.mp4"
+      subtitle_file: "/path/to/subtitle.srt"
+    description: "使用默认样式添加字幕"
+  
+  - user_input: "给视频添加字幕，使用大字体和黄色"
+    parameters:
+      input_file: "/path/to/video.mp4"
+      output_file: "/path/to/output.mp4"
+      subtitle_file: "/path/to/subtitle.srt"
+      subtitle_style:
+        font_size: 32
+        font_color: yellow
+        background_color: black
+    description: "自定义字幕样式"
+
+# 错误处理策略
+error_handling:
+  global:
+    on_error: fail
+    return_intermediate: false
+  steps:
+    - step: validate_subtitle
+      on_error: fail
+      message: "字幕文件验证失败"
+    - step: validate_video
+      on_error: fail
+      message: "输入视频文件验证失败"
+    - step: generate_subtitle_style
+      on_error: fail
+      message: "字幕样式配置生成失败"
+    - step: overlay_subtitle
+      on_error: fail
+      message: "字幕叠加失败"
+
