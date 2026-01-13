@@ -50,5 +50,8 @@ Thumbs.db
 *.pid
 .cursor/
 
+# External dependencies build artifacts
+backend/externals/ffmpeg/build/
+
 # Development entry point (避免与系统级 hou-cli 冲突)
 venv/bin/hou-cli
