@@ -1,0 +1,482 @@
+# 视频剪辑技能配置
+# Video Cut Skill Configuration
+
+name: video_cut
+version: 1.0.0
+description: 从视频中提取指定时间段的内容，支持单片段和多片段剪辑
+category: media_processing
+priority: P1
+
+# 技能参数定义
+parameters:
+  - name: input_file
+    type: string
+    description: 输入视频文件路径
+    required: true
+  - name: output_file
+    type: string
+    description: 输出视频文件路径
+    required: true
+  - name: segments
+    type: array
+    description: 要提取的时间段列表，每个片段包含 start_time 和 end_time/duration
+    required: true
+    items:
+      type: object
+      properties:
+        start_time:
+          type: string
+          description: 开始时间（格式：HH:MM:SS 或秒数）
+        end_time:
+          type: string
+          description: 结束时间（格式：HH:MM:SS 或秒数）
+        duration:
+          type: string
+          description: 时长（格式：HH:MM:SS 或秒数，如果提供 end_time 则不需要）
+  - name: merge_segments
+    type: boolean
+    description: 是否将多个片段合并成一个视频（默认：true）
+    required: false
+    default: true
+  - name: video_codec
+    type: string
+    description: 视频编码器（默认：copy，快速但不精确）
+    required: false
+    default: copy
+    enum: [copy, libx264, libx265]
+  - name: audio_codec
+    type: string
+    description: 音频编码器（默认：copy）
+    required: false
+    default: copy
+    enum: [copy, aac, mp3]
+
+# 工具依赖
+dependencies:
+  tools:
+    - name: ffmpeg
+      version: ">=1.0.0"
+    - name: code_executor
+      version: ">=1.0.0"
+  skills: []
+
+# 工作流定义
+workflow:
+  steps:
+    # 步骤 1: 分析输入视频
+    - name: probe_video
+      type: tool
+      tool: ffmpeg
+      inputs:
+        operation: probe
+        input_file: ${input.input_file}
+      outputs:
+        video_info: ${result.data}
+        duration: ${result.data.format.duration}
+      error_handling:
+        on_error: fail
+        message: "无法分析视频文件"
+    
+    # 步骤 2: 验证和解析时间段
+    - name: validate_segments
+      type: tool
+      tool: code_executor
+      inputs:
+        code: |
+          import json
+          from pathlib import Path
+          
+          def parse_time(time_str):
+              """解析时间字符串为秒数"""
+              if isinstance(time_str, (int, float)):
+                  return float(time_str)
+              
+              time_str = str(time_str).strip()
+              
+              # 尝试解析为秒数
+              try:
+                  return float(time_str)
+              except ValueError:
+                  pass
+              
+              # 解析为 HH:MM:SS 格式
+              if ':' in time_str:
+                  parts = time_str.split(':')
+                  if len(parts) == 3:
+                      h, m, s = map(float, parts)
+                      return h * 3600 + m * 60 + s
+                  elif len(parts) == 2:
+                      m, s = map(float, parts)
+                      return m * 60 + s
+              
+              raise ValueError(f"无法解析时间格式: {time_str}")
+          
+          def format_time(seconds):
+              """将秒数格式化为 HH:MM:SS.mmm"""
+              h = int(seconds // 3600)
+              m = int((seconds % 3600) // 60)
+              s = seconds % 60
+              return f"{h:02d}:{m:02d}:{s:06.3f}"
+          
+          # 获取输入参数
+          input_file = "${input.input_file}"
+          # segments 需要从上下文中获取（执行器会自动替换）
+          segments_str = """${input.segments}"""
+          # 解析 segments（执行器会替换为实际值）
+          import ast
+          try:
+              # 尝试直接解析（如果已经是 Python 对象）
+              if isinstance(segments_str, list):
+                  segments = segments_str
+              else:
+                  # 尝试解析 JSON 或 Python 字面量
+                  segments = json.loads(segments_str) if isinstance(segments_str, str) else ast.literal_eval(str(segments_str))
+          except:
+              # 如果解析失败，尝试其他方式
+              segments = eval(segments_str) if isinstance(segments_str, str) else segments_str
+          
+          # 获取视频时长（从步骤 0 的结果中提取）
+          duration_value = "${steps[0].duration}"
+          try:
+              video_duration = float(duration_value)
+          except:
+              # 如果无法直接转换，尝试从字符串中提取
+              video_duration = 0.0
+          
+          # 验证输入文件存在
+          if not Path(input_file).exists():
+              raise FileNotFoundError(f"输入文件不存在: {input_file}")
+          
+          validated_segments = []
+          for i, seg in enumerate(segments):
+              try:
+                  start = parse_time(seg['start_time'])
+                  
+                  if 'end_time' in seg and seg['end_time']:
+                      end = parse_time(seg['end_time'])
+                  elif 'duration' in seg and seg['duration']:
+                      end = start + parse_time(seg['duration'])
+                  else:
+                      raise ValueError(f"片段 {i+1} 必须提供 end_time 或 duration")
+                  
+                  # 验证时间段
+                  if start < 0:
+                      start = 0
+                  if end > video_duration:
+                      end = video_duration
+                  if start >= end:
+                      print(f"警告: 片段 {i+1} 时间段无效（{start} >= {end}），跳过")
+                      continue
+                  
+                  validated_segments.append({
+                      'index': i,
+                      'start_time': start,
+                      'end_time': end,
+                      'duration': end - start,
+                      'start_time_str': format_time(start),
+                      'end_time_str': format_time(end)
+                  })
+              except Exception as e:
+                  print(f"警告: 片段 {i+1} 解析失败: {e}，跳过")
+                  continue
+          
+          if not validated_segments:
+              raise ValueError("没有有效的片段可以剪辑")
+          
+          # 输出结果（JSON 格式）
+          result = {
+              'validated_segments': validated_segments,
+              'segment_count': len(validated_segments),
+              'total_duration': sum(s['duration'] for s in validated_segments)
+          }
+          
+          print("=== VALIDATED_SEGMENTS ===")
+          print(json.dumps(result, indent=2, ensure_ascii=False))
+      outputs:
+        validated_segments: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "时间段验证失败"
+    
+    # 步骤 3: 剪辑各个片段（使用代码执行器批量处理）
+    - name: cut_segments
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          
+          def get_ffmpeg_path():
+              """获取 FFmpeg 路径"""
+              # 尝试项目中的 FFmpeg
+              current_file = Path(__file__).resolve()
+              current = current_file.parent
+              while current.name != 'backend' and len(current.parts) > 1:
+                  current = current.parent
+              if current.name == 'backend':
+                  project_root = current.parent
+              else:
+                  project_root = current_file.parent.parent.parent.parent.parent
+              
+              ffmpeg_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+              if ffmpeg_path.exists():
+                  return str(ffmpeg_path)
+              
+              # 尝试系统 PATH
+              import shutil
+              system_ffmpeg = shutil.which('ffmpeg')
+              if system_ffmpeg:
+                  return system_ffmpeg
+              
+              raise FileNotFoundError("FFmpeg 未找到")
+          
+          # 解析输入
+          input_file = "${input.input_file}"
+          validated_segments_data = """${steps[1].validated_segments}"""
+          
+          # 从输出中提取 JSON 数据
+          if "=== VALIDATED_SEGMENTS ===" in validated_segments_data:
+              json_start = validated_segments_data.find("{")
+              json_data = json.loads(validated_segments_data[json_start:])
+              validated_segments = json_data['validated_segments']
+          else:
+              # 尝试直接解析
+              json_data = json.loads(validated_segments_data)
+              validated_segments = json_data['validated_segments']
+          
+          video_codec = "${input.video_codec | default('copy')}"
+          audio_codec = "${input.audio_codec | default('copy')}"
+          
+          # 创建临时目录
+          temp_dir = Path(tempfile.mkdtemp(prefix="video_cut_"))
+          ffmpeg = get_ffmpeg_path()
+          
+          segment_files = []
+          
+          # 剪辑每个片段
+          for seg in validated_segments:
+              segment_index = seg['index']
+              start_time = seg['start_time_str']
+              duration = seg['duration']
+              
+              segment_output = temp_dir / f"segment_{segment_index}.mp4"
+              
+              # 构建 FFmpeg 命令
+              cmd = [
+                  ffmpeg,
+                  '-i', input_file,
+                  '-ss', start_time,
+                  '-t', str(duration),
+                  '-c:v', video_codec,
+                  '-c:a', audio_codec,
+                  '-y',  # 覆盖输出文件
+                  str(segment_output)
+              ]
+              
+              try:
+                  result = subprocess.run(
+                      cmd,
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  segment_files.append(str(segment_output))
+                  print(f"SEGMENT_{segment_index}: {segment_output}")
+              except subprocess.CalledProcessError as e:
+                  print(f"警告: 片段 {segment_index} 剪辑失败: {e.stderr}")
+                  continue
+          
+          if not segment_files:
+              raise ValueError("所有片段剪辑失败")
+          
+          # 输出结果（纯文本格式，便于解析）
+          print("=== CUT_SEGMENTS_RESULT ===")
+          print(f"TEMP_DIR: {temp_dir}")
+          print(f"SEGMENT_COUNT: {len(segment_files)}")
+          print("=== SEGMENT_FILES ===")
+          for seg_file in segment_files:
+              print(seg_file)
+      outputs:
+        temp_dir: ${result.stdout}
+        segment_files: ${result.stdout}
+        segment_count: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "片段剪辑失败"
+    
+    # 步骤 4: 合并片段（如果需要）
+    - name: merge_segments
+      type: code_executor
+      inputs:
+        code: |
+          import json
+          import subprocess
+          import shutil
+          from pathlib import Path
+          
+          def get_ffmpeg_path():
+              """获取 FFmpeg 路径"""
+              current_file = Path(__file__).resolve()
+              current = current_file.parent
+              while current.name != 'backend' and len(current.parts) > 1:
+                  current = current.parent
+              if current.name == 'backend':
+                  project_root = current.parent
+              else:
+                  project_root = current_file.parent.parent.parent.parent.parent
+              
+              ffmpeg_path = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+              if ffmpeg_path.exists():
+                  return str(ffmpeg_path)
+              
+              import shutil
+              system_ffmpeg = shutil.which('ffmpeg')
+              if system_ffmpeg:
+                  return system_ffmpeg
+              
+              raise FileNotFoundError("FFmpeg 未找到")
+          
+          # 解析输入
+          merge_segments_str = "${input.merge_segments | default(true)}"
+          merge_segments = merge_segments_str.lower() in ('true', '1', 'yes', 'on') if isinstance(merge_segments_str, str) else bool(merge_segments_str)
+          
+          # 从步骤 2 的输出中提取信息
+          step2_output = """${steps[2].segment_files}"""
+          segment_files = []
+          segment_count = 0
+          
+          # 提取片段数量
+          if "SEGMENT_COUNT:" in step2_output:
+              count_line = [line for line in step2_output.split('\n') if 'SEGMENT_COUNT:' in line]
+              if count_line:
+                  try:
+                      segment_count = int(count_line[0].split(':')[-1].strip())
+                  except:
+                      pass
+          
+          # 提取文件列表
+          if "=== SEGMENT_FILES ===" in step2_output:
+              # 提取文件列表部分
+              files_start = step2_output.find("=== SEGMENT_FILES ===") + len("=== SEGMENT_FILES ===")
+              files_section = step2_output[files_start:].strip()
+              for line in files_section.split('\n'):
+                  line = line.strip()
+                  if line and Path(line).exists():
+                      segment_files.append(line)
+          
+          if not segment_files:
+              raise ValueError("未找到剪辑后的片段文件")
+          
+          output_file = Path("${input.output_file}")
+          output_file.parent.mkdir(parents=True, exist_ok=True)
+          
+          # 如果只有一个片段或不需要合并，直接移动文件
+          if segment_count == 1 or not merge_segments:
+              if segment_files:
+                  shutil.move(segment_files[0], str(output_file))
+                  print(f"OUTPUT_FILE: {output_file}")
+          else:
+              # 合并多个片段
+              ffmpeg = get_ffmpeg_path()
+              
+              # 创建文件列表
+              import tempfile
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                  for seg_file in segment_files:
+                      f.write(f"file '{Path(seg_file).absolute()}'\n")
+                  concat_file = Path(f.name)
+              
+              try:
+                  # 使用 concat demuxer 合并
+                  cmd = [
+                      ffmpeg,
+                      '-f', 'concat',
+                      '-safe', '0',
+                      '-i', str(concat_file),
+                      '-c', 'copy',
+                      '-y',
+                      str(output_file)
+                  ]
+                  
+                  result = subprocess.run(
+                      cmd,
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  
+                  print(f"OUTPUT_FILE: {output_file}")
+              finally:
+                  # 清理临时文件
+                  concat_file.unlink(missing_ok=True)
+                  for seg_file in segment_files:
+                      Path(seg_file).unlink(missing_ok=True)
+      outputs:
+        final_video: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "视频合并失败"
+
+# 输出格式定义
+output:
+  format: object
+  fields:
+    - name: input_file
+      type: string
+      description: 输入视频文件路径
+    - name: output_file
+      type: string
+      description: 输出视频文件路径
+    - name: segment_count
+      type: integer
+      description: 剪辑的片段数量
+    - name: total_duration
+      type: number
+      description: 总时长（秒）
+
+# 使用示例
+examples:
+  - user_input: "帮我提取视频的 5-10 分钟"
+    parameters:
+      input_file: "/path/to/video.mp4"
+      output_file: "/path/to/output.mp4"
+      segments:
+        - start_time: "00:05:00"
+          end_time: "00:10:00"
+    description: "单片段剪辑"
+  
+  - user_input: "提取视频的 5-10 分钟和 20-25 分钟，然后合并"
+    parameters:
+      input_file: "/path/to/video.mp4"
+      output_file: "/path/to/output.mp4"
+      segments:
+        - start_time: "00:05:00"
+          end_time: "00:10:00"
+        - start_time: "00:20:00"
+          end_time: "00:25:00"
+      merge_segments: true
+    description: "多片段剪辑并合并"
+
+# 错误处理策略
+error_handling:
+  global:
+    on_error: partial
+    return_intermediate: true
+  steps:
+    - step: probe_video
+      on_error: fail
+      message: "无法分析视频文件"
+    - step: validate_segments
+      on_error: fail
+      message: "时间段验证失败"
+    - step: cut_segments
+      on_error: skip
+      continue_on_error: true
+      message: "部分片段剪辑失败，继续处理其他片段"
+    - step: merge_segments
+      on_error: retry
+      max_retries: 2
+      message: "视频合并失败，尝试重试"
+
