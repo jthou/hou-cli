@@ -25,6 +25,7 @@ venv/
 env/
 ENV/
 .venv
+.temp-venv/
 
 # IDE
 .vscode/
@@ -49,6 +50,7 @@ Thumbs.db
 .backend.pid
 *.pid
 .cursor/
+data/
 
 # External dependencies build artifacts
 backend/externals/ffmpeg/build/

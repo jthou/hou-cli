@@ -25,6 +25,8 @@ from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
 from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
 from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
+from backend.core.agent.skills.registry import SkillRegistry
+from backend.core.agent.skills.executor import SkillExecutor
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
 
@@ -48,8 +50,43 @@ class Orchestrator:
         # 初始化自动代码执行器
         self._init_auto_code_executor()
         
+        # 初始化技能系统
+        self.skill_registry = SkillRegistry()
+        self.skill_executor = SkillExecutor(self.tool_registry, self.llm_service)
+        self._register_skills()
+        
         # self.workflow_identifier = WorkflowIdentifier()
         # self.workflow_engine = WorkflowEngine(self)
+    
+    def _register_skills(self):
+        """注册所有可用技能
+        
+        自动从 skills 目录加载所有技能：
+        - 每个技能一个子目录
+        - 子目录中包含 skill.yaml 和 __init__.py
+        """
+        skills_dir = Path(__file__).parent / "skills"
+        
+        # 遍历技能目录
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.is_dir() and not skill_dir.name.startswith('_'):
+                try:
+                    # 尝试导入技能模块
+                    module_name = f"backend.core.agent.skills.{skill_dir.name}"
+                    skill_module = __import__(module_name, fromlist=[''])
+                    
+                    # 查找技能类（通常是技能目录名转换为类名）
+                    skill_class_name = ''.join(word.capitalize() for word in skill_dir.name.split('_')) + 'Skill'
+                    
+                    if hasattr(skill_module, skill_class_name):
+                        skill_class = getattr(skill_module, skill_class_name)
+                        skill_instance = skill_class(self.skill_executor)
+                        self.skill_registry.register(skill_instance)
+                        logger.info(f"技能已注册: {skill_instance.name} (v{skill_instance.version})")
+                    else:
+                        logger.warning(f"技能目录 {skill_dir.name} 中未找到技能类 {skill_class_name}")
+                except Exception as e:
+                    logger.warning(f"注册技能 {skill_dir.name} 失败: {e}", exc_info=True)
     
     def _register_tools(self):
         """注册所有可用工具
@@ -635,6 +672,75 @@ class Orchestrator:
         else:
             user_prompt = task
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+        
+        # 先尝试匹配技能
+        matched_skill = self.skill_registry.match(task)
+        if matched_skill:
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "匹配到技能",
+                "details": {"skill_name": matched_skill.name, "skill_description": matched_skill.description}
+            }
+            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+            self.debug.log_orchestrator_step("匹配技能", {"skill_name": matched_skill.name})
+            
+            # 执行技能
+            try:
+                # 创建进度消息队列
+                progress_messages = []
+                
+                # 设置进度回调
+                def progress_callback(msg: str):
+                    progress_messages.append(msg)
+                
+                matched_skill.set_progress_callback(progress_callback)
+                self.skill_executor.set_progress_callback(progress_callback)
+                
+                # 执行技能（这里需要从用户输入中提取参数，简化处理）
+                # TODO: 从用户输入中智能提取技能参数
+                skill_parameters = self._extract_skill_parameters(task, matched_skill)
+                
+                skill_result = await matched_skill.execute(
+                    parameters=skill_parameters,
+                    context={
+                        'progress_callback': progress_callback,
+                        'tool_registry': self.tool_registry,
+                        'llm_service': self.llm_service
+                    }
+                )
+                
+                # 输出进度消息
+                for msg in progress_messages:
+                    progress_info = {
+                        "type": "progress",
+                        "category": "skill",
+                        "tool_name": matched_skill.name,
+                        "message": msg
+                    }
+                    yield f"__PROGRESS__:{json.dumps(progress_info, ensure_ascii=False)}\n"
+                
+                if skill_result.success:
+                    # 格式化技能结果
+                    result_text = self._format_skill_result(skill_result)
+                    yield result_text
+                    return
+                else:
+                    # 技能执行失败，回退到工具调用
+                    error_info = {
+                        "type": "debug",
+                        "category": "orchestrator",
+                        "message": f"技能执行失败: {skill_result.error}，回退到工具调用"
+                    }
+                    yield f"__DEBUG__:{json.dumps(error_info, ensure_ascii=False)}\n"
+            except Exception as e:
+                logger.error(f"技能执行失败: {e}", exc_info=True)
+                error_info = {
+                    "type": "debug",
+                    "category": "orchestrator",
+                    "message": f"技能执行异常: {str(e)}，回退到工具调用"
+                }
+                yield f"__DEBUG__:{json.dumps(error_info, ensure_ascii=False)}\n"
         
         # 获取工具定义（LLM Function Calling 格式）
         tools = self.tool_registry.get_tools_for_llm()

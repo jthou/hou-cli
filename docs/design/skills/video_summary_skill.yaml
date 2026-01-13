@@ -1,0 +1,875 @@
+# 视频内容摘要技能配置
+# Video Summary Skill Configuration
+
+name: video_summary
+version: 1.0.0
+description: 下载视频、提取音频、生成字幕、阅读内容并生成摘要和文章
+category: media_processing
+priority: P0
+
+# 技能参数定义
+parameters:
+  - name: url
+    type: string
+    description: 视频 URL（如果视频已下载，可留空）
+    required: false
+  - name: video_path
+    type: string
+    description: 视频文件路径（如果视频已下载）
+    required: false
+  - name: model
+    type: string
+    description: Whisper 模型大小（tiny/base/small/medium/large）
+    required: false
+    default: base
+    enum: [tiny, base, small, medium, large]
+  - name: summary_length
+    type: integer
+    description: 摘要长度（字数，默认：200）
+    required: false
+    default: 200
+  - name: article_length
+    type: integer
+    description: 文章长度（字数，默认：1000）
+    required: false
+    default: 1000
+  - name: article_format
+    type: string
+    description: 文章格式（markdown/html/text，默认：markdown）
+    required: false
+    default: markdown
+    enum: [markdown, html, text]
+  - name: output_dir
+    type: string
+    description: 输出目录（可选）
+    required: false
+
+# 工具依赖
+dependencies:
+  tools:
+    - name: video_downloader
+      version: ">=1.0.0"
+    - name: ffmpeg
+      version: ">=1.0.0"
+    - name: whisper
+      version: ">=1.0.0"
+    - name: code_executor
+      version: ">=1.0.0"
+  skills: []
+
+# 工作流定义
+workflow:
+  steps:
+    # 步骤 1: 检查并下载视频
+    - name: check_and_download_video
+      type: conditional
+      condition: ${not file_exists(${input.video_path}) and ${input.url}}
+      tool: video_downloader
+      inputs:
+        url: ${input.url}
+        output_dir: ${input.output_dir}
+      outputs:
+        video_path: ${result.output_file}
+      skip_if: ${file_exists(${input.video_path}) or not ${input.url}}
+      skip_outputs:
+        video_path: ${input.video_path}
+      error_handling:
+        on_error: retry
+        max_retries: 3
+        retry_delay: 5s
+
+    # 步骤 2: 检查并提取音频
+    - name: check_and_extract_audio
+      type: conditional
+      condition: ${not file_exists(${steps[0].video_path}.audio.mp3)}
+      tool: ffmpeg
+      inputs:
+        operation: extract_audio
+        input_file: ${steps[0].video_path}
+        output_file: ${steps[0].video_path}.audio.mp3
+        audio_format: mp3
+        audio_quality: 192k
+      outputs:
+        audio_path: ${result.output_file}
+      skip_if: ${file_exists(${steps[0].video_path}.audio.mp3)}
+      skip_outputs:
+        audio_path: ${steps[0].video_path}.audio.mp3
+      error_handling:
+        on_error: fail
+        message: "音频提取失败，无法继续"
+
+    # 步骤 3: 生成字幕
+    - name: generate_subtitle
+      type: conditional
+      condition: ${not file_exists(${steps[0].video_path}.srt)}
+      tool: whisper
+      inputs:
+        audio_file: ${steps[1].audio_path}
+        model: ${input.model | default('base')}
+        output_file: ${steps[0].video_path}.srt
+      outputs:
+        subtitle_path: ${result.output_file}
+      skip_if: ${file_exists(${steps[0].video_path}.srt})}
+      skip_outputs:
+        subtitle_path: ${steps[0].video_path}.srt
+      error_handling:
+        on_error: retry
+        max_retries: 2
+        retry_delay: 10s
+
+    # 步骤 4: 读取字幕文件
+    - name: read_subtitle
+      type: tool
+      tool: code_executor
+      inputs:
+        code: |
+          import re
+          from pathlib import Path
+          
+          def parse_srt(file_path):
+              """解析 SRT 字幕文件"""
+              with open(file_path, 'r', encoding='utf-8') as f:
+                  content = f.read()
+              
+              # SRT 格式：序号、时间戳、文本
+              pattern = r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3})\n(.*?)(?=\n\d+\n|\Z)'
+              matches = re.findall(pattern, content, re.DOTALL)
+              
+              segments = []
+              full_text = []
+              for match in matches:
+                  index, timestamp, text = match
+                  text = text.strip()
+                  segments.append({
+                      'index': int(index),
+                      'timestamp': timestamp,
+                      'text': text
+                  })
+                  full_text.append(text)
+              
+              return {
+                  'segments': segments,
+                  'full_text': ' '.join(full_text),
+                  'segment_count': len(segments),
+                  'total_length': len(' '.join(full_text))
+              }
+          
+          subtitle_path = "${steps[2].subtitle_path}"
+          result = parse_srt(subtitle_path)
+          
+          # 生成时间戳索引（纯文本格式，容错率高）
+          timestamp_index_lines = []
+          timestamp_index_lines.append("=== TIMESTAMP_INDEX ===")
+          
+          for seg in result['segments']:
+              # 提取时间戳范围
+              timestamp = seg['timestamp']
+              start_time, end_time = timestamp.split(' --> ')
+              # 转换为秒数（用于 FFmpeg）
+              def timestamp_to_seconds(ts):
+                  h, m, s_ms = ts.split(':')
+                  s, ms = s_ms.split(',')
+                  return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+              
+              start_seconds = timestamp_to_seconds(start_time)
+              end_seconds = timestamp_to_seconds(end_time)
+              duration = end_seconds - start_seconds
+              
+              # 纯文本格式：索引|开始时间|结束时间|开始秒数|结束秒数|时长|文本（前50字符）
+              text_preview = seg['text'][:50].replace('\n', ' ').replace('|', ' ')
+              timestamp_index_lines.append(
+                  f"{seg['index']}|{start_time}|{end_time}|{start_seconds:.3f}|{end_seconds:.3f}|{duration:.3f}|{text_preview}"
+              )
+          
+          # 输出结果（纯文本格式）
+          print("=== SUBTITLE_DATA ===")
+          print(f"SEGMENT_COUNT: {result['segment_count']}")
+          print(f"TOTAL_LENGTH: {result['total_length']}")
+          print("\n=== SEGMENTS ===")
+          for seg in result['segments']:
+              print(f"{seg['index']}|{seg['timestamp']}|{seg['text']}")
+          
+          print("\n" + "\n".join(timestamp_index_lines))
+      outputs:
+        subtitle_data: ${result.stdout}
+      error_handling:
+        on_error: fail
+        message: "字幕文件读取失败"
+
+    # 步骤 4.5: 检查文本长度并分块（如果需要）
+    - name: check_and_chunk_text
+      type: tool
+      tool: code_executor
+      condition: ${len(${steps[3].subtitle_data.full_text}) > ${config.max_text_length}}
+      inputs:
+        code: |
+          import json
+          
+          def estimate_tokens(text: str) -> int:
+              """估算文本的 token 数量（1 token ≈ 4 字符）"""
+              return len(text) // 4
+          
+          def chunk_text_by_segments(segments: list, max_tokens_per_chunk: int) -> list:
+              """按段落分块文本，确保每个块不超过 max_tokens"""
+              chunks = []
+              current_chunk = []
+              current_tokens = 0
+              
+              for segment in segments:
+                  segment_text = segment['text']
+                  segment_tokens = estimate_tokens(segment_text)
+                  
+                  # 如果当前块加上新段落会超过限制，开始新块
+                  if current_tokens + segment_tokens > max_tokens_per_chunk and current_chunk:
+                      chunks.append({
+                          'segments': current_chunk,
+                          'text': ' '.join([s['text'] for s in current_chunk]),
+                          'start_index': current_chunk[0]['index'],
+                          'end_index': current_chunk[-1]['index'],
+                          'start_timestamp': current_chunk[0]['timestamp'].split(' --> ')[0],
+                          'end_timestamp': current_chunk[-1]['timestamp'].split(' --> ')[1]
+                      })
+                      current_chunk = []
+                      current_tokens = 0
+                  
+                  current_chunk.append(segment)
+                  current_tokens += segment_tokens
+              
+              # 添加最后一个块
+              if current_chunk:
+                  chunks.append({
+                      'segments': current_chunk,
+                      'text': ' '.join([s['text'] for s in current_chunk]),
+                      'start_index': current_chunk[0]['index'],
+                      'end_index': current_chunk[-1]['index'],
+                      'start_timestamp': current_chunk[0]['timestamp'].split(' --> ')[0],
+                      'end_timestamp': current_chunk[-1]['timestamp'].split(' --> ')[1]
+                  })
+              
+              return chunks
+          
+          subtitle_data = ${steps[3].subtitle_data}
+          max_text_length = ${config.max_text_length | default(80000)}  # 默认 80K 字符 ≈ 20K tokens
+          max_tokens_per_chunk = ${config.max_tokens_per_chunk | default(15000)}  # 每个块最多 15K tokens
+          
+          full_text = subtitle_data['full_text']
+          text_length = len(full_text)
+          estimated_tokens = estimate_tokens(full_text)
+          
+          result = {
+              'needs_chunking': text_length > max_text_length,
+              'text_length': text_length,
+              'estimated_tokens': estimated_tokens,
+              'chunks': None,
+              'chunk_count': 0
+          }
+          
+          if result['needs_chunking']:
+              # 需要分块
+              chunks = chunk_text_by_segments(subtitle_data['segments'], max_tokens_per_chunk)
+              result['chunks'] = chunks
+              result['chunk_count'] = len(chunks)
+              result['message'] = f"文本过长（{text_length} 字符，约 {estimated_tokens} tokens），已分为 {len(chunks)} 个块"
+          else:
+              result['message'] = f"文本长度正常（{text_length} 字符，约 {estimated_tokens} tokens），无需分块"
+          
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+      outputs:
+        chunk_info: ${result.stdout}
+      skip_if: ${len(${steps[3].subtitle_data.full_text}) <= ${config.max_text_length}}
+      skip_outputs:
+        chunk_info: |
+          {
+            "needs_chunking": false,
+            "text_length": ${len(${steps[3].subtitle_data.full_text})}
+          }
+
+    # 步骤 5: 生成初始摘要（通过 LLM，包含时间戳）
+    - name: generate_initial_summary
+      type: conditional
+      condition: ${not ${steps[4].chunk_info.needs_chunking}}
+      type_single: llm_call
+      llm_service: orchestrator.llm_service
+      prompt: |
+        基于以下视频字幕内容，生成一个 ${input.summary_length} 字的初始摘要。
+        
+        用户问题/需求：${input.user_query | default('生成视频内容摘要')}
+        
+        要求：
+        1. 概括视频的核心内容
+        2. 突出关键观点
+        3. 语言简洁明了
+        4. 如果用户有特定关注点，请重点突出
+        5. **重要**：在摘要中为每个关键点标注对应的时间戳（格式：[HH:MM:SS]）
+        6. 时间戳应准确对应字幕中的时间位置
+        
+        字幕内容（带时间戳）：
+        ${steps[3].subtitle_data.segments}
+        
+        完整文本（用于理解内容）：
+        ${steps[3].subtitle_data.full_text}
+        
+        输出格式要求：
+        - 每个关键点后标注时间戳，例如："视频介绍了 Python 异步编程 [00:05:30]"
+        - 如果某个观点跨越多个时间段，标注主要时间段
+        - 时间戳格式：[HH:MM:SS] 或 [MM:SS]
+      inputs:
+        subtitle_text: ${steps[3].subtitle_data.full_text}
+        subtitle_segments: ${steps[3].subtitle_data.segments}
+        timestamp_index: ${steps[3].subtitle_data.timestamp_index}
+        summary_length: ${input.summary_length}
+        user_query: ${input.user_query}
+      outputs:
+        initial_summary: ${result.text}
+      error_handling:
+        on_error: fallback
+        fallback: "摘要生成失败，使用字幕前100字作为摘要"
+    
+    # 步骤 5.3: 统一摘要输出（无论是否分块）
+    - name: get_initial_summary_unified
+      type: conditional
+      condition: ${steps[4].chunk_info.needs_chunking}
+      outputs:
+        initial_summary: ${steps[5.2].initial_summary}
+      else:
+        outputs:
+          initial_summary: ${steps[5].initial_summary}
+    
+    # 注意：步骤 5.4 是交互式调整（可选），步骤 5.5 是最终摘要选择
+    
+    # 步骤 5.4: 交互式摘要调整（可选，如果启用）
+    - name: interactive_summary_refinement
+      type: interactive
+      condition: ${input.enable_interactive | default(false)}
+      description: "交互式摘要调整 - 根据用户反馈迭代优化摘要"
+      initial_value: ${steps[5.3].initial_summary}
+      max_iterations: ${input.max_refinement_iterations | default(3)}
+      workflow:
+        # 展示当前摘要
+        - name: present_summary
+          action: present
+          content: ${current_summary}
+          message: "这是当前摘要（第 ${iteration_count} 轮），请提供反馈或调整建议，或输入 '完成' 结束调整"
+        
+        # 收集用户反馈
+        - name: collect_feedback
+          type: user_input
+          prompt: "请提供反馈（如：'更详细一些'、'突出技术细节'、'缩短到100字'等），或输入 '完成' 结束调整"
+          timeout: 300  # 5 分钟超时
+        
+        # 检查是否完成
+        - name: check_complete
+          type: condition
+          condition: ${user_feedback contains '完成' or user_feedback contains '满意' or user_feedback contains '可以'}
+          if_true: break
+          if_false: continue
+        
+        # 根据反馈调整摘要
+        - name: refine_summary
+          type: llm_call
+          condition: ${not check_complete.break}
+          llm_service: orchestrator.llm_service
+          prompt: |
+            这是第 ${iteration_count} 轮摘要调整。
+            
+            原始字幕内容：
+            ${steps[3].subtitle_data.full_text}
+            
+            当前摘要（第 ${iteration_count - 1} 轮）：
+            ${current_summary}
+            
+            用户反馈：
+            ${user_feedback}
+            
+            请根据用户反馈调整摘要，生成新的摘要版本。
+            
+            要求：
+            1. 保持摘要长度在 ${input.summary_length} 字左右（除非用户明确要求改变长度）
+            2. 充分考虑用户的反馈意见
+            3. 如果用户要求更详细，可以适当增加细节
+            4. 如果用户要求更简洁，可以精简内容
+            5. 如果用户有特定关注点，请重点突出
+            6. 如果用户要求改变长度，请按照用户要求调整
+            7. 保持逻辑连贯性和可读性
+          inputs:
+            current_summary: ${current_summary}
+            user_feedback: ${user_feedback}
+            subtitle_text: ${steps[3].subtitle_data.full_text}
+            summary_length: ${input.summary_length}
+            iteration_count: ${iteration_count}
+          outputs:
+            refined_summary: ${result.text}
+        
+        # 更新当前摘要和历史记录
+        - name: update_summary
+          action: update
+          variable: current_summary
+          value: ${steps[refine_summary].refined_summary}
+          history:
+            iteration: ${iteration_count}
+            feedback: ${user_feedback}
+            summary_before: ${current_summary}
+            summary_after: ${steps[refine_summary].refined_summary}
+      
+      outputs:
+        final_summary: ${current_summary}
+        refinement_history: ${refinement_history}
+        iteration_count: ${iteration_count}
+        was_refined: ${iteration_count > 0}
+    
+    # 步骤 5.1: 分块生成初始摘要（长文本处理）
+    - name: generate_summary_chunked
+      type: loop
+      condition: ${steps[4].chunk_info.needs_chunking}
+      loop_over: ${steps[4].chunk_info.chunks}
+      loop_item: chunk
+      type_single: llm_call
+      llm_service: orchestrator.llm_service
+      prompt: |
+        这是视频字幕的第 ${loop_index + 1}/${loop_total} 个片段（时间范围：${chunk.start_timestamp} - ${chunk.end_timestamp}）。
+        
+        用户问题/需求：${input.user_query | default('生成视频内容摘要')}
+        
+        基于以下字幕片段内容，生成一个约 ${input.summary_length / loop_total} 字的摘要片段。
+        要求：
+        1. 概括这个片段的核心内容
+        2. 突出关键观点
+        3. 语言简洁明了
+        4. 如果用户有特定关注点，请重点突出
+        
+        字幕片段内容：
+        ${chunk.text}
+      inputs:
+        chunk_text: ${chunk.text}
+        chunk_index: ${loop_index}
+        chunk_total: ${loop_total}
+        summary_length_per_chunk: ${input.summary_length / loop_total}
+        user_query: ${input.user_query}
+      outputs:
+        chunk_summaries: ${result.text}
+      error_handling:
+        on_error: skip
+        continue_on_error: true
+    
+    # 步骤 5.2: 合并分块摘要（生成初始摘要）
+    - name: merge_chunk_summaries
+      type: llm_call
+      condition: ${steps[4].chunk_info.needs_chunking}
+      llm_service: orchestrator.llm_service
+      prompt: |
+        以下是视频字幕的 ${steps[4].chunk_info.chunk_count} 个片段的摘要。
+        
+        用户问题/需求：${input.user_query | default('生成视频内容摘要')}
+        
+        请将这些摘要合并成一个完整的、连贯的 ${input.summary_length} 字初始摘要。
+        
+        要求：
+        1. 保持逻辑连贯性
+        2. 去除重复内容
+        3. 突出整体核心观点
+        4. 语言简洁明了
+        5. 如果用户有特定关注点，请重点突出
+        
+        各片段摘要：
+        ${steps[5.1].chunk_summaries}
+      inputs:
+        chunk_summaries: ${steps[5.1].chunk_summaries}
+        summary_length: ${input.summary_length}
+        user_query: ${input.user_query}
+      outputs:
+        initial_summary: ${result.text}
+      error_handling:
+        on_error: fallback
+        fallback: ${join(${steps[5.1].chunk_summaries}, "\n\n")}
+    
+    # 步骤 5.5: 获取最终摘要（考虑交互式调整）
+    - name: get_final_summary
+      type: conditional
+      condition: ${input.enable_interactive | default(false)}
+      outputs:
+        summary: ${steps[5.4].final_summary}
+      else:
+        outputs:
+          summary: ${steps[5.3].initial_summary}
+
+    # 步骤 6: 提取时间戳映射（从摘要中，纯文本格式）
+    - name: extract_timestamp_mapping
+      type: tool
+      tool: code_executor
+      inputs:
+        code: |
+          import re
+          
+          def timestamp_to_seconds(timestamp_str: str) -> float:
+              """将时间戳字符串转换为秒数"""
+              # 格式：HH:MM:SS 或 MM:SS
+              parts = timestamp_str.split(':')
+              if len(parts) == 3:
+                  h, m, s = map(int, parts)
+                  return h * 3600 + m * 60 + s
+              elif len(parts) == 2:
+                  m, s = map(int, parts)
+                  return m * 60 + s
+              return 0.0
+          
+          def parse_timestamp_index(timestamp_index_text: str) -> dict:
+              """解析时间戳索引（纯文本格式）"""
+              timestamp_index = {}
+              lines = timestamp_index_text.strip().split('\n')
+              
+              for line in lines:
+                  if not line or line.startswith('==='):
+                      continue
+                  # 格式：索引|开始时间|结束时间|开始秒数|结束秒数|时长|文本预览
+                  parts = line.split('|', 6)
+                  if len(parts) >= 6:
+                      try:
+                          index = int(parts[0])
+                          start_time = parts[1]
+                          end_time = parts[2]
+                          start_seconds = float(parts[3])
+                          end_seconds = float(parts[4])
+                          duration = float(parts[5])
+                          
+                          timestamp_index[index] = {
+                              'index': index,
+                              'start_time': start_time,
+                              'end_time': end_time,
+                              'start_seconds': start_seconds,
+                              'end_seconds': end_seconds,
+                              'duration': duration
+                          }
+                      except (ValueError, IndexError):
+                          continue
+              
+              return timestamp_index
+          
+          def extract_timestamps_from_summary(summary_text: str, timestamp_index: dict) -> list:
+              """从摘要文本中提取时间戳，并映射到原始字幕段落"""
+              # 匹配时间戳格式：[HH:MM:SS] 或 [MM:SS] 或 [HH:MM:SS-HH:MM:SS]
+              timestamp_pattern = r'\[(\d{1,2}):(\d{2}):(\d{2})(?:-(\d{1,2}):(\d{2}):(\d{2}))?\]'
+              matches = list(re.finditer(timestamp_pattern, summary_text))
+              
+              key_points = []
+              for i, match in enumerate(matches):
+                  # 提取时间戳
+                  start_h, start_m, start_s = map(int, match.groups()[:3])
+                  start_seconds = start_h * 3600 + start_m * 60 + start_s
+                  
+                  # 计算结束时间
+                  if match.groups()[3]:
+                      end_h, end_m, end_s = map(int, match.groups()[3:6])
+                      end_seconds = end_h * 3600 + end_m * 60 + end_s
+                  else:
+                      # 默认持续 30 秒，或到下一个时间戳
+                      if i + 1 < len(matches):
+                          next_start_h, next_start_m, next_start_s = map(int, matches[i+1].groups()[:3])
+                          end_seconds = next_start_h * 3600 + next_start_m * 60 + next_start_s
+                      else:
+                          end_seconds = start_seconds + 30
+                  
+                  # 查找对应的字幕段落
+                  matching_segments = []
+                  for seg in timestamp_index.values():
+                      # 检查时间段是否重叠
+                      if not (seg['end_seconds'] < start_seconds or seg['start_seconds'] > end_seconds):
+                          matching_segments.append(seg['index'])
+                  
+                  # 提取关键点文本（时间戳前后的内容）
+                  start_pos = match.start()
+                  end_pos = match.end()
+                  # 向前查找句子开始
+                  text_start = summary_text.rfind('.', 0, start_pos) + 1
+                  if text_start == 0:
+                      text_start = summary_text.rfind('。', 0, start_pos) + 1
+                  if text_start == 0:
+                      text_start = max(0, start_pos - 50)
+                  
+                  # 向后查找句子结束
+                  text_end = summary_text.find('.', end_pos)
+                  if text_end == -1:
+                      text_end = summary_text.find('。', end_pos)
+                  if text_end == -1:
+                      text_end = min(len(summary_text), end_pos + 50)
+                  
+                  point_text = summary_text[text_start:text_end].strip().replace('\n', ' ').replace('|', ' ')
+                  
+                  key_points.append({
+                      'point': point_text,
+                      'timestamp': match.group(),
+                      'start_time': f"{start_h:02d}:{start_m:02d}:{start_s:02d}",
+                      'end_time': f"{int(end_seconds//3600):02d}:{int((end_seconds%3600)//60):02d}:{int(end_seconds%60):02d}",
+                      'start_seconds': start_seconds,
+                      'end_seconds': end_seconds,
+                      'duration': end_seconds - start_seconds,
+                      'segment_indices': matching_segments
+                  })
+              
+              return key_points
+          
+          summary_text = """${steps[5.5].summary}"""
+          # 从步骤 3 的输出中提取时间戳索引部分
+          subtitle_data_output = """${steps[3].subtitle_data}"""
+          
+          # 解析时间戳索引（从纯文本中提取）
+          timestamp_index_text = ""
+          if "=== TIMESTAMP_INDEX ===" in subtitle_data_output:
+              idx_start = subtitle_data_output.find("=== TIMESTAMP_INDEX ===")
+              timestamp_index_text = subtitle_data_output[idx_start:]
+          
+          timestamp_index = parse_timestamp_index(timestamp_index_text)
+          
+          key_points = extract_timestamps_from_summary(summary_text, timestamp_index)
+          
+          # 输出纯文本格式（容错率高）
+          print("=== TIMESTAMP_MAPPING ===")
+          print(f"TOTAL_KEY_POINTS: {len(key_points)}")
+          print("\n=== KEY_POINTS ===")
+          for i, point in enumerate(key_points, 1):
+              # 格式：序号|时间戳|开始时间|结束时间|开始秒数|结束秒数|时长|段落索引|关键点文本
+              segments_str = ','.join(map(str, point['segment_indices']))
+              point_text_clean = point['point'].replace('\n', ' ').replace('|', ' ')[:100]
+              print(f"{i}|{point['timestamp']}|{point['start_time']}|{point['end_time']}|"
+                    f"{point['start_seconds']:.3f}|{point['end_seconds']:.3f}|{point['duration']:.3f}|"
+                    f"{segments_str}|{point_text_clean}")
+      outputs:
+        timestamp_mapping_data: ${result.stdout}
+      error_handling:
+        on_error: skip
+        continue_on_error: true
+    
+    # 步骤 7: 生成文章（通过 LLM）
+    - name: generate_article
+      type: conditional
+      condition: ${not ${steps[4].chunk_info.needs_chunking}}
+      type_single: llm_call
+      llm_service: orchestrator.llm_service
+      prompt: |
+        基于以下视频字幕和摘要，生成一篇 ${input.article_length} 字的文章。
+        
+        用户问题/需求：${input.user_query | default('生成视频内容文章')}
+        
+        要求：
+        1. 格式：${input.article_format}
+        2. 包含标题、摘要、详细内容、时间戳参考
+        3. 结构清晰，逻辑连贯
+        4. 如果用户有特定关注点，请重点突出
+        5. **重要**：保留摘要中的所有时间戳标注，这些时间戳用于视频剪裁
+        
+        摘要（带时间戳）：
+        ${steps[5.5].summary}
+        
+        时间戳映射：
+        ${steps[6].timestamp_mapping_data}
+        
+        完整字幕内容：
+        ${steps[3].subtitle_data.full_text}
+        
+        字幕段落数：${steps[3].subtitle_data.segment_count}
+      inputs:
+        subtitle_text: ${steps[3].subtitle_data.full_text}
+        summary: ${steps[5.5].summary}
+        timestamp_mapping: ${steps[6].timestamp_mapping_data}
+        article_length: ${input.article_length}
+        article_format: ${input.article_format}
+        segment_count: ${steps[3].subtitle_data.segment_count}
+        user_query: ${input.user_query}
+      outputs:
+        article: ${result.text}
+      error_handling:
+        on_error: partial
+        return_partial: true
+    
+    # 步骤 7.1: 分块生成文章（长文本处理）
+    - name: generate_article_chunked
+      type: loop
+      condition: ${steps[4].chunk_info.needs_chunking}
+      loop_over: ${steps[4].chunk_info.chunks}
+      loop_item: chunk
+      type_single: llm_call
+      llm_service: orchestrator.llm_service
+      prompt: |
+        这是视频字幕的第 ${loop_index + 1}/${loop_total} 个片段（时间范围：${chunk.start_timestamp} - ${chunk.end_timestamp}）。
+        
+        基于以下字幕片段和整体摘要，生成这个片段的内容（约 ${input.article_length / loop_total} 字）。
+        要求：
+        1. 格式：${input.article_format}
+        2. 与整体摘要保持一致
+        3. 包含时间戳参考（使用片段的时间范围）
+        4. 结构清晰
+        5. **重要**：保留时间戳标注，格式：[HH:MM:SS]
+        
+        整体摘要（带时间戳）：
+        ${steps[5.5].summary}
+        
+        时间戳映射：
+        ${steps[6].timestamp_mapping_data}
+        
+        字幕片段内容：
+        ${chunk.text}
+      inputs:
+        chunk_text: ${chunk.text}
+        chunk_index: ${loop_index}
+        chunk_total: ${loop_total}
+        summary: ${steps[5.5].summary}
+        article_length_per_chunk: ${input.article_length / loop_total}
+        article_format: ${input.article_format}
+      outputs:
+        chunk_articles: ${result.text}
+      error_handling:
+        on_error: skip
+        continue_on_error: true
+    
+    # 步骤 7.2: 合并分块文章
+    - name: merge_chunk_articles
+      type: llm_call
+      condition: ${steps[4].chunk_info.needs_chunking}
+      llm_service: orchestrator.llm_service
+      prompt: |
+        以下是基于视频字幕的 ${steps[4].chunk_info.chunk_count} 个片段生成的文章内容。
+        请将这些内容合并成一篇完整的、连贯的 ${input.article_length} 字文章。
+        
+        用户问题/需求：${input.user_query | default('生成视频内容文章')}
+        
+        要求：
+        1. 格式：${input.article_format}
+        2. 包含标题、摘要、详细内容、时间戳参考
+        3. 保持逻辑连贯性，去除重复内容
+        4. 结构清晰，层次分明
+        5. **重要**：保留所有时间戳标注，这些时间戳用于视频剪裁
+        
+        整体摘要（带时间戳）：
+        ${steps[5.5].summary}
+        
+        时间戳映射：
+        ${steps[6].timestamp_mapping_data}
+        
+        各片段文章内容：
+        ${steps[7.1].chunk_articles}
+      inputs:
+        chunk_articles: ${steps[7.1].chunk_articles}
+        summary: ${steps[5.5].summary}
+        timestamp_mapping: ${steps[6].timestamp_mapping_data}
+        user_query: ${input.user_query}
+        article_length: ${input.article_length}
+        article_format: ${input.article_format}
+        chunk_count: ${steps[4].chunk_info.chunk_count}
+      outputs:
+        article: ${result.text}
+      error_handling:
+        on_error: partial
+        return_partial: true
+        fallback: ${format_article_from_chunks(${steps[7.1].chunk_articles}, ${steps[5.5].summary}, ${input.article_format})}
+
+# 输出格式定义
+output:
+  format: object
+  fields:
+    - name: video_path
+      type: string
+      description: 视频文件路径
+    - name: audio_path
+      type: string
+      description: 音频文件路径
+    - name: subtitle_path
+      type: string
+      description: 字幕文件路径（SRT 格式）
+    - name: subtitle_data
+      type: object
+      description: 字幕解析数据
+      fields:
+        - segments: array
+        - full_text: string
+        - segment_count: integer
+        - total_length: integer
+    - name: summary
+      type: string
+      description: 生成的摘要
+    - name: article
+      type: string
+      description: 生成的文章
+
+# 使用示例
+examples:
+  - user_input: "帮我分析这个视频的内容并生成摘要"
+    parameters:
+      url: "https://www.bilibili.com/video/BV1B5xkzPEhx"
+      summary_length: 200
+      article_length: 1000
+    description: "下载视频并生成摘要和文章"
+  
+  - user_input: "为这个视频生成一篇 2000 字的文章"
+    parameters:
+      video_path: "/path/to/video.mp4"
+      article_length: 2000
+      article_format: "markdown"
+    description: "基于已有视频文件生成文章"
+
+# 错误处理策略
+error_handling:
+  global:
+    on_error: partial
+    return_intermediate: true
+  steps:
+    - step: check_and_download_video
+      on_error: fail
+      message: "视频下载失败，无法继续"
+    - step: check_and_extract_audio
+      on_error: fail
+      message: "音频提取失败，无法继续"
+    - step: generate_subtitle
+      on_error: retry
+      max_retries: 2
+    - step: read_subtitle
+      on_error: fail
+      message: "字幕读取失败，无法继续"
+    - step: generate_summary
+      on_error: fallback
+      fallback_value: "摘要生成失败"
+    - step: generate_article
+      on_error: partial
+      return_partial: true
+
+# 长文本处理配置
+long_text_handling:
+  # 文本长度限制（字符数）
+  max_text_length: 80000  # 默认 80K 字符 ≈ 20K tokens（假设 1 token ≈ 4 字符）
+  
+  # 每个分块的最大 token 数
+  max_tokens_per_chunk: 15000  # 每个块最多 15K tokens，留出空间给 prompt 和输出
+  
+  # 分块策略
+  chunking_strategy: "by_segments"  # 按段落分块（保持语义完整性）
+  # 可选策略：
+  # - "by_segments": 按字幕段落分块（推荐，保持语义完整性）
+  # - "by_tokens": 按 token 数量分块（固定大小）
+  # - "by_time": 按时间范围分块（每 10 分钟一段）
+  
+  # 分块重叠（可选，用于保持上下文连贯性）
+  chunk_overlap: 0  # 当前版本不使用重叠，后续可优化
+  
+  # LLM 上下文窗口配置
+  llm_context_window: 32000  # DeepSeek 默认上下文窗口（tokens）
+  llm_output_tokens: 2000  # 预留输出 token 数
+  llm_prompt_tokens: 1000  # 预留 prompt token 数
+  # 实际可用输入 token = llm_context_window - llm_output_tokens - llm_prompt_tokens
+  # = 32000 - 2000 - 1000 = 29000 tokens
+
+# 性能优化
+performance:
+  cache:
+    enabled: true
+    keys:
+      - steps[0].video_path
+      - steps[1].audio_path
+      - steps[2].subtitle_path
+      - steps[4].chunk_info  # 缓存分块信息
+    ttl: 86400  # 24 小时
+  parallel:
+    enabled: false  # 当前版本不支持并行
+    # 未来可优化：分块摘要和文章生成可以并行处理
+  timeout:
+    total: 7200  # 总超时时间：2 小时（长文本处理需要更长时间）
+    per_step: 600  # 每步超时时间：10 分钟
+    per_chunk: 300  # 每个分块处理超时时间：5 分钟
+
