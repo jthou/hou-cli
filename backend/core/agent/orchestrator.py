@@ -2,8 +2,9 @@
 import os
 import logging
 import time
+import re
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncIterator
+from typing import Optional, Dict, Any, AsyncIterator, Tuple
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
 from backend.core.agent.skills.registry import SkillRegistry
 from backend.core.agent.skills.executor import SkillExecutor
+from backend.core.agent.evaluator import ConversationEvaluator
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
 
@@ -39,6 +41,10 @@ class Orchestrator:
         self.context_manager = FullContextManager()
         self.tool_registry = ToolRegistry()
         self.debug = DebugOutput()  # 调试输出
+        
+        # 初始化对话评估器
+        self.evaluator = ConversationEvaluator(llm_service=self.llm_service)
+        self.enable_evaluation = True  # 配置项：是否启用对话评估
         
         # 代码执行相关组件
         self.auto_code_executor = None
@@ -335,6 +341,149 @@ class Orchestrator:
             feedback += "\n"
         return feedback
     
+    def _format_skill_result(self, skill_result) -> str:
+        """
+        格式化技能执行结果，包含文件路径信息
+        
+        Args:
+            skill_result: SkillResult 对象
+            
+        Returns:
+            格式化后的结果文本
+        """
+        import json
+        
+        if not skill_result.success:
+            return f"❌ 技能执行失败: {skill_result.error}"
+        
+        data = skill_result.data or {}
+        result_parts = []
+        
+        # 提取文件路径信息（如果存在）
+        output_files_info = None
+        if 'output_files' in data:
+            output_files_text = data['output_files']
+            if isinstance(output_files_text, str):
+                # 解析纯文本格式的文件路径信息
+                lines = output_files_text.split('\n')
+                output_files_info = {}
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('OUTPUT_DIR:'):
+                        output_files_info['output_dir'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('SUMMARY_FILE:'):
+                        output_files_info['summary_file'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('TIMESTAMP_MAPPING_FILE:'):
+                        output_files_info['timestamp_mapping_file'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('ARTICLE_FILE:'):
+                        output_files_info['article_file'] = line.split(':', 1)[1].strip()
+                    elif line.startswith('EXTRACTED_PARAGRAPHS_FILE:'):
+                        output_files_info['extracted_paragraphs_file'] = line.split(':', 1)[1].strip()
+            elif isinstance(output_files_text, dict):
+                output_files_info = output_files_text
+        
+        # 添加文件路径信息到输出（优先显示，让用户知道文件位置）
+        if output_files_info:
+            result_parts.append("\n" + "=" * 80)
+            result_parts.append("📁 生成的文件路径（可直接打开）")
+            result_parts.append("=" * 80 + "\n")
+            
+            # 收集所有文件路径
+            file_paths = []
+            
+            if output_files_info.get('output_dir'):
+                output_dir = output_files_info['output_dir']
+                # 转换为绝对路径
+                try:
+                    from pathlib import Path
+                    output_dir = str(Path(output_dir).resolve())
+                except:
+                    pass
+                result_parts.append(f"📁 输出目录: {output_dir}\n\n")
+            
+            if output_files_info.get('summary_file'):
+                summary_file = output_files_info['summary_file']
+                try:
+                    from pathlib import Path
+                    summary_file = str(Path(summary_file).resolve())
+                except:
+                    pass
+                file_paths.append(("📄 摘要文件", summary_file))
+            
+            if output_files_info.get('timestamp_mapping_file'):
+                timestamp_file = output_files_info['timestamp_mapping_file']
+                try:
+                    from pathlib import Path
+                    timestamp_file = str(Path(timestamp_file).resolve())
+                except:
+                    pass
+                file_paths.append(("📋 时间戳映射文件", timestamp_file))
+            
+            if output_files_info.get('article_file'):
+                article_file = output_files_info['article_file']
+                try:
+                    from pathlib import Path
+                    article_file = str(Path(article_file).resolve())
+                except:
+                    pass
+                file_paths.append(("📝 文章文件", article_file))
+            
+            if output_files_info.get('extracted_paragraphs_file'):
+                paragraphs_file = output_files_info['extracted_paragraphs_file']
+                try:
+                    from pathlib import Path
+                    paragraphs_file = str(Path(paragraphs_file).resolve())
+                except:
+                    pass
+                file_paths.append(("📑 提取的完整段落文件", paragraphs_file))
+            
+            # 显示所有文件路径（带编号，方便引用）
+            if file_paths:
+                result_parts.append("### 📁 **生成的文件**\n")
+                for i, (label, file_path) in enumerate(file_paths, 1):
+                    # 提取文件名
+                    try:
+                        from pathlib import Path
+                        file_name = Path(file_path).name
+                    except:
+                        file_name = file_path.split('/')[-1] if '/' in file_path else file_path.split('\\')[-1]
+                    
+                    result_parts.append(f"{i}. **`{file_name}`** - {label.replace('📄 ', '').replace('📋 ', '').replace('📝 ', '')}\n")
+                    result_parts.append(f"   完整路径: `{file_path}`\n\n")
+            
+            result_parts.append("=" * 80 + "\n")
+        
+        # 添加摘要内容（如果有）
+        if 'summary' in data:
+            result_parts.append("\n" + "=" * 80)
+            result_parts.append("📝 生成的摘要")
+            result_parts.append("=" * 80 + "\n\n")
+            summary = data['summary']
+            if isinstance(summary, str):
+                result_parts.append(summary)
+            else:
+                result_parts.append(str(summary))
+            result_parts.append("\n")
+        
+        # 添加文章内容（如果有）
+        if 'article' in data:
+            result_parts.append("\n" + "=" * 80)
+            result_parts.append("📄 生成的文章")
+            result_parts.append("=" * 80 + "\n\n")
+            article = data['article']
+            if isinstance(article, str):
+                result_parts.append(article)
+            else:
+                result_parts.append(str(article))
+            result_parts.append("\n")
+        
+        # 如果没有特定内容，返回完整数据
+        if not result_parts:
+            result_parts.append("✅ 技能执行成功\n\n")
+            result_parts.append(json.dumps(data, ensure_ascii=False, indent=2))
+        
+        return ''.join(result_parts)
+    
     async def process(self, task: str, context: Optional[Dict] = None) -> str:
         """处理任务，支持 SOP 和动态编排"""
         # TODO: 实现流程识别和 SOP 执行
@@ -567,6 +716,79 @@ class Orchestrator:
         yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
+        # 对话评估：对上一轮对话进行评估（如果有）
+        if self.enable_evaluation and len(history) >= 2:
+            # 检查是否有上一轮完整的对话（user + assistant）
+            last_user_idx = None
+            last_assistant_idx = None
+            
+            # 从后往前查找最后一对 user-assistant
+            for i in range(len(history) - 1, -1, -1):
+                if history[i]["role"] == "assistant" and last_assistant_idx is None:
+                    last_assistant_idx = i
+                elif history[i]["role"] == "user" and last_assistant_idx is not None:
+                    last_user_idx = i
+                    break
+            
+            # 如果找到上一轮对话，且上一轮 assistant 消息还没有评估过
+            if last_user_idx is not None and last_assistant_idx is not None:
+                # 获取上一轮对话的完整消息对象（用于更新 metadata）
+                all_messages = self.context_manager.get_messages(session_id, compressed=False)
+                last_assistant_msg = None
+                for msg in reversed(all_messages):
+                    if msg.role.value == "assistant":
+                        last_assistant_msg = msg
+                        break
+                
+                # 检查是否已经评估过
+                if last_assistant_msg and "evaluation" not in last_assistant_msg.metadata:
+                    try:
+                        # 获取上一轮对话内容
+                        last_user_msg = history[last_user_idx]["content"]
+                        last_assistant_msg_content = history[last_assistant_idx]["content"]
+                        
+                        # 获取上下文（上一轮之前的消息）
+                        context = history[:last_user_idx] if last_user_idx > 0 else []
+                        
+                        # 进行评估
+                        debug_info = {
+                            "type": "debug",
+                            "category": "evaluation",
+                            "message": "开始评估上一轮对话",
+                            "details": {}
+                        }
+                        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                        
+                        evaluation_result = await self.evaluator.evaluate_conversation_turn(
+                            user_message=last_user_msg,
+                            assistant_message=last_assistant_msg_content,
+                            context=context if context else None
+                        )
+                        
+                        # 将评估结果保存到消息的 metadata 中
+                        if last_assistant_msg:
+                            if "evaluation" not in last_assistant_msg.metadata:
+                                last_assistant_msg.metadata["evaluation"] = evaluation_result
+                                # 更新消息（保存评估结果）
+                                self.context_manager.storage.save_message(session_id, last_assistant_msg)
+                        
+                        # 发送评估结果到前端
+                        eval_info = {
+                            "type": "evaluation",
+                            "overall_score": evaluation_result.get("overall_score", 0),
+                            "dimension_scores": evaluation_result.get("dimension_scores", {}),
+                            "evaluation": evaluation_result.get("evaluation", ""),
+                            "timestamp": evaluation_result.get("timestamp", "")
+                        }
+                        yield f"__EVALUATION__:{json.dumps(eval_info, ensure_ascii=False)}\n"
+                        
+                        self.debug.log(f"对话评估完成，分数: {evaluation_result.get('overall_score', 0)}/100", level="info")
+                        
+                    except Exception as e:
+                        logger.error(f"对话评估失败: {str(e)}", exc_info=True)
+                        # 评估失败不影响对话继续
+                        pass
+        
         # 构建消息列表（与 process 方法保持一致）
         system_prompt = """你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。
 
@@ -767,6 +989,15 @@ class Orchestrator:
             }
             yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
         
+        # 发送模型信息（每次对话都显示）
+        model_info = self.llm_service.get_model_info()
+        model_data = {
+            "provider": model_info.get("provider", "unknown"),
+            "model": model_info.get("normalized_name", self.llm_service.model),
+            "full_name": model_info.get("full_name", f"{model_info.get('provider', 'unknown')}-{self.llm_service.model}")
+        }
+        yield f"__MODEL__:{json.dumps(model_data, ensure_ascii=False)}\n"
+        
         # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
         if tools:
             try:
@@ -874,9 +1105,37 @@ class Orchestrator:
                     # 调用 LLM（使用 messages 而不是 system_prompt/user_prompt）
                     response = await self.llm_service.chat(messages=messages, tools=tools)
                 except Exception as e:
-                    logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
-                    yield f"抱歉，处理您的请求时出现错误：{str(e)}"
-                    return
+                    error_str = str(e)
+                    # 检查是否是超时错误
+                    if "timeout" in error_str.lower() or "timed out" in error_str.lower():
+                        logger.error(f"LLM 调用超时: {str(e)}", exc_info=True)
+                        # 如果是超时，尝试清理消息历史（保留最近的几轮）
+                        if len(messages) > 10:
+                            logger.warning(f"消息历史过长（{len(messages)} 条），清理旧消息")
+                            # 保留系统消息、最后 3 轮对话（assistant + tool + user）
+                            new_messages = []
+                            # 保留系统消息
+                            for msg in messages:
+                                if msg.get("role") == "system":
+                                    new_messages.append(msg)
+                            # 保留最后 9 条消息（3 轮对话）
+                            new_messages.extend(messages[-9:])
+                            messages = new_messages
+                            logger.info(f"消息历史已清理，剩余 {len(messages)} 条消息")
+                            # 重试一次
+                            try:
+                                response = await self.llm_service.chat(messages=messages, tools=tools)
+                            except Exception as retry_e:
+                                logger.error(f"重试后仍然失败: {str(retry_e)}", exc_info=True)
+                                yield f"抱歉，处理您的请求时出现超时错误。请尝试简化请求或稍后重试。错误详情：{str(retry_e)}"
+                                return
+                        else:
+                            yield f"抱歉，处理您的请求时出现超时错误。请尝试简化请求或稍后重试。错误详情：{str(e)}"
+                            return
+                    else:
+                        logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
+                        yield f"抱歉，处理您的请求时出现错误：{str(e)}"
+                        return
                 
                 # 检查响应类型
                 if isinstance(response, str):
@@ -910,20 +1169,165 @@ class Orchestrator:
                         yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
                         self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str})
                         
-                        # 解析参数
-                        try:
-                            tool_args = json.loads(tool_args_str)
-                        except json.JSONDecodeError as e:
+                        # 解析参数（带容错处理）
+                        def repair_json(json_str: str) -> str:
+                            """尝试修复常见的 JSON 错误"""
+                            # 1. 处理未转义的换行符
+                            json_str = json_str.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+                            
+                            # 2. 处理未转义的双引号（在字符串值中）
+                            # 查找字符串值中的未转义引号
+                            import re
+                            # 匹配 "key": "value" 中的 value 部分
+                            def fix_string_value(match):
+                                key = match.group(1)
+                                value_start = match.group(2)  # 开头的引号
+                                value_content = match.group(3)  # 内容
+                                
+                                # 转义内容中的引号和反斜杠
+                                fixed_content = value_content.replace('\\', '\\\\').replace('"', '\\"')
+                                return f'"{key}": {value_start}{fixed_content}"'
+                            
+                            # 尝试修复字符串值中的未转义引号
+                            # 匹配 "key": "value" 格式，其中 value 可能包含未转义的引号
+                            pattern = r'"([^"]+)":\s*"([^"]*)"'
+                            # 更复杂的模式：匹配可能包含未转义引号的字符串值
+                            # 先尝试简单的修复：转义字符串中的反斜杠和引号
+                            
+                            return json_str
+                        
+                        def fix_json_control_characters(json_str: str) -> str:
+                            """修复 JSON 字符串值中的控制字符（参考 browser-use 的实现）"""
+                            result = []
+                            i = 0
+                            in_string = False
+                            escaped = False
+                            
+                            while i < len(json_str):
+                                char = json_str[i]
+                                
+                                if not in_string:
+                                    # 在字符串外
+                                    if char == '"':
+                                        in_string = True
+                                    result.append(char)
+                                else:
+                                    # 在字符串内
+                                    if escaped:
+                                        # 前一个字符是反斜杠，当前字符已转义
+                                        result.append(char)
+                                        escaped = False
+                                    elif char == '\\':
+                                        # 这是转义字符
+                                        result.append(char)
+                                        escaped = True
+                                    elif char == '"':
+                                        # 字符串结束
+                                        result.append(char)
+                                        in_string = False
+                                    elif char == '\n':
+                                        # 未转义的换行符
+                                        result.append('\\n')
+                                    elif char == '\r':
+                                        # 未转义的回车符
+                                        result.append('\\r')
+                                    elif char == '\t':
+                                        # 未转义的制表符
+                                        result.append('\\t')
+                                    elif ord(char) < 32:
+                                        # 其他控制字符
+                                        result.append(f'\\u{ord(char):04x}')
+                                    else:
+                                        # 普通字符
+                                        result.append(char)
+                                
+                                i += 1
+                            
+                            return ''.join(result)
+                        
+                        def try_parse_json(json_str: str) -> Tuple[Optional[dict], Optional[str]]:
+                            """尝试解析 JSON，如果失败则尝试修复"""
+                            # 第一次尝试：直接解析
+                            try:
+                                return json.loads(json_str), None
+                            except json.JSONDecodeError as e:
+                                error_msg = str(e)
+                                
+                                # 第二次尝试：修复控制字符
+                                try:
+                                    repaired = fix_json_control_characters(json_str)
+                                    return json.loads(repaired), "修复了控制字符"
+                                except json.JSONDecodeError:
+                                    pass
+                                
+                                # 第三次尝试：对于 execute_code，使用正则表达式直接提取参数
+                                if tool_name == "execute_code":
+                                    result = {}
+                                    
+                                    # 提取 language（相对简单）
+                                    language_match = re.search(r'"language"\s*:\s*"([^"]+)"', json_str)
+                                    if language_match:
+                                        result['language'] = language_match.group(1)
+                                    else:
+                                        result['language'] = 'python'  # 默认值
+                                    
+                                    # 提取 code（更复杂，因为可能包含未转义的引号和换行符）
+                                    # 尝试多种模式
+                                    code_patterns = [
+                                        r'"code"\s*:\s*"((?:[^"\\]|\\.)*)"',  # 标准 JSON 字符串
+                                        r'"code"\s*:\s*"(.+?)(?:"\s*[,}])',  # 未终止的字符串，查找下一个引号
+                                        r'"code"\s*:\s*"(.+)"',  # 最宽松的匹配
+                                    ]
+                                    
+                                    code_value = None
+                                    for pattern in code_patterns:
+                                        code_match = re.search(pattern, json_str, re.DOTALL)
+                                        if code_match:
+                                            code_value = code_match.group(1)
+                                            break
+                                    
+                                    # 如果还是找不到，尝试从 "code": 开始到字符串结束
+                                    if not code_value:
+                                        code_start = json_str.find('"code"')
+                                        if code_start >= 0:
+                                            # 找到 "code": " 的位置
+                                            value_start = json_str.find('"', code_start + 6)  # 跳过 "code"
+                                            if value_start >= 0:
+                                                value_start += 1  # 跳过开头的引号
+                                                # 尝试找到结束引号（可能不存在）
+                                                value_end = json_str.find('"', value_start)
+                                                if value_end < 0:
+                                                    # 没有结束引号，取到字符串末尾
+                                                    value_end = len(json_str)
+                                                code_value = json_str[value_start:value_end]
+                                    
+                                    if code_value:
+                                        # 处理转义序列（反转义）
+                                        code_value = (code_value
+                                                    .replace('\\n', '\n')
+                                                    .replace('\\r', '\r')
+                                                    .replace('\\t', '\t')
+                                                    .replace('\\"', '"')
+                                                    .replace('\\\\', '\\'))
+                                        result['code'] = code_value
+                                        
+                                        if result:
+                                            return result, "使用容错解析提取参数（execute_code）"
+                                
+                                return None, f"JSON 解析失败: {error_msg}"
+                        
+                        tool_args, parse_warning = try_parse_json(tool_args_str)
+                        if tool_args is None:
                             logger.error(
                                 f"工具参数 JSON 解析失败: {tool_name}, "
-                                f"错误: {str(e)}, "
+                                f"错误: {parse_warning}, "
                                 f"参数长度: {len(tool_args_str)}, "
                                 f"前500字符: {repr(tool_args_str[:500])}"
                             )
                             # JSON 解析失败时，返回错误而不是使用空字典
                             tool_result = ToolResult(
                                 success=False,
-                                error=f"工具参数 JSON 解析失败: {str(e)}。请检查参数格式是否正确。"
+                                error=f"工具参数 JSON 解析失败: {parse_warning}。请检查参数格式是否正确。"
                             )
                             tool_info = {
                                 "type": "tool",
@@ -933,7 +1337,40 @@ class Orchestrator:
                                 "error": tool_result.error
                             }
                             yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                            
+                            # 重要：即使失败也要添加 tool message，确保每个 tool_call 都有对应的 tool message
+                            tool_result_content = json.dumps({
+                                "error": tool_result.error,
+                                "success": False,
+                                "note": "工具参数 JSON 解析失败，请检查参数格式是否正确。"
+                            }, ensure_ascii=False)
+                            tool_results.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_name,
+                                "content": tool_result_content
+                            })
+                            
+                            debug_info = {
+                                "type": "debug",
+                                "category": "orchestrator",
+                                "message": "工具执行完成",
+                                "details": {
+                                    "name": tool_name,
+                                    "success": False,
+                                    "error": tool_result.error
+                                }
+                            }
+                            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                            self.debug.log_orchestrator_step("工具执行完成", {
+                                "name": tool_name,
+                                "success": False,
+                                "error": tool_result.error
+                            })
                             continue
+                        
+                        if parse_warning:
+                            logger.warning(f"工具参数解析使用了容错处理: {tool_name}, {parse_warning}")
                         
                         # 执行工具（支持进度报告）
                         try:
@@ -1048,16 +1485,35 @@ class Orchestrator:
                             # 等待确认结果（暂时跳过，由前端处理）
                             # 这里我们需要一个机制来等待前端响应
                             # 暂时标记为需要确认，不继续执行
+                            # 重要：即使需要确认也要添加 tool message，确保每个 tool_call 都有对应的 tool message
                             tool_result_content = json.dumps({
                                 "error": "需要用户确认",
                                 "requires_confirmation": True,
-                                "success": False
+                                "success": False,
+                                "note": "工具执行需要用户确认，请等待用户响应。"
                             }, ensure_ascii=False)
                             tool_results.append({
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
                                 "name": tool_name,
                                 "content": tool_result_content
+                            })
+                            
+                            debug_info = {
+                                "type": "debug",
+                                "category": "orchestrator",
+                                "message": "工具执行完成（需要确认）",
+                                "details": {
+                                    "name": tool_name,
+                                    "success": False,
+                                    "requires_confirmation": True
+                                }
+                            }
+                            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                            self.debug.log_orchestrator_step("工具执行完成（需要确认）", {
+                                "name": tool_name,
+                                "success": False,
+                                "requires_confirmation": True
                             })
                             continue
                         
@@ -1230,6 +1686,29 @@ class Orchestrator:
                     }
                     messages.append(assistant_message)
                     
+                    # 验证：确保每个 tool_call 都有对应的 tool message
+                    if len(tool_results) != len(response.tool_calls):
+                        logger.error(
+                            f"工具调用数量不匹配: tool_calls={len(response.tool_calls)}, "
+                            f"tool_results={len(tool_results)}"
+                        )
+                        # 为缺失的 tool_call 添加错误消息
+                        tool_call_ids = {tc.id for tc in response.tool_calls}
+                        tool_result_ids = {tr.get("tool_call_id") for tr in tool_results}
+                        missing_ids = tool_call_ids - tool_result_ids
+                        for missing_id in missing_ids:
+                            # 找到对应的 tool_call
+                            missing_tool_call = next(tc for tc in response.tool_calls if tc.id == missing_id)
+                            tool_results.append({
+                                "role": "tool",
+                                "tool_call_id": missing_id,
+                                "name": missing_tool_call.function.name,
+                                "content": json.dumps({
+                                    "error": "工具执行过程中出现错误，未生成结果",
+                                    "success": False
+                                }, ensure_ascii=False)
+                            })
+                    
                     # 添加工具结果
                     messages.extend(tool_results)
                     
@@ -1374,6 +1853,25 @@ class Orchestrator:
                             "error": tool_result.error
                         }
                         yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                        
+                        # 重要：即使失败也要添加 tool message，确保每个 tool_call 都有对应的 tool message
+                        tool_result_content = json.dumps({
+                            "error": tool_result.error,
+                            "success": False,
+                            "note": "工具参数 JSON 解析失败，请检查参数格式是否正确。"
+                        }, ensure_ascii=False)
+                        tool_results.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": tool_result_content
+                        })
+                        
+                        self.debug.log_orchestrator_step("工具执行完成", {
+                            "name": tool_name,
+                            "success": False,
+                            "error": tool_result.error
+                        })
                         continue
                     
                         # 执行工具（支持进度报告）
@@ -1548,6 +2046,29 @@ class Orchestrator:
                         ]
                     }
                     messages.append(assistant_message)
+                    
+                    # 验证：确保每个 tool_call 都有对应的 tool message
+                    if len(tool_results) != len(response.tool_calls):
+                        logger.error(
+                            f"工具调用数量不匹配: tool_calls={len(response.tool_calls)}, "
+                            f"tool_results={len(tool_results)}"
+                        )
+                        # 为缺失的 tool_call 添加错误消息
+                        tool_call_ids = {tc.id for tc in response.tool_calls}
+                        tool_result_ids = {tr.get("tool_call_id") for tr in tool_results}
+                        missing_ids = tool_call_ids - tool_result_ids
+                        for missing_id in missing_ids:
+                            # 找到对应的 tool_call
+                            missing_tool_call = next(tc for tc in response.tool_calls if tc.id == missing_id)
+                            tool_results.append({
+                                "role": "tool",
+                                "tool_call_id": missing_id,
+                                "name": missing_tool_call.function.name,
+                                "content": json.dumps({
+                                    "error": "工具执行过程中出现错误，未生成结果",
+                                    "success": False
+                                }, ensure_ascii=False)
+                            })
                     
                     # 添加工具结果
                     messages.extend(tool_results)

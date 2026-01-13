@@ -346,6 +346,109 @@ class StreamRenderer:
             box=rich.box.ROUNDED if success else rich.box.DOUBLE  # 成功用圆角，失败用双线
         ))
     
+    def _render_model_info(self, model_data: dict, console: Console):
+        """渲染模型信息"""
+        provider = model_data.get("provider", "unknown")
+        model = model_data.get("model", "unknown")
+        
+        # 提供商名称映射（中文）
+        provider_names = {
+            "deepseek": "DeepSeek",
+            "bailian": "百炼平台",
+            "openai": "OpenAI",
+            "anthropic": "Anthropic",
+            "google": "Google",
+            "xai": "xAI",
+            "perplexity": "Perplexity"
+        }
+        provider_display = provider_names.get(provider, provider)
+        
+        # 构建模型信息文本
+        model_text = Text.assemble(
+            ("🤖 ", "bold cyan"),
+            ("使用模型: ", "dim"),
+            (f"{provider_display} ", "bold cyan"),
+            (f"{model}", "bold")
+        )
+        
+        # 使用 Panel 显示模型信息
+        console.print(Panel(
+            model_text,
+            border_style="cyan",
+            padding=(0, 1),
+            box=rich.box.ROUNDED
+        ))
+    
+    def _render_evaluation_info(self, eval_data: dict, console: Console):
+        """渲染对话评估信息"""
+        overall_score = eval_data.get("overall_score", 0)
+        dimension_scores = eval_data.get("dimension_scores", {})
+        evaluation = eval_data.get("evaluation", "")
+        
+        # 根据分数选择颜色
+        if overall_score >= 90:
+            score_color = "bold green"
+        elif overall_score >= 80:
+            score_color = "green"
+        elif overall_score >= 70:
+            score_color = "yellow"
+        elif overall_score >= 60:
+            score_color = "dim yellow"
+        else:
+            score_color = "red"
+        
+        # 构建评估信息文本
+        eval_parts = []
+        
+        # 总体分数
+        eval_parts.append(Text.assemble(
+            ("📊 ", "bold cyan"),
+            ("上一轮对话评估: ", "dim"),
+            (f"{overall_score}/100", score_color)
+        ))
+        eval_parts.append("")
+        
+        # 各维度分数
+        dimension_names = {
+            "relevance": "相关性",
+            "accuracy": "准确性",
+            "helpfulness": "有用性",
+            "completeness": "完整性",
+            "clarity": "清晰度"
+        }
+        
+        eval_parts.append(Text("各维度分数：", style="dim"))
+        for dim_id, dim_name in dimension_names.items():
+            score = dimension_scores.get(dim_id, 0)
+            if score >= 80:
+                dim_color = "green"
+            elif score >= 60:
+                dim_color = "yellow"
+            else:
+                dim_color = "red"
+            eval_parts.append(Text.assemble(
+                ("  • ", "dim"),
+                (f"{dim_name}: ", "dim"),
+                (f"{score}/100", dim_color)
+            ))
+        
+        # 评估说明
+        if evaluation:
+            eval_parts.append("")
+            eval_parts.append(Text.assemble(
+                ("评估说明: ", "dim"),
+                (evaluation, "white")
+            ))
+        
+        # 使用 Panel 显示评估信息
+        console.print(Panel(
+            Group(*eval_parts),
+            border_style="cyan",
+            title="[cyan]对话质量评估[/cyan]",
+            padding=(1, 1),
+            box=rich.box.ROUNDED
+        ))
+    
     def _render_tool_info(self, tool_data: dict, console: Console):
         """渲染工具调用信息"""
         tool_name = tool_data.get("name", "unknown")
@@ -648,6 +751,25 @@ class StreamRenderer:
                                             f.write('\n')
                                     except: pass
                                     # #endregion
+                                    # JSON 解析失败，跳过
+                                    pass
+                            elif line.startswith("__MODEL__:"):
+                                try:
+                                    json_str = line[10:]  # 移除 "__MODEL__:" 前缀
+                                    # 清理 JSON 字符串中的无效字符
+                                    json_str = self._clean_unicode(json_str)
+                                    model_data = json.loads(json_str)
+                                    self._render_model_info(model_data, console)
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
+                                    # JSON 解析失败，跳过
+                                    pass
+                            elif line.startswith("__EVALUATION__:"):
+                                try:
+                                    json_str = line[15:]  # 移除 "__EVALUATION__:" 前缀
+                                    json_str = self._clean_unicode(json_str)
+                                    eval_data = json.loads(json_str)
+                                    self._render_evaluation_info(eval_data, console)
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
                                     # JSON 解析失败，跳过
                                     pass
                             elif line.startswith("__TOOL__:"):

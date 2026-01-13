@@ -1,5 +1,6 @@
 """MediaWiki 工具实现"""
 
+import re
 from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.services.mediawiki import MediaWikiClientService
@@ -75,6 +76,46 @@ class MediaWikiTool(Tool):
         
         # 延迟初始化客户端（避免启动时失败）
         self._client: Optional[MediaWikiClientService] = None
+    
+    def _ensure_category(self, content: str, category: str = "hou-cli") -> str:
+        """
+        确保内容中包含指定的分类
+        
+        Args:
+            content: 页面内容
+            category: 分类名称（不包含 Category: 前缀）
+            
+        Returns:
+            包含分类的内容
+        """
+        category_tag = f"[[Category:{category}]]"
+        
+        # 检查是否已包含该分类
+        # 支持多种格式：[[Category:hou-cli]]、[[Category: hou-cli]]、[[分类:hou-cli]] 等
+        pattern = rf'\[\[Category:\s*{re.escape(category)}\s*\]\]'
+        if re.search(pattern, content, re.IGNORECASE):
+            # 分类已存在，直接返回
+            return content
+        
+        # 查找所有现有的分类标签位置
+        category_pattern = r'\[\[Category:[^\]]+\]\]'
+        matches = list(re.finditer(category_pattern, content, re.IGNORECASE))
+        
+        if matches:
+            # 如果已有分类，在最后一个分类后添加
+            last_match = matches[-1]
+            insert_pos = last_match.end()
+            # 在最后一个分类后添加换行和新的分类
+            new_content = content[:insert_pos] + f"\n{category_tag}" + content[insert_pos:]
+        else:
+            # 如果没有分类，在内容末尾添加
+            # 确保末尾有换行
+            if content and not content.endswith('\n'):
+                new_content = content + f"\n\n{category_tag}"
+            else:
+                new_content = content + f"{category_tag}"
+        
+        return new_content
     
     def _get_client(self) -> MediaWikiClientService:
         """获取 MediaWiki 客户端实例（延迟初始化）"""
@@ -238,6 +279,9 @@ class MediaWikiTool(Tool):
                 error="edit 操作需要 content 参数"
             )
         
+        # 自动添加 [[Category:hou-cli]] 分类
+        content = self._ensure_category(content, "hou-cli")
+        
         summary = kwargs.get("summary", "由 AI 助手编辑")
         success = client.edit_page(title, content, summary=summary)
         
@@ -277,6 +321,9 @@ class MediaWikiTool(Tool):
                 success=False,
                 error="create 操作需要 content 参数"
             )
+        
+        # 自动添加 [[Category:hou-cli]] 分类
+        content = self._ensure_category(content, "hou-cli")
         
         summary = kwargs.get("summary", "由 AI 助手创建")
         success = client.create_page(title, content, summary=summary)
