@@ -856,6 +856,24 @@ class Orchestrator:
                 logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
                 # 评估失败不影响主流程
         
+        # 规划功能：刷新待更新的操作，确保数据持久化
+        if self.enable_planning and self.planning_manager and planning_files:
+            try:
+                self.planning_manager.flush_updates()
+                
+                # 定期清理旧文件
+                self._planning_cleanup_counter += 1
+                if self._planning_cleanup_counter >= self._planning_cleanup_interval:
+                    self._planning_cleanup_counter = 0
+                    cleanup_stats = self.planning_manager.cleanup_old_files(
+                        max_age_days=self._planning_max_age_days,
+                        max_files=self._planning_max_files
+                    )
+                    if cleanup_stats["total_deleted"] > 0:
+                        logger.info(f"规划文件清理完成: {cleanup_stats}")
+            except Exception as e:
+                logger.warning(f"刷新规划文件更新失败: {str(e)}")
+        
         debug_info = {
             "type": "debug",
             "category": "orchestrator",
