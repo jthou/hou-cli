@@ -34,6 +34,7 @@ class Skill(ABC):
         description: str,
         version: str = "1.0.0",
         category: str = "general",
+        priority: str = "P1",
         parameters: Optional[List[SkillParameter]] = None,
         dependencies: Optional[Dict[str, List[str]]] = None
     ):
@@ -45,6 +46,7 @@ class Skill(ABC):
             description: 技能描述
             version: 技能版本
             category: 技能类别
+            priority: 技能优先级（P0 > P1 > P2），用于技能匹配排序
             parameters: 技能参数列表
             dependencies: 技能依赖（工具和子技能）
         """
@@ -52,6 +54,7 @@ class Skill(ABC):
         self.description = description
         self.version = version
         self.category = category
+        self.priority = priority
         self.parameters = parameters or []
         self.dependencies = dependencies or {}
         self.progress_callback: Optional[callable] = None

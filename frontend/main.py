@@ -15,6 +15,9 @@ from frontend.ui.renderer import RendererFactory
 from frontend.ui.stream_handler import StreamRenderer
 from frontend.ui.command_handler import CommandHandler
 
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent
+
 # 加载 .env 文件
 # 优先级：1. 用户配置目录 2. 项目根目录 3. 当前目录
 # 注意：在打包后的环境中，不应该有项目根目录的 .env
@@ -105,7 +108,9 @@ def show_error(error: Exception, context: str = ""):
     # #region agent log
     try:
         import json
-        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(debug_log_path, 'a', encoding='utf-8') as f:
             json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"显示错误","data":{"error_type":type(error).__name__},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
             f.write('\n')
     except: pass
@@ -117,7 +122,9 @@ def show_error(error: Exception, context: str = ""):
         # #region agent log
         try:
             import json
-            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"str(error)失败","data":{"error_type":type(e).__name__,"error_msg":repr(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass
@@ -131,7 +138,9 @@ def show_error(error: Exception, context: str = ""):
         # #region agent log
         try:
             import json
-            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"str(error)异常","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass
@@ -144,7 +153,9 @@ def show_error(error: Exception, context: str = ""):
         # #region agent log
         try:
             import json
-            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:show_error","message":"错误消息编码失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass
@@ -232,7 +243,9 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
             # #region agent log
             try:
                 import json
-                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, 'a', encoding='utf-8') as f:
                     json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"UnicodeDecodeError in render_stream","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"start":getattr(e,'start',None),"end":getattr(e,'end',None)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                     f.write('\n')
             except: pass
@@ -248,7 +261,9 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
             # #region agent log
             try:
                 import json
-                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, 'a', encoding='utf-8') as f:
                     json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in render_stream","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                     f.write('\n')
             except: pass
@@ -261,7 +276,9 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
         # #region agent log
         try:
             import json
-            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"UnicodeDecodeError in outer try","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass
@@ -272,7 +289,9 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
         # #region agent log
         try:
             import json
-            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in outer try","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass

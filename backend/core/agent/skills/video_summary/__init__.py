@@ -53,6 +53,7 @@ class VideoSummarySkill(Skill):
             description=config['description'],
             version=config.get('version', '1.0.0'),
             category=config.get('category', 'general'),
+            priority=config.get('priority', 'P1'),
             parameters=parameters,
             dependencies=dependencies
         )

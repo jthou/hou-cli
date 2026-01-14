@@ -339,8 +339,10 @@ class ModelRegistry:
             if "deepseek" in model_lower:
                 if any(pattern in model_lower for pattern in ["v3.2", "3.2", "v3.1", "3.1", "-exp"]):
                     return "bailian"
-                # 其他 deepseek 模型，默认使用 DeepSeek 平台（除非明确指定）
-                # 这里可以根据实际需求调整策略
+                # 对于 deepseek-chat 等基础模型，如果两个平台都有，优先使用 DeepSeek 平台
+                # 除非明确指定使用百炼平台（通过 "bailian-" 前缀）
+                # 这里默认返回 "deepseek"，因为 DeepSeek 平台是官方平台
+                return "deepseek"
             return "bailian"
         
         # 使用模式匹配
@@ -422,6 +424,13 @@ class ModelRegistry:
                 mapped_name = cls.BAILIAN_DEEPSEEK_MODEL_MAP[model_lower]
                 logger.info(f"模型名称映射: {model_name} -> {mapped_name} (百炼平台)")
                 return mapped_name
+            
+            # 特殊处理：百炼平台上可能没有某些基础模型名称，需要映射到实际可用的版本
+            # deepseek-chat 在百炼平台上可能不存在，使用 deepseek-v3.2 作为替代
+            if model_lower == "deepseek-chat":
+                logger.warning("百炼平台上可能没有 deepseek-chat 模型，映射到 deepseek-v3.2")
+                return "deepseek-v3.2"
+            
             # 如果没有映射，直接返回原名称（百炼平台通常直接使用模型名称）
             return model_name
         

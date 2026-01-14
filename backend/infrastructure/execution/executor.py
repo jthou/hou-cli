@@ -17,6 +17,9 @@ from backend.infrastructure.execution.models import (
     ResourceUsage
 )
 
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+
 
 class SubprocessExecutor:
     """Subprocess 执行器（使用 subprocess + resource 限制）"""
@@ -216,7 +219,9 @@ class SubprocessExecutor:
                     # #region agent log
                     try:
                         import json
-                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(debug_log_path, 'a', encoding='utf-8') as f:
                             json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"开始解码","data":{"data_len":len(data) if data else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                             f.write('\n')
                     except: pass
@@ -228,7 +233,9 @@ class SubprocessExecutor:
                         result = data.decode("utf-8", errors="replace")
                         # #region agent log
                         try:
-                            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(debug_log_path, 'a', encoding='utf-8') as f:
                                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"UTF-8解码成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                 f.write('\n')
                         except: pass
@@ -237,7 +244,9 @@ class SubprocessExecutor:
                     except Exception as e:
                         # #region agent log
                         try:
-                            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(debug_log_path, 'a', encoding='utf-8') as f:
                                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"UTF-8解码失败，尝试其他编码","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                 f.write('\n')
                         except: pass
@@ -248,7 +257,9 @@ class SubprocessExecutor:
                                 result = data.decode(encoding, errors="replace")
                                 # #region agent log
                                 try:
-                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with open(debug_log_path, 'a', encoding='utf-8') as f:
                                         json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"其他编码解码成功","data":{"encoding":encoding,"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                         f.write('\n')
                                 except: pass

@@ -1,4 +1,4 @@
-"""视频剪辑技能实现"""
+"""视频下载技能实现"""
 import logging
 import yaml
 from pathlib import Path
@@ -10,12 +10,12 @@ from backend.core.agent.skills.executor import SkillExecutor
 logger = logging.getLogger(__name__)
 
 
-class VideoCutSkill(Skill):
-    """视频剪辑技能 - 从视频中提取指定时间段的内容，支持单片段和多片段剪辑"""
+class VideoDownloaderSkill(Skill):
+    """视频下载技能 - 下载视频文件，支持单个或多个视频 URL，支持批量下载"""
     
     def __init__(self, executor: SkillExecutor):
         """
-        初始化视频剪辑技能
+        初始化视频下载技能
         
         Args:
             executor: 技能执行器
@@ -68,7 +68,7 @@ class VideoCutSkill(Skill):
         context: Optional[Dict[str, Any]] = None
     ) -> SkillResult:
         """
-        执行视频剪辑技能
+        执行视频下载技能
         
         Args:
             parameters: 技能参数

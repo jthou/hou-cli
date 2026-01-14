@@ -76,6 +76,12 @@ ipykernel>=6.25.0
 # 注意：Local-File-Organizer 需要 Nexa SDK，可能需要额外的安装步骤
 # 参考：https://github.com/QiuYannnn/Local-File-Organizer
 
+# ===== 视频下载工具（可选功能） =====
+# browser-cookie3（已包含在生产依赖中）
+# 用于从浏览器提取 cookies，支持视频下载工具
+# 注意：browser-cookie3 需要系统级别的浏览器访问权限
+# 参考：https://github.com/borisbabic/browser_cookie3
+
 # ===== PDF 解析工具（可选功能） =====
 # 支持多种PDF解析后端，至少安装一个即可使用：
 # 1. MinerU（推荐，完全本地化，免费）：

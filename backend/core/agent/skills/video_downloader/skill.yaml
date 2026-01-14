@@ -1,0 +1,132 @@
+# 视频下载技能配置
+# Video Downloader Skill Configuration
+
+name: video_downloader
+version: 1.0.0
+description: 下载视频文件，支持单个或多个视频 URL，支持批量下载
+category: media_processing
+priority: P0  # 高优先级，优先于 video_summary
+
+# 技能参数定义
+parameters:
+  - name: url
+    type: string
+    description: 单个视频 URL
+    required: false
+  - name: urls
+    type: array
+    description: 多个视频 URL 列表（批量下载）
+    required: false
+    items:
+      type: string
+  - name: output_dir
+    type: string
+    description: 输出目录（可选，默认使用系统临时目录）
+    required: false
+  - name: subtitle_only
+    type: boolean
+    description: 是否只下载字幕（不下载视频）
+    required: false
+    default: false
+  - name: subtitle_lang
+    type: string
+    description: 字幕语言（如 zh, en, zh-Hans, zh-Hant 等）
+    required: false
+    default: zh
+
+# 工具依赖
+dependencies:
+  tools:
+    - name: video_downloader
+      version: ">=1.0.0"
+    - name: code_executor
+      version: ">=1.0.0"
+
+# 工作流定义
+workflow:
+  steps:
+    - name: validate_inputs
+      type: code_executor
+      description: 验证输入参数，确保至少有一个 URL
+      code: |
+        urls = []
+        if 'url' in input and input['url']:
+            urls.append(input['url'])
+        if 'urls' in input and input['urls']:
+            urls.extend(input['urls'])
+        
+        if not urls:
+            raise ValueError("至少需要提供一个视频 URL")
+        
+        # 存储到 config 中供后续步骤使用
+        config['urls'] = urls
+        config['output_dir'] = input.get('output_dir')
+        config['subtitle_only'] = input.get('subtitle_only', False)
+        config['subtitle_lang'] = input.get('subtitle_lang', 'zh')
+        
+        return {
+            'url_count': len(urls),
+            'urls': urls
+        }
+    
+    - name: download_videos
+      type: code_executor
+      description: 批量下载视频
+      code: |
+        import asyncio
+        from backend.core.agent.tools.registry import ToolRegistry
+        
+        urls = config['urls']
+        output_dir = config.get('output_dir')
+        subtitle_only = config.get('subtitle_only', False)
+        subtitle_lang = config.get('subtitle_lang', 'zh')
+        
+        # 获取工具注册表（从 context 中获取）
+        tool_registry = context.get('tool_registry')
+        if not tool_registry:
+            raise ValueError("工具注册表未找到")
+        
+        results = []
+        errors = []
+        
+        for i, url in enumerate(urls, 1):
+            try:
+                # 调用 video_downloader 工具
+                tool_result = tool_registry.execute(
+                    'video_downloader',
+                    url=url,
+                    output_dir=output_dir,
+                    subtitle_only=subtitle_only,
+                    subtitle_lang=subtitle_lang if subtitle_only else None
+                )
+                
+                if tool_result.success:
+                    results.append({
+                        'url': url,
+                        'success': True,
+                        'output_file': tool_result.data.get('output_file'),
+                        'subtitle_file': tool_result.data.get('subtitle_file')
+                    })
+                else:
+                    errors.append({
+                        'url': url,
+                        'error': tool_result.error
+                    })
+            except Exception as e:
+                errors.append({
+                    'url': url,
+                    'error': str(e)
+                })
+        
+        return {
+            'total': len(urls),
+            'success': len(results),
+            'failed': len(errors),
+            'results': results,
+            'errors': errors
+        }
+
+# 配置
+config:
+  default_output_dir: null  # 使用系统默认目录
+

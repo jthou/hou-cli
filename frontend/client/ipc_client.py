@@ -4,9 +4,11 @@ import httpx
 from pathlib import Path
 import platform
 import time
-import subprocess
 from typing import Optional, AsyncIterator, List, Dict, Any
 import asyncio
+
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 class IPCClient:
     """跨平台 IPC 客户端"""
@@ -75,21 +77,8 @@ class IPCClient:
             except (ValueError, FileNotFoundError):
                 pass
         
-        # 先扫描所有正在监听的端口，查找后端服务
-        # 使用 netstat/ss 查找所有 Python 进程监听的端口
-        discovered_ports = self._find_listening_ports()
-        if discovered_ports:
-            # 优先尝试已发现的端口
-            for port in discovered_ports:
-                if self._verify_port(port):
-                    # 发现可用端口，更新端口文件
-                    try:
-                        port_file.write_text(str(port))
-                    except Exception:
-                        pass  # 忽略写入错误
-                    return port
-        
-        # 如果没找到，再扫描常见端口范围
+        # 扫描范围：从 start_port 开始，前后各扫描 100 个端口
+        # 如果没有 start_port，从 8000 开始扫描到 8100
         if start_port:
             ports_to_try = []
             # 先尝试 start_port 本身
@@ -115,60 +104,6 @@ class IPCClient:
                 return port
         
         return None
-    
-    def _find_listening_ports(self) -> List[int]:
-        """查找所有 Python 进程监听的端口"""
-        import subprocess
-        ports = []
-        try:
-            # 尝试使用 ss 命令
-            result = subprocess.run(
-                ["ss", "-tlnp"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'python' in line.lower() and '127.0.0.1' in line:
-                        # 提取端口号
-                        parts = line.split()
-                        for part in parts:
-                            if '127.0.0.1:' in part:
-                                try:
-                                    port = int(part.split(':')[-1])
-                                    if 1024 <= port <= 65535:
-                                        ports.append(port)
-                                except ValueError:
-                                    pass
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-        
-        try:
-            # 如果 ss 失败，尝试使用 netstat
-            result = subprocess.run(
-                ["netstat", "-tlnp"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'python' in line.lower() and '127.0.0.1' in line:
-                        # 提取端口号
-                        parts = line.split()
-                        for part in parts:
-                            if '127.0.0.1:' in part:
-                                try:
-                                    port = int(part.split(':')[-1])
-                                    if 1024 <= port <= 65535:
-                                        ports.append(port)
-                                except ValueError:
-                                    pass
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-        
-        return ports
     
     def _connect(self):
         """连接到后端服务"""
@@ -353,7 +288,9 @@ class IPCClient:
                                 # #region agent log
                                 try:
                                     import json as json_module
-                                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with open(debug_log_path, 'a', encoding='utf-8') as f:
                                         json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"准备解析JSON","data":{"data_str_len":len(data_str),"data_str_preview":data_str[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                         f.write('\n')
                                 except: pass
@@ -364,7 +301,9 @@ class IPCClient:
                                     data = json.loads(data_str)
                                     # #region agent log
                                     try:
-                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
                                             json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"JSON解析成功","data":{"status":data.get("status")},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                             f.write('\n')
                                     except: pass
@@ -381,7 +320,9 @@ class IPCClient:
                                 except json.JSONDecodeError as e:
                                     # #region agent log
                                     try:
-                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
                                             json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"data_str_len":len(data_str)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                             f.write('\n')
                                     except: pass
@@ -391,7 +332,9 @@ class IPCClient:
                                 except UnicodeDecodeError as e:
                                     # #region agent log
                                     try:
-                                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
                                             json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"Unicode解码错误","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"position":getattr(e,'start',None)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                                             f.write('\n')
                                     except: pass

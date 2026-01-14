@@ -1,9 +1,13 @@
 """代码执行工具实现"""
 import asyncio
+from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.infrastructure.execution import SecureExecutor, ExecutionRequest
 from backend.infrastructure.execution.risk_detector import RiskDetector, RiskLevel
+
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 if TYPE_CHECKING:
     from backend.infrastructure.execution.interactive_executor import InteractiveExecutor
@@ -247,7 +251,9 @@ class CodeExecutorTool(Tool):
                 # #region agent log
                 try:
                     import json
-                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(debug_log_path, 'a', encoding='utf-8') as f:
                         json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"开始清理文本","data":{"text_type":type(text).__name__,"text_len":len(str(text)) if text else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                         f.write('\n')
                 except: pass
@@ -259,7 +265,9 @@ class CodeExecutorTool(Tool):
                     result = text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
                     # #region agent log
                     try:
-                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(debug_log_path, 'a', encoding='utf-8') as f:
                             json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"文本清理成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                             f.write('\n')
                     except: pass
@@ -268,7 +276,9 @@ class CodeExecutorTool(Tool):
                 except Exception as e:
                     # #region agent log
                     try:
-                        with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(debug_log_path, 'a', encoding='utf-8') as f:
                             json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"文本清理失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                             f.write('\n')
                     except: pass
@@ -279,7 +289,9 @@ class CodeExecutorTool(Tool):
             # #region agent log
             try:
                 import json
-                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, 'a', encoding='utf-8') as f:
                     json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:_execute_async","message":"构建工具结果","data":{"result_success":result.success,"output_len":len(result.output) if result.output else 0,"error_len":len(result.error) if result.error else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                     f.write('\n')
             except: pass

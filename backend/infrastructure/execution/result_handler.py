@@ -1,5 +1,9 @@
 """执行结果处理"""
+from pathlib import Path
 from backend.infrastructure.execution.models import ExecutionResult, ResourceUsage
+
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
 
 class ResultHandler:
@@ -16,7 +20,9 @@ class ResultHandler:
         # #region agent log
         try:
             import json
-            with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
                 json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"开始处理输出","data":{"output_type":type(output).__name__,"output_len":len(str(output)) if output else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass
@@ -39,7 +45,9 @@ class ResultHandler:
                 # #region agent log
                 try:
                     import json
-                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(debug_log_path, 'a', encoding='utf-8') as f:
                         json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"编码清理失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                         f.write('\n')
                 except: pass
@@ -53,7 +61,9 @@ class ResultHandler:
                 # #region agent log
                 try:
                     import json
-                    with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(debug_log_path, 'a', encoding='utf-8') as f:
                         json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"需要截断输出","data":{"output_bytes_len":len(output_bytes),"max_size":self.MAX_OUTPUT_SIZE},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                         f.write('\n')
                 except: pass
@@ -71,7 +81,9 @@ class ResultHandler:
             # #region agent log
             try:
                 import json
-                with open('/System/Volumes/Data/justin/dev/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
+                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(debug_log_path, 'a', encoding='utf-8') as f:
                     json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"result_handler.py:truncate_output","message":"处理输出异常","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                     f.write('\n')
             except: pass

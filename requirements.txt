@@ -60,6 +60,10 @@ cryptography>=41.0.0
 mwclient>=0.10.0
 wikipedia>=1.4.0
 
+# ===== 视频下载工具 =====
+# 浏览器 cookies 提取（用于视频下载工具，支持从浏览器提取 cookies）
+browser-cookie3>=0.19.0
+
 # ===== 可选依赖 =====
 # 如果需要使用其他向量数据库，可以取消注释
 # faiss-cpu>=1.7.4  # Facebook AI Similarity Search

@@ -107,14 +107,22 @@ class GoogleSearchTool(Tool):
             try:
                 loop = asyncio.get_running_loop()
                 # 如果已有运行的事件循环，使用线程池执行
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        lambda: asyncio.run(service.search(
+                # 在新线程中创建独立的事件循环，避免冲突
+                def run_in_new_loop():
+                    """在新线程中创建独立的事件循环并运行"""
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(service.search(
                             query=query,
                             num_results=num_results,
                             language=language
                         ))
-                    )
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_in_new_loop)
                     response = future.result(timeout=30)
             except RuntimeError:
                 # 没有运行的事件循环，可以直接使用 asyncio.run
