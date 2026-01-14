@@ -3,7 +3,6 @@ import logging
 import re
 import time
 import asyncio
-import sys
 import platform
 from datetime import datetime
 from pathlib import Path
