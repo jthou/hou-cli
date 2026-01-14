@@ -20,6 +20,7 @@ else:
 from backend.core.agent.orchestrator import Orchestrator
 from backend.services.search.file_search_service import FileSearchService
 from backend.services.search.models import FileSearchRequest
+from backend.api.stream_sender import StreamSender
 
 router = APIRouter()
 
@@ -110,7 +111,7 @@ async def chat_stream(request: ChatRequest):
         try:
             logger.debug(f"收到流式聊天请求: message={request.message[:50]}..., session_id={request.session_id}")
             # 立即发送一个心跳，保持连接活跃
-            yield f"data: {json.dumps({'content': '', 'status': 'streaming'})}\n\n"
+            yield await StreamSender.send_chunk("", "streaming")
             
             orchestrator = get_orchestrator()
             context = {}
@@ -121,16 +122,15 @@ async def chat_stream(request: ChatRequest):
             try:
                 async for chunk in orchestrator.stream_process(request.message, context=context):
                     try:
-                        # SSE 格式：data: {json}\n\n
-                        # 使用 ensure_ascii=False 保持 emoji 等 Unicode 字符原样，避免转义
-                        yield f"data: {json.dumps({'content': chunk, 'status': 'streaming'}, ensure_ascii=False)}\n\n"
+                        # 使用 StreamSender 发送数据块
+                        yield await StreamSender.send_chunk(chunk, "streaming")
                     except Exception as chunk_error:
                         # 单个 chunk 处理失败，记录但继续
                         logger.warning(f"处理 chunk 时出错: {str(chunk_error)}")
                         continue
                 # 发送完成信号
                 logger.debug("流式处理完成")
-                yield f"data: {json.dumps({'content': '', 'status': 'done'}, ensure_ascii=False)}\n\n"
+                yield await StreamSender.send_done()
             except GeneratorExit:
                 # 客户端断开连接，正常情况
                 logger.debug("客户端断开连接")
@@ -145,7 +145,7 @@ async def chat_stream(request: ChatRequest):
                 logger.error(f"流式处理过程中出错: {str(inner_e)}\n{error_trace}")
                 try:
                     # 发送错误信号
-                    yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(inner_e)}, ensure_ascii=False)}\n\n"
+                    yield await StreamSender.send_error(str(inner_e))
                 except Exception:
                     # 如果发送错误信号也失败，记录日志
                     logger.error("无法发送错误信号，连接可能已关闭")
@@ -154,7 +154,7 @@ async def chat_stream(request: ChatRequest):
             error_trace = traceback.format_exc()
             logger.error(f"流式聊天请求失败: {str(e)}\n{error_trace}")
             # 发送错误信号
-            yield f"data: {json.dumps({'content': '', 'status': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield await StreamSender.send_error(str(e))
     
     return StreamingResponse(
         generate(),

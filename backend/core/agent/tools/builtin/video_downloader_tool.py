@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from abc import ABC, abstractmethod
 
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
@@ -128,6 +128,14 @@ class DownloadResult:
 
 class DownloaderAdapter(ABC):
     """下载器适配器基类"""
+    
+    def __init__(self):
+        """初始化下载器适配器"""
+        self.progress_callback: Optional[Callable] = None
+    
+    def set_progress_callback(self, callback: Optional[Callable]):
+        """设置进度回调函数"""
+        self.progress_callback = callback
     
     @abstractmethod
     def is_available(self) -> bool:
@@ -668,6 +676,38 @@ class YtDlpDownloader(DownloaderAdapter):
                 debug_opts = {k: v for k, v in ydl_opts.items() if k not in ['cookiefile']}
                 logger.debug(f"yt-dlp 配置: {json.dumps(debug_opts, indent=2, ensure_ascii=False, default=str)}")
                 
+                # 添加进度钩子（如果设置了进度回调）
+                progress_callback = self.progress_callback
+                if progress_callback:
+                    def progress_hook(d: Dict[str, Any]):
+                        """yt-dlp 进度钩子"""
+                        if not progress_callback:
+                            return
+                        if d.get('status') == 'downloading':
+                            # 提取进度信息
+                            total = d.get('total_bytes') or d.get('total_bytes_estimate')
+                            downloaded = d.get('downloaded_bytes', 0)
+                            if total and total > 0:
+                                progress_percent = int((downloaded / total) * 100)
+                                speed = d.get('speed', 0)
+                                speed_str = f"{speed / 1024 / 1024:.2f} MB/s" if speed else "未知"
+                                message = f"下载中: {progress_percent}% ({speed_str})"
+                                # 调用进度回调（适配两种签名）
+                                try:
+                                    # 尝试传递进度值和消息
+                                    progress_callback(progress_percent, message)
+                                except TypeError:
+                                    # 如果失败，只传递消息
+                                    progress_callback(message)
+                        elif d.get('status') == 'finished':
+                            message = "下载完成"
+                            try:
+                                progress_callback(100, message)
+                            except TypeError:
+                                progress_callback(message)
+                    
+                    ydl_opts['progress_hooks'] = [progress_hook]  # type: ignore
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     
@@ -1012,6 +1052,10 @@ class VideoDownloaderTool(Tool):
                 success=False,
                 error=f"Downloader {downloader.__class__.__name__} is not available"
             )
+        
+        # 如果工具设置了进度回调，传递给下载器
+        if self.progress_callback:
+            downloader.set_progress_callback(self.progress_callback)
         
         # 执行下载（使用相同的 downloader_options，不包含 url、output_dir、preferred_tool）
         result = downloader.download(url, output_dir, **downloader_options)

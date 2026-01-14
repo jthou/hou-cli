@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI
 from backend.api.routes import router
+from backend.api.task_routes import router as task_router
 from shared.platform_utils import save_port, load_port, get_port_file
 from shared.config import Config
 from rich.console import Console
@@ -124,6 +125,7 @@ async def startup_event():
         logging.error(f"Orchestrator initialization failed: {str(e)}", exc_info=True)
 
 app.include_router(router, prefix="/api")
+app.include_router(task_router, prefix="/api")
 
 @app.get("/health")
 async def health():
