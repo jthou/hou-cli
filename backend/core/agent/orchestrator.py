@@ -68,6 +68,10 @@ class Orchestrator:
         planning_enabled = os.getenv("ENABLE_PLANNING", "true").lower() == "true"
         self.enable_planning = planning_enabled
         
+        # 对话评估功能（可以独立于规划功能启用）
+        evaluation_enabled = os.getenv("ENABLE_EVALUATION", "true").lower() == "true"
+        self.enable_evaluation = evaluation_enabled
+        
         if self.enable_planning:
             # 获取规划文件工作目录
             planning_work_dir = os.getenv("PLANNING_WORK_DIR", None)
@@ -97,7 +101,13 @@ class Orchestrator:
         else:
             self.planning_manager = None
             self.complexity_analyzer = None
-            self.evaluator = None
+            # 即使规划功能禁用，如果评估功能启用，仍然初始化评估器
+            if self.enable_evaluation:
+                self.evaluator = ConversationEvaluator(
+                    llm_service=self.llm_service
+                )
+            else:
+                self.evaluator = None
             logger.info("规划功能已禁用")
         
         # 注册天气工具（如果配置了 JWT）
@@ -355,8 +365,10 @@ class Orchestrator:
                             self.skill_registry.register(skill)
                             logger.info(f"技能已注册: {skill_name}")
                         elif skill_name == 'video_summary':
-                            # video_summary skill 可能不存在，跳过
-                            logger.warning(f"video_summary 技能暂未实现，跳过注册")
+                            from backend.core.agent.skills.video_summary import VideoSummarySkill
+                            skill = VideoSummarySkill(self.skill_executor)
+                            self.skill_registry.register(skill)
+                            logger.info(f"技能已注册: {skill_name}")
                         elif skill_name == 'video_cut':
                             from backend.core.agent.skills.video_editing.video_cut_skill import VideoCutSkill
                             skill = VideoCutSkill(self.skill_executor)
@@ -681,6 +693,16 @@ class Orchestrator:
             - 内容：纯文本
         """
         import json
+        import time
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:entry","message":"stream_process被调用","data":{"task_length":len(task) if task else 0,"has_context":context is not None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except Exception as log_err:
+            logger.error(f"日志写入失败: {log_err}")
+        # #endregion
         
         # 发送调试信息：开始处理
         debug_info = {
@@ -689,12 +711,294 @@ class Orchestrator:
             "message": "开始流式处理任务",
             "details": {"task": task[:50] + "..." if len(task) > 50 else task}
         }
-        yield StreamMessageBuilder.build_debug(debug_info)
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:before_first_yield","message":"准备yield第一个消息","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except Exception as log_err:
+            logger.error(f"日志写入失败: {log_err}")
+        # #endregion
+        
+        first_msg = StreamMessageBuilder.build_debug(debug_info)
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:before_yield_first_msg","message":"准备yield第一个消息内容","data":{"msg_preview":first_msg[:50] if first_msg else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except Exception as log_err:
+            logger.error(f"日志写入失败: {log_err}")
+        # #endregion
+        
+        yield first_msg
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:after_first_yield","message":"第一个消息已yield","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except Exception as log_err:
+            logger.error(f"日志写入失败: {log_err}")
+        # #endregion
         
         self.debug.log_orchestrator_step("开始流式处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
         
-        # 优先检查是否有匹配的技能
+        # 1. 获取会话 ID（如果提供）
+        session_id = context.get("session_id") if context else None
+        self.debug.log_context_operation("获取会话ID", session_id or "new", {"provided": session_id is not None})
+        
+        # 如果没有会话 ID，创建新会话
+        if not session_id:
+            session_id = self.context_manager.create_session()
+            debug_info = {
+                "type": "debug",
+                "category": "context",
+                "message": "创建新会话",
+                "details": {"session_id": session_id[:8] + "..."}
+            }
+            yield StreamMessageBuilder.build_debug(debug_info)
+            self.debug.log_context_operation("创建新会话", session_id)
+        
+        # 2. 获取历史消息（不压缩，保留完整历史）
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,  # 不限制消息数量
+            max_tokens=None     # 不限制 token 数量
+        )
+        debug_info = {
+            "type": "debug",
+            "category": "context",
+            "message": "获取历史消息",
+            "details": {"count": len(history), "has_history": len(history) > 0}
+        }
+        yield StreamMessageBuilder.build_debug(debug_info)
+        self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
+        
+        # 3. 规划功能：检测复杂任务并创建规划文件
+        planning_files = None
+        task_plan_content = None
+        if self.enable_planning and self.planning_manager and self.complexity_analyzer:
+            # 发送调试信息：开始复杂度分析
+            debug_info = {
+                "type": "debug",
+                "category": "planning",
+                "message": "开始分析任务复杂度",
+                "details": {}
+            }
+            yield StreamMessageBuilder.build_debug(debug_info)
+            
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:before_complexity_check","message":"准备进行复杂度分析","data":{"use_llm":self.complexity_analyzer.use_llm},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+            except: pass
+            # #endregion
+            
+            # 判断任务复杂度（支持 LLM 辅助判断）
+            try:
+                if self.complexity_analyzer.use_llm:
+                    # #region agent log
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:before_is_complex_async","message":"准备调用is_complex_task_async","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    except: pass
+                    # #endregion
+                    is_complex = await self.complexity_analyzer.is_complex_task_async(task, history)
+                    # #region agent log
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:after_is_complex_async","message":"is_complex_task_async完成","data":{"is_complex":is_complex},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    except: pass
+                    # #endregion
+                else:
+                    # #region agent log
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:before_is_complex","message":"准备调用is_complex_task","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    except: pass
+                    # #endregion
+                    is_complex = self.complexity_analyzer.is_complex_task(task, history)
+                    # #region agent log
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:after_is_complex","message":"is_complex_task完成","data":{"is_complex":is_complex},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    except: pass
+                    # #endregion
+            except Exception as e:
+                logger.warning(f"复杂度分析失败: {str(e)}", exc_info=True)
+                # 分析失败时，默认不创建规划文件，继续执行
+                is_complex = False
+            
+            if is_complex:
+                try:
+                    # 创建规划文件
+                    planning_files = self.planning_manager.create_planning_files(task, session_id)
+                    
+                    # 读取规划文件内容，准备注入到 system_prompt
+                    task_plan_content = self.planning_manager.read_task_plan(session_id)
+                    
+                    debug_info = {
+                        "type": "debug",
+                        "category": "planning",
+                        "message": "检测到复杂任务，已创建规划文件",
+                        "details": {
+                            "task_plan": str(planning_files.task_plan),
+                            "findings": str(planning_files.findings),
+                            "progress": str(planning_files.progress)
+                        }
+                    }
+                    yield StreamMessageBuilder.build_debug(debug_info)
+                    logger.info(f"为复杂任务创建规划文件: {planning_files.task_plan}")
+                except Exception as e:
+                    logger.error(f"创建规划文件失败: {str(e)}", exc_info=True)
+                    debug_info = {
+                        "type": "debug",
+                        "category": "planning",
+                        "message": "创建规划文件失败",
+                        "details": {"error": str(e)}
+                    }
+                    yield StreamMessageBuilder.build_debug(debug_info)
+        
+        # 4. 构建 system_prompt（包含规划内容）
+        planning_context = ""
+        if planning_files and task_plan_content:
+            planning_context = f"""
+
+【重要】任务规划文件已创建，请遵循以下规划执行任务：
+
+{task_plan_content[:2000]}  # 限制长度，避免上下文过长
+
+请在执行任务时：
+1. 参考 task_plan.md 中的目标和阶段
+2. 完成每个阶段后，更新阶段状态
+3. 将研究发现记录到 findings.md
+4. 将操作记录到 progress.md
+5. 遇到错误时，记录到 task_plan.md 的错误表
+"""
+        
+        system_prompt = f"""你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。{planning_context}
+
+重要原则：
+- 对于简单的命令执行任务（如显示文件、查看目录、执行脚本等），严格按照用户指令执行，不要添加额外的探索、检查或推理
+- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作
+- 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
+- 不要过度思考，不要添加用户没有要求的额外功能
+
+【重要】工具选择规则：
+1. **浏览器工具（browser）**：当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
+   - 例如："打开 www.google.com" → 使用 browser
+   - 例如："访问 www.example.com 并查看网页" → 使用 browser
+   - 例如："打开网站" → 使用 browser
+   - 如果用户提到具体的网站地址（如 www.google.com、example.com），优先使用 browser
+
+2. **Google 搜索工具（google_search）**：当用户要求"搜索"、"查找"网络信息时，使用 google_search
+   - 例如："搜索 Python 教程" → 使用 google_search
+   - 例如："查找关于 AI 的最新信息" → 使用 google_search
+
+3. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
+
+当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
+
+**天气图标对照表：**
+- ☀️ 晴天
+- ⛅ 多云
+- ☁️ 阴天
+- 🌧️ 雨天
+- ⛈️ 雷雨
+- 🌨️ 雪天
+- 🌫️ 雾/霾
+- 🌪️ 大风/龙卷风
+
+**风力图标对照表：**
+- 🍃 微风（1-3级）
+- 💨 轻风（4-5级）
+- 🌬️ 和风（6-7级）
+- 💨💨 强风（8-9级）
+- 🌪️ 狂风（10级以上）
+
+**格式要求：**
+
+1. **当前天气**：使用列表或简洁的段落展示，添加天气图标
+   - 例如：☀️ 晴，温度 3°C，体感温度 0°C
+   - 如果提供了空气质量数据，请显示雾霾指数（AQI）和空气质量等级
+     * AQI 0-50：🟢 优
+     * AQI 51-100：🟡 良
+     * AQI 101-150：🟠 轻度污染
+     * AQI 151-200：🔴 中度污染
+     * AQI 201-300：🟣 重度污染
+     * AQI >300：⚫ 严重污染
+   - 例如：🌫️ 空气质量：AQI 85，🟡 良，PM2.5: 45μg/m³
+
+2. **天气预报**：使用 Markdown 表格格式，在天气和风向列中添加图标，例如：
+   | 日期 | 天气 | 最高温度 | 最低温度 | 风向 | 湿度 |
+   |------|------|---------|---------|------|------|
+   | 1月3日 | ☀️ 晴 | 6°C | -4°C | 🍃 西北风1-3级 | 24% |
+   | 1月4日 | ☀️ 晴 | 5°C | -5°C | 🍃 东风1-3级 | 29% |
+   | 1月5日 | ⛅ 多云 | 4°C | -4°C | 💨 西南风4-5级 | 35% |
+
+3. **穿衣建议**：根据温度、天气状况和风力提供穿衣指数和建议
+   - 使用温度范围判断：
+     * 30°C以上：🔥 炎热，建议穿轻薄透气的短袖、短裤
+     * 25-30°C：☀️ 温暖，建议穿T恤、薄长裤
+     * 15-25°C：😊 舒适，建议穿长袖、薄外套
+     * 5-15°C：🧥 凉爽，建议穿薄外套、长裤
+     * 0-5°C：🧣 较冷，建议穿厚外套、毛衣
+     * 0°C以下：❄️ 寒冷，建议穿羽绒服、厚毛衣、保暖内衣
+   - 根据天气状况调整：
+     * 雨天：🌧️ 建议穿防水外套或带雨具
+     * 雪天：🌨️ 建议穿防滑鞋、保暖衣物
+     * 大风：💨 建议穿防风外套
+
+4. **带伞建议**：
+   - 🌧️ 有雨：**建议带伞**
+   - ⛈️ 雷雨：**强烈建议带伞**
+   - 🌨️ 雪天：**建议带伞（防雪）**
+   - ☀️ 晴天：无需带伞
+   - ⛅ 多云：建议携带轻便雨具（以防突发降雨）
+
+5. **总结**：使用标题（##）和列表（-）组织信息
+
+请确保：
+- 表格对齐整齐
+- 信息层次清晰
+- 使用适当的 Markdown 语法（标题、列表、表格、粗体）
+- 根据实际天气状况选择合适的图标
+- 根据风力等级选择合适的风力图标
+- 穿衣建议和带伞建议要基于实际的温度、天气状况和降水概率"""
+        
+        # 构建 user_prompt（包含历史上下文）
+        filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
+        
+        if filtered_history:
+            history_text = "\n".join([
+                f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
+                for msg in filtered_history
+            ])
+            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
+            self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
+        else:
+            user_prompt = task
+            self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+        
+        # 5. 优先尝试匹配技能（集成任务管理和规划更新）
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"orchestrator.py:stream_process:before_skill_match","message":"准备进行技能匹配","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+        except: pass
+        # #endregion
+        
         matched_skill = self.skill_registry.match(task)
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"orchestrator.py:stream_process:after_skill_match","message":"技能匹配完成","data":{"matched":matched_skill is not None,"skill_name":matched_skill.name if matched_skill else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+        except: pass
+        # #endregion
+        
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             debug_info = {
@@ -709,28 +1013,14 @@ class Orchestrator:
             # 提取技能参数
             skill_params = self._extract_skill_parameters(task, matched_skill)
             
-            # 获取会话 ID（如果提供）
-            session_id = context.get("session_id") if context else None
-            if not session_id:
-                session_id = self.context_manager.create_session()
-            
             # 执行技能
             try:
                 # 检测是否是长任务（需要进度监控）
                 is_long_task = matched_skill.name in ['video_downloader']  # 可以扩展其他长任务
                 
-                # 设置上下文（包含 tool_registry）
-                skill_context = {
-                    'tool_registry': self.tool_registry,
-                    'llm_service': self.llm_service,
-                    'context_manager': self.context_manager,
-                    'session_id': session_id
-                }
-                
-                # 如果是长任务，创建任务记录（不通过 TaskManager.create_task，因为技能已经在执行）
+                # 创建任务记录（任务管理功能）
                 task_id = None
                 if is_long_task:
-                    # 直接创建任务信息（不启动新任务，因为技能已经在当前流程中执行）
                     import uuid
                     from backend.core.agent.task_manager import TaskInfo, TaskStatus
                     from datetime import datetime
@@ -742,7 +1032,6 @@ class Orchestrator:
                         status=TaskStatus.RUNNING,
                         started_at=datetime.now()
                     )
-                    # 手动添加到任务管理器（不通过 create_task）
                     task_manager._tasks[task_id] = task_info
                     
                     # 发送任务创建通知
@@ -754,26 +1043,54 @@ class Orchestrator:
                         "task_id": task_id
                     }
                     yield StreamMessageBuilder.build_status(status_data)
-                    
-                    # 更新技能上下文，添加任务信息
-                    skill_context['task_id'] = task_id
-                    skill_context['task_manager'] = task_manager
-                    
-                    # 创建一个队列来收集进度更新，以便在技能执行期间发送 SSE 消息
-                    import asyncio
-                    import queue as queue_module
-                    progress_queue = queue_module.Queue()  # 使用线程安全的队列，因为回调可能在非异步上下文中调用
-                    
-                    # 创建一个包装的 progress_callback，将更新放入队列
-                    def queued_progress_callback(progress_or_message, message: str = ""):
-                        """队列化的进度回调（线程安全）"""
-                        try:
-                            progress_queue.put_nowait((progress_or_message, message))
-                        except Exception as e:
-                            logger.warning(f"进度回调队列添加失败: {e}")
-                    
-                    # 将包装的回调添加到 skill_context
-                    skill_context['progress_callback'] = queued_progress_callback
+                
+                # 设置技能上下文（包含任务管理和规划功能）
+                skill_context = {
+                    'tool_registry': self.tool_registry,
+                    'llm_service': self.llm_service,
+                    'context_manager': self.context_manager,
+                    'session_id': session_id,
+                    'task_id': task_id,
+                    'task_manager': task_manager,
+                    'planning_files': planning_files,  # 添加规划文件引用
+                    'planning_manager': self.planning_manager if self.enable_planning else None
+                }
+                
+                # 创建进度回调（同时更新任务管理和规划文件）
+                import asyncio
+                import queue as queue_module
+                progress_queue = queue_module.Queue()  # 使用线程安全的队列
+                
+                def integrated_progress_callback(progress_or_message, message: str = ""):
+                    """集成的进度回调（同时更新任务管理和规划文件）"""
+                    try:
+                        # 更新任务管理器
+                        if task_manager and task_id:
+                            if isinstance(progress_or_message, str):
+                                # 只传递消息，保持当前进度
+                                current_task = task_manager._tasks.get(task_id)
+                                if current_task:
+                                    current_progress = current_task.progress if hasattr(current_task, 'progress') else 0
+                                    task_manager.update_task_progress(task_id, current_progress, progress_or_message)
+                            else:
+                                # 传递进度值和消息
+                                task_manager.update_task_progress(task_id, progress_or_message, message)
+                        
+                        # 更新规划文件
+                        if self.enable_planning and self.planning_manager and planning_files:
+                            progress_msg = message if message else (progress_or_message if isinstance(progress_or_message, str) else f"进度: {progress_or_message}%")
+                            self.planning_manager.add_progress(
+                                f"进度更新: {progress_msg}",
+                                files_modified=[],
+                                session_id=session_id
+                            )
+                        
+                        # 将更新放入队列（用于发送 SSE 消息）
+                        progress_queue.put_nowait((progress_or_message, message))
+                    except Exception as e:
+                        logger.warning(f"进度回调执行失败: {e}")
+                
+                skill_context['progress_callback'] = integrated_progress_callback
                 
                 # 执行技能（非流式，但可以转换为流式输出）
                 # 在后台任务中处理进度更新队列
@@ -877,13 +1194,41 @@ class Orchestrator:
                         yield status_update
                 
                 if skill_result.success:
+                    # 更新规划文件
+                    if self.enable_planning and self.planning_manager and planning_files:
+                        self.planning_manager.add_progress(
+                            f"技能 {matched_skill.name} 执行成功",
+                            files_modified=[],
+                            session_id=session_id
+                        )
+                    
                     # 格式化结果
                     result_text = self._format_skill_result(matched_skill, skill_result)
                     # 流式输出结果
                     for char in result_text:
                         yield char
                     full_result = result_text
+                    
+                    # 更新任务状态
+                    if task_id:
+                        task_info = task_manager.get_task(task_id)
+                        if task_info:
+                            task_info.status = TaskStatus.COMPLETED
+                            task_info.progress = 100
+                            task_info.message = "任务完成"
+                            task_info.result = full_result
+                            from datetime import datetime
+                            task_info.completed_at = datetime.now()
                 else:
+                    # 更新规划文件（记录错误）
+                    if self.enable_planning and self.planning_manager and planning_files:
+                        self.planning_manager.add_error(
+                            f"技能 {matched_skill.name} 执行失败",
+                            attempt=1,
+                            resolution=skill_result.error or "未知错误",
+                            session_id=session_id
+                        )
+                    
                     # 格式化错误信息，确保完整且可读
                     error_detail = skill_result.error or '未知错误'
                     # 如果错误信息很长，只取第一行（通常是错误类型和消息）
@@ -901,30 +1246,71 @@ class Orchestrator:
                     # 记录完整错误信息到日志
                     if skill_result.error and '\n' in skill_result.error:
                         logger.error(f"技能 {matched_skill.name} 执行失败（完整错误）:\n{skill_result.error}")
-                
-                # 更新任务状态（如果是长任务，在获取 full_result 之后）
-                if task_id:
-                    task_info = task_manager.get_task(task_id)
-                    if task_info:
-                        if skill_result.success:
-                            task_info.status = TaskStatus.COMPLETED
-                            task_info.progress = 100
-                            task_info.message = "任务完成"
-                            task_info.result = full_result
-                        else:
+                    
+                    # 更新任务状态
+                    if task_id:
+                        task_info = task_manager.get_task(task_id)
+                        if task_info:
                             task_info.status = TaskStatus.FAILED
                             task_info.error = skill_result.error
                             task_info.message = f"任务失败: {skill_result.error}"
-                        from datetime import datetime
-                        task_info.completed_at = datetime.now()
+                            from datetime import datetime
+                            task_info.completed_at = datetime.now()
                 
                 # 保存消息到历史
                 self.context_manager.add_message(session_id, MessageRole.USER, task)
                 self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_result)
                 self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
                 
-                # 对话评估（如果有上一轮）
-                if self.enable_evaluation:
+                # 对话评估并记录到规划文件（集成规划功能）
+                if self.enable_planning and self.evaluator and planning_files:
+                    try:
+                        # 评估当前对话
+                        evaluation_result = await self.evaluator.evaluate_conversation_turn(
+                            user_message=task,
+                            assistant_message=full_result,
+                            context=None
+                        )
+                        
+                        # 记录评估结果到 findings.md
+                        overall_score = evaluation_result.get("overall_score", 0)
+                        dimension_scores = evaluation_result.get("dimension_scores", {})
+                        evaluation_text = evaluation_result.get("evaluation", "")
+                        
+                        # 格式化评估结果
+                        eval_summary = f"总体分数: {overall_score}/100\n"
+                        for dim_id, score in dimension_scores.items():
+                            dim_name = self.evaluator.EVALUATION_DIMENSIONS.get(dim_id, {}).get("name", dim_id)
+                            eval_summary += f"{dim_name}: {score}/100\n"
+                        if evaluation_text:
+                            eval_summary += f"评估说明: {evaluation_text}\n"
+                        
+                        self.planning_manager.add_finding(
+                            f"对话评估结果:\n{eval_summary}",
+                            category="Technical Decisions",
+                            session_id=session_id
+                        )
+                        
+                        # 如果分数较低，记录到错误表
+                        if overall_score < 60:
+                            self.planning_manager.add_error(
+                                f"对话质量评分较低: {overall_score}/100",
+                                attempt=1,
+                                resolution=evaluation_text or "需要改进回答质量",
+                                session_id=session_id
+                            )
+                        
+                        # 发送评估结果
+                        evaluation_info = {
+                            "type": "evaluation",
+                            "evaluation": evaluation_result
+                        }
+                        yield StreamMessageBuilder.build_evaluation(evaluation_info)
+                        logger.info(f"对话评估完成，分数: {overall_score}/100")
+                    except Exception as e:
+                        logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
+                elif self.enable_evaluation:
+                    # 如果没有规划功能，使用原来的评估逻辑
                     try:
                         history = self.context_manager.get_messages(session_id, compressed=False)
                         if len(history) >= 2:
@@ -978,271 +1364,18 @@ class Orchestrator:
                 error_msg = f"技能执行失败: {str(e)}，将使用 LLM 处理"
                 yield f"[错误] {error_msg}\n\n"
         
-        # 获取会话 ID（如果提供）
-        session_id = context.get("session_id") if context else None
-        self.debug.log_context_operation("获取会话ID", session_id or "new", {"provided": session_id is not None})
+        # 6. 如果没有匹配到技能，使用工具（规划功能和会话ID已在前面处理）
+        # system_prompt 和 user_prompt 已在前面构建
         
-        # 如果没有会话 ID，创建新会话
-        if not session_id:
-            session_id = self.context_manager.create_session()
-            debug_info = {
-                "type": "debug",
-                "category": "context",
-                "message": "创建新会话",
-                "details": {"session_id": session_id[:8] + "..."}
-            }
-            yield StreamMessageBuilder.build_debug(debug_info)
-            self.debug.log_context_operation("创建新会话", session_id)
-        
-        # 获取历史消息（不压缩，保留完整历史）
-        # 注意：当 max_messages 和 max_tokens 都为 None 时，get_messages_for_llm 会获取完整历史
-        history = self.context_manager.get_messages_for_llm(
-            session_id,
-            max_messages=None,  # 不限制消息数量
-            max_tokens=None     # 不限制 token 数量
-        )
+        # 发送调试信息：开始工具调用流程
         debug_info = {
             "type": "debug",
-            "category": "context",
-            "message": "获取历史消息",
-            "details": {"count": len(history), "has_history": len(history) > 0}
+            "category": "orchestrator",
+            "message": "未匹配到技能，使用工具处理",
+            "details": {}
         }
         yield StreamMessageBuilder.build_debug(debug_info)
-        self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
-        # 规划功能：检测复杂任务并创建规划文件（方案2）
-        planning_files = None
-        task_plan_content = None
-        if self.enable_planning and self.planning_manager and self.complexity_analyzer:
-            # 判断任务复杂度（支持 LLM 辅助判断）
-            if self.complexity_analyzer.use_llm:
-                is_complex = await self.complexity_analyzer.is_complex_task_async(task, history)
-            else:
-                is_complex = self.complexity_analyzer.is_complex_task(task, history)
-            
-            if is_complex:
-                try:
-                    # 创建规划文件
-                    planning_files = self.planning_manager.create_planning_files(task, session_id)
-                    
-                    # 读取规划文件内容，准备注入到 system_prompt
-                    task_plan_content = self.planning_manager.read_task_plan(session_id)
-                    
-                    debug_info = {
-                        "type": "debug",
-                        "category": "planning",
-                        "message": "检测到复杂任务，已创建规划文件",
-                        "details": {
-                            "task_plan": str(planning_files.task_plan),
-                            "findings": str(planning_files.findings),
-                            "progress": str(planning_files.progress)
-                        }
-                    }
-                    yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
-                    logger.info(f"为复杂任务创建规划文件: {planning_files.task_plan}")
-                except Exception as e:
-                    logger.error(f"创建规划文件失败: {str(e)}", exc_info=True)
-                    debug_info = {
-                        "type": "debug",
-                        "category": "planning",
-                        "message": "创建规划文件失败",
-                        "details": {"error": str(e)}
-                    }
-                    yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
-        
-        # 构建消息列表（与 process 方法保持一致）
-        # 如果创建了规划文件，注入规划内容到 system_prompt
-        planning_context = ""
-        if planning_files and task_plan_content:
-            planning_context = f"""
-
-【重要】任务规划文件已创建，请遵循以下规划执行任务：
-
-{task_plan_content[:2000]}  # 限制长度，避免上下文过长
-
-请在执行任务时：
-1. 参考 task_plan.md 中的目标和阶段
-2. 完成每个阶段后，更新阶段状态
-3. 将研究发现记录到 findings.md
-4. 将操作记录到 progress.md
-5. 遇到错误时，记录到 task_plan.md 的错误表
-"""
-        
-        system_prompt = f"""你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。{planning_context}
-
-重要原则：
-- 对于简单的命令执行任务（如显示文件、查看目录、执行脚本等），严格按照用户指令执行，不要添加额外的探索、检查或推理
-- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作
-- 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
-- 不要过度思考，不要添加用户没有要求的额外功能
-
-【重要】工具选择规则：
-1. **浏览器工具（browser）**：当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
-   - 例如："打开 www.google.com" → 使用 browser
-   - 例如："访问 www.example.com 并查看网页" → 使用 browser
-   - 例如："打开网站" → 使用 browser
-   - 如果用户提到具体的网站地址（如 www.google.com、example.com），优先使用 browser
-
-2. **Google 搜索工具（google_search）**：当用户要求"搜索"、"查找"网络信息时，使用 google_search
-   - 例如："搜索 Python 教程" → 使用 google_search
-   - 例如："查找关于 AI 的最新信息" → 使用 google_search
-
-3. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息，也不要从历史对话记录中提取旧的天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
-
-当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
-
-**天气图标对照表：**
-- ☀️ 晴天
-- ⛅ 多云
-- ☁️ 阴天
-- 🌧️ 雨天
-- ⛈️ 雷雨
-- 🌨️ 雪天
-- 🌫️ 雾/霾
-- 🌪️ 大风/龙卷风
-
-**风力图标对照表：**
-- 🍃 微风（1-3级）
-- 💨 轻风（4-5级）
-- 🌬️ 和风（6-7级）
-- 💨💨 强风（8-9级）
-- 🌪️ 狂风（10级以上）
-
-**格式要求：**
-
-1. **当前天气**：使用列表或简洁的段落展示，添加天气图标
-   - 例如：☀️ 晴，温度 3°C，体感温度 0°C
-   - 如果提供了空气质量数据，请显示雾霾指数（AQI）和空气质量等级
-     * AQI 0-50：🟢 优
-     * AQI 51-100：🟡 良
-     * AQI 101-150：🟠 轻度污染
-     * AQI 151-200：🔴 中度污染
-     * AQI 201-300：🟣 重度污染
-     * AQI >300：⚫ 严重污染
-   - 例如：🌫️ 空气质量：AQI 85，🟡 良，PM2.5: 45μg/m³
-
-2. **天气预报**：使用 Markdown 表格格式，在天气和风向列中添加图标，例如：
-   | 日期 | 天气 | 最高温度 | 最低温度 | 风向 | 湿度 |
-   |------|------|---------|---------|------|------|
-   | 1月3日 | ☀️ 晴 | 6°C | -4°C | 🍃 西北风1-3级 | 24% |
-   | 1月4日 | ☀️ 晴 | 5°C | -5°C | 🍃 东风1-3级 | 29% |
-   | 1月5日 | ⛅ 多云 | 4°C | -4°C | 💨 西南风4-5级 | 35% |
-
-3. **穿衣建议**：根据温度、天气状况和风力提供穿衣指数和建议
-   - 使用温度范围判断：
-     * 30°C以上：🔥 炎热，建议穿轻薄透气的短袖、短裤
-     * 25-30°C：☀️ 温暖，建议穿T恤、薄长裤
-     * 15-25°C：😊 舒适，建议穿长袖、薄外套
-     * 5-15°C：🧥 凉爽，建议穿薄外套、长裤
-     * 0-5°C：🧣 较冷，建议穿厚外套、毛衣
-     * 0°C以下：❄️ 寒冷，建议穿羽绒服、厚毛衣、保暖内衣
-   - 根据天气状况调整：
-     * 雨天：🌧️ 建议穿防水外套或带雨具
-     * 雪天：🌨️ 建议穿防滑鞋、保暖衣物
-     * 大风：💨 建议穿防风外套
-
-4. **带伞建议**：
-   - 🌧️ 有雨：**建议带伞**
-   - ⛈️ 雷雨：**强烈建议带伞**
-   - 🌨️ 雪天：**建议带伞（防雪）**
-   - ☀️ 晴天：无需带伞
-   - ⛅ 多云：建议携带轻便雨具（以防突发降雨）
-
-5. **总结**：使用标题（##）和列表（-）组织信息
-
-请确保：
-- 表格对齐整齐
-- 信息层次清晰
-- 使用适当的 Markdown 语法（标题、列表、表格、粗体）
-- 根据实际天气状况选择合适的图标
-- 根据风力等级选择合适的风力图标"""
-        
-        # 构建 user_prompt（包含历史上下文）
-        # 过滤掉 system 消息，只保留 user 和 assistant 消息
-        filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
-        
-        if filtered_history:
-            # 将历史消息格式化为对话形式，明确标注历史对话
-            history_text = "\n".join([
-                f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
-                for msg in filtered_history
-            ])
-            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
-            self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
-        else:
-            user_prompt = task
-            self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
-        
-        # 优先尝试匹配技能（技能优先于工具）
-        matched_skill = self.skill_registry.match(task)
-        if matched_skill:
-            debug_info = {
-                "type": "debug",
-                "category": "orchestrator",
-                "message": "匹配到技能，优先使用技能执行",
-                "details": {"skill_name": matched_skill.name, "skill_description": matched_skill.description}
-            }
-            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
-            self.debug.log_orchestrator_step("匹配到技能", {"skill_name": matched_skill.name})
-            
-            # 执行技能
-            try:
-                # 从任务中提取参数
-                import re
-                skill_parameters = {}
-                
-                # 提取 URL（支持单个或多个）
-                url_pattern = r'https?://[^\s]+|www\.[^\s]+'
-                urls = re.findall(url_pattern, task)
-                if urls:
-                    if len(urls) == 1:
-                        skill_parameters['url'] = urls[0]
-                    else:
-                        skill_parameters['urls'] = urls
-                
-                # 提取输出目录
-                output_dir_match = re.search(r'输出[到至]?[：:]\s*([^\s]+)|保存[到至]?[：:]\s*([^\s]+)', task)
-                if output_dir_match:
-                    skill_parameters['output_dir'] = output_dir_match.group(1) or output_dir_match.group(2)
-                
-                # 提取字幕相关参数
-                if '字幕' in task or 'subtitle' in task.lower():
-                    skill_parameters['subtitle_only'] = '只下载字幕' in task or 'only subtitle' in task.lower()
-                    lang_match = re.search(r'字幕[语言]?[：:]\s*([a-z-]+)', task, re.IGNORECASE)
-                    if lang_match:
-                        skill_parameters['subtitle_lang'] = lang_match.group(1)
-                
-                skill_context = {
-                    "tool_registry": self.tool_registry,
-                    "llm_service": self.llm_service,
-                    "session_id": session_id
-                }
-                
-                # 执行技能
-                skill_result = await matched_skill.execute(
-                    parameters=skill_parameters,
-                    context=skill_context
-                )
-                
-                if skill_result.success:
-                    result_text = str(skill_result.result) if skill_result.result else "技能执行成功"
-                    yield result_text
-                    
-                    # 保存消息到历史
-                    self.context_manager.add_message(session_id, MessageRole.USER, task)
-                    self.context_manager.add_message(session_id, MessageRole.ASSISTANT, result_text)
-                    self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
-                    return
-                else:
-                    error_msg = skill_result.error or "技能执行失败"
-                    yield f"技能执行失败: {error_msg}"
-                    return
-            except Exception as e:
-                logger.error(f"技能执行失败: {str(e)}", exc_info=True)
-                yield f"技能执行失败: {str(e)}"
-                return
-        
-        # 如果没有匹配到技能，使用工具
         # 获取工具定义（LLM Function Calling 格式）
         tools = self.tool_registry.get_tools_for_llm()
         tool_names = [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []
@@ -1256,6 +1389,14 @@ class Orchestrator:
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": tool_names})
         
         # 智能模型选择：使用 chat 模型分析任务，决定使用哪个模型
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "开始模型选择",
+            "details": {}
+        }
+        yield StreamMessageBuilder.build_debug(debug_info)
+        
         selected_model = await self._select_model(task)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
@@ -1272,6 +1413,15 @@ class Orchestrator:
         # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
         if tools:
             try:
+                # 发送调试信息：开始工具调用
+                debug_info = {
+                    "type": "debug",
+                    "category": "orchestrator",
+                    "message": "开始调用LLM进行工具选择",
+                    "details": {}
+                }
+                yield StreamMessageBuilder.build_debug(debug_info)
+                
                 # 使用工具调用获取完整响应（带调试信息）
                 full_response = ""
                 async for chunk in self._chat_with_tools_stream(
@@ -1281,8 +1431,8 @@ class Orchestrator:
                     planning_files=planning_files,
                     session_id=session_id
                 ):
-                    # 检查是否是调试信息或工具调用信息
-                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:"):
+                    # 检查是否是调试信息、工具调用信息或状态更新
+                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:") or chunk.startswith("__STATUS__:"):
                         yield chunk
                     else:
                         # 内容块
@@ -1368,7 +1518,7 @@ class Orchestrator:
                                 "type": "evaluation",
                                 "evaluation": evaluation_result
                             }
-                            yield f"__EVALUATION__:{json.dumps(evaluation_info, ensure_ascii=False)}\n"
+                            yield StreamMessageBuilder.build_evaluation(evaluation_info)
                             logger.info(f"对话评估完成，分数: {evaluation_result.get('overall_score', 'N/A')}/100")
             except Exception as e:
                 logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
@@ -1423,7 +1573,7 @@ class Orchestrator:
                     "message": "对话评估完成并记录到规划文件",
                     "details": {"overall_score": overall_score}
                 }
-                yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                yield StreamMessageBuilder.build_debug(debug_info)
                 logger.info(f"对话评估完成，分数: {overall_score}/100")
             except Exception as e:
                 logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
@@ -1512,8 +1662,63 @@ class Orchestrator:
                         parameters['url'] = urls[0]
                         logger.warning(f"检测到多个 URL（共 {len(urls)} 个），但技能不支持数组参数，将处理第一个: {urls[0]}")
         
-        # 对于 video_summary 技能，如果检测到多个 URL，可能需要批量处理
-        # 这里先简单处理，后续可以扩展
+        # 提取本地文件路径（适用于 video_summary 等需要本地文件路径的技能）
+        # 使用统一的路径提取工具，确保鲁棒性
+        from backend.core.agent.utils.path_utils import PathExtractor
+        local_files = PathExtractor.extract_paths(task)
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:after_extract_local_files","message":"提取本地文件路径后","data":{"local_files":local_files,"local_files_count":len(local_files),"skill_name":skill.name},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # 对于 video_summary 技能，如果检测到本地文件路径，使用 video_path 参数
+        if local_files and skill.name == 'video_summary':
+            # 如果只有一个文件，使用 video_path
+            if len(local_files) == 1:
+                parameters['video_path'] = local_files[0]
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:single_file","message":"单个文件，设置video_path","data":{"video_path":local_files[0]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+            # 如果有多个文件，使用 video_paths（如果技能支持）或只使用第一个
+            elif len(local_files) > 1:
+                # 检查技能是否支持 video_paths 参数
+                video_paths_param = next((p for p in skill.parameters if p.name == 'video_paths'), None)
+                if video_paths_param and video_paths_param.type == 'array':
+                    parameters['video_paths'] = local_files
+                    # #region agent log
+                    try:
+                        import json
+                        import time
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:multiple_files","message":"多个文件，设置video_paths","data":{"video_paths":local_files},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                            f.flush()
+                    except: pass
+                    # #endregion
+                else:
+                    # 否则只使用第一个文件
+                    parameters['video_path'] = local_files[0]
+                    logger.warning(f"检测到多个本地文件（共 {len(local_files)} 个），但技能不支持数组参数，将处理第一个: {local_files[0]}")
+                    # #region agent log
+                    try:
+                        import json
+                        import time
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:multiple_files_first_only","message":"多个文件但只使用第一个","data":{"video_path":local_files[0],"total_files":len(local_files)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                            f.flush()
+                    except: pass
+                    # #endregion
         
         # 使用默认值填充可选参数
         for param in skill.parameters:

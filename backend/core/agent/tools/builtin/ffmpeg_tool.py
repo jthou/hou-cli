@@ -1,5 +1,6 @@
 """FFmpeg 工具 - 视频/音频处理工具集"""
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +9,9 @@ from typing import Dict, Any, Optional, List
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 
 logger = logging.getLogger(__name__)
+
+# Debug log 路径（相对于项目根目录）
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / '.cursor' / 'debug.log'
 
 
 def _get_ffmpeg_path() -> Path:
@@ -77,18 +81,45 @@ def _find_ffmpeg_binary(name: str) -> Optional[Path]:
     return None
 
 
+def _get_ffmpeg_lib_dir() -> Path:
+    """获取 FFmpeg lib 目录路径"""
+    current_file = Path(__file__).resolve()
+    current = current_file.parent
+    while current.name != 'backend' and len(current.parts) > 1:
+        current = current.parent
+    if current.name == 'backend':
+        project_root = current.parent
+    else:
+        project_root = current_file.parent.parent.parent.parent.parent
+    
+    ffmpeg_bin_dir = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin"
+    # lib 目录在 bin 目录的同一级
+    return ffmpeg_bin_dir.parent / "lib"
+
+
 def _run_ffmpeg_command(binary: Path, args: List[str], input_file: Optional[Path] = None) -> Dict[str, Any]:
     """运行 FFmpeg 命令"""
     try:
         cmd = [str(binary)] + args
         logger.debug(f"Running command: {' '.join(cmd)}")
         
+        # 设置 LD_LIBRARY_PATH，确保能找到 FFmpeg 的共享库
+        env = os.environ.copy()
+        ffmpeg_lib_dir = _get_ffmpeg_lib_dir()
+        if ffmpeg_lib_dir.exists():
+            ffmpeg_lib_str = str(ffmpeg_lib_dir)
+            current_ld_path = env.get('LD_LIBRARY_PATH', '')
+            if ffmpeg_lib_str not in current_ld_path:
+                env['LD_LIBRARY_PATH'] = f"{ffmpeg_lib_str}:{current_ld_path}" if current_ld_path else ffmpeg_lib_str
+                logger.debug(f"已设置 LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}")
+        
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             check=False,
-            input=str(input_file) if input_file else None
+            input=str(input_file) if input_file else None,
+            env=env  # 使用设置了 LD_LIBRARY_PATH 的环境变量
         )
         
         return {
@@ -111,7 +142,26 @@ def _probe_media_file(file_path: Path) -> Dict[str, Any]:
     """使用 ffprobe 分析媒体文件"""
     ffprobe = _find_ffmpeg_binary('ffprobe')
     if not ffprobe:
+        # #region agent log
+        try:
+            import json
+            import time
+            with open(_DEBUG_LOG_PATH, 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"M","location":"ffmpeg_tool.py:_probe_media_file:ffprobe_not_found","message":"ffprobe未找到","data":{"file_path":str(file_path)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
         return {'success': False, 'error': 'ffprobe not found'}
+    
+    # #region agent log
+    try:
+        import json
+        import time
+        with open(_DEBUG_LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"M","location":"ffmpeg_tool.py:_probe_media_file:before_probe","message":"准备分析媒体文件","data":{"file_path":str(file_path),"file_exists":file_path.exists(),"ffprobe_path":str(ffprobe)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+            f.flush()
+    except: pass
+    # #endregion
     
     args = [
         '-v', 'quiet',
@@ -122,6 +172,17 @@ def _probe_media_file(file_path: Path) -> Dict[str, Any]:
     ]
     
     result = _run_ffmpeg_command(ffprobe, args)
+    
+    # #region agent log
+    try:
+        import json
+        import time
+        with open(_DEBUG_LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"M","location":"ffmpeg_tool.py:_probe_media_file:after_probe","message":"ffprobe执行完成","data":{"success":result.get('success'),"returncode":result.get('returncode'),"stderr_preview":result.get('stderr', '')[:200] if result.get('stderr') else None,"stdout_length":len(result.get('stdout', ''))},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+            f.flush()
+    except: pass
+    # #endregion
+    
     if not result['success']:
         return result
     
@@ -135,6 +196,15 @@ def _probe_media_file(file_path: Path) -> Dict[str, Any]:
             'streams': data.get('streams', [])
         }
     except json.JSONDecodeError as e:
+        # #region agent log
+        try:
+            import json
+            import time
+            with open(_DEBUG_LOG_PATH, 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"M","location":"ffmpeg_tool.py:_probe_media_file:json_parse_error","message":"JSON解析失败","data":{"error":str(e),"stdout_preview":result.get('stdout', '')[:200]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
         return {
             'success': False,
             'error': f'Failed to parse ffprobe output: {str(e)}',
@@ -161,7 +231,14 @@ def _extract_audio(input_file: Path, output_file: Path, audio_format: str = 'mp3
     streams = probe_result.get('streams', [])
     audio_streams = [s for s in streams if s.get('codec_type') == 'audio']
     if not audio_streams:
-        return {'success': False, 'error': '输入文件不包含音频流'}
+        # 提供更详细的错误信息，包括文件信息和可能的解决方案
+        video_streams = [s for s in streams if s.get('codec_type') == 'video']
+        error_msg = (
+            f'输入文件不包含音频流。'
+            f'文件信息：视频流数量={len(video_streams)}, 音频流数量=0。'
+            f'如果这是视频文件，可能需要：1) 检查文件是否完整；2) 确认文件格式；3) 如果文件确实没有音频轨道，无法提取音频。'
+        )
+        return {'success': False, 'error': error_msg}
     
     args = ['-i', str(input_file), '-vn']  # 不包含视频
     

@@ -95,8 +95,8 @@ workflow:
       skip_outputs:
         audio_path: ${steps[0].video_path}.audio.mp3
       error_handling:
-        on_error: fail
-        message: "音频提取失败，无法继续"
+        on_error: skip
+        message: "音频提取失败，将尝试直接使用视频文件生成字幕"
 
     # 步骤 3: 生成字幕
     - name: generate_subtitle
@@ -104,7 +104,10 @@ workflow:
       condition: ${not file_exists(${steps[0].video_path}.srt)}
       tool: whisper
       inputs:
-        audio_file: ${steps[1].audio_path}
+        # 如果音频提取失败（steps[1].audio_path 不存在），使用视频文件
+        # Whisper 支持视频文件，内部会使用 ffmpeg 提取音频
+        # 使用 or 运算符：如果 steps[1].audio_path 不存在或为空，使用 steps[0].video_path
+        audio_file: ${steps[1].audio_path or steps[0].video_path}
         model: ${input.model | default('base')}
         output_file: ${steps[0].video_path}.srt
       outputs:
