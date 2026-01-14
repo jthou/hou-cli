@@ -44,6 +44,15 @@ class CommandHandler:
         Returns:
             (结果, 新的会话ID) - 如果处理了命令，返回结果（可以是字符串或 Rich 对象如 Panel）和可选的会话ID；如果不是命令，返回 (None, None)
         """
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"command_handler.py:handle_command:entry","message":"handle_command被调用","data":{"input_text_preview":input_text[:50] if input_text else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
         if not input_text.startswith('/'):
             return (None, None)  # 不是命令
         
@@ -55,6 +64,19 @@ class CommandHandler:
         
         command = parts[0].lower()
         args = parts[1:]
+        
+        # 检测是否是文件路径（如果第一个词包含路径分隔符，且不是已知命令，则视为文件路径）
+        # 文件路径特征：包含 / 或 ~，且第一个词不是已知命令
+        is_file_path = (
+            ('/' in command or command.startswith('~')) and
+            command not in self.top_level_commands and
+            command not in ['context', 'help', 'gvim', 'exit', 'quit'] and
+            not command.startswith('context')  # 排除 /context 开头的命令
+        )
+        
+        if is_file_path:
+            # 看起来像文件路径，不是命令，返回 None 让系统作为普通消息处理
+            return (None, None)
         
         # 处理顶级命令
         if command == 'context':
@@ -107,7 +129,8 @@ class CommandHandler:
                         padding=(1, 2),
                         box=rich.box.ROUNDED
                     )
-                    return (str(error_panel), None)
+                    # 直接返回 Panel 对象，不要转换成字符串
+                    return (error_panel, None)
             else:
                 error_panel = Panel(
                     Text.assemble(
@@ -128,7 +151,27 @@ class CommandHandler:
         
         elif command == 'help':
             # /help 命令
-            return (self._handle_help(args), None)
+            help_result = self._handle_help(args)
+            # 确保 Panel 对象不被转换，直接返回
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"command_handler.py:handle_command:help","message":"处理help命令","data":{"help_result_type":type(help_result).__name__,"help_result_type_str":str(type(help_result)),"is_panel":hasattr(help_result,'__class__') and 'Panel' in str(type(help_result))},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"command_handler.py:handle_command:help:return","message":"准备返回help结果","data":{"help_result_type":type(help_result).__name__,"help_result_type_str":str(type(help_result)),"is_panel":hasattr(help_result,'__class__') and 'Panel' in str(type(help_result)),"is_str":isinstance(help_result, str)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            return (help_result, None)
         
         elif command == 'gvim':
             # /gvim 命令
@@ -155,7 +198,8 @@ class CommandHandler:
                 padding=(1, 2),
                 box=rich.box.ROUNDED
             )
-            return (str(error_panel), None)
+            # 直接返回 Panel 对象，不要转换成字符串
+            return (error_panel, None)
     
     def _show_command_hint(self) -> Panel:
         """显示命令提示菜单（优化版）"""
@@ -825,12 +869,15 @@ class CommandHandler:
         except Exception as e:
             return f"[red]错误: {str(e)}[/red]"
     
-    def _handle_help(self, args: List[str]) -> str:
-        """处理 /help 命令"""
+    def _handle_help(self, args: List[str]):
+        """处理 /help 命令
+        返回类型：str 或 Panel 对象
+        """
         if args:
             command = args[0].lower()
             
             if command == 'context':
+                # 返回 Panel 对象，不要转换
                 return self._show_context_help()
             
             # 检查是否是上下文子命令
@@ -857,5 +904,6 @@ class CommandHandler:
             
             return f"未知命令: {command}\n输入 /help 查看帮助"
         else:
+            # 返回 Panel 对象，不要转换
             return self._show_command_hint()
 

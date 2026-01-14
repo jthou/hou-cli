@@ -15,10 +15,26 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FFMPEG_DIR="$PROJECT_ROOT/backend/externals/ffmpeg"
 FFMPEG_BUILD_BIN="$FFMPEG_DIR/build/bin/ffmpeg"
 
-# 检查 FFmpeg 是否已编译
+# 检查 FFmpeg 是否需要重新编译
+NEED_REBUILD=false
 if [ -f "$FFMPEG_BUILD_BIN" ]; then
-    echo -e "${GREEN}✅ FFmpeg 已编译${NC}"
-    exit 0
+    # 检查源码是否已更新
+    cd "$FFMPEG_DIR"
+    CURRENT_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
+    BUILD_HASH=$(cat build/.git_hash 2>/dev/null || echo "")
+    
+    if [ -n "$CURRENT_HASH" ] && [ "$CURRENT_HASH" != "$BUILD_HASH" ]; then
+        echo -e "${YELLOW}🔄 FFmpeg 源码已更新，需要重新编译${NC}"
+        echo "   当前版本: $CURRENT_HASH"
+        echo "   构建版本: $BUILD_HASH"
+        NEED_REBUILD=true
+    else
+        echo -e "${GREEN}✅ FFmpeg 已编译且为最新版本${NC}"
+        exit 0
+    fi
+    cd "$PROJECT_ROOT"
+else
+    NEED_REBUILD=true
 fi
 
 # 检查 FFmpeg 目录是否存在
@@ -51,8 +67,14 @@ else
     echo "   💡 提示: 如果需要更好的性能，可以安装 nasm: sudo apt install nasm"
 fi
 
+# 如果需要重新编译，先清理
+if [ "$NEED_REBUILD" = true ] && [ -f "config.mak" ]; then
+    echo "   清理旧的编译文件..."
+    make clean 2>/dev/null || true
+fi
+
 # 检查是否已配置
-if [ ! -f "config.mak" ]; then
+if [ ! -f "config.mak" ] || [ "$NEED_REBUILD" = true ]; then
     echo "   配置 FFmpeg..."
     CONFIGURE_OPTS="--prefix=$(pwd)/build --enable-shared --disable-static --enable-gpl --enable-version3 --enable-nonfree"
     if [ "$HAS_NASM" = false ]; then
@@ -68,8 +90,16 @@ if [ ! -f "config.mak" ]; then
 fi
 
 # 编译（使用多核）
-echo "   编译 FFmpeg（使用 $(nproc) 个核心）..."
-if ! make -j$(nproc) 2>&1 | tee /tmp/ffmpeg_make.log | grep -v "ERROR:"; then
+# 检测 CPU 核心数（兼容 macOS 和 Linux）
+if command -v nproc &> /dev/null; then
+    CORES=$(nproc)
+elif command -v sysctl &> /dev/null; then
+    CORES=$(sysctl -n hw.ncpu)
+else
+    CORES=4  # 默认值
+fi
+echo "   编译 FFmpeg（使用 $CORES 个核心）..."
+if ! make -j$CORES 2>&1 | tee /tmp/ffmpeg_make.log | grep -v "ERROR:"; then
     echo -e "${RED}❌ FFmpeg 编译失败，请查看 /tmp/ffmpeg_make.log${NC}"
     cd "$PROJECT_ROOT"
     exit 1
@@ -87,6 +117,11 @@ cd "$PROJECT_ROOT"
 if [ -f "$FFMPEG_BUILD_BIN" ]; then
     echo -e "${GREEN}✅ FFmpeg 编译完成${NC}"
     "$FFMPEG_BUILD_BIN" -version | head -1
+    
+    # 保存构建版本信息
+    cd "$FFMPEG_DIR"
+    git rev-parse HEAD > build/.git_hash 2>/dev/null || true
+    cd "$PROJECT_ROOT"
 else
     echo -e "${RED}❌ FFmpeg 编译失败，二进制文件不存在${NC}"
     exit 1

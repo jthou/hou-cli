@@ -3,7 +3,14 @@
 
 name: video_downloader
 version: 1.0.0
-description: 下载视频文件，支持单个或多个视频 URL，支持批量下载
+description: |
+  下载视频文件，支持单个或多个视频 URL，支持批量下载。
+  
+  最佳实践：
+  - 对于 Bilibili 视频，如果下载失败，建议使用 cookies：
+    yt-dlp --cookies-from-browser chrome "https://www.bilibili.com/video/BVxxx"
+  - 可以通过 cookies_from_browser 参数自动从浏览器提取 cookies
+  - 或使用 cookies_file 参数提供 cookies 文件
 category: media_processing
 priority: P0  # 高优先级，优先于 video_summary
 
@@ -33,6 +40,14 @@ parameters:
     description: 字幕语言（如 zh, en, zh-Hans, zh-Hant 等）
     required: false
     default: zh
+  - name: cookies_from_browser
+    type: string
+    description: 从浏览器提取 cookies（可选值：'chrome'、'firefox'、'safari'、'edge'）。对于需要登录的视频（如 Bilibili）特别有用。
+    required: false
+  - name: cookies_file
+    type: string
+    description: Cookies 文件路径（Netscape 格式或 JSON 格式）。用于需要登录的视频。
+    required: false
 
 # 工具依赖
 dependencies:
@@ -49,6 +64,7 @@ workflow:
       type: code_executor
       description: 验证输入参数，确保至少有一个 URL
       code: |
+        import json
         urls = []
         if 'url' in input and input['url']:
             urls.append(input['url'])
@@ -63,68 +79,108 @@ workflow:
         config['output_dir'] = input.get('output_dir')
         config['subtitle_only'] = input.get('subtitle_only', False)
         config['subtitle_lang'] = input.get('subtitle_lang', 'zh')
+        config['cookies_from_browser'] = input.get('cookies_from_browser')
+        config['cookies_file'] = input.get('cookies_file')
         
-        return {
+        # 智能检测：如果是 Bilibili 视频且未提供 cookies，建议使用 cookies
+        bilibili_urls = [url for url in urls if 'bilibili.com' in url.lower()]
+        if bilibili_urls and not config['cookies_from_browser'] and not config['cookies_file']:
+            # 对于 Bilibili 视频，默认尝试从 Chrome 提取 cookies
+            config['cookies_from_browser'] = 'chrome'
+            print(f"💡 检测到 Bilibili 视频，将自动尝试从 Chrome 浏览器提取 cookies")
+        
+        # 输出结果（通过 JSON 格式）
+        # 注意：同时输出 config 的更新，以便同步回 context
+        result = {
             'url_count': len(urls),
-            'urls': urls
+            'urls': urls,
+            'config_updates': {
+                'urls': urls,
+                'output_dir': config.get('output_dir'),
+                'subtitle_only': config.get('subtitle_only', False),
+                'subtitle_lang': config.get('subtitle_lang', 'zh'),
+                'cookies_from_browser': config.get('cookies_from_browser'),
+                'cookies_file': config.get('cookies_file')
+            }
         }
+        print(json.dumps(result, ensure_ascii=False))
+      outputs:
+        url_count: ${result.url_count}
+        urls: ${result.urls}
+        config_updates: ${result.config_updates}
     
     - name: download_videos
-      type: code_executor
+      type: loop
       description: 批量下载视频
-      code: |
-        import asyncio
-        from backend.core.agent.tools.registry import ToolRegistry
-        
-        urls = config['urls']
-        output_dir = config.get('output_dir')
-        subtitle_only = config.get('subtitle_only', False)
-        subtitle_lang = config.get('subtitle_lang', 'zh')
-        
-        # 获取工具注册表（从 context 中获取）
-        tool_registry = context.get('tool_registry')
-        if not tool_registry:
-            raise ValueError("工具注册表未找到")
-        
-        results = []
-        errors = []
-        
-        for i, url in enumerate(urls, 1):
-            try:
-                # 调用 video_downloader 工具
-                tool_result = tool_registry.execute(
-                    'video_downloader',
-                    url=url,
-                    output_dir=output_dir,
-                    subtitle_only=subtitle_only,
-                    subtitle_lang=subtitle_lang if subtitle_only else None
-                )
-                
-                if tool_result.success:
-                    results.append({
-                        'url': url,
-                        'success': True,
-                        'output_file': tool_result.data.get('output_file'),
-                        'subtitle_file': tool_result.data.get('subtitle_file')
-                    })
-                else:
-                    errors.append({
-                        'url': url,
-                        'error': tool_result.error
-                    })
-            except Exception as e:
-                errors.append({
-                    'url': url,
-                    'error': str(e)
-                })
-        
-        return {
-            'total': len(urls),
-            'success': len(results),
-            'failed': len(errors),
-            'results': results,
-            'errors': errors
-        }
+      items: ${config.urls}
+      item_var: url
+      steps:
+        # 步骤 1: 下载单个视频
+        - name: download_single
+          type: tool
+          tool: video_downloader
+          inputs:
+            url: ${url}
+            output_dir: ${config.output_dir}
+            subtitle_only: ${config.subtitle_only}
+            subtitle_lang: ${config.subtitle_lang}
+            cookies_from_browser: ${config.cookies_from_browser}
+            cookies_file: ${config.cookies_file}
+          outputs:
+            download_success: ${result.success}
+            download_data: ${result.data}
+            download_error: ${result.error}
+          error_handling:
+            on_error: continue  # 失败时继续处理下一个
+        # 步骤 2: 如果下载失败且是 Bilibili 视频，尝试使用 cookies 重试
+        - name: retry_with_cookies
+          type: code_executor
+          description: 检查是否需要重试（仅对 Bilibili 视频）
+          code: |
+            import json
+            
+            # 获取上一步的下载结果
+            download_success = steps[0].get('download_success', False)
+            download_error = steps[0].get('download_error', '')
+            url = url  # 从循环上下文获取
+            
+            # 检查是否需要重试
+            need_retry = (
+                not download_success and
+                'bilibili.com' in url.lower() and
+                not config.get('cookies_from_browser') and
+                not config.get('cookies_file')
+            )
+            
+            result = {
+                'need_retry': need_retry,
+                'url': url,
+                'original_error': download_error
+            }
+            print(json.dumps(result, ensure_ascii=False))
+          outputs:
+            need_retry: ${result.need_retry}
+            retry_url: ${result.url}
+          skip_if: ${steps[0].download_success == true}  # 如果下载成功，跳过重试检查
+          error_handling:
+            on_error: skip
+        # 步骤 3: 如果需要重试，使用 cookies 重新下载
+        - name: retry_download
+          type: tool
+          tool: video_downloader
+          skip_if: ${steps[1].need_retry != true}  # 仅在需要重试时执行
+          inputs:
+            url: ${steps[1].retry_url}
+            output_dir: ${config.output_dir}
+            subtitle_only: ${config.subtitle_only}
+            subtitle_lang: ${config.subtitle_lang}
+            cookies_from_browser: chrome  # 使用 Chrome cookies 重试
+          outputs:
+            retry_result: ${result}
+          error_handling:
+            on_error: skip
+      outputs:
+        loop_results: ${_loop_results}
 
 # 配置
 config:

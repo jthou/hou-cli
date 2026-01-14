@@ -29,6 +29,37 @@ class CodeExecutorTool(Tool):
     
     def __init__(self):
         """初始化代码执行工具"""
+        # 获取安全执行器的配置，用于生成工具描述
+        executor = SecureExecutor()
+        dangerous_commands = executor.COMMAND_BLACKLIST
+        restricted_paths = executor.RESTRICTED_PATHS
+        
+        # 将危险命令分类展示
+        file_delete_cmds = [cmd for cmd in dangerous_commands if cmd in ["rm", "del"]]
+        permission_cmds = [cmd for cmd in dangerous_commands if cmd in ["sudo", "su", "chmod", "chown", "chgrp"]]
+        disk_cmds = [cmd for cmd in dangerous_commands if cmd in ["format", "mkfs", "fdisk", "dd"]]
+        process_cmds = [cmd for cmd in dangerous_commands if cmd in ["killall", "pkill"]]
+        
+        # 构建危险命令描述
+        dangerous_cmds_desc = ""
+        if file_delete_cmds:
+            dangerous_cmds_desc += f"- 文件删除：{', '.join(file_delete_cmds)}\n"
+        if permission_cmds:
+            dangerous_cmds_desc += f"- 权限管理：{', '.join(permission_cmds)}\n"
+        if disk_cmds:
+            dangerous_cmds_desc += f"- 磁盘操作：{', '.join(disk_cmds)}\n"
+        if process_cmds:
+            dangerous_cmds_desc += f"- 进程管理：{', '.join(process_cmds)}\n"
+        
+        # 构建受限路径描述
+        restricted_paths_desc = ""
+        linux_paths = [p for p in restricted_paths if not p.startswith("C:")]
+        windows_paths = [p for p in restricted_paths if p.startswith("C:")]
+        if linux_paths:
+            restricted_paths_desc += f"- Linux/macOS: {', '.join(linux_paths)}\n"
+        if windows_paths:
+            restricted_paths_desc += f"- Windows: {', '.join(windows_paths)}\n"
+        
         parameters = [
             ToolParameter(
                 name="code",
@@ -124,9 +155,14 @@ class CodeExecutorTool(Tool):
                 "\n安全限制："
                 "- 代码在隔离环境中执行"
                 "- 资源限制：CPU、内存、时间"
-                "- 禁止访问敏感目录和危险命令"
                 "- 代码长度限制：10KB"
                 "- 输出大小限制：10MB"
+                "\n【重要】禁止使用的危险命令（会被拒绝执行）："
+                f"{dangerous_cmds_desc}"
+                "- 注意：这些命令即使作为字符串的一部分也会被检测到，请避免使用"
+                "\n【重要】禁止访问的敏感目录（会被拒绝执行）："
+                f"{restricted_paths_desc}"
+                "- 注意：代码中包含这些路径会被拒绝执行"
             ),
             parameters=parameters
         )

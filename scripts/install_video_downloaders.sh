@@ -66,6 +66,14 @@ else
     echo -e "${YELLOW}⚠️  you-get 目录不存在，跳过安装${NC}"
 fi
 
+# 安装 browser-use（用于浏览器 cookies 提取）
+BROWSER_USE_DIR="$PROJECT_ROOT/backend/externals/browser-use"
+if [ -d "$BROWSER_USE_DIR" ] && [ -f "$BROWSER_USE_DIR/pyproject.toml" ]; then
+    echo -e "${YELLOW}📦 安装 browser-use（从本地源码）...${NC}"
+    pip install -e "$BROWSER_USE_DIR" --quiet 2>&1 | grep -v "ERROR:" | grep -v "WARNING:" || true
+    echo -e "${GREEN}✅ browser-use 已安装${NC}"
+fi
+
 # bili23-downloader 是 GUI 应用，不需要安装（CLI 模式下会使用 yt-dlp）
 
 echo -e "${GREEN}✅ 视频下载工具依赖安装完成${NC}"

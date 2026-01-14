@@ -82,6 +82,32 @@ class VideoDownloaderSkill(Skill):
         if not is_valid:
             return SkillResult(success=False, error=error_msg)
         
+        # 获取任务管理器（如果提供）
+        task_manager = context.get('task_manager') if context else None
+        task_id = context.get('task_id') if context else None
+        
+        # 设置进度回调（用于更新任务进度）
+        # 注意：executor.report_progress 只传递一个字符串参数（message）
+        # 所以这里需要适配两种调用方式：
+        # 1. progress_callback(message) - 来自 executor.report_progress
+        # 2. progress_callback(progress, message) - 来自其他地方的调用
+        def progress_callback(progress_or_message, message: str = ""):
+            """进度回调函数，适配不同的调用方式"""
+            if task_manager and task_id:
+                # 如果第一个参数是字符串，说明是 executor.report_progress 的调用方式
+                if isinstance(progress_or_message, str):
+                    # 只传递消息，保持当前进度百分比不变
+                    current_task = task_manager._tasks.get(task_id)
+                    if current_task:
+                        current_progress = current_task.progress if hasattr(current_task, 'progress') else 0
+                        task_manager.update_task_progress(task_id, current_progress, progress_or_message)
+                else:
+                    # 第一个参数是进度值（整数）
+                    task_manager.update_task_progress(task_id, progress_or_message, message)
+        
+        if context:
+            context['progress_callback'] = progress_callback
+        
         # 设置进度回调
         if context and 'progress_callback' in context:
             self.executor.set_progress_callback(context['progress_callback'])
@@ -96,7 +122,8 @@ class VideoDownloaderSkill(Skill):
         result = await self.executor.execute_workflow(
             workflow=self.workflow,
             parameters=parameters,
-            config=skill_config
+            config=skill_config,
+            external_context=context
         )
         
         return result

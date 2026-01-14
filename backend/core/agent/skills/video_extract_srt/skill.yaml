@@ -1,0 +1,161 @@
+# 视频字幕提取技能配置
+# Video Extract SRT Skill Configuration
+
+name: video_extract_srt
+version: 1.0.0
+description: 下载视频、提取音频、生成字幕文件（SRT格式）
+category: media_processing
+priority: P0
+
+# 技能参数定义
+parameters:
+  - name: url
+    type: string
+    description: 视频 URL（如果视频已下载，可留空）
+    required: false
+  - name: video_path
+    type: string
+    description: 视频文件路径（如果视频已下载）
+    required: false
+  - name: model
+    type: string
+    description: Whisper 模型大小（tiny/base/small/medium/large）
+    required: false
+    default: base
+    enum: [tiny, base, small, medium, large]
+  - name: output_dir
+    type: string
+    description: 输出目录（可选，默认与视频文件同目录）
+    required: false
+
+# 工具依赖
+dependencies:
+  tools:
+    - name: video_downloader
+      version: ">=1.0.0"
+    - name: ffmpeg
+      version: ">=1.0.0"
+    - name: whisper
+      version: ">=1.0.0"
+  skills: []
+
+# 工作流定义
+workflow:
+  steps:
+    # 步骤 1: 检查并下载视频
+    - name: check_and_download_video
+      type: conditional
+      condition: ${not file_exists(${input.video_path}) and ${input.url}}
+      tool: video_downloader
+      inputs:
+        url: ${input.url}
+        output_dir: ${input.output_dir}
+      outputs:
+        video_path: ${result.output_file}
+      skip_if: ${file_exists(${input.video_path}) or not ${input.url}}
+      skip_outputs:
+        video_path: ${input.video_path}
+      error_handling:
+        on_error: retry
+        max_retries: 3
+        retry_delay: 5s
+
+    # 步骤 2: 检查并提取音频
+    - name: check_and_extract_audio
+      type: conditional
+      condition: ${not file_exists(${steps[0].video_path}.audio.mp3)}
+      tool: ffmpeg
+      inputs:
+        operation: extract_audio
+        input_file: ${steps[0].video_path}
+        output_file: ${steps[0].video_path}.audio.mp3
+        audio_format: mp3
+        audio_quality: 192k
+      outputs:
+        audio_path: ${result.output_file}
+      skip_if: ${file_exists(${steps[0].video_path}.audio.mp3)}
+      skip_outputs:
+        audio_path: ${steps[0].video_path}.audio.mp3
+      error_handling:
+        on_error: skip
+        message: "音频提取失败，将尝试直接使用视频文件生成字幕"
+
+    # 步骤 3: 生成字幕
+    - name: generate_subtitle
+      type: conditional
+      condition: ${not file_exists(${steps[0].video_path}.srt)}
+      tool: whisper
+      inputs:
+        # 如果音频提取失败（steps[1].audio_path 不存在），使用视频文件
+        # Whisper 支持视频文件，内部会使用 ffmpeg 提取音频
+        # 使用 or 运算符：如果 steps[1].audio_path 不存在或为空，使用 steps[0].video_path
+        audio_file: ${steps[1].audio_path or steps[0].video_path}
+        model: ${input.model | default('base')}
+        output_file: ${steps[0].video_path}.srt
+      outputs:
+        subtitle_path: ${result.output_file}
+      skip_if: ${file_exists(${steps[0].video_path}.srt})}
+      skip_outputs:
+        subtitle_path: ${steps[0].video_path}.srt
+      error_handling:
+        on_error: retry
+        max_retries: 2
+        retry_delay: 10s
+
+# 输出格式定义
+output:
+  format: object
+  fields:
+    - name: video_path
+      type: string
+      description: 视频文件路径
+    - name: audio_path
+      type: string
+      description: 音频文件路径（如果提取成功）
+    - name: subtitle_path
+      type: string
+      description: 字幕文件路径（SRT 格式）
+
+# 使用示例
+examples:
+  - user_input: "为这个视频生成字幕文件"
+    parameters:
+      url: "https://www.bilibili.com/video/BV1B5xkzPEhx"
+    description: "下载视频并生成字幕文件"
+  
+  - user_input: "提取这个视频的字幕"
+    parameters:
+      video_path: "/path/to/video.mp4"
+      model: "base"
+    description: "基于已有视频文件生成字幕"
+
+# 错误处理策略
+error_handling:
+  global:
+    on_error: partial
+    return_intermediate: true
+  steps:
+    - step: check_and_download_video
+      on_error: fail
+      message: "视频下载失败，无法继续"
+    - step: check_and_extract_audio
+      on_error: skip
+      message: "音频提取失败，将尝试直接使用视频文件"
+    - step: generate_subtitle
+      on_error: retry
+      max_retries: 2
+      retry_delay: 10s
+
+# 性能优化
+performance:
+  cache:
+    enabled: true
+    keys:
+      - steps[0].video_path
+      - steps[1].audio_path
+      - steps[2].subtitle_path
+    ttl: 86400  # 24 小时
+  timeout:
+    total: 3600  # 总超时时间：1 小时
+    per_step: 600  # 每步超时时间：10 分钟
+

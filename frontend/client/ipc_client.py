@@ -4,8 +4,11 @@ import httpx
 from pathlib import Path
 import platform
 import time
+import os
 from typing import Optional, AsyncIterator, List, Dict, Any
 import asyncio
+from dotenv import load_dotenv
+from frontend.client.stream_receiver import StreamReceiver
 
 # 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -35,10 +38,35 @@ class IPCClient:
         return base / "port.txt"
     
     def _load_port(self) -> int:
-        """加载端口号（优先使用端口文件，如果不可用则尝试发现）"""
-        port_file = self._get_port_file()
+        """加载端口号（优先从 .env 读取 BACKEND_PORT，如果不可用则尝试发现）"""
+        # 1. 优先从环境变量读取（从 .env 文件加载）
+        # 加载 .env 文件（优先级：用户配置目录 > 项目根目录 > 当前目录）
+        from shared.platform_utils import get_app_data_dir
+        config_dir = Path.home() / ".config" / "hou-cli"
+        env_paths = [
+            config_dir / ".env",  # 用户配置目录
+            PROJECT_ROOT / '.env',  # 项目根目录
+            Path.cwd() / '.env',  # 当前目录
+        ]
         
-        # 1. 尝试从端口文件读取
+        for env_path in env_paths:
+            if env_path.exists():
+                load_dotenv(env_path, override=True)
+                break
+        
+        # 从环境变量读取 BACKEND_PORT
+        backend_port_str = os.getenv("BACKEND_PORT")
+        if backend_port_str:
+            try:
+                port = int(backend_port_str.strip())
+                # 验证端口是否可用
+                if self._verify_port(port):
+                    return port
+            except (ValueError, TypeError):
+                pass
+        
+        # 2. 如果环境变量未设置或端口不可用，尝试从端口文件读取（向后兼容）
+        port_file = self._get_port_file()
         if port_file.exists():
             try:
                 port = int(port_file.read_text().strip())
@@ -48,13 +76,13 @@ class IPCClient:
             except (ValueError, FileNotFoundError):
                 pass
         
-        # 2. 如果端口文件不存在或端口不可用，尝试发现后端端口
+        # 3. 如果都失败，尝试发现后端端口
         discovered_port = self._discover_backend_port()
         if discovered_port:
             return discovered_port
         
-        # 3. 如果都失败，抛出异常
-        raise ConnectionError("无法连接到后端服务：端口文件不存在且无法发现后端服务")
+        # 4. 如果都失败，抛出异常
+        raise ConnectionError("无法连接到后端服务：请检查 .env 文件中的 BACKEND_PORT 配置或确保后端服务正在运行")
     
     def _verify_port(self, port: int) -> bool:
         """验证端口是否可用（通过健康检查）"""
@@ -147,6 +175,9 @@ class IPCClient:
             follow_redirects=True,
             trust_env=False  # 不信任环境变量中的代理设置，避免代理问题
         )
+        
+        # 创建流式接收器
+        self.stream_receiver = StreamReceiver(self.base_url, self.async_client)
     
     def health_check(self) -> bool:
         """健康检查（带重试，使用 httpx）"""
@@ -232,132 +263,47 @@ class IPCClient:
         Yields:
             流式数据块
         """
-        url = f"{self.base_url}/api/chat/stream"
-        payload = {"message": message}
-        if session_id:
-            payload["session_id"] = session_id
-        
-        # 使用 httpx.AsyncClient 进行流式请求，已配置 trust_env=False 跳过代理
-        # 增加超时时间到 300 秒（5分钟），以支持长时间运行的任务（如读取和编辑 MediaWiki 页面）
+        import json
+        import time
+        # #region agent log
         try:
-            async with self.async_client.stream(
-                "POST",
-                url,
-                json=payload,
-                timeout=300.0,  # 增加到 5 分钟，支持复杂任务
-                headers={"Accept": "text/event-stream"}
-            ) as response:
-                # 检查状态码
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    # 安全解码错误文本
-                    if error_text:
-                        try:
-                            error_text = error_text.decode('utf-8', errors='replace')[:500]
-                        except Exception:
-                            error_text = f"状态码: {response.status_code} (无法解码错误信息)"
-                    else:
-                        error_text = f"状态码: {response.status_code}"
-                    raise Exception(f"流式请求失败: {error_text}")
-                
-                # 解析 SSE 格式
-                try:
-                    # 使用 aiter_bytes() 然后手动解码，以便更好地处理编码错误
-                    buffer = b""
-                    async for chunk in response.aiter_bytes():
-                        buffer += chunk
-                        # 按行分割
-                        while b"\n" in buffer:
-                            line_bytes, buffer = buffer.split(b"\n", 1)
-                            if not line_bytes:
-                                continue
-                            
-                            # 安全解码行
-                            try:
-                                line = line_bytes.decode('utf-8', errors='replace')
-                            except Exception:
-                                # 如果解码失败，尝试其他编码
-                                try:
-                                    line = line_bytes.decode('latin-1', errors='replace')
-                                except Exception:
-                                    # 如果都失败，跳过这一行
-                                    continue
-                            
-                            if line.startswith("data: "):
-                                data_str = line[6:]  # 移除 "data: " 前缀
-                                # #region agent log
-                                try:
-                                    import json as json_module
-                                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                    with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                        json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"准备解析JSON","data":{"data_str_len":len(data_str),"data_str_preview":data_str[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                        f.write('\n')
-                                except: pass
-                                # #endregion
-                                try:
-                                    # 直接解析 JSON，不需要 unicode_escape（后端已使用 ensure_ascii=False）
-                                    # 如果后端使用了 ensure_ascii=False，JSON 中的 emoji 会保持原样
-                                    data = json.loads(data_str)
-                                    # #region agent log
-                                    try:
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"JSON解析成功","data":{"status":data.get("status")},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    
-                                    if data.get("status") == "streaming":
-                                        content = data.get("content", "")
-                                        if content:  # 只yield非空内容
-                                            yield content
-                                    elif data.get("status") == "done":
-                                        return
-                                    elif data.get("status") == "error":
-                                        raise Exception(data.get("error", "未知错误"))
-                                except json.JSONDecodeError as e:
-                                    # #region agent log
-                                    try:
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"data_str_len":len(data_str)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    # JSON 解析失败，跳过这一行
-                                    continue
-                                except UnicodeDecodeError as e:
-                                    # #region agent log
-                                    try:
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"ipc_client.py:stream_send","message":"Unicode解码错误","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"position":getattr(e,'start',None)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    continue
-                except KeyboardInterrupt:
-                    # 用户按 Ctrl+C，终止流式请求
-                    # 关闭响应连接
-                    await response.aclose()
-                    raise  # 重新抛出，让调用者知道是用户中断
-        except httpx.TimeoutException as e:
-            raise ConnectionError(f"流式请求超时: 任务处理时间过长（超过 5 分钟）。请尝试将任务分解为更小的步骤。")
-        except httpx.RequestError as e:
-            error_msg = str(e)
-            # 提供更友好的错误信息
-            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                raise ConnectionError(f"流式请求连接超时: {error_msg}\n提示: 任务可能过于复杂，请尝试分解为更小的步骤，或检查后端服务是否正常运行")
-            else:
-                raise ConnectionError(f"流式请求连接错误: {error_msg}\n提示: 请检查后端服务是否正常运行")
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:entry","message":"stream_send被调用","data":{"message_length":len(message) if message else 0,"session_id":session_id,"base_url":self.base_url},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:before_receive_stream","message":"准备调用receive_stream","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # 使用 StreamReceiver 接收流式数据
+        chunk_count = 0
+        try:
+            async for chunk in self.stream_receiver.receive_stream(message, session_id, timeout=300.0):
+                chunk_count += 1
+                # #region agent log
+                if chunk_count <= 3:  # 只记录前3个chunk
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:yield_chunk","message":"准备yield chunk","data":{"chunk_count":chunk_count},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                            f.flush()
+                    except: pass
+                # #endregion
+                yield chunk
         except Exception as e:
-            if "流式请求失败" in str(e) or "未知错误" in str(e):
-                raise
-            raise Exception(f"请求失败：{str(e)}")
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:exception","message":"stream_send异常","data":{"error":str(e),"chunk_count":chunk_count},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            raise
     
     def close(self):
         """关闭客户端"""
