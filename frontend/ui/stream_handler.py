@@ -16,6 +16,7 @@ from rich.align import Align
 import rich.box
 import json
 from frontend.ui.interactive_executor import InteractiveExecutor
+from frontend.client.message_handler import MessageHandler
 
 # 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -486,6 +487,127 @@ class StreamRenderer:
         else:
             console.print("[red]✗ 用户已取消执行[/red]")
     
+    def _render_evaluation_info(self, evaluation_data: dict, console: Console):
+        """渲染对话评估结果"""
+        evaluation = evaluation_data.get("evaluation", {})
+        if not evaluation:
+            return
+        
+        overall_score = evaluation.get("overall_score", 0)
+        dimension_scores = evaluation.get("dimension_scores", {})
+        evaluation_text = evaluation.get("evaluation", "")
+        
+        # 根据分数选择颜色
+        if overall_score >= 90:
+            score_color = "green"
+            score_emoji = "⭐"
+        elif overall_score >= 80:
+            score_color = "cyan"
+            score_emoji = "✓"
+        elif overall_score >= 70:
+            score_color = "yellow"
+            score_emoji = "⚠"
+        else:
+            score_color = "red"
+            score_emoji = "✗"
+        
+        # 构建内容
+        content_parts: List = []
+        
+        # 总体分数
+        score_text = Text.assemble(
+            (f"{score_emoji} 总体分数: ", "bold"),
+            (f"{overall_score}/100", f"bold {score_color}")
+        )
+        content_parts.append(score_text)
+        content_parts.append("")
+        
+        # 各维度分数
+        if dimension_scores:
+            content_parts.append(Text("各维度分数：", style="bold"))
+            dimension_names = {
+                "relevance": "相关性",
+                "accuracy": "准确性",
+                "helpfulness": "有用性",
+                "completeness": "完整性",
+                "clarity": "清晰度"
+            }
+            for dim_id, score in dimension_scores.items():
+                dim_name = dimension_names.get(dim_id, dim_id)
+                dim_color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
+                dim_text = Text.assemble(
+                    (f"  • {dim_name}: ", "dim"),
+                    (f"{score}/100", f"bold {dim_color}")
+                )
+                content_parts.append(dim_text)
+            content_parts.append("")
+        
+        # 评估说明
+        if evaluation_text:
+            content_parts.append(Text("评估说明：", style="bold"))
+            content_parts.append(Text(evaluation_text, style="dim"))
+        
+        # 渲染面板
+        title = Text.assemble(
+            ("📊 ", "bold"),
+            ("对话评估", f"bold {score_color}")
+        )
+        console.print(Panel(
+            Group(*content_parts),
+            border_style=score_color,
+            title=title,
+            padding=(1, 1),
+            box=rich.box.ROUNDED
+        ))
+    
+    def _render_status_info(self, status_data: dict, console: Console):
+        """渲染状态更新信息（用于长任务）"""
+        task = status_data.get("task", "未知任务")
+        progress = status_data.get("progress", 0)
+        message = status_data.get("message", "处理中...")
+        elapsed_time = status_data.get("elapsed_time", 0)
+        estimated_remaining = status_data.get("estimated_remaining")
+        
+        # 格式化时间
+        def format_time(seconds):
+            if seconds < 60:
+                return f"{int(seconds)}秒"
+            elif seconds < 3600:
+                return f"{int(seconds // 60)}分{int(seconds % 60)}秒"
+            else:
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                return f"{hours}小时{minutes}分"
+        
+        # 构建内容
+        content_parts: List = []
+        content_parts.append(Text(f"📊 任务: {task}", style="bold"))
+        content_parts.append("")
+        
+        # 进度条
+        progress_bar = "█" * int(progress // 2) + "░" * (50 - int(progress // 2))
+        content_parts.append(Text(f"进度: [{progress_bar}] {progress}%", style="cyan"))
+        content_parts.append("")
+        
+        # 状态消息
+        content_parts.append(Text(f"状态: {message}", style="dim"))
+        content_parts.append("")
+        
+        # 时间信息
+        time_info = f"已用时间: {format_time(elapsed_time)}"
+        if estimated_remaining is not None:
+            time_info += f" | 预计剩余: {format_time(estimated_remaining)}"
+        content_parts.append(Text(time_info, style="dim"))
+        
+        # 渲染面板
+        console.print(Panel(
+            Group(*content_parts),
+            border_style="blue",
+            title="[blue]📊 任务状态[/blue]",
+            padding=(1, 1),
+            box=rich.box.ROUNDED
+        ))
+    
     async def render_stream(
         self,
         stream: AsyncIterator[str],
@@ -509,147 +631,37 @@ class StreamRenderer:
             with Live(console=console, refresh_per_second=10) as live:
                 async for chunk in stream:
                     try:
-                        # #region agent log
-                        try:
-                            import json as json_module
-                            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"接收chunk","data":{"chunk_type":type(chunk).__name__,"chunk_len":len(str(chunk)) if chunk else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                f.write('\n')
-                        except: pass
-                        # #endregion
-                        # 清理无效的 Unicode 字符
-                        chunk = self._clean_unicode(chunk)
-                        buffer += chunk
+                        # 使用 MessageHandler 解析消息
+                        messages, buffer = MessageHandler.parse_chunk(chunk, buffer)
                         
-                        # 检查是否有完整的行（以 \n 结尾）
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
+                        # 处理解析后的消息
+                        for msg in messages:
+                            msg_type = msg.get("type")
+                            msg_data = msg.get("data")
                             
-                            # 检查是否是调试信息、工具调用信息或确认请求
-                            if line.startswith("__DEBUG__:"):
-                                try:
-                                    # #region agent log
-                                    try:
-                                        import json as json_module
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"准备解析DEBUG JSON","data":{"line_len":len(line),"line_preview":line[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    json_str = line[10:]  # 移除 "__DEBUG__:" 前缀
-                                    # 清理 JSON 字符串中的无效字符
-                                    json_str = self._clean_unicode(json_str)
-                                    debug_data = json.loads(json_str)
-                                    self._render_debug_info(debug_data, console)
-                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
-                                    # #region agent log
-                                    try:
-                                        import json as json_module
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"DEBUG JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    # JSON 解析失败，跳过
-                                    pass
-                            elif line.startswith("__TOOL__:"):
-                                try:
-                                    # #region agent log
-                                    try:
-                                        import json as json_module
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"准备解析TOOL JSON","data":{"line_len":len(line)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    json_str = line[9:]  # 移除 "__TOOL__:" 前缀
-                                    # 清理 JSON 字符串中的无效字符
-                                    json_str = self._clean_unicode(json_str)
-                                    tool_data = json.loads(json_str)
-                                    self._render_tool_info(tool_data, console)
-                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
-                                    # #region agent log
-                                    try:
-                                        import json as json_module
-                                        try:
-                                            error_msg = str(e)[:200]
-                                        except:
-                                            error_msg = f"{type(e).__name__}: 无法获取错误消息"
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"TOOL JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":error_msg},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    # JSON 解析失败，跳过
-                                    pass
-                            elif line.startswith("__CONFIRM__:"):
-                                try:
-                                    # #region agent log
-                                    try:
-                                        import json as json_module
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"准备解析CONFIRM JSON","data":{"line_len":len(line)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    json_str = line[11:]  # 移除 "__CONFIRM__:" 前缀
-                                    # 清理 JSON 字符串中的无效字符
-                                    json_str = self._clean_unicode(json_str)
-                                    confirm_data = json.loads(json_str)
-                                    self._render_confirm_request(confirm_data, console)
-                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
-                                    # #region agent log
-                                    try:
-                                        import json as json_module
-                                        try:
-                                            error_msg = str(e)[:200]
-                                        except:
-                                            error_msg = f"{type(e).__name__}: 无法获取错误消息"
-                                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                            json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"stream_handler.py:render_stream","message":"CONFIRM JSON解析失败","data":{"error_type":type(e).__name__,"error_msg":error_msg},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                            f.write('\n')
-                                    except: pass
-                                    # #endregion
-                                    # JSON 解析失败，跳过
-                                    pass
-                            else:
+                            if msg_type == "debug":
+                                self._render_debug_info(msg_data, console)
+                            elif msg_type == "tool":
+                                self._render_tool_info(msg_data, console)
+                            elif msg_type == "confirm":
+                                self._render_confirm_request(msg_data, console)
+                            elif msg_type == "evaluation":
+                                self._render_evaluation_info(msg_data, console)
+                            elif msg_type == "status":
+                                self._render_status_info(msg_data, console)
+                            elif msg_type == "content":
                                 # 普通内容
-                                full_content += line + "\n"
+                                full_content += msg_data + "\n"
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
-                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:")):
+                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:")):
                             live.update(full_content + buffer)
                     except KeyboardInterrupt:
                         # 用户按 Ctrl+C，终止流式处理
                         raise  # 重新抛出，让外层处理
                     except Exception as chunk_error:
                         # 处理单个 chunk 时出错，记录但继续
-                        # #region agent log
-                        try:
-                            import json as json_module
-                            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"stream_handler.py:render_stream","message":"chunk处理异常","data":{"error_type":type(chunk_error).__name__},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                f.write('\n')
-                        except: pass
-                        # #endregion
-                        # 安全地获取错误消息
                         try:
                             error_msg = str(chunk_error)
                         except (UnicodeDecodeError, UnicodeEncodeError):
@@ -666,18 +678,7 @@ class StreamRenderer:
                 console.print(full_content)
             raise  # 重新抛出，让调用者知道是用户中断
         except Exception as e:
-            # #region agent log
-            try:
-                import json as json_module
-                debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(debug_log_path, 'a', encoding='utf-8') as f:
-                    json_module.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"stream_handler.py:render_stream","message":"流式处理异常","data":{"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                    f.write('\n')
-            except: pass
-            # #endregion
             # 流式处理失败，显示错误
-            # 安全地获取错误消息
             try:
                 error_msg = str(e)
             except (UnicodeDecodeError, UnicodeEncodeError):

@@ -30,10 +30,16 @@ from backend.core.agent.tools.base import ToolResult
 from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
 from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
 from backend.services.llm.llm_service import LLMService
+from backend.core.agent.evaluator import ConversationEvaluator
+from backend.core.agent.skills.registry import SkillRegistry
+from backend.core.agent.skills.executor import SkillExecutor
+from backend.core.agent.skills.base import SkillResult
 from shared.debug_utils import DebugOutput
 from backend.core.agent.planning.manager import PlanningManager
 from backend.core.agent.planning.complexity import TaskComplexityAnalyzer
 from backend.core.agent.evaluator import ConversationEvaluator
+from backend.api.stream_sender import StreamSender, LongTaskMonitor, StreamMessageBuilder
+from backend.core.agent.task_manager import task_manager
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
 
@@ -52,7 +58,6 @@ class Orchestrator:
         from backend.core.agent.skills.executor import SkillExecutor
         self.skill_registry = SkillRegistry()
         self.skill_executor = SkillExecutor(self.tool_registry, self.llm_service)
-        self._register_skills()
         
         # 代码执行相关组件
         self.auto_code_executor = None
@@ -329,24 +334,50 @@ class Orchestrator:
         """注册所有可用技能
         
         技能优先于工具，当用户请求匹配到技能时，优先使用技能执行
+        从目录自动加载所有技能配置并注册
         """
         try:
-            # 注册视频下载技能
-            from backend.core.agent.skills.video_downloader import VideoDownloaderSkill
-            video_downloader_skill = VideoDownloaderSkill(self.skill_executor)
-            self.skill_registry.register(video_downloader_skill)
-            logger.info("Video downloader skill registered successfully")
+            from pathlib import Path
+            skills_dir = Path(__file__).parent.parent.parent / "core" / "agent" / "skills"
+            
+            # 从目录加载所有技能配置
+            self.skill_registry.load_from_directory(skills_dir)
+            
+            # 注册技能实例
+            for skill_name in self.skill_registry._skill_configs.keys():
+                try:
+                    config = self.skill_registry.get_config(skill_name)
+                    if config:
+                        # 根据技能名称动态导入对应的技能类
+                        if skill_name == 'video_downloader':
+                            from backend.core.agent.skills.video_downloader.video_downloader_skill import VideoDownloaderSkill
+                            skill = VideoDownloaderSkill(self.skill_executor)
+                            self.skill_registry.register(skill)
+                            logger.info(f"技能已注册: {skill_name}")
+                        elif skill_name == 'video_summary':
+                            # video_summary skill 可能不存在，跳过
+                            logger.warning(f"video_summary 技能暂未实现，跳过注册")
+                        elif skill_name == 'video_cut':
+                            from backend.core.agent.skills.video_editing.video_cut_skill import VideoCutSkill
+                            skill = VideoCutSkill(self.skill_executor)
+                            self.skill_registry.register(skill)
+                            logger.info(f"技能已注册: {skill_name}")
+                        elif skill_name == 'video_merge':
+                            from backend.core.agent.skills.video_merge.video_merge_skill import VideoMergeSkill
+                            skill = VideoMergeSkill(self.skill_executor)
+                            self.skill_registry.register(skill)
+                            logger.info(f"技能已注册: {skill_name}")
+                        elif skill_name == 'video_subtitle_overlay':
+                            from backend.core.agent.skills.video_subtitle_overlay.video_subtitle_overlay_skill import VideoSubtitleOverlaySkill
+                            skill = VideoSubtitleOverlaySkill(self.skill_executor)
+                            self.skill_registry.register(skill)
+                            logger.info(f"技能已注册: {skill_name}")
+                        else:
+                            logger.warning(f"未知的技能名称: {skill_name}")
+                except Exception as e:
+                    logger.warning(f"注册技能 {skill_name} 失败: {str(e)}", exc_info=True)
         except Exception as e:
-            logger.warning(f"Failed to register video downloader skill: {str(e)}")
-        
-        # 可以在这里注册更多技能
-        # try:
-        #     from backend.core.agent.skills.video_summary import VideoSummarySkill
-        #     video_summary_skill = VideoSummarySkill(self.skill_executor)
-        #     self.skill_registry.register(video_summary_skill)
-        #     logger.info("Video summary skill registered successfully")
-        # except Exception as e:
-        #     logger.warning(f"Failed to register video summary skill: {str(e)}")
+            logger.warning(f"加载技能失败: {str(e)}", exc_info=True)
     
     def _init_auto_code_executor(self):
         """初始化自动代码执行器"""
@@ -395,6 +426,42 @@ class Orchestrator:
             LLM 生成的回复
         """
         self.debug.log_orchestrator_step("开始处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
+        
+        # 优先检查是否有匹配的技能
+        matched_skill = self.skill_registry.match(task)
+        if matched_skill:
+            logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
+            self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
+            
+            # 提取技能参数
+            skill_params = self._extract_skill_parameters(task, matched_skill)
+            
+            # 执行技能
+            try:
+                # 设置上下文（包含 tool_registry）
+                session_id = context.get("session_id") if context else None
+                if not session_id:
+                    session_id = self.context_manager.create_session()
+                
+                skill_context = {
+                    'tool_registry': self.tool_registry,
+                    'llm_service': self.llm_service,
+                    'context_manager': self.context_manager,
+                    'session_id': session_id
+                }
+                
+                skill_result = await matched_skill.execute(skill_params, skill_context)
+                
+                if skill_result.success:
+                    logger.info(f"技能 {matched_skill.name} 执行成功")
+                    result_text = self._format_skill_result(matched_skill, skill_result)
+                    return result_text
+                else:
+                    logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
+                    # 技能执行失败，继续使用 LLM 处理
+            except Exception as e:
+                logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
+                # 技能执行异常，继续使用 LLM 处理
         
         # 获取会话 ID（如果提供）
         session_id = context.get("session_id") if context else None
@@ -528,7 +595,8 @@ class Orchestrator:
         selected_model = await self._select_model(task)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
-            self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
+        # 总是显示模型选择信息（即使模型没有改变）
+        self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
         
         # LLM 调用（支持工具调用）
         self.debug.log_llm_request(system_prompt, user_prompt, selected_model)
@@ -541,6 +609,54 @@ class Orchestrator:
         
         # 重置为默认模型
         self.llm_service.reset_model()
+        
+        # 对话评估：评估上一轮对话（如果有）
+        # 第一轮对话不评估，从第二轮开始评估上一轮
+        if self.enable_evaluation:
+            try:
+                # 获取历史消息（在保存当前消息之前）
+                history = self.context_manager.get_messages(session_id, compressed=False)
+                
+                # 检查是否有上一轮完整的对话（user + assistant）
+                # 需要至少 2 条消息（一条 user，一条 assistant）才算上一轮
+                if len(history) >= 2:
+                    # 获取上一轮的 user 和 assistant 消息
+                    prev_user_msg = None
+                    prev_assistant_msg = None
+                    
+                    # 从后往前查找最后一对 user-assistant
+                    for i in range(len(history) - 1, -1, -1):
+                        msg = history[i]
+                        if msg.role == MessageRole.ASSISTANT and prev_assistant_msg is None:
+                            prev_assistant_msg = msg
+                        elif msg.role == MessageRole.USER and prev_assistant_msg is not None:
+                            prev_user_msg = msg
+                            break
+                    
+                    # 如果找到上一轮对话，且 assistant 消息还没有评估过
+                    if prev_user_msg and prev_assistant_msg:
+                        # 检查是否已经评估过
+                        prev_evaluation = prev_assistant_msg.metadata.get("evaluation") if prev_assistant_msg.metadata else None
+                        if not prev_evaluation:
+                            # 评估上一轮对话
+                            evaluation_result = await self.evaluator.evaluate_conversation_turn(
+                                user_message=prev_user_msg.content,
+                                assistant_message=prev_assistant_msg.content,
+                                context=None
+                            )
+                            
+                            # 将评估结果保存到上一轮 assistant 消息的 metadata
+                            if prev_assistant_msg.metadata is None:
+                                prev_assistant_msg.metadata = {}
+                            prev_assistant_msg.metadata["evaluation"] = evaluation_result
+                            
+                            # 更新上一轮 assistant 消息
+                            self.context_manager.storage.save_message(session_id, prev_assistant_msg)
+                            
+                            logger.info(f"对话评估完成，分数: {evaluation_result.get('overall_score', 'N/A')}/100")
+            except Exception as e:
+                logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
+                # 评估失败不影响正常流程
         
         # 保存消息到历史
         self.context_manager.add_message(session_id, MessageRole.USER, task)
@@ -573,9 +689,294 @@ class Orchestrator:
             "message": "开始流式处理任务",
             "details": {"task": task[:50] + "..." if len(task) > 50 else task}
         }
-        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        yield StreamMessageBuilder.build_debug(debug_info)
         
         self.debug.log_orchestrator_step("开始流式处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
+        
+        # 优先检查是否有匹配的技能
+        matched_skill = self.skill_registry.match(task)
+        if matched_skill:
+            logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "技能匹配",
+                "details": {"skill": matched_skill.name}
+            }
+            yield StreamMessageBuilder.build_debug(debug_info)
+            self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
+            
+            # 提取技能参数
+            skill_params = self._extract_skill_parameters(task, matched_skill)
+            
+            # 获取会话 ID（如果提供）
+            session_id = context.get("session_id") if context else None
+            if not session_id:
+                session_id = self.context_manager.create_session()
+            
+            # 执行技能
+            try:
+                # 检测是否是长任务（需要进度监控）
+                is_long_task = matched_skill.name in ['video_downloader']  # 可以扩展其他长任务
+                
+                # 设置上下文（包含 tool_registry）
+                skill_context = {
+                    'tool_registry': self.tool_registry,
+                    'llm_service': self.llm_service,
+                    'context_manager': self.context_manager,
+                    'session_id': session_id
+                }
+                
+                # 如果是长任务，创建任务记录（不通过 TaskManager.create_task，因为技能已经在执行）
+                task_id = None
+                if is_long_task:
+                    # 直接创建任务信息（不启动新任务，因为技能已经在当前流程中执行）
+                    import uuid
+                    from backend.core.agent.task_manager import TaskInfo, TaskStatus
+                    from datetime import datetime
+                    
+                    task_id = str(uuid.uuid4())
+                    task_info = TaskInfo(
+                        task_id=task_id,
+                        task_name=f"{matched_skill.name}: {task[:50]}",
+                        status=TaskStatus.RUNNING,
+                        started_at=datetime.now()
+                    )
+                    # 手动添加到任务管理器（不通过 create_task）
+                    task_manager._tasks[task_id] = task_info
+                    
+                    # 发送任务创建通知
+                    status_data = {
+                        "task": task_info.task_name,
+                        "progress": 0,
+                        "message": "任务已创建，准备执行...",
+                        "elapsed_time": 0,
+                        "task_id": task_id
+                    }
+                    yield StreamMessageBuilder.build_status(status_data)
+                    
+                    # 更新技能上下文，添加任务信息
+                    skill_context['task_id'] = task_id
+                    skill_context['task_manager'] = task_manager
+                    
+                    # 创建一个队列来收集进度更新，以便在技能执行期间发送 SSE 消息
+                    import asyncio
+                    import queue as queue_module
+                    progress_queue = queue_module.Queue()  # 使用线程安全的队列，因为回调可能在非异步上下文中调用
+                    
+                    # 创建一个包装的 progress_callback，将更新放入队列
+                    def queued_progress_callback(progress_or_message, message: str = ""):
+                        """队列化的进度回调（线程安全）"""
+                        try:
+                            progress_queue.put_nowait((progress_or_message, message))
+                        except Exception as e:
+                            logger.warning(f"进度回调队列添加失败: {e}")
+                    
+                    # 将包装的回调添加到 skill_context
+                    skill_context['progress_callback'] = queued_progress_callback
+                
+                # 执行技能（非流式，但可以转换为流式输出）
+                # 在后台任务中处理进度更新队列
+                async def process_progress_updates():
+                    """处理进度更新队列并发送 SSE 消息"""
+                    import time
+                    while True:
+                        try:
+                            # 从队列获取进度更新（非阻塞）
+                            try:
+                                progress_or_message, message = progress_queue.get_nowait()
+                            except queue_module.Empty:
+                                # 队列为空，检查任务是否还在运行
+                                if task_id:
+                                    task_info = task_manager.get_task(task_id)
+                                    if not task_info or task_info.status.value in ['completed', 'failed', 'cancelled']:
+                                        break
+                                await asyncio.sleep(0.5)  # 等待一段时间再检查
+                                continue
+                            
+                            # 更新任务进度
+                            if task_manager and task_id:
+                                if isinstance(progress_or_message, str):
+                                    # 只传递消息，保持当前进度
+                                    current_task = task_manager._tasks.get(task_id)
+                                    if current_task:
+                                        current_progress = current_task.progress if hasattr(current_task, 'progress') else 0
+                                        task_manager.update_task_progress(task_id, current_progress, progress_or_message)
+                                else:
+                                    # 传递进度值和消息
+                                    task_manager.update_task_progress(task_id, progress_or_message, message)
+                                
+                                # 获取任务信息并发送状态更新
+                                task_info = task_manager.get_task(task_id)
+                                if task_info:
+                                    elapsed_time = (time.time() - task_info.started_at.timestamp()) if task_info.started_at else 0
+                                    status_data = {
+                                        "task": task_info.task_name,
+                                        "progress": task_info.progress,
+                                        "message": task_info.message or message or "处理中...",
+                                        "elapsed_time": round(elapsed_time, 2),
+                                        "task_id": task_id
+                                    }
+                                    if task_info.progress > 0:
+                                        estimated_total = elapsed_time / (task_info.progress / 100)
+                                        estimated_remaining = max(0, estimated_total - elapsed_time)
+                                        status_data["estimated_remaining"] = round(estimated_remaining, 2)
+                                    status_str = StreamMessageBuilder.build_status(status_data)
+                                    yield status_str
+                        except Exception as e:
+                            logger.error(f"处理进度更新失败: {e}", exc_info=True)
+                            break
+                
+                # 创建一个列表来收集进度更新（用于在技能执行期间发送）
+                progress_updates_list = []
+                progress_updates_lock = asyncio.Lock()
+                
+                # 启动进度更新处理任务（在后台运行）
+                async def collect_progress_updates():
+                    """收集进度更新到列表"""
+                    async for status_update in process_progress_updates():
+                        async with progress_updates_lock:
+                            progress_updates_list.append(status_update)
+                
+                progress_collector_task = None
+                if task_id:
+                    progress_collector_task = asyncio.create_task(collect_progress_updates())
+                
+                # 执行技能（异步执行，但我们需要在期间处理进度更新）
+                # 创建一个任务来执行技能
+                skill_task = asyncio.create_task(matched_skill.execute(skill_params, skill_context))
+                
+                # 在技能执行期间，定期检查并发送进度更新
+                while not skill_task.done():
+                    # 检查并发送进度更新
+                    async with progress_updates_lock:
+                        while progress_updates_list:
+                            status_update = progress_updates_list.pop(0)
+                            yield status_update
+                    
+                    # 短暂休眠，然后检查技能是否完成
+                    await asyncio.sleep(0.2)
+                
+                # 获取技能执行结果
+                skill_result = await skill_task
+                
+                # 发送所有剩余的进度更新
+                if progress_collector_task:
+                    # 等待一小段时间，让进度收集器完成
+                    await asyncio.sleep(0.5)
+                    progress_collector_task.cancel()
+                    try:
+                        await progress_collector_task
+                    except asyncio.CancelledError:
+                        pass
+                
+                # 发送剩余的进度更新
+                async with progress_updates_lock:
+                    while progress_updates_list:
+                        status_update = progress_updates_list.pop(0)
+                        yield status_update
+                
+                if skill_result.success:
+                    # 格式化结果
+                    result_text = self._format_skill_result(matched_skill, skill_result)
+                    # 流式输出结果
+                    for char in result_text:
+                        yield char
+                    full_result = result_text
+                else:
+                    # 格式化错误信息，确保完整且可读
+                    error_detail = skill_result.error or '未知错误'
+                    # 如果错误信息很长，只取第一行（通常是错误类型和消息）
+                    if '\n' in error_detail:
+                        error_lines = error_detail.split('\n')
+                        error_detail = error_lines[0]  # 只取第一行
+                        if len(error_lines) > 1:
+                            # 如果有更多信息，添加提示
+                            error_detail += f"（完整错误信息已记录到日志）"
+                    
+                    error_msg = f"技能执行失败: {error_detail}\n"
+                    yield error_msg
+                    full_result = error_msg
+                    
+                    # 记录完整错误信息到日志
+                    if skill_result.error and '\n' in skill_result.error:
+                        logger.error(f"技能 {matched_skill.name} 执行失败（完整错误）:\n{skill_result.error}")
+                
+                # 更新任务状态（如果是长任务，在获取 full_result 之后）
+                if task_id:
+                    task_info = task_manager.get_task(task_id)
+                    if task_info:
+                        if skill_result.success:
+                            task_info.status = TaskStatus.COMPLETED
+                            task_info.progress = 100
+                            task_info.message = "任务完成"
+                            task_info.result = full_result
+                        else:
+                            task_info.status = TaskStatus.FAILED
+                            task_info.error = skill_result.error
+                            task_info.message = f"任务失败: {skill_result.error}"
+                        from datetime import datetime
+                        task_info.completed_at = datetime.now()
+                
+                # 保存消息到历史
+                self.context_manager.add_message(session_id, MessageRole.USER, task)
+                self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_result)
+                self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
+                
+                # 对话评估（如果有上一轮）
+                if self.enable_evaluation:
+                    try:
+                        history = self.context_manager.get_messages(session_id, compressed=False)
+                        if len(history) >= 2:
+                            prev_user_msg = None
+                            prev_assistant_msg = None
+                            for i in range(len(history) - 1, -1, -1):
+                                msg = history[i]
+                                if msg.role == MessageRole.ASSISTANT and prev_assistant_msg is None:
+                                    prev_assistant_msg = msg
+                                elif msg.role == MessageRole.USER and prev_assistant_msg is not None:
+                                    prev_user_msg = msg
+                                    break
+                            
+                            if prev_user_msg and prev_assistant_msg:
+                                prev_evaluation = prev_assistant_msg.metadata.get("evaluation") if prev_assistant_msg.metadata else None
+                                if not prev_evaluation:
+                                    evaluation_result = await self.evaluator.evaluate_conversation_turn(
+                                        user_message=prev_user_msg.content,
+                                        assistant_message=prev_assistant_msg.content,
+                                        context=None
+                                    )
+                                    if prev_assistant_msg.metadata is None:
+                                        prev_assistant_msg.metadata = {}
+                                    prev_assistant_msg.metadata["evaluation"] = evaluation_result
+                                    self.context_manager.storage.save_message(session_id, prev_assistant_msg)
+                                    evaluation_info = {
+                                        "type": "evaluation",
+                                        "evaluation": evaluation_result
+                                    }
+                                    yield StreamMessageBuilder.build_evaluation(evaluation_info)
+                                    logger.info(f"对话评估完成，分数: {evaluation_result.get('overall_score', 'N/A')}/100")
+                    except Exception as e:
+                        logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
+                
+                return  # 技能执行完成，直接返回
+            except Exception as e:
+                logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
+                
+                # 更新任务状态（如果是长任务）
+                if 'task_id' in locals() and task_id:
+                    from backend.core.agent.task_manager import TaskStatus
+                    task_info = task_manager.get_task(task_id)
+                    if task_info:
+                        task_info.status = TaskStatus.FAILED
+                        task_info.error = str(e)
+                        task_info.message = f"任务异常: {str(e)}"
+                        from datetime import datetime
+                        task_info.completed_at = datetime.now()
+                
+                # 技能执行异常，继续使用 LLM 处理
+                error_msg = f"技能执行失败: {str(e)}，将使用 LLM 处理"
+                yield f"[错误] {error_msg}\n\n"
         
         # 获取会话 ID（如果提供）
         session_id = context.get("session_id") if context else None
@@ -590,7 +991,7 @@ class Orchestrator:
                 "message": "创建新会话",
                 "details": {"session_id": session_id[:8] + "..."}
             }
-            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+            yield StreamMessageBuilder.build_debug(debug_info)
             self.debug.log_context_operation("创建新会话", session_id)
         
         # 获取历史消息（不压缩，保留完整历史）
@@ -606,7 +1007,7 @@ class Orchestrator:
             "message": "获取历史消息",
             "details": {"count": len(history), "has_history": len(history) > 0}
         }
-        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        yield StreamMessageBuilder.build_debug(debug_info)
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
         # 规划功能：检测复杂任务并创建规划文件（方案2）
@@ -851,21 +1252,22 @@ class Orchestrator:
             "message": "准备工具",
             "details": {"tool_count": len(tools), "tools": tool_names}
         }
-        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        yield StreamMessageBuilder.build_debug(debug_info)
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": tool_names})
         
         # 智能模型选择：使用 chat 模型分析任务，决定使用哪个模型
         selected_model = await self._select_model(task)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
-            self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
-            debug_info = {
-                "type": "debug",
-                "category": "orchestrator",
-                "message": "模型选择",
-                "details": {"selected_model": selected_model}
-            }
-            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        # 总是显示模型选择信息（即使模型没有改变）
+        self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "模型选择",
+            "details": {"selected_model": selected_model}
+        }
+        yield StreamMessageBuilder.build_debug(debug_info)
         
         # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
         if tools:
@@ -917,6 +1319,60 @@ class Orchestrator:
         
         # 重置为默认模型
         self.llm_service.reset_model()
+        
+        # 对话评估：评估上一轮对话（如果有）
+        # 第一轮对话不评估，从第二轮开始评估上一轮
+        if self.enable_evaluation:
+            try:
+                # 获取历史消息（在保存当前消息之前）
+                history = self.context_manager.get_messages(session_id, compressed=False)
+                
+                # 检查是否有上一轮完整的对话（user + assistant）
+                # 需要至少 2 条消息（一条 user，一条 assistant）才算上一轮
+                if len(history) >= 2:
+                    # 获取上一轮的 user 和 assistant 消息
+                    prev_user_msg = None
+                    prev_assistant_msg = None
+                    
+                    # 从后往前查找最后一对 user-assistant
+                    for i in range(len(history) - 1, -1, -1):
+                        msg = history[i]
+                        if msg.role == MessageRole.ASSISTANT and prev_assistant_msg is None:
+                            prev_assistant_msg = msg
+                        elif msg.role == MessageRole.USER and prev_assistant_msg is not None:
+                            prev_user_msg = msg
+                            break
+                    
+                    # 如果找到上一轮对话，且 assistant 消息还没有评估过
+                    if prev_user_msg and prev_assistant_msg:
+                        # 检查是否已经评估过
+                        prev_evaluation = prev_assistant_msg.metadata.get("evaluation") if prev_assistant_msg.metadata else None
+                        if not prev_evaluation:
+                            # 评估上一轮对话
+                            evaluation_result = await self.evaluator.evaluate_conversation_turn(
+                                user_message=prev_user_msg.content,
+                                assistant_message=prev_assistant_msg.content,
+                                context=None
+                            )
+                            
+                            # 将评估结果保存到上一轮 assistant 消息的 metadata
+                            if prev_assistant_msg.metadata is None:
+                                prev_assistant_msg.metadata = {}
+                            prev_assistant_msg.metadata["evaluation"] = evaluation_result
+                            
+                            # 更新上一轮 assistant 消息
+                            self.context_manager.storage.save_message(session_id, prev_assistant_msg)
+                            
+                            # 发送评估结果到前端
+                            evaluation_info = {
+                                "type": "evaluation",
+                                "evaluation": evaluation_result
+                            }
+                            yield f"__EVALUATION__:{json.dumps(evaluation_info, ensure_ascii=False)}\n"
+                            logger.info(f"对话评估完成，分数: {evaluation_result.get('overall_score', 'N/A')}/100")
+            except Exception as e:
+                logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
+                # 评估失败不影响正常流程
         
         # 保存消息到历史
         self.context_manager.add_message(session_id, MessageRole.USER, task)
@@ -997,7 +1453,7 @@ class Orchestrator:
             "message": "流式任务处理完成",
             "details": {"response_length": len(full_response)}
         }
-        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        yield StreamMessageBuilder.build_debug(debug_info)
         self.debug.log_orchestrator_step("流式任务处理完成", {"response_length": len(full_response)})
     
     def _extract_skill_parameters(self, task: str, skill) -> Dict[str, Any]:
@@ -1017,8 +1473,18 @@ class Orchestrator:
         parameters = {}
         
         # 提取 URL（适用于 video_summary 等需要 URL 的技能）
-        url_pattern = r'https?://[^\s]+'
-        urls = re.findall(url_pattern, task)
+        # 改进的 URL 正则：匹配 http:// 或 https:// 开头的 URL，直到遇到空格、引号、逗号、句号等
+        url_pattern = r'https?://[^\s"\'\),。，、]+'
+        raw_urls = re.findall(url_pattern, task)
+        
+        # 清理 URL：移除末尾的标点符号
+        urls = []
+        for url in raw_urls:
+            # 移除末尾的常见标点符号
+            url = url.rstrip('.,;:!?)\'"）')
+            # 确保 URL 是有效的
+            if url.startswith('http://') or url.startswith('https://'):
+                urls.append(url)
         
         if urls:
             # 如果是单个 URL，使用 url 参数
@@ -1057,6 +1523,68 @@ class Orchestrator:
         
         logger.info(f"提取的技能参数: {parameters}")
         return parameters
+    
+    def _format_skill_result(self, skill, skill_result: 'SkillResult') -> str:
+        """
+        格式化技能执行结果为文本
+        
+        Args:
+            skill: 技能对象
+            skill_result: 技能执行结果
+        
+        Returns:
+            格式化的文本结果
+        """
+        if not skill_result.success:
+            return f"❌ 技能执行失败: {skill_result.error or '未知错误'}"
+        
+        data = skill_result.data or {}
+        
+        # 根据技能类型格式化结果
+        if skill.name == 'video_downloader':
+            results = data.get('results', [])
+            errors = data.get('errors', [])
+            total = data.get('total', 0)
+            success_count = data.get('success', 0)
+            failed_count = data.get('failed', 0)
+            
+            result_text = f"## 📥 视频下载完成\n\n"
+            result_text += f"**总计**: {total} 个视频\n"
+            result_text += f"**成功**: {success_count} 个\n"
+            result_text += f"**失败**: {failed_count} 个\n\n"
+            
+            if results:
+                result_text += "### ✅ 成功下载的视频：\n"
+                for i, result in enumerate(results, 1):
+                    url = result.get('url', 'N/A')
+                    output_file = result.get('output_file', '')
+                    subtitle_file = result.get('subtitle_file', '')
+                    retry_with_cookies = result.get('retry_with_cookies', False)
+                    
+                    result_text += f"{i}. {url}\n"
+                    if output_file:
+                        result_text += f"   📹 视频文件: {output_file}\n"
+                    if subtitle_file:
+                        result_text += f"   📝 字幕文件: {subtitle_file}\n"
+                    if retry_with_cookies:
+                        result_text += f"   💡 使用 cookies 重试成功\n"
+                    result_text += "\n"
+            
+            if errors:
+                result_text += "### ❌ 下载失败的视频：\n"
+                for i, error in enumerate(errors, 1):
+                    url = error.get('url', 'N/A')
+                    error_msg = error.get('error', '未知错误')
+                    result_text += f"{i}. {url}\n"
+                    result_text += f"   错误: {error_msg}\n\n"
+            
+            return result_text
+        else:
+            # 其他技能，使用通用格式
+            if data:
+                import json
+                return json.dumps(data, ensure_ascii=False, indent=2)
+            return "✅ 技能执行完成"
     
     async def _chat_with_tools_stream(
         self,
@@ -1098,7 +1626,7 @@ class Orchestrator:
                     "message": f"工具调用循环第 {iteration} 轮",
                     "details": {}
                 }
-                yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                yield StreamMessageBuilder.build_debug(debug_info)
                 self.debug.log_orchestrator_step(f"工具调用循环第 {iteration} 轮", {})
                 
                 try:
@@ -1123,7 +1651,7 @@ class Orchestrator:
                         "message": "检测到工具调用",
                         "details": {"count": len(response.tool_calls)}
                     }
-                    yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                    yield StreamMessageBuilder.build_debug(debug_info)
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
                     
                     # 执行所有工具调用
@@ -1138,7 +1666,7 @@ class Orchestrator:
                             "message": "执行工具",
                             "details": {"name": tool_name, "args": tool_args_str}
                         }
-                        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                        yield StreamMessageBuilder.build_debug(debug_info)
                         self.debug.log_orchestrator_step("执行工具", {"name": tool_name, "args": tool_args_str})
                         
                         # 解析参数
@@ -1264,7 +1792,7 @@ class Orchestrator:
                             "result": tool_result.data if tool_result.success else None,
                             "error": tool_result.error if not tool_result.success else None
                         }
-                        yield f"__TOOL__:{json.dumps(tool_info, ensure_ascii=False)}\n"
+                        yield StreamMessageBuilder.build_tool(tool_info)
                         
                         # 记录详细的执行结果
                         if not tool_result.success:
@@ -1274,7 +1802,7 @@ class Orchestrator:
                                 "message": "工具执行失败",
                                 "details": {"name": tool_name, "error": tool_result.error}
                             }
-                            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                            yield StreamMessageBuilder.build_debug(debug_info)
                             self.debug.log_orchestrator_step("工具执行失败", {
                                 "name": tool_name,
                                 "error": tool_result.error
@@ -1373,7 +1901,7 @@ class Orchestrator:
                                 "error": tool_result.error if not tool_result.success else None
                             }
                         }
-                        yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                        yield StreamMessageBuilder.build_debug(debug_info)
                         self.debug.log_orchestrator_step("工具执行完成", {
                             "name": tool_name,
                             "success": tool_result.success,
@@ -1451,7 +1979,7 @@ class Orchestrator:
                 "message": "达到最大工具调用迭代次数",
                 "details": {"max_iterations": max_iterations}
             }
-            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+            yield StreamMessageBuilder.build_debug(debug_info)
             self.debug.log_orchestrator_step("达到最大工具调用迭代次数", {"max_iterations": max_iterations})
             yield "抱歉，工具调用未能成功获取信息。"
         except Exception as e:

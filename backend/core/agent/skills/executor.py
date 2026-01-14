@@ -1,6 +1,7 @@
 """技能执行器 - 执行技能工作流"""
 import logging
 import re
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 
@@ -9,6 +10,12 @@ from backend.core.agent.tools.registry import ToolRegistry
 from backend.services.llm.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
+
+# 获取调试日志路径（相对于项目根目录）
+# executor.py 在 backend/core/agent/skills/executor.py
+# 项目根目录在 executor.py 的 ../../../../../
+# 即: backend/core/agent/skills -> backend/core/agent -> backend/core -> backend -> 项目根目录
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / '.cursor' / 'debug.log'
 
 
 class SkillExecutor:
@@ -45,9 +52,18 @@ class SkillExecutor:
         - ${input.field} - 输入参数
         - ${file_exists(path)} - 文件存在检查
         - ${not condition} - 逻辑非
-        - ${condition and condition} - 逻辑与
-        - ${condition or condition} - 逻辑或
         """
+        # #region agent log
+        import json
+        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"executor.py:45","message":"_evaluate_expression 开始","data":{"expression":expression,"has_config":"config" in context,"config_keys":list(context.get('config',{}).keys()) if 'config' in context else []},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+        # #endregion
+        logger.debug(f"[表达式求值] 开始求值表达式: {expression}")
+        logger.debug(f"[表达式求值] context keys: {list(context.keys())}")
+        if 'step_results' in context:
+            logger.debug(f"[表达式求值] step_results type: {type(context.get('step_results'))}, value: {context.get('step_results')}")
+        if 'steps' in context:
+            logger.debug(f"[表达式求值] steps type: {type(context.get('steps'))}, value: {context.get('steps')}")
         # 替换变量
         def replace_var(match):
             var_expr = match.group(1)
@@ -58,10 +74,34 @@ class SkillExecutor:
                 if match_steps:
                     step_idx = int(match_steps.group(1))
                     field = match_steps.group(2)
-                    if 'step_results' in context and step_idx < len(context['step_results']):
-                        step_result = context['step_results'][step_idx]
-                        if isinstance(step_result, dict):
-                            return str(step_result.get(field, ''))
+                    # #region agent log
+                    import json
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"executor.py:69","message":"replace_var: 访问 steps","data":{"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"field":field,"has_step_results":"step_results" in context},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    # 检查 step_results 是否存在且是列表
+                    step_results = context.get('step_results') or context.get('steps')
+                    # #region agent log
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"executor.py:76","message":"replace_var: 获取 step_results","data":{"step_results_type":str(type(step_results)),"step_results_str":str(step_results)[:200] if step_results else None,"is_list":isinstance(step_results,(list,tuple))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    if step_results and isinstance(step_results, (list, tuple)):
+                        # #region agent log
+                        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"executor.py:76","message":"replace_var: 准备比较","data":{"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results),"step_results_len_type":str(type(len(step_results)))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                        # #endregion
+                        try:
+                            if step_idx < len(step_results):
+                                step_result = step_results[step_idx]
+                                if isinstance(step_result, dict):
+                                    return str(step_result.get(field, ''))
+                        except TypeError as te:
+                            # #region agent log
+                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"executor.py:76","message":"replace_var: 比较失败 - TypeError","data":{"error":str(te),"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results) if hasattr(step_results,'__len__') else "N/A"},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                            # #endregion
+                            logger.error(f"[表达式求值] replace_var: 类型错误 - step_idx={step_idx} (type={type(step_idx)}), step_results len={len(step_results) if hasattr(step_results,'__len__') else 'N/A'}, error={te}")
+                            raise
                     return ''
             
             # 处理 input.field
@@ -75,37 +115,506 @@ class SkillExecutor:
             if var_expr.startswith('config.'):
                 field = var_expr[7:]
                 if 'config' in context:
-                    return str(context['config'].get(field, ''))
+                    value = context['config'].get(field)
+                    # 返回原始值，不转换为字符串
+                    return value if value is not None else ''
                 return ''
             
             # 直接变量
             if var_expr in context:
-                return str(context[var_expr])
+                # 返回原始值，不转换为字符串
+                return context[var_expr]
             
             return ''
         
+        # 检查表达式是否只包含一个变量引用（如 ${config.urls}）
+        # 但不包含比较操作符（==, !=, <, >, <=, >=）或逻辑操作符（and, or, not）
+        single_var_match = re.match(r'^\$\{([^}]+)\}$', expression.strip())
+        if single_var_match:
+            var_expr = single_var_match.group(1)
+            
+            # 如果包含比较操作符或逻辑操作符，不是单个变量引用，继续下面的处理
+            if any(op in var_expr for op in ['==', '!=', '<', '>', '<=', '>=', ' and ', ' or ', ' not ']):
+                # 不是单个变量引用，继续下面的表达式求值
+                pass
+            else:
+                # 是单个变量引用，直接返回原始值
+                # 处理 steps[N].field
+                match_steps = re.match(r'steps\[(\d+)\]\.(.+)', var_expr)
+                if match_steps:
+                    step_idx = int(match_steps.group(1))
+                    field = match_steps.group(2)
+                    # #region agent log
+                    import json
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"executor.py:141","message":"单个变量: 访问 steps","data":{"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"field":field},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    # 检查 step_results 是否存在且是列表
+                    step_results = context.get('step_results') or context.get('steps')
+                    # #region agent log
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"executor.py:150","message":"单个变量: 获取 step_results","data":{"step_results_type":str(type(step_results)),"step_results_str":str(step_results)[:200] if step_results else None,"is_list":isinstance(step_results,(list,tuple))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    if step_results and isinstance(step_results, (list, tuple)):
+                        # #region agent log
+                        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"executor.py:155","message":"单个变量: 准备比较","data":{"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results),"step_results_len_type":str(type(len(step_results)))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                        # #endregion
+                        try:
+                            if step_idx < len(step_results):
+                                step_result = step_results[step_idx]
+                                if isinstance(step_result, dict):
+                                    return step_result.get(field)
+                        except TypeError as te:
+                            # #region agent log
+                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"executor.py:161","message":"单个变量: 比较失败 - TypeError","data":{"error":str(te),"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results) if hasattr(step_results,'__len__') else "N/A"},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                            # #endregion
+                            logger.error(f"[表达式求值] 单个变量: 类型错误 - step_idx={step_idx} (type={type(step_idx)}), step_results len={len(step_results) if hasattr(step_results,'__len__') else 'N/A'}, error={te}")
+                            raise
+                    return None
+                
+                # 处理 input.field
+                if var_expr.startswith('input.'):
+                    field = var_expr[6:]
+                    if 'input' in context:
+                        return context['input'].get(field)
+                    return None
+                
+                # 处理 config.field
+                if var_expr.startswith('config.'):
+                    field = var_expr[7:]
+                    if 'config' in context:
+                        value = context['config'].get(field)
+                        # #region agent log
+                        import json
+                        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"executor.py:186","message":"单个变量: 访问 config.field","data":{"field":field,"value":value,"value_type":str(type(value)) if value is not None else None,"config_keys":list(context['config'].keys())},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                        # #endregion
+                        return value
+                    return None
+                
+                # 处理 result.field（工具执行结果）
+                if var_expr.startswith('result.'):
+                    field = var_expr[7:]
+                    if 'result' in context and isinstance(context['result'], dict):
+                        return context['result'].get(field)
+                    return None
+                
+                # 直接变量
+                if var_expr in context:
+                    return context[var_expr]
+                
+                return None
+        
+        # 替换所有 ${...} 表达式，但保留原始类型
+        def replace_var_preserve_type(match):
+            var_expr = match.group(1)
+            
+            # 如果 var_expr 包含比较操作符，这是一个表达式，需要分别替换其中的变量
+            if any(op in var_expr for op in ['==', '!=', '<', '>', '<=', '>=', ' and ', ' or ', ' not ']):
+                # 这是一个表达式，不是单个变量引用
+                # 递归替换表达式中的变量部分
+                # 例如：${steps[0].download_success == true} 
+                # 应该替换为：True == True
+                def replace_var_in_expr(expr):
+                    """在表达式中替换变量"""
+                    # 匹配 steps[N].field 模式
+                    def replace_steps_var(m):
+                        step_var = m.group(0)
+                        logger.debug(f"[表达式求值] replace_steps_var: 匹配到 {step_var}")
+                        # #region agent log
+                        import json
+                        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"executor.py:163","message":"replace_steps_var 开始","data":{"step_var":step_var},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                        # #endregion
+                        step_match = re.match(r'steps\[(\d+)\]\.([^.==!<> ]+)', step_var)
+                        if step_match:
+                            step_idx_str = step_match.group(1)
+                            step_idx = int(step_idx_str)
+                            field = step_match.group(2)
+                            logger.debug(f"[表达式求值] replace_steps_var: step_idx={step_idx}, field={field}")
+                            # #region agent log
+                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"executor.py:169","message":"提取 step_idx 和 field","data":{"step_idx_str":step_idx_str,"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"field":field},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                            # #endregion
+                            step_results = context.get('step_results') or context.get('steps')
+                            logger.debug(f"[表达式求值] replace_steps_var: step_results type={type(step_results)}, value={step_results}")
+                            # #region agent log
+                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"executor.py:170","message":"获取 step_results","data":{"step_results_type":str(type(step_results)),"step_results_str":str(step_results)[:200],"is_list":isinstance(step_results,(list,tuple)),"has_step_results":"step_results" in context,"has_steps":"steps" in context},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                            # #endregion
+                            if step_results and isinstance(step_results, (list, tuple)):
+                                logger.debug(f"[表达式求值] replace_steps_var: step_results 是列表/元组，长度={len(step_results)}, step_idx={step_idx}, step_idx type={type(step_idx)}")
+                                # #region agent log
+                                with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"executor.py:171","message":"准备比较 step_idx < len(step_results)","data":{"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results),"step_results_len_type":str(type(len(step_results)))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                # #endregion
+                                try:
+                                    comparison_result = step_idx < len(step_results)
+                                    # #region agent log
+                                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"executor.py:171","message":"比较成功","data":{"comparison_result":comparison_result},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                    # #endregion
+                                except TypeError as te:
+                                    # #region agent log
+                                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"executor.py:171","message":"比较失败 - TypeError","data":{"error":str(te),"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results) if hasattr(step_results,'__len__') else "N/A","step_results_len_type":str(type(len(step_results))) if hasattr(step_results,'__len__') else "N/A"},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                    # #endregion
+                                    raise
+                                if step_idx < len(step_results):
+                                    step_result = step_results[step_idx]
+                                    logger.debug(f"[表达式求值] replace_steps_var: step_result[{step_idx}]={step_result}, type={type(step_result)}")
+                                    if isinstance(step_result, dict):
+                                        value = step_result.get(field)
+                                        logger.debug(f"[表达式求值] replace_steps_var: value={value}, type={type(value)}")
+                                        if isinstance(value, bool):
+                                            result = 'True' if value else 'False'
+                                            logger.debug(f"[表达式求值] replace_steps_var: 布尔值转换 {value} -> {result}")
+                                            return result
+                                        elif isinstance(value, str):
+                                            if value.lower() == 'true':
+                                                return 'True'
+                                            elif value.lower() == 'false':
+                                                return 'False'
+                                            else:
+                                                return repr(value)
+                                        elif isinstance(value, (int, float)):
+                                            result = str(value)
+                                            logger.debug(f"[表达式求值] replace_steps_var: 数字转换 {value} -> {result}")
+                                            return result
+                                        elif value is None:
+                                            return 'None'
+                                        else:
+                                            return repr(value)
+                                else:
+                                    logger.warning(f"[表达式求值] replace_steps_var: step_idx {step_idx} >= len(step_results) {len(step_results)}")
+                            else:
+                                logger.warning(f"[表达式求值] replace_steps_var: step_results 不是列表/元组: type={type(step_results)}, value={step_results}")
+                        return step_var
+                    
+                    # 替换 steps[N].field
+                    expr = re.sub(r'steps\[\d+\]\.[^.==!<> ]+', replace_steps_var, expr)
+                    
+                    # 替换 true/false 字面量
+                    expr = re.sub(r'\btrue\b', 'True', expr, flags=re.IGNORECASE)
+                    expr = re.sub(r'\bfalse\b', 'False', expr, flags=re.IGNORECASE)
+                    
+                    # 替换 config.field, input.field, result.field
+                    def replace_field_access(m):
+                        field_expr = m.group(0)
+                        if field_expr.startswith('config.'):
+                            field = field_expr[7:]
+                            if 'config' in context:
+                                value = context['config'].get(field)
+                                if isinstance(value, bool):
+                                    return 'True' if value else 'False'
+                                elif isinstance(value, str):
+                                    if value.lower() == 'true':
+                                        return 'True'
+                                    elif value.lower() == 'false':
+                                        return 'False'
+                                    else:
+                                        return repr(value)
+                                elif isinstance(value, (int, float)):
+                                    return str(value)
+                                elif value is None:
+                                    return 'None'
+                                else:
+                                    return repr(value)
+                        elif field_expr.startswith('input.'):
+                            field = field_expr[6:]
+                            if 'input' in context:
+                                value = context['input'].get(field)
+                                if isinstance(value, bool):
+                                    return 'True' if value else 'False'
+                                elif isinstance(value, str):
+                                    if value.lower() == 'true':
+                                        return 'True'
+                                    elif value.lower() == 'false':
+                                        return 'False'
+                                    else:
+                                        return repr(value)
+                                elif isinstance(value, (int, float)):
+                                    return str(value)
+                                elif value is None:
+                                    return 'None'
+                                else:
+                                    return repr(value)
+                        elif field_expr.startswith('result.'):
+                            field = field_expr[7:]
+                            if 'result' in context and isinstance(context['result'], dict):
+                                value = context['result'].get(field)
+                                if isinstance(value, bool):
+                                    return 'True' if value else 'False'
+                                elif isinstance(value, str):
+                                    if value.lower() == 'true':
+                                        return 'True'
+                                    elif value.lower() == 'false':
+                                        return 'False'
+                                    else:
+                                        return repr(value)
+                                elif isinstance(value, (int, float)):
+                                    return str(value)
+                                elif value is None:
+                                    return 'None'
+                                else:
+                                    return repr(value)
+                        return field_expr
+                    
+                    expr = re.sub(r'(config|input|result)\.[^.==!<> ]+', replace_field_access, expr)
+                    
+                    return expr
+                
+                # 替换表达式中的变量
+                return replace_var_in_expr(var_expr)
+            
+            # 处理单个变量引用（不包含比较操作符）
+            # 处理 steps[N].field
+            if var_expr.startswith('steps['):
+                # 只匹配字段名部分，不包含比较操作符
+                match_steps = re.match(r'steps\[(\d+)\]\.([^.==!<> ]+)', var_expr)
+                if match_steps:
+                    step_idx = int(match_steps.group(1))
+                    field = match_steps.group(2)
+                    # 检查 step_results 是否存在且是列表
+                    step_results = context.get('step_results') or context.get('steps')
+                    # #region agent log
+                    import json
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:375","message":"获取 step_results (单个变量)","data":{"step_results_type":str(type(step_results)),"step_results_str":str(step_results)[:200],"is_list":isinstance(step_results,(list,tuple)),"has_step_results":"step_results" in context,"has_steps":"steps" in context,"step_idx":step_idx,"step_idx_type":str(type(step_idx))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    if step_results and isinstance(step_results, (list, tuple)):
+                        # 确保 step_idx 是有效的整数
+                        try:
+                            # #region agent log
+                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:295","message":"准备比较 step_idx < len(step_results) (单个变量)","data":{"step_idx":step_idx,"step_idx_type":str(type(step_idx)),"step_results_len":len(step_results),"step_results_len_type":str(type(len(step_results)))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                            # #endregion
+                            comparison_result = step_idx < len(step_results)
+                            # #region agent log
+                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:295","message":"比较成功 (单个变量)","data":{"comparison_result":comparison_result},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                            # #endregion
+                            if comparison_result:
+                                step_result = step_results[step_idx]
+                                if isinstance(step_result, dict):
+                                    value = step_result.get(field)
+                                    # 处理布尔值：统一转换为 Python 布尔字面量
+                                    if isinstance(value, bool):
+                                        return 'True' if value else 'False'
+                                    # 处理字符串 "true"/"false" -> True/False
+                                    elif isinstance(value, str):
+                                        if value.lower() == 'true':
+                                            return 'True'
+                                        elif value.lower() == 'false':
+                                            return 'False'
+                                        else:
+                                            return repr(value)  # 其他字符串使用 repr
+                                    elif isinstance(value, (int, float)):
+                                        return str(value)
+                                    elif value is None:
+                                        return 'None'
+                                    else:
+                                        return repr(value)
+                        except (TypeError, IndexError, ValueError) as e:
+                            logger.warning(f"访问 steps[{step_idx}].{field} 失败: {e}")
+                    return 'None'
+            
+            # 处理 input.field
+            if var_expr.startswith('input.'):
+                field = var_expr[6:]
+                if 'input' in context:
+                    value = context['input'].get(field)
+                    # 处理布尔值
+                    if isinstance(value, bool):
+                        return 'True' if value else 'False'
+                    # 处理字符串 "true"/"false"
+                    elif isinstance(value, str):
+                        if value.lower() == 'true':
+                            return 'True'
+                        elif value.lower() == 'false':
+                            return 'False'
+                        else:
+                            return repr(value)
+                    elif isinstance(value, (int, float)):
+                        return str(value)
+                    elif value is None:
+                        return 'None'
+                    else:
+                        return repr(value)
+                return 'None'
+            
+            # 处理 config.field
+            if var_expr.startswith('config.'):
+                field = var_expr[7:]
+                if 'config' in context:
+                    value = context['config'].get(field)
+                    # 处理布尔值
+                    if isinstance(value, bool):
+                        return 'True' if value else 'False'
+                    # 处理字符串 "true"/"false"
+                    elif isinstance(value, str):
+                        if value.lower() == 'true':
+                            return 'True'
+                        elif value.lower() == 'false':
+                            return 'False'
+                        else:
+                            return repr(value)
+                    elif isinstance(value, (int, float)):
+                        return str(value)
+                    elif value is None:
+                        return 'None'
+                    else:
+                        return repr(value)
+                return 'None'
+            
+            # 处理 result.field（工具执行结果）
+            if var_expr.startswith('result.'):
+                field = var_expr[7:]
+                if 'result' in context and isinstance(context['result'], dict):
+                    value = context['result'].get(field)
+                    # 处理布尔值
+                    if isinstance(value, bool):
+                        return 'True' if value else 'False'
+                    # 处理字符串 "true"/"false"
+                    elif isinstance(value, str):
+                        if value.lower() == 'true':
+                            return 'True'
+                        elif value.lower() == 'false':
+                            return 'False'
+                        else:
+                            return repr(value)
+                    elif isinstance(value, (int, float)):
+                        return str(value)
+                    elif value is None:
+                        return 'None'
+                    else:
+                        return repr(value)
+                return 'None'
+            
+            # 处理布尔字面量
+            if var_expr.lower() == 'true':
+                return 'True'
+            elif var_expr.lower() == 'false':
+                return 'False'
+            
+            # 直接变量
+            if var_expr in context:
+                value = context[var_expr]
+                # 处理布尔值
+                if isinstance(value, bool):
+                    return 'True' if value else 'False'
+                # 处理字符串 "true"/"false"
+                elif isinstance(value, str):
+                    if value.lower() == 'true':
+                        return 'True'
+                    elif value.lower() == 'false':
+                        return 'False'
+                    else:
+                        return repr(value)
+                elif isinstance(value, (int, float)):
+                    return str(value)
+                elif value is None:
+                    return 'None'
+                else:
+                    return repr(value)
+            
+            return 'None'
+        
         # 替换所有 ${...} 表达式
-        result = re.sub(r'\$\{([^}]+)\}', replace_var, expression)
+        result = re.sub(r'\$\{([^}]+)\}', replace_var_preserve_type, expression)
         
         # 处理函数调用
         # file_exists(path)
         def replace_file_exists(match):
             path_str = match.group(1).strip('"\'')
             path = Path(path_str)
-            return str(path.exists())
+            return 'True' if path.exists() else 'False'
         
         result = re.sub(r'file_exists\(([^)]+)\)', replace_file_exists, result)
         
-        # 处理逻辑运算符
-        result = result.replace(' and ', ' && ').replace(' or ', ' || ').replace(' not ', ' ! ')
+        # 处理逻辑运算符（Python 语法）
+        result = result.replace(' and ', ' and ').replace(' or ', ' or ').replace(' not ', ' not ')
         
-        # 简单的布尔值评估
-        if result.lower() in ('true', '1', 'yes', 'on'):
-            return True
-        elif result.lower() in ('false', '0', 'no', 'off', ''):
-            return False
+        # 调试：记录替换后的表达式
+        logger.debug(f"表达式求值: {expression} -> {result}")
         
-        return result
+        # 尝试安全地评估表达式
+        logger.debug(f"[表达式求值] 替换后的表达式: {result}")
+        try:
+            # 只允许简单的比较和逻辑操作
+            # 检查是否包含比较操作符
+            has_comparison = any(op in result for op in ['==', '!=', '<', '>', '<=', '>=', ' and ', ' or ', ' not '])
+            logger.debug(f"[表达式求值] 是否包含比较操作符: {has_comparison}")
+            if has_comparison:
+                # 在 eval 之前，尝试转换字符串数字为数字
+                # 匹配引号内的字符串或数字
+                def convert_literals(m):
+                    """将字符串字面量转换为 Python 对象"""
+                    s = m.group(0)
+                    # 如果是引号字符串，保持原样
+                    if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
+                        return s
+                    # 如果是 True/False，保持原样
+                    if s in ('True', 'False', 'None'):
+                        return s
+                    # 如果是数字字符串，保持原样（eval 会自动转换）
+                    try:
+                        float(s)
+                        return s
+                    except ValueError:
+                        pass
+                    return s
+                
+                # 使用 eval 但限制可用的内置函数
+                safe_dict = {
+                    'True': True,
+                    'False': False,
+                    'None': None,
+                }
+                # 安全地评估表达式
+                try:
+                    evaluated = eval(result, {"__builtins__": {}}, safe_dict)
+                    # 确保返回布尔值用于条件判断
+                    if isinstance(evaluated, bool):
+                        return evaluated
+                    elif isinstance(evaluated, (int, float)):
+                        return bool(evaluated)
+                    else:
+                        # 如果不是布尔值，尝试转换为布尔值
+                        return bool(evaluated)
+                except TypeError as te:
+                    # 类型错误，记录详细信息
+                    logger.error(f"表达式类型错误: {expression} -> {result}, 错误: {te}")
+                    # 尝试修复：将所有字符串转换为数字（如果可能）
+                    raise ValueError(f"表达式类型不匹配: {result}")
+                except Exception as e:
+                    logger.error(f"表达式评估异常: {expression} -> {result}, 错误: {e}")
+                    raise
+            else:
+                # 没有比较操作符，直接返回布尔值或原始值
+                if result.strip().lower() in ('true', '1', 'yes', 'on'):
+                    return True
+                elif result.strip().lower() in ('false', '0', 'no', 'off', ''):
+                    return False
+                # 尝试转换为数字
+                try:
+                    if '.' in result:
+                        return float(result)
+                    else:
+                        return int(result)
+                except ValueError:
+                    # 不是数字，返回字符串（去掉引号）
+                    if result.startswith("'") and result.endswith("'"):
+                        return result[1:-1]
+                    elif result.startswith('"') and result.endswith('"'):
+                        return result[1:-1]
+                    return result
+        except Exception as e:
+            logger.warning(f"表达式评估失败: {expression} -> {result}, 错误: {e}")
+            # 如果评估失败，返回原始表达式的字符串形式
+            return result
     
     def _resolve_inputs(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """解析输入参数"""
@@ -143,7 +652,11 @@ class SkillExecutor:
         try:
             # 检查条件
             if 'condition' in step:
-                condition = self._evaluate_expression(step['condition'], context)
+                condition_expr = step['condition']
+                logger.debug(f"[步骤执行] {step_name} 检查 condition: {condition_expr}")
+                logger.debug(f"[步骤执行] {step_name} 当前 context: step_results type={type(context.get('step_results'))}, steps type={type(context.get('steps'))}")
+                condition = self._evaluate_expression(condition_expr, context)
+                logger.debug(f"[步骤执行] {step_name} condition 结果: {condition}, type: {type(condition)}")
                 if not condition:
                     logger.info(f"步骤 {step_name} 条件不满足，跳过")
                     # 处理 skip_outputs
@@ -153,7 +666,11 @@ class SkillExecutor:
             
             # 检查 skip_if
             if 'skip_if' in step:
-                skip_condition = self._evaluate_expression(step['skip_if'], context)
+                skip_expr = step['skip_if']
+                logger.debug(f"[步骤执行] {step_name} 检查 skip_if: {skip_expr}")
+                logger.debug(f"[步骤执行] {step_name} 当前 context: step_results type={type(context.get('step_results'))}, steps type={type(context.get('steps'))}")
+                skip_condition = self._evaluate_expression(skip_expr, context)
+                logger.debug(f"[步骤执行] {step_name} skip_if 结果: {skip_condition}, type: {type(skip_condition)}")
                 if skip_condition:
                     logger.info(f"步骤 {step_name} skip_if 条件满足，跳过")
                     if 'skip_outputs' in step:
@@ -167,6 +684,8 @@ class SkillExecutor:
                 return await self._execute_llm_step(step, context)
             elif step_type == 'code_executor':
                 return await self._execute_code_step(step, context)
+            elif step_type == 'loop':
+                return await self._execute_loop_step(step, context)
             else:
                 logger.warning(f"未知的步骤类型: {step_type}")
                 return {}
@@ -204,8 +723,24 @@ class SkillExecutor:
         # 解析输入参数
         inputs = self._resolve_inputs(step.get('inputs', {}), context)
         
-        # 执行工具
-        tool_result = await tool.execute(inputs)
+        # 如果 context 中有 progress_callback，传递给工具（如果工具支持）
+        if 'progress_callback' in context and hasattr(tool, 'set_progress_callback'):
+            tool.set_progress_callback(context['progress_callback'])
+        
+        # 执行工具（注意：execute 方法接受 **kwargs，需要解包字典）
+        # 检查工具是否有异步方法
+        if hasattr(tool, '_execute_async'):
+            tool_result = await tool._execute_async(**inputs)
+        elif hasattr(tool, 'execute'):
+            # 同步方法，需要在线程池中执行
+            import asyncio
+            import concurrent.futures
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(tool.execute, **inputs)
+                tool_result = await loop.run_in_executor(None, future.result)
+        else:
+            raise ValueError(f"工具 {tool_name} 没有 execute 方法")
         
         if not tool_result.success:
             raise Exception(f"工具执行失败: {tool_result.error}")
@@ -213,13 +748,31 @@ class SkillExecutor:
         # 处理输出
         outputs = {}
         if 'outputs' in step:
+            # 创建包含 tool_result 的上下文
+            result_context = context.copy()
+            result_context['result'] = {
+                'success': tool_result.success,  # 确保 success 是布尔值
+                'data': tool_result.data or {},
+                'error': tool_result.error
+            }
+            
             for output_key, output_expr in step['outputs'].items():
-                # 从 tool_result.data 中提取字段
+                # 从 tool_result 中提取字段
                 if isinstance(output_expr, str) and output_expr.startswith('${result.'):
                     field = output_expr[9:-1]  # 移除 ${result. 和 }
-                    outputs[output_key] = tool_result.data.get(field) if tool_result.data else None
+                    # 优先从 result 字典获取（包含 success, data, error）
+                    if field in result_context['result']:
+                        value = result_context['result'][field]
+                        # 确保布尔值保持为布尔类型
+                        outputs[output_key] = value
+                    elif tool_result.data and field in tool_result.data:
+                        value = tool_result.data[field]
+                        # 确保布尔值保持为布尔类型
+                        outputs[output_key] = value
+                    else:
+                        outputs[output_key] = None
                 else:
-                    outputs[output_key] = self._evaluate_expression(str(output_expr), context)
+                    outputs[output_key] = self._evaluate_expression(str(output_expr), result_context)
         
         return outputs
     
@@ -270,6 +823,154 @@ class SkillExecutor:
         else:
             resolved_code = str(code) if code else ''
         
+        # 注入变量到代码执行环境（input, config, context）
+        # 这些变量需要在代码执行时可用，但不能与 Python 内置函数冲突
+        # 解决方案：在代码开头注入变量定义，只注入可序列化的数据
+        import json
+        injection_code = []
+        
+        # 确保 json 模块已导入
+        has_json_import = False
+        
+        # 注入 input 变量（从 context['input'] 获取）
+        if 'input' in context:
+            input_data = context['input']
+            # 只序列化可序列化的数据
+            try:
+                # 尝试 JSON 序列化（只支持基本类型）
+                input_json = json.dumps(input_data, ensure_ascii=False, default=str)
+                if not has_json_import:
+                    injection_code.append("import json")
+                    has_json_import = True
+                injection_code.append(f"input = json.loads({json.dumps(input_json)})")
+            except:
+                # 如果 JSON 序列化失败，创建一个空字典
+                injection_code.append("input = {}")
+        else:
+            injection_code.append("input = {}")
+        
+        # 注入 config 变量（从 context['config'] 获取，如果不存在则创建空字典）
+        if 'config' in context:
+            config_data = context['config']
+            # config 需要是可变的字典，使用 JSON 序列化
+            try:
+                config_json = json.dumps(config_data, ensure_ascii=False, default=str)
+                if not has_json_import:
+                    injection_code.append("import json")
+                    has_json_import = True
+                injection_code.append(f"config = json.loads({json.dumps(config_json)})")
+            except:
+                injection_code.append("config = {}")
+        else:
+            injection_code.append("config = {}")
+        
+        # 注入 steps 变量（从 context['step_results'] 或 context['steps'] 获取）
+        # steps 用于在代码中访问之前步骤的结果
+        steps_data = []
+        if 'steps' in context:
+            # 如果 context 中有 steps（循环步骤中的步骤结果）
+            steps_data = context['steps']
+        elif 'step_results' in context:
+            # 否则使用 step_results
+            steps_data = context['step_results']
+        
+        # 序列化 steps 数据
+        try:
+            steps_json = json.dumps(steps_data, ensure_ascii=False, default=str)
+            if not has_json_import:
+                injection_code.append("import json")
+                has_json_import = True
+            injection_code.append(f"steps = json.loads({json.dumps(steps_json)})")
+        except:
+            injection_code.append("steps = []")
+        
+        # 注入 context 变量（从 context 获取，但排除 input、config、step_results、steps 避免循环）
+        # 只注入可序列化的基本类型，对象类型跳过（因为它们无法在独立执行环境中使用）
+        # 但是，我们需要提供一个机制让代码可以访问 tool_registry
+        context_data = {}
+        for k, v in context.items():
+            if k in ['input', 'config', 'step_results', 'steps']:
+                continue
+            # 只保留可序列化的基本类型
+            if isinstance(v, (str, int, float, bool, type(None))):
+                context_data[k] = v
+            elif isinstance(v, (dict, list)):
+                # 尝试序列化字典和列表（递归检查内容是否可序列化）
+                try:
+                    json.dumps(v, default=str)  # 测试是否可以序列化
+                    context_data[k] = v
+                except:
+                    # 如果无法序列化，跳过（不转换为字符串，因为字符串表示无法使用）
+                    pass
+            # 对于对象类型（如 tool_registry, llm_service 等），完全跳过
+            # 因为这些对象无法在独立的 subprocess 中使用
+        
+        # 特殊处理：为 tool_registry 创建一个代理机制
+        # 在代码中，可以通过一个特殊的函数来调用工具
+        # 由于代码在独立的 subprocess 中执行，我们需要通过代码注入来实现工具调用
+        if 'tool_registry' in context:
+            tool_registry = context['tool_registry']
+            # 注入一个工具调用函数，通过序列化工具参数和结果来实现
+            # 注意：这需要在代码执行时通过某种机制来实现
+            # 暂时先跳过，后续可以通过修改代码执行逻辑来实现
+            # 但是，我们可以通过修改代码来使用 tool 类型步骤，而不是在代码中直接调用工具
+            pass
+        
+        # 序列化 context_data
+        try:
+            context_json = json.dumps(context_data, ensure_ascii=False, default=str)
+            if not has_json_import:
+                injection_code.append("import json")
+                has_json_import = True
+            injection_code.append(f"context = json.loads({json.dumps(context_json)})")
+        except:
+            # 如果序列化失败，创建最小化的 context
+            context_minimal = {k: str(v) for k, v in context_data.items() if isinstance(v, (str, int, float, bool, type(None)))}
+            if context_minimal:
+                context_json = json.dumps(context_minimal, ensure_ascii=False)
+                if not has_json_import:
+                    injection_code.append("import json")
+                    has_json_import = True
+                injection_code.append(f"context = json.loads({json.dumps(context_json)})")
+            else:
+                injection_code.append("context = {}")
+        
+        # 特殊处理：如果代码中需要访问 tool_registry，我们需要注入一个工具调用机制
+        # 由于代码在独立的 subprocess 中执行，无法直接访问对象
+        # 我们通过注入一个工具调用函数来实现：通过 JSON 输出特殊标记，由 SkillExecutor 拦截并执行
+        if 'tool_registry' in context:
+            tool_registry = context['tool_registry']
+            # 在代码开头注入一个工具调用函数
+            # 这个函数会通过 JSON 输出特殊标记，SkillExecutor 会拦截并执行工具调用
+            tool_call_code = """
+import json
+import sys
+
+# 工具调用代理函数（通过 JSON 输出特殊标记）
+def call_tool(tool_name, **kwargs):
+    \"\"\"调用工具（通过 JSON 输出特殊标记）\"\"\"
+    # 输出特殊标记，SkillExecutor 会拦截并执行
+    call_request = {
+        '__tool_call__': True,
+        'tool_name': tool_name,
+        'kwargs': kwargs
+    }
+    print(json.dumps(call_request, ensure_ascii=False))
+    sys.stdout.flush()
+    # 从 stdin 读取结果（SkillExecutor 会写入）
+    # 注意：这需要 SkillExecutor 支持双向通信
+    # 暂时返回占位符
+    return {'success': False, 'error': '工具调用需要 SkillExecutor 支持'}
+
+# 为了兼容性，提供一个占位符
+tool_registry = None  # 在代码执行环境中不可用，请使用 call_tool() 函数
+"""
+            resolved_code = tool_call_code + "\n" + resolved_code
+        
+        # 将注入代码添加到代码开头
+        if injection_code:
+            resolved_code = "\n".join(injection_code) + "\n" + resolved_code
+        
         # 使用 code_executor 工具执行代码
         code_executor = self.tool_registry.get_tool('execute_code')
         if not code_executor:
@@ -301,13 +1002,121 @@ class SkillExecutor:
         if not tool_result.success:
             raise Exception(f"代码执行失败: {tool_result.error}")
         
+        # 处理工具调用请求（如果代码中调用了 call_tool）
+        if tool_result.data:
+            output_text = tool_result.data.get('output', '') or tool_result.data.get('stdout', '')
+            if output_text:
+                import json
+                lines = output_text.strip().split('\n')
+                tool_calls = []
+                other_output = []
+                
+                # 解析输出，分离工具调用请求和其他输出
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('{') and '__tool_call__' in line:
+                        try:
+                            call_request = json.loads(line)
+                            if call_request.get('__tool_call__'):
+                                tool_calls.append(call_request)
+                                continue
+                        except json.JSONDecodeError:
+                            pass
+                    other_output.append(line)
+                
+                # 执行工具调用
+                if tool_calls and 'tool_registry' in context:
+                    tool_registry = context['tool_registry']
+                    tool_results = []
+                    for call_request in tool_calls:
+                        tool_name = call_request.get('tool_name')
+                        kwargs = call_request.get('kwargs', {})
+                        if tool_name:
+                            try:
+                                # 执行工具（同步调用，因为我们在异步上下文中）
+                                tool = tool_registry.get_tool(tool_name)
+                                if tool:
+                                    # 使用 asyncio 执行异步工具
+                                    import asyncio
+                                    if hasattr(tool, 'execute'):
+                                        # 同步工具
+                                        result = tool.execute(**kwargs)
+                                    elif hasattr(tool, '_execute_async'):
+                                        # 异步工具
+                                        result = asyncio.run(tool._execute_async(**kwargs))
+                                    else:
+                                        result = None
+                                    tool_results.append({
+                                        'tool_name': tool_name,
+                                        'success': result.success if result else False,
+                                        'data': result.data if result else None,
+                                        'error': result.error if result and not result.success else None
+                                    })
+                                else:
+                                    tool_results.append({
+                                        'tool_name': tool_name,
+                                        'success': False,
+                                        'error': f"工具未找到: {tool_name}"
+                                    })
+                            except Exception as e:
+                                tool_results.append({
+                                    'tool_name': tool_name,
+                                    'success': False,
+                                    'error': str(e)
+                                })
+                    
+                    # 将工具调用结果添加到 context，供代码使用
+                    context['_tool_call_results'] = tool_results
+                
+                # 尝试从其他输出中解析 JSON（最终结果）
+                parsed_result = None
+                for line in reversed(other_output):
+                    line = line.strip()
+                    if line.startswith('{') or line.startswith('['):
+                        try:
+                            parsed_result = json.loads(line)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+        
+        # 将解析的结果添加到 context 中，供后续步骤使用
+        if parsed_result:
+            context['_code_result'] = parsed_result
+            
+            # 如果代码输出了 config_updates，同步更新 context['config']
+            if 'config_updates' in parsed_result and 'config' in context:
+                config_updates = parsed_result['config_updates']
+                if isinstance(config_updates, dict):
+                    context['config'].update(config_updates)
+                    logger.debug(f"同步 config 更新: {list(config_updates.keys())}")
+                    # #region agent log
+                    import json
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"executor.py:1077","message":"同步 config 更新","data":{"config_updates_keys":list(config_updates.keys()),"config_urls":config_updates.get('urls'),"config_urls_type":str(type(config_updates.get('urls'))) if 'urls' in config_updates else None},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+        
         # 处理输出
         outputs = {}
         if 'outputs' in step:
             for output_key, output_expr in step['outputs'].items():
-                if output_expr == '${result.stdout}' or output_expr == '${result.output}':
+                # 如果表达式是 ${result.field}，从解析的 JSON 中提取
+                if parsed_result and output_expr.startswith('${result.'):
+                    field = output_expr[9:-1]  # 移除 ${result. 和 }
+                    if field in parsed_result:
+                        outputs[output_key] = parsed_result[field]
+                    else:
+                        # 尝试使用点号分隔的嵌套字段
+                        parts = field.split('.')
+                        value = parsed_result
+                        for part in parts:
+                            if isinstance(value, dict) and part in value:
+                                value = value[part]
+                            else:
+                                value = None
+                                break
+                        outputs[output_key] = value
+                elif output_expr == '${result.stdout}' or output_expr == '${result.output}':
                     # 从代码执行结果中提取输出
-                    # 优先使用 output，如果没有则使用 stdout
                     if tool_result.data:
                         if 'output' in tool_result.data:
                             outputs[output_key] = tool_result.data['output']
@@ -322,11 +1131,128 @@ class SkillExecutor:
         
         return outputs
     
+    async def _execute_loop_step(self, step: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """执行循环步骤"""
+        items = step.get('items')
+        item_var = step.get('item_var', 'item')
+        loop_steps = step.get('steps', [])
+        
+        if not items:
+            logger.warning("循环步骤没有 items，跳过")
+            return {}
+        
+        # 解析 items（可能是表达式）
+        if isinstance(items, str):
+            # #region agent log
+            import json
+            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1136","message":"循环步骤: 开始解析 items","data":{"items_expr":items,"has_config":"config" in context,"config_keys":list(context.get('config',{}).keys()) if 'config' in context else []},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
+            # #region agent log
+            if 'config' in context:
+                config = context.get('config', {})
+                with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1140","message":"循环步骤: 检查 config","data":{"config_urls":config.get('urls'),"config_urls_type":str(type(config.get('urls'))) if 'urls' in config else None,"config_keys":list(config.keys())},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
+            items = self._evaluate_expression(items, context)
+            # #region agent log
+            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1128","message":"循环步骤: items 解析结果","data":{"items_type":str(type(items)),"items_value":str(items)[:200] if items else None,"is_list":isinstance(items,(list,tuple))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
+        
+        # 验证 items 是否为可迭代对象
+        if items is None:
+            logger.warning("循环步骤 items 解析为 None，跳过")
+            return {}
+        
+        # 确保 items 是可迭代的
+        if not isinstance(items, (list, tuple)):
+            # #region agent log
+            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1135","message":"循环步骤: items 不是列表/元组，尝试转换","data":{"items_type":str(type(items)),"items_value":str(items)[:200]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
+            # 如果不是列表或元组，尝试转换为列表
+            if isinstance(items, (str, int, float, bool)):
+                # 基本类型，包装成列表
+                items = [items]
+            else:
+                try:
+                    # 尝试转换为列表
+                    items = list(items)
+                except (TypeError, ValueError) as e:
+                    # #region agent log
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1142","message":"循环步骤: items 转换失败","data":{"items_type":str(type(items)),"error":str(e)},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    logger.error(f"循环步骤 items 无法转换为列表: {type(items)}, 错误: {e}")
+                    return {}
+        
+        # #region agent log
+        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1148","message":"循环步骤: 准备遍历 items","data":{"items_len":len(items) if hasattr(items,'__len__') else "N/A","items_type":str(type(items))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+        # #endregion
+        
+        # 执行循环
+        loop_results = []
+        for i, item in enumerate(items):
+            # 创建循环上下文
+            loop_context = context.copy()
+            loop_context[item_var] = item
+            loop_context['_loop_index'] = i
+            loop_context['_loop_total'] = len(items)
+            
+            # 执行循环内的步骤
+            item_results = []
+            # #region agent log
+            import json
+            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"executor.py:1159","message":"循环步骤开始","data":{"loop_index":i,"item":str(item)[:100],"item_results_len":len(item_results)},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
+            for loop_step in loop_steps:
+                try:
+                    # 将之前的步骤结果添加到上下文中，供后续步骤使用
+                    loop_context['steps'] = item_results
+                    # #region agent log
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"executor.py:1190","message":"设置 loop_context['steps']","data":{"steps_type":str(type(item_results)),"steps_len":len(item_results),"steps_content":str(item_results)[:200]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                    step_result = await self.execute_workflow_step(loop_step, loop_context, len(item_results))
+                    item_results.append(step_result)
+                    # 更新上下文中的步骤结果
+                    loop_context['steps'] = item_results
+                    # #region agent log
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"executor.py:1198","message":"更新 loop_context['steps']","data":{"steps_type":str(type(item_results)),"steps_len":len(item_results),"step_result_type":str(type(step_result)),"step_result":str(step_result)[:200]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                except Exception as e:
+                    logger.error(f"循环步骤执行失败 (item {i}): {e}", exc_info=True)
+                    error_result = {'error': str(e)}
+                    item_results.append(error_result)
+                    loop_context['steps'] = item_results
+            
+            loop_results.append({
+                'item': item,
+                'index': i,
+                'results': item_results
+            })
+        
+        # 处理输出
+        outputs = {}
+        if 'outputs' in step:
+            for output_key, output_expr in step['outputs'].items():
+                outputs[output_key] = self._evaluate_expression(str(output_expr), context)
+        
+        # 将循环结果添加到 context
+        context['_loop_results'] = loop_results
+        
+        return outputs
+    
     async def execute_workflow(
         self,
         workflow: Dict[str, Any],
         parameters: Dict[str, Any],
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        external_context: Optional[Dict[str, Any]] = None
     ) -> SkillResult:
         """
         执行工作流
@@ -335,6 +1261,7 @@ class SkillExecutor:
             workflow: 工作流定义
             parameters: 技能参数
             config: 配置参数
+            external_context: 外部上下文（包含 tool_registry, llm_service 等）
         
         Returns:
             SkillResult: 执行结果
@@ -345,6 +1272,10 @@ class SkillExecutor:
             'config': config or {},
             'step_results': []
         }
+        
+        # 合并外部上下文（如 tool_registry, llm_service 等）
+        if external_context:
+            context.update(external_context)
         
         intermediate_results = {}
         
@@ -373,10 +1304,26 @@ class SkillExecutor:
             )
         
         except Exception as e:
-            logger.error(f"工作流执行失败: {e}", exc_info=True)
+            logger.error(f"[工作流执行] 工作流执行失败: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"[工作流执行] 错误详情: 类型={type(e).__name__}, 消息={str(e)}")
+            logger.error(f"[工作流执行] 当前 context keys: {list(context.keys())}")
+            logger.error(f"[工作流执行] step_results type={type(context.get('step_results'))}, step_results={context.get('step_results')}")
+            logger.error(f"[工作流执行] steps type={type(context.get('steps'))}, steps={context.get('steps')}")
+            if 'step_results' in context:
+                step_results = context['step_results']
+                if step_results:
+                    logger.error(f"[工作流执行] step_results 长度: {len(step_results) if hasattr(step_results, '__len__') else 'N/A'}")
+                    if isinstance(step_results, (list, tuple)) and len(step_results) > 0:
+                        logger.error(f"[工作流执行] step_results[0]: {step_results[0]}, type: {type(step_results[0])}")
+            # 提取错误信息：只取错误类型和消息，不包含完整的 traceback
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            # 如果错误信息为空，使用默认消息
+            if not str(e):
+                error_msg = f"{type(e).__name__} occurred"
+            logger.error(f"[工作流执行] 返回错误信息: {error_msg}")
             return SkillResult(
                 success=False,
-                error=str(e),
+                error=error_msg,
                 intermediate_results=intermediate_results
             )
 

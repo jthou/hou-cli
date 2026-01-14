@@ -51,4 +51,3 @@ class GoogleClient:
         return self.client.chat.completions
 
 
-

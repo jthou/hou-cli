@@ -51,4 +51,3 @@ class OpenAIClient:
         return self.client.chat.completions
 
 
-

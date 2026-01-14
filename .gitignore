@@ -63,3 +63,7 @@ backend/externals/ffmpeg/build/
 
 # Planning files directory
 plans/
+
+# Tags files
+tags
+TAGS
