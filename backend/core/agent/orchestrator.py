@@ -364,11 +364,6 @@ class Orchestrator:
                             skill = VideoDownloaderSkill(self.skill_executor)
                             self.skill_registry.register(skill)
                             logger.info(f"技能已注册: {skill_name}")
-                        elif skill_name == 'video_summary':
-                            from backend.core.agent.skills.video_summary import VideoSummarySkill
-                            skill = VideoSummarySkill(self.skill_executor)
-                            self.skill_registry.register(skill)
-                            logger.info(f"技能已注册: {skill_name}")
                         elif skill_name == 'video_extract_srt':
                             from backend.core.agent.skills.video_extract_srt import VideoExtractSrtSkill
                             skill = VideoExtractSrtSkill(self.skill_executor)
@@ -1651,11 +1646,6 @@ class Orchestrator:
                 if skill.name == 'video_downloader':
                     parameters['urls'] = urls
                     logger.info(f"检测到多个 URL（共 {len(urls)} 个），video_downloader 技能支持批量下载")
-                # 对于 video_summary 技能，目前只支持单个 URL，先处理第一个
-                elif skill.name == 'video_summary':
-                    parameters['url'] = urls[0]
-                    logger.warning(f"检测到多个 URL（共 {len(urls)} 个），video_summary 技能目前只支持单个 URL，将处理第一个: {urls[0]}")
-                    logger.info(f"其他 URL: {urls[1:]}")
                 # 对于其他技能，可以支持多个 URL（如果技能支持）
                 else:
                     # 如果技能参数支持数组类型的 url，使用所有 URL
@@ -1667,7 +1657,7 @@ class Orchestrator:
                         parameters['url'] = urls[0]
                         logger.warning(f"检测到多个 URL（共 {len(urls)} 个），但技能不支持数组参数，将处理第一个: {urls[0]}")
         
-        # 提取本地文件路径（适用于 video_summary 等需要本地文件路径的技能）
+        # 提取本地文件路径（适用于 video_extract_srt 等需要本地文件路径的技能）
         # 使用统一的路径提取工具，确保鲁棒性
         from backend.core.agent.utils.path_utils import PathExtractor
         local_files = PathExtractor.extract_paths(task)
@@ -1682,8 +1672,8 @@ class Orchestrator:
         except: pass
         # #endregion
         
-        # 对于 video_summary 技能，如果检测到本地文件路径，使用 video_path 参数
-        if local_files and skill.name == 'video_summary':
+        # 对于 video_extract_srt 技能，如果检测到本地文件路径，使用 video_path 参数
+        if local_files and skill.name == 'video_extract_srt':
             # 如果只有一个文件，使用 video_path
             if len(local_files) == 1:
                 parameters['video_path'] = local_files[0]

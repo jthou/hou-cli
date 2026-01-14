@@ -161,12 +161,6 @@ class SkillRegistry:
                     # 如果用户明确提到字幕、srt、提取等关键词，额外加分
                     if has_subtitle or has_ffmpeg or has_whisper:
                         score += 500
-                elif skill.name == 'video_summary':
-                    # video_summary 支持本地文件路径（video_path 参数）
-                    score += 600  # 中等优先级（低于 video_extract_srt）
-                    # 如果用户提到摘要、分析等关键词，额外加分
-                    if has_summary or has_audio:
-                        score += 300
                 elif skill.name == 'video_downloader':
                     # video_downloader 只处理 URL，不处理本地文件
                     score -= 500  # 降低优先级
@@ -186,9 +180,6 @@ class SkillRegistry:
                     # 如果用户明确提到字幕、srt、提取等关键词，额外加分
                     if has_subtitle or has_ffmpeg or has_whisper:
                         score += 300
-                elif skill.name == 'video_summary':
-                    # video_summary 也支持 URL，但优先级较低
-                    score += 100
             
             # 6. 计算匹配分数
             # 如果用户只要求下载，优先匹配专门的下载技能（但本地文件除外）
@@ -197,7 +188,7 @@ class SkillRegistry:
                     # 专门的下载技能（如 video_downloader）
                     score += 500
                 elif skill_has_download and (skill_has_summary or skill_has_subtitle):
-                    # 复合技能（如 video_summary, video_extract_srt），分数较低
+                    # 复合技能（如 video_extract_srt），分数较低
                     score += 100
 
             # 如果用户要求字幕提取（不要求摘要），优先匹配 video_extract_srt
