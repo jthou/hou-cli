@@ -613,6 +613,15 @@ class StreamRenderer:
         stream: AsyncIterator[str],
         console: Console,
     ):
+        import json
+        import time
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_handler.py:render_stream:entry","message":"render_stream被调用","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
         """渲染流式响应（支持调试信息、工具调用和确认请求）
 
         Args:
@@ -628,8 +637,34 @@ class StreamRenderer:
         
         # 使用 Live 组件实时更新，流式显示文本
         try:
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_handler.py:render_stream:before_Live","message":"准备创建Live组件","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            
             with Live(console=console, refresh_per_second=10) as live:
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_handler.py:render_stream:before_async_for","message":"准备进入stream循环","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
+                chunk_count = 0
                 async for chunk in stream:
+                    chunk_count += 1
+                    # #region agent log
+                    if chunk_count <= 3:  # 只记录前3个chunk
+                        try:
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_handler.py:render_stream:received_chunk","message":"render_stream收到chunk","data":{"chunk_count":chunk_count,"chunk_preview":chunk[:50] if chunk else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                    # #endregion
                     try:
                         # 使用 MessageHandler 解析消息
                         messages, buffer = MessageHandler.parse_chunk(chunk, buffer)
@@ -662,6 +697,15 @@ class StreamRenderer:
                         raise  # 重新抛出，让外层处理
                     except Exception as chunk_error:
                         # 处理单个 chunk 时出错，记录但继续
+                        # #region agent log
+                        try:
+                            import json
+                            import time
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"stream_handler.py:render_stream:chunk_error","message":"处理chunk时出错","data":{"error_type":type(chunk_error).__name__,"error_msg":str(chunk_error)[:500],"error_repr":repr(chunk_error)[:500]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                        # #endregion
                         try:
                             error_msg = str(chunk_error)
                         except (UnicodeDecodeError, UnicodeEncodeError):
@@ -678,7 +722,25 @@ class StreamRenderer:
                 console.print(full_content)
             raise  # 重新抛出，让调用者知道是用户中断
         except Exception as e:
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"stream_handler.py:render_stream:exception","message":"render_stream异常","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500],"error_repr":repr(e)[:500],"is_panel":hasattr(e,'__class__') and 'Panel' in str(type(e))},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
             # 流式处理失败，显示错误
+            # 确保异常对象不是 Panel
+            if hasattr(e, '__class__') and 'Panel' in str(type(e)):
+                # 如果是 Panel 对象，提取错误信息
+                try:
+                    error_msg = f"Panel对象异常: {str(e)}"
+                except:
+                    error_msg = f"Panel对象异常: {type(e).__name__}"
+                e = Exception(error_msg)
+            
             try:
                 error_msg = str(e)
             except (UnicodeDecodeError, UnicodeEncodeError):
@@ -689,6 +751,8 @@ class StreamRenderer:
             # 显示已收集的内容
             if full_content:
                 console.print(full_content)
+            # 重新抛出异常，让外层处理
+            raise
         
         # 流式完成后，Live 组件会保留最终内容
         # 不需要额外处理

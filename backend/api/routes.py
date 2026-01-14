@@ -105,27 +105,132 @@ async def chat_stream(request: ChatRequest):
     """处理聊天请求（流式 SSE）"""
     import logging
     import traceback
+    import json
+    import time
     logger = logging.getLogger(__name__)
     
+    # #region agent log
+    try:
+        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:chat_stream:entry","message":"chat_stream路由被调用","data":{"message_preview":request.message[:50] if request.message else None,"session_id":request.session_id},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+            f.flush()
+    except Exception as log_err:
+        logger.error(f"日志写入失败: {log_err}")
+    # #endregion
+    
     async def generate():
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:chat_stream:generate:entry","message":"generate函数被调用","data":{"message_preview":request.message[:50] if request.message else None,"session_id":request.session_id},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except Exception as log_err:
+            logger.error(f"日志写入失败: {log_err}")
+        # #endregion
+        
         try:
             logger.debug(f"收到流式聊天请求: message={request.message[:50]}..., session_id={request.session_id}")
             # 立即发送一个心跳，保持连接活跃
             yield await StreamSender.send_chunk("", "streaming")
             
-            orchestrator = get_orchestrator()
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:chat_stream:before_get_orchestrator","message":"准备获取orchestrator","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except Exception as log_err:
+                logger.error(f"日志写入失败: {log_err}")
+            # #endregion
+            
+            try:
+                orchestrator = get_orchestrator()
+            except Exception as orch_err:
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:chat_stream:get_orchestrator_error","message":"获取orchestrator失败","data":{"error":str(orch_err)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                raise
+            
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:chat_stream:after_get_orchestrator","message":"orchestrator已获取","data":{"orchestrator_exists":orchestrator is not None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except Exception as log_err:
+                logger.error(f"日志写入失败: {log_err}")
+            # #endregion
+            
             context = {}
             if request.session_id:
                 context["session_id"] = request.session_id
             
             logger.debug("开始流式处理请求...")
+            
+            # #region agent log
             try:
-                async for chunk in orchestrator.stream_process(request.message, context=context):
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"routes.py:chat_stream:before_stream_process","message":"准备调用stream_process","data":{"task_length":len(request.message) if request.message else 0},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except Exception as log_err:
+                logger.error(f"日志写入失败: {log_err}")
+            # #endregion
+            
+            try:
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:before_async_for","message":"准备进入stream_process循环","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except Exception as log_err:
+                    logger.error(f"日志写入失败: {log_err}")
+                # #endregion
+                
+                chunk_count = 0
+                stream_iter = orchestrator.stream_process(request.message, context=context)
+                
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:after_get_stream_iter","message":"已获取stream_process迭代器","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except Exception as log_err:
+                    logger.error(f"日志写入失败: {log_err}")
+                # #endregion
+                
+                async for chunk in stream_iter:
+                    chunk_count += 1
+                    # #region agent log
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:received_chunk","message":"收到chunk","data":{"chunk_count":chunk_count,"chunk_preview":chunk[:50] if chunk else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    except: pass
+                    # #endregion
                     try:
                         # 使用 StreamSender 发送数据块
+                        # #region agent log
+                        try:
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:before_send_chunk","message":"准备发送chunk","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        except: pass
+                        # #endregion
                         yield await StreamSender.send_chunk(chunk, "streaming")
+                        # #region agent log
+                        try:
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:after_send_chunk","message":"chunk已发送","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        except: pass
+                        # #endregion
                     except Exception as chunk_error:
                         # 单个 chunk 处理失败，记录但继续
+                        # #region agent log
+                        try:
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:chunk_error","message":"chunk处理错误","data":{"error":str(chunk_error)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        except: pass
+                        # #endregion
                         logger.warning(f"处理 chunk 时出错: {str(chunk_error)}")
                         continue
                 # 发送完成信号

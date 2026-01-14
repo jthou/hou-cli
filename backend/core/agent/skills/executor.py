@@ -46,6 +46,8 @@ class SkillExecutor:
         """
         计算表达式（简单的变量替换和条件判断）
         
+        使用统一的表达式求值工具，确保鲁棒性
+        
         支持的语法：
         - ${variable} - 变量替换
         - ${steps[N].field} - 步骤结果字段
@@ -64,7 +66,19 @@ class SkillExecutor:
             logger.debug(f"[表达式求值] step_results type: {type(context.get('step_results'))}, value: {context.get('step_results')}")
         if 'steps' in context:
             logger.debug(f"[表达式求值] steps type: {type(context.get('steps'))}, value: {context.get('steps')}")
-        # 替换变量
+        
+        # 使用统一的表达式求值工具
+        try:
+            from backend.core.agent.utils.expression_utils import ExpressionEvaluator
+            evaluator = ExpressionEvaluator(context)
+            result = evaluator.evaluate(expression)
+            logger.debug(f"[表达式求值] 使用统一工具求值结果: {result}")
+            return result
+        except Exception as e:
+            logger.warning(f"[表达式求值] 统一工具求值失败，回退到旧方法: {e}")
+            # 回退到旧的实现（保留原有逻辑作为后备）
+        
+        # 替换变量（旧实现，作为后备）
         def replace_var(match):
             var_expr = match.group(1)
             
@@ -278,23 +292,58 @@ class SkillExecutor:
                                             elif value.lower() == 'false':
                                                 return 'False'
                                             else:
-                                                return repr(value)
+                                                # 如果字符串值本身已经包含引号，移除外层引号（避免双重引号）
+                                                # 然后使用 repr() 来正确转义字符串（用于表达式求值）
+                                                clean_value = value
+                                                if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                                    clean_value = value[1:-1]
+                                                return repr(clean_value)
                                         elif isinstance(value, (int, float)):
                                             result = str(value)
                                             logger.debug(f"[表达式求值] replace_steps_var: 数字转换 {value} -> {result}")
                                             return result
                                         elif value is None:
+                                            # #region agent log
+                                            import json
+                                            with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E4","location":"executor.py:291","message":"replace_steps_var: value is None","data":{"step_idx":step_idx,"field":field,"step_result":str(step_result)[:200],"step_result_keys":list(step_result.keys()) if isinstance(step_result,dict) else None},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                            # #endregion
                                             return 'None'
                                         else:
                                             return repr(value)
                                 else:
                                     logger.warning(f"[表达式求值] replace_steps_var: step_idx {step_idx} >= len(step_results) {len(step_results)}")
+                                    # #region agent log
+                                    import json
+                                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E1","location":"executor.py:295","message":"replace_steps_var: step_idx >= len(step_results)","data":{"step_idx":step_idx,"step_results_len":len(step_results),"step_var":step_var},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                    # #endregion
                             else:
                                 logger.warning(f"[表达式求值] replace_steps_var: step_results 不是列表/元组: type={type(step_results)}, value={step_results}")
+                                # #region agent log
+                                import json
+                                with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E2","location":"executor.py:297","message":"replace_steps_var: step_results 不是列表/元组","data":{"step_results_type":str(type(step_results)),"step_results_str":str(step_results)[:200],"step_var":step_var},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                # #endregion
+                        # #region agent log
+                        import json
+                        with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E3","location":"executor.py:299","message":"replace_steps_var: 返回原始 step_var","data":{"step_var":step_var,"step_match_found":step_match is not None if 'step_match' in locals() else False},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                        # #endregion
                         return step_var
                     
                     # 替换 steps[N].field
+                    # #region agent log
+                    import json
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E5","location":"executor.py:301","message":"replace_var_in_expr: 准备替换 steps[N].field","data":{"expr_before":expr,"pattern":"steps[\\d+]\\.[^.==!<> ]+"},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
                     expr = re.sub(r'steps\[\d+\]\.[^.==!<> ]+', replace_steps_var, expr)
+                    # #region agent log
+                    import json
+                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E5","location":"executor.py:302","message":"replace_var_in_expr: 替换 steps[N].field 后","data":{"expr_after":expr},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
                     
                     # 替换 true/false 字面量
                     expr = re.sub(r'\btrue\b', 'True', expr, flags=re.IGNORECASE)
@@ -310,12 +359,18 @@ class SkillExecutor:
                                 if isinstance(value, bool):
                                     return 'True' if value else 'False'
                                 elif isinstance(value, str):
-                                    if value.lower() == 'true':
-                                        return 'True'
-                                    elif value.lower() == 'false':
-                                        return 'False'
-                                    else:
-                                        return repr(value)
+                                        if value.lower() == 'true':
+                                            return 'True'
+                                        elif value.lower() == 'false':
+                                            return 'False'
+                                        else:
+                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                                            # 否则使用 repr() 来正确转义字符串
+                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                                return value[1:-1]
+                                            else:
+                                                return repr(value)
                                 elif isinstance(value, (int, float)):
                                     return str(value)
                                 elif value is None:
@@ -329,12 +384,18 @@ class SkillExecutor:
                                 if isinstance(value, bool):
                                     return 'True' if value else 'False'
                                 elif isinstance(value, str):
-                                    if value.lower() == 'true':
-                                        return 'True'
-                                    elif value.lower() == 'false':
-                                        return 'False'
-                                    else:
-                                        return repr(value)
+                                        if value.lower() == 'true':
+                                            return 'True'
+                                        elif value.lower() == 'false':
+                                            return 'False'
+                                        else:
+                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                                            # 否则使用 repr() 来正确转义字符串
+                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                                return value[1:-1]
+                                            else:
+                                                return repr(value)
                                 elif isinstance(value, (int, float)):
                                     return str(value)
                                 elif value is None:
@@ -348,12 +409,18 @@ class SkillExecutor:
                                 if isinstance(value, bool):
                                     return 'True' if value else 'False'
                                 elif isinstance(value, str):
-                                    if value.lower() == 'true':
-                                        return 'True'
-                                    elif value.lower() == 'false':
-                                        return 'False'
-                                    else:
-                                        return repr(value)
+                                        if value.lower() == 'true':
+                                            return 'True'
+                                        elif value.lower() == 'false':
+                                            return 'False'
+                                        else:
+                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                                            # 否则使用 repr() 来正确转义字符串
+                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                                return value[1:-1]
+                                            else:
+                                                return repr(value)
                                 elif isinstance(value, (int, float)):
                                     return str(value)
                                 elif value is None:
@@ -410,7 +477,12 @@ class SkillExecutor:
                                         elif value.lower() == 'false':
                                             return 'False'
                                         else:
-                                            return repr(value)  # 其他字符串使用 repr
+                                            # 如果字符串值本身已经包含引号，移除外层引号（避免双重引号）
+                                            # 然后直接返回原始值（不添加引号），因为这是单个变量引用，应该返回原始值
+                                            clean_value = value
+                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                                clean_value = value[1:-1]
+                                            return clean_value  # 单个变量引用返回原始值，不添加引号
                                     elif isinstance(value, (int, float)):
                                         return str(value)
                                     elif value is None:
@@ -431,12 +503,18 @@ class SkillExecutor:
                         return 'True' if value else 'False'
                     # 处理字符串 "true"/"false"
                     elif isinstance(value, str):
-                        if value.lower() == 'true':
-                            return 'True'
-                        elif value.lower() == 'false':
-                            return 'False'
-                        else:
-                            return repr(value)
+                                        if value.lower() == 'true':
+                                            return 'True'
+                                        elif value.lower() == 'false':
+                                            return 'False'
+                                        else:
+                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                                            # 否则使用 repr() 来正确转义字符串
+                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                                return value[1:-1]
+                                            else:
+                                                return repr(value)
                     elif isinstance(value, (int, float)):
                         return str(value)
                     elif value is None:
@@ -460,7 +538,13 @@ class SkillExecutor:
                         elif value.lower() == 'false':
                             return 'False'
                         else:
-                            return repr(value)
+                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                            # 否则使用 repr() 来正确转义字符串
+                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                return value[1:-1]
+                            else:
+                                return repr(value)
                     elif isinstance(value, (int, float)):
                         return str(value)
                     elif value is None:
@@ -484,7 +568,13 @@ class SkillExecutor:
                         elif value.lower() == 'false':
                             return 'False'
                         else:
-                            return repr(value)
+                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                            # 否则使用 repr() 来正确转义字符串
+                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                return value[1:-1]
+                            else:
+                                return repr(value)
                     elif isinstance(value, (int, float)):
                         return str(value)
                     elif value is None:
@@ -512,7 +602,13 @@ class SkillExecutor:
                     elif value.lower() == 'false':
                         return 'False'
                     else:
-                        return repr(value)
+                        # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                        # 否则使用 repr() 来正确转义字符串
+                        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                            # 字符串值已经带引号，直接返回（移除外层引号）
+                            return value[1:-1]
+                        else:
+                            return repr(value)
                 elif isinstance(value, (int, float)):
                     return str(value)
                 elif value is None:
@@ -529,8 +625,14 @@ class SkillExecutor:
         # file_exists(path)
         def replace_file_exists(match):
             path_str = match.group(1).strip('"\'')
-            path = Path(path_str)
-            return 'True' if path.exists() else 'False'
+            # 如果路径是 None 或空字符串，返回 False
+            if not path_str or path_str == 'None':
+                return 'False'
+            try:
+                path = Path(path_str)
+                return 'True' if path.exists() else 'False'
+            except Exception:
+                return 'False'
         
         result = re.sub(r'file_exists\(([^)]+)\)', replace_file_exists, result)
         
@@ -616,14 +718,38 @@ class SkillExecutor:
             # 如果评估失败，返回原始表达式的字符串形式
             return result
     
-    def _resolve_inputs(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """解析输入参数"""
-        resolved = {}
-        for key, value in inputs.items():
-            if isinstance(value, str):
-                resolved[key] = self._evaluate_expression(value, context)
-            else:
-                resolved[key] = value
+    def _resolve_inputs(self, inputs: Dict[str, Any], context: Dict[str, Any], tool_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        解析输入参数
+        
+        使用统一的输入解析器，清晰地区分不同类型的参数：
+        - CODE: 代码字符串，只替换变量引用，不进行表达式求值
+        - EXPRESSION: 表达式字符串，进行表达式求值
+        - LITERAL: 字面量，不进行任何处理
+        
+        Args:
+            inputs: 原始输入参数
+            context: 执行上下文
+            tool_name: 工具名称（用于特殊处理）
+            
+        Returns:
+            解析后的输入参数
+        """
+        from backend.core.agent.skills.utils.input_resolver import InputResolver
+        
+        resolver = InputResolver(context)
+        resolved = resolver.resolve(inputs, tool_name)
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"K","location":"executor.py:_resolve_inputs:after_resolve","message":"输入参数解析完成","data":{"tool_name":tool_name,"inputs_keys":list(inputs.keys()),"resolved_keys":list(resolved.keys()),"has_code":"code" in resolved,"code_type":type(resolved.get('code')).__name__ if 'code' in resolved else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
         return resolved
     
     async def execute_workflow_step(
@@ -649,6 +775,16 @@ class SkillExecutor:
         logger.info(f"执行步骤 {step_index}: {step_name} (类型: {step_type})")
         self.report_progress(f"执行步骤 {step_index + 1}: {step_name}")
         
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"L","location":"executor.py:execute_workflow_step:entry","message":"执行工作流步骤","data":{"step_index":step_index,"step_name":step_name,"step_type":step_type,"has_condition":"condition" in step,"has_skip_if":"skip_if" in step,"has_skip_outputs":"skip_outputs" in step},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
         try:
             # 检查条件
             if 'condition' in step:
@@ -657,11 +793,32 @@ class SkillExecutor:
                 logger.debug(f"[步骤执行] {step_name} 当前 context: step_results type={type(context.get('step_results'))}, steps type={type(context.get('steps'))}")
                 condition = self._evaluate_expression(condition_expr, context)
                 logger.debug(f"[步骤执行] {step_name} condition 结果: {condition}, type: {type(condition)}")
+                
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"L","location":"executor.py:execute_workflow_step:condition_check","message":"检查condition条件","data":{"step_name":step_name,"condition_expr":condition_expr,"condition_result":condition,"condition_type":type(condition).__name__},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
                 if not condition:
                     logger.info(f"步骤 {step_name} 条件不满足，跳过")
                     # 处理 skip_outputs
                     if 'skip_outputs' in step:
-                        return self._resolve_inputs(step['skip_outputs'], context)
+                        skip_outputs = self._resolve_inputs(step['skip_outputs'], context)
+                        # #region agent log
+                        try:
+                            import json
+                            import time
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"L","location":"executor.py:execute_workflow_step:condition_false_skip_outputs","message":"condition不满足，使用skip_outputs","data":{"step_name":step_name,"skip_outputs":skip_outputs},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                        # #endregion
+                        return skip_outputs
                     return {}
             
             # 检查 skip_if
@@ -671,14 +828,49 @@ class SkillExecutor:
                 logger.debug(f"[步骤执行] {step_name} 当前 context: step_results type={type(context.get('step_results'))}, steps type={type(context.get('steps'))}")
                 skip_condition = self._evaluate_expression(skip_expr, context)
                 logger.debug(f"[步骤执行] {step_name} skip_if 结果: {skip_condition}, type: {type(skip_condition)}")
+                
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"L","location":"executor.py:execute_workflow_step:skip_if_check","message":"检查skip_if条件","data":{"step_name":step_name,"skip_expr":skip_expr,"skip_condition_result":skip_condition,"skip_condition_type":type(skip_condition).__name__},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
                 if skip_condition:
                     logger.info(f"步骤 {step_name} skip_if 条件满足，跳过")
                     if 'skip_outputs' in step:
-                        return self._resolve_inputs(step['skip_outputs'], context)
+                        skip_outputs = self._resolve_inputs(step['skip_outputs'], context)
+                        # #region agent log
+                        try:
+                            import json
+                            import time
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"L","location":"executor.py:execute_workflow_step:skip_if_true_skip_outputs","message":"skip_if条件满足，使用skip_outputs","data":{"step_name":step_name,"skip_outputs":skip_outputs},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                        # #endregion
+                        return skip_outputs
                     return {}
             
             # 根据步骤类型执行
-            if step_type == 'tool':
+            # conditional 类型的步骤实际上应该使用 tool 来执行
+            if step_type == 'tool' or step_type == 'conditional':
+                if step_type == 'conditional':
+                    # conditional 类型必须有 tool 字段
+                    if 'tool' not in step:
+                        raise ValueError(f"conditional 类型的步骤必须指定 tool: {step_name}")
+                    # #region agent log
+                    try:
+                        import json
+                        import time
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"L","location":"executor.py:execute_workflow_step:conditional_execute_tool","message":"conditional类型步骤，执行tool","data":{"step_name":step_name,"tool":step.get('tool')},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                            f.flush()
+                    except: pass
+                    # #endregion
                 return await self._execute_tool_step(step, context)
             elif step_type == 'llm_call':
                 return await self._execute_llm_step(step, context)
@@ -716,12 +908,77 @@ class SkillExecutor:
         if not tool_name:
             raise ValueError("工具步骤必须指定 tool 名称")
         
-        tool = self.tool_registry.get_tool(tool_name)
-        if not tool:
-            raise ValueError(f"工具未找到: {tool_name}")
+        # 工具名称映射（兼容技能 YAML 中的工具名称）
+        tool_name_mapping = {
+            'code_executor': 'execute_code',  # code_executor -> execute_code
+        }
+        actual_tool_name = tool_name_mapping.get(tool_name, tool_name)
         
-        # 解析输入参数
-        inputs = self._resolve_inputs(step.get('inputs', {}), context)
+        tool = self.tool_registry.get_tool(actual_tool_name)
+        if not tool:
+            raise ValueError(f"工具未找到: {tool_name} (映射为: {actual_tool_name})")
+        
+        # 解析输入参数（传入工具名称用于特殊处理）
+        inputs = self._resolve_inputs(step.get('inputs', {}), context, tool_name=actual_tool_name)
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"executor.py:_execute_tool_step:after_resolve_inputs","message":"解析输入参数后","data":{"tool_name":tool_name,"actual_tool_name":actual_tool_name,"inputs_keys":list(inputs.keys()),"has_language":"language" in inputs,"has_code":"code" in inputs,"code_type":type(inputs.get('code')).__name__ if 'code' in inputs else None,"code_is_none":inputs.get('code') is None if 'code' in inputs else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # 验证必需参数（特别是 code_executor 工具的 code 参数）
+        if actual_tool_name == 'execute_code':
+            code_value = inputs.get('code')
+            if not code_value or (isinstance(code_value, str) and not code_value.strip()):
+                error_msg = f"code_executor 工具的 code 参数无效: {code_value}"
+                logger.error(error_msg)
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"K","location":"executor.py:_execute_tool_step:code_validation_failed","message":"code参数验证失败","data":{"code_value":str(code_value)[:200] if code_value else None,"code_type":type(code_value).__name__ if code_value else None,"original_inputs":str(step.get('inputs', {}).get('code', ''))[:200]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                raise ValueError(error_msg)
+        
+        # 特殊处理：code_executor 工具需要 language 参数，如果缺失则设置默认值
+        if actual_tool_name == 'execute_code' and 'language' not in inputs:
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"executor.py:_execute_tool_step:before_add_language","message":"检测到缺少language参数，准备添加默认值","data":{"tool_name":tool_name,"actual_tool_name":actual_tool_name},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            # 从代码内容推断语言，或使用默认值 python
+            code = inputs.get('code', '')
+            if isinstance(code, str):
+                # 检查代码中的关键字来推断语言
+                if any(keyword in code for keyword in ['import ', 'from ', 'def ', 'class ', 'print(']):
+                    inputs['language'] = 'python'
+                else:
+                    # 默认使用 python（因为大多数技能代码都是 Python）
+                    inputs['language'] = 'python'
+            else:
+                inputs['language'] = 'python'
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"executor.py:_execute_tool_step:after_add_language","message":"已添加language参数","data":{"language":inputs.get('language'),"inputs_keys":list(inputs.keys())},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
         
         # 如果 context 中有 progress_callback，传递给工具（如果工具支持）
         if 'progress_callback' in context and hasattr(tool, 'set_progress_callback'):

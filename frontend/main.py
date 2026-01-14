@@ -186,16 +186,52 @@ def cli():
 
 async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
     """流式聊天（异步）"""
+    import json
+    import time
+    # #region agent log
+    try:
+        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"frontend/main.py:_stream_chat:entry","message":"_stream_chat函数被调用","data":{"message_length":len(message) if message else 0,"session_id":session_id},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+            f.flush()
+    except: pass
+    # #endregion
+    
     # 移除 Agent 前缀，直接显示内容
     try:
         # 创建渲染器
         factory = RendererFactory()
         stream_renderer = StreamRenderer(factory)
         
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"frontend/main.py:_stream_chat:before_stream_send","message":"准备调用stream_send","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
         # 创建流式数据生成器
         async def stream_generator():
             try:
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"frontend/main.py:stream_generator:before_async_for","message":"准备进入stream_send循环","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
+                chunk_count = 0
                 async for chunk in client.stream_send(message, session_id=session_id):
+                    chunk_count += 1
+                    # #region agent log
+                    if chunk_count <= 3:  # 只记录前3个chunk
+                        try:
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"frontend/main.py:stream_generator:received_chunk","message":"收到chunk","data":{"chunk_count":chunk_count,"chunk_preview":chunk[:50] if chunk else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                    # #endregion
                     # 清理无效的 Unicode 字符
                     try:
                         chunk = chunk.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
@@ -264,11 +300,20 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
                 debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
                 debug_log_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(debug_log_path, 'a', encoding='utf-8') as f:
-                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in render_stream","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in render_stream","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500],"error_repr":repr(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                     f.write('\n')
             except: pass
             # #endregion
-            show_error(e)
+            # 确保异常对象不是 Panel，如果是则提取错误信息
+            if isinstance(e, Exception):
+                show_error(e)
+            else:
+                # 如果不是异常对象，直接显示
+                try:
+                    error_msg = str(e)
+                except:
+                    error_msg = repr(e)
+                show_error(Exception(error_msg))
             return False
         
         return True
@@ -283,6 +328,9 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
                 f.write('\n')
         except: pass
         # #endregion
+        # 如果是 Panel 对象异常，转换为普通异常
+        if hasattr(e, '__class__') and 'Panel' in str(type(e)):
+            e = Exception(f"Panel对象异常: {str(e)}")
         show_error(e)
         return None
     except Exception as e:
@@ -292,10 +340,13 @@ async def _stream_chat(client: IPCClient, message: str, session_id: str = None):
             debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
             debug_log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(debug_log_path, 'a', encoding='utf-8') as f:
-                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in outer try","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
+                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:_stream_chat","message":"Exception in outer try","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500],"error_repr":repr(e)[:500],"is_panel":hasattr(e,'__class__') and 'Panel' in str(type(e))},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
                 f.write('\n')
         except: pass
         # #endregion
+        # 如果是 Panel 对象异常，转换为普通异常
+        if hasattr(e, '__class__') and 'Panel' in str(type(e)):
+            e = Exception(f"Panel对象异常: {str(e)}")
         show_error(e)
         return None
 
@@ -489,29 +540,184 @@ def chat(message, stream):
                         break
                     
                     result, new_session_id = command_handler.handle_command(msg)
+                    # #region agent log
+                    try:
+                        import json
+                        import time
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:after_handle_command","message":"handle_command返回","data":{"result_type":type(result).__name__ if result else None,"result_type_str":str(type(result)) if result else None,"is_panel":hasattr(result,'__class__') and 'Panel' in str(type(result)) if result else False,"is_str":isinstance(result, str) if result else False},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                            f.flush()
+                    except: pass
+                    # #endregion
                     if result:
                         # result 可能是字符串或 Rich 对象（如 Panel）
-                        console.print(result)
-                    # 如果命令返回了新的会话 ID，更新当前会话
-                    if new_session_id:
-                        session_id = new_session_id
-                        command_handler.current_session_id = session_id
-                        # 立即保存新的会话 ID
-                        save_session_id(session_id)
-                        console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
-                    console.print()  # 空行
-                    continue
+                        # #region agent log
+                        try:
+                            import json
+                            import time
+                            result_type_name = type(result).__name__
+                            result_type_str = str(type(result))
+                            is_panel_check = hasattr(result, '__class__') and 'Panel' in str(type(result))
+                            # 避免将 Panel 对象转换为字符串，直接检查类型
+                            if hasattr(result, '__class__') and 'Panel' in str(type(result)):
+                                result_preview = f"<Panel object at {id(result)}>"
+                            else:
+                                result_preview = str(result)[:100] if hasattr(result, '__str__') else repr(result)[:100]
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:before_print_result","message":"准备打印命令结果","data":{"result_type":result_type_name,"result_type_str":result_type_str,"is_panel":is_panel_check,"result_preview":result_preview},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                        # #endregion
+                        # 检查是否是 Panel 对象（使用更严格的检查）
+                        is_panel = (
+                            hasattr(result, '__class__') and 
+                            'Panel' in str(type(result)) and
+                            not isinstance(result, str)  # 确保不是字符串
+                        )
+                        if is_panel:
+                            # Panel 对象应该直接使用 console.print 渲染，Rich 会自动处理
+                            try:
+                                console.print(result)
+                            except Exception as print_err:
+                                # #region agent log
+                                try:
+                                    import json
+                                    import time
+                                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:chat:print_panel_error","message":"打印Panel对象失败","data":{"error":str(print_err),"result_type":type(result).__name__},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                        f.flush()
+                                except: pass
+                                # #endregion
+                                # 如果 Panel 渲染失败，尝试提取内容
+                                try:
+                                    # Panel 对象有 renderable 属性
+                                    if hasattr(result, 'renderable'):
+                                        console.print(result.renderable)
+                                    else:
+                                        console.print(f"[yellow]警告: Panel对象渲染失败，已跳过[/yellow]")
+                                except:
+                                    console.print(f"[red]无法显示Panel对象: {type(result).__name__}[/red]")
+                        else:
+                            # 普通字符串或其他对象
+                            try:
+                                console.print(result)
+                            except Exception as print_err:
+                                # #region agent log
+                                try:
+                                    import json
+                                    import time
+                                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:print_result_error","message":"打印结果失败","data":{"error":str(print_err),"result_type":type(result).__name__},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                        f.flush()
+                                except: pass
+                                # #endregion
+                                # 如果打印失败，尝试转换为字符串
+                                try:
+                                    console.print(str(result))
+                                except:
+                                    console.print(f"[red]无法显示结果: {type(result).__name__}[/red]")
+                        # 如果命令返回了新的会话 ID，更新当前会话
+                        if new_session_id:
+                            session_id = new_session_id
+                            command_handler.current_session_id = session_id
+                            # 立即保存新的会话 ID
+                            save_session_id(session_id)
+                            console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
+                        console.print()  # 空行
+                        continue  # 命令已处理，跳过正常对话流程
+                    else:
+                        # result 为 None，说明不是命令或命令返回 None，继续执行正常对话流程
+                        # 如果命令返回了新的会话 ID，更新当前会话
+                        if new_session_id:
+                            session_id = new_session_id
+                            command_handler.current_session_id = session_id
+                            # 立即保存新的会话 ID
+                            save_session_id(session_id)
+                            console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
+                        # 继续执行正常对话流程（不 continue）
                 
                 # 正常对话流程
                 if stream:
                     # 流式响应
                     try:
-                        asyncio.run(_stream_chat(client, msg, session_id=session_id))
+                        # #region agent log
+                        try:
+                            import json
+                            import time
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:before_asyncio_run","message":"准备调用asyncio.run(_stream_chat)","data":{"message_length":len(msg) if msg else 0},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                        # #endregion
+                        
+                        try:
+                            result = asyncio.run(_stream_chat(client, msg, session_id=session_id))
+                            
+                            # #region agent log
+                            try:
+                                import json
+                                import time
+                                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:after_asyncio_run","message":"asyncio.run完成","data":{"result":result,"result_type":type(result).__name__},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                    f.flush()
+                            except: pass
+                            # #endregion
+                            
+                            # 如果 _stream_chat 返回了 Panel 对象，直接打印会导致显示对象表示
+                            if result is not None and hasattr(result, '__class__') and 'Panel' in str(type(result)):
+                                # #region agent log
+                                try:
+                                    import json
+                                    import time
+                                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:chat:panel_result_detected","message":"检测到Panel对象返回值","data":{"result_type":type(result).__name__},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                        f.flush()
+                                except: pass
+                                # #endregion
+                                # Panel 对象不应该作为返回值，转换为字符串或忽略
+                                console.print("[yellow]警告: 函数返回了Panel对象，已忽略[/yellow]")
+                        except BaseException as be:
+                            # 捕获所有异常，包括 SystemExit 和 KeyboardInterrupt
+                            # #region agent log
+                            try:
+                                import json
+                                import time
+                                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:chat:asyncio_run_baseexception","message":"asyncio.run BaseException","data":{"error_type":type(be).__name__,"error_msg":str(be)[:500],"error_repr":repr(be)[:500],"is_panel":hasattr(be,'__class__') and 'Panel' in str(type(be))},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                    f.flush()
+                            except: pass
+                            # #endregion
+                            # 如果是 Panel 对象异常，转换为普通异常
+                            if hasattr(be, '__class__') and 'Panel' in str(type(be)):
+                                be = Exception(f"Panel对象异常: {str(be)}")
+                            raise
+                        
                         # 成功发送消息后，保存会话 ID
                         save_session_id(session_id)
                     except KeyboardInterrupt:
                         # 用户按 Ctrl+C，终止当前对话，继续循环（不退出程序）
                         console.print("\n[dim]对话已终止，输入 /exit 退出程序[/dim]")
+                        continue
+                    except Exception as e:
+                        # #region agent log
+                        try:
+                            import json
+                            import time
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:chat:asyncio_run_exception","message":"asyncio.run异常","data":{"error_type":type(e).__name__,"error_msg":str(e)[:500],"error_repr":repr(e)[:500]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                        # #endregion
+                        # 确保异常对象不是 Panel，如果是则提取错误信息
+                        if isinstance(e, Exception):
+                            show_error(e)
+                        else:
+                            # 如果不是异常对象，直接显示
+                            try:
+                                error_msg = str(e)
+                            except:
+                                error_msg = repr(e)
+                            show_error(Exception(error_msg))
                         continue
                 else:
                     # 非流式响应
@@ -555,5 +761,43 @@ def chat(message, stream):
     client.close()
 
 if __name__ == '__main__':
+    import sys
+    import traceback
+    # 设置自定义异常处理器，确保 Panel 对象不会被直接打印
+    def custom_excepthook(exc_type, exc_value, exc_traceback):
+        """自定义异常处理器，确保异常对象被正确显示"""
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"main.py:custom_excepthook","message":"未捕获的异常","data":{"exc_type":str(exc_type),"exc_value_type":type(exc_value).__name__,"exc_value_str":str(exc_value)[:500],"is_panel":hasattr(exc_value,'__class__') and 'Panel' in str(type(exc_value))},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # 如果是 Panel 对象，提取错误信息
+        if hasattr(exc_value, '__class__') and 'Panel' in str(type(exc_value)):
+            try:
+                error_msg = str(exc_value)
+            except:
+                error_msg = f"Panel对象异常: {type(exc_value).__name__}"
+            exc_value = Exception(error_msg)
+        
+        # 使用 Rich 的 traceback 处理器（如果可用）
+        try:
+            from rich.traceback import install
+            install(show_locals=False)
+            from rich.console import Console
+            console = Console()
+            console.print_exception(show_locals=False)
+        except:
+            # 如果 Rich 不可用，使用默认的异常处理器
+            traceback.print_exception(exc_type, exc_value, exc_traceback)
+    
+    # 只在交互模式下设置自定义异常处理器
+    if sys.stdin.isatty():
+        sys.excepthook = custom_excepthook
+    
     cli()
 

@@ -263,9 +263,47 @@ class IPCClient:
         Yields:
             流式数据块
         """
+        import json
+        import time
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:entry","message":"stream_send被调用","data":{"message_length":len(message) if message else 0,"session_id":session_id,"base_url":self.base_url},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:before_receive_stream","message":"准备调用receive_stream","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
         # 使用 StreamReceiver 接收流式数据
-        async for chunk in self.stream_receiver.receive_stream(message, session_id, timeout=300.0):
-            yield chunk
+        chunk_count = 0
+        try:
+            async for chunk in self.stream_receiver.receive_stream(message, session_id, timeout=300.0):
+                chunk_count += 1
+                # #region agent log
+                if chunk_count <= 3:  # 只记录前3个chunk
+                    try:
+                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:yield_chunk","message":"准备yield chunk","data":{"chunk_count":chunk_count},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                            f.flush()
+                    except: pass
+                # #endregion
+                yield chunk
+        except Exception as e:
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"ipc_client.py:stream_send:exception","message":"stream_send异常","data":{"error":str(e),"chunk_count":chunk_count},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            raise
     
     def close(self):
         """关闭客户端"""

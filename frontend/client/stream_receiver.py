@@ -31,12 +31,37 @@ class StreamReceiver:
         Yields:
             流式数据块（原始字符串）
         """
+        import time
+        # #region agent log
+        try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_receiver.py:receive_stream:entry","message":"前端开始发送流式请求","data":{"base_url":self.base_url,"message_length":len(message) if message else 0,"session_id":session_id},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
         url = f"{self.base_url}/api/chat/stream"
         payload = {"message": message}
         if session_id:
             payload["session_id"] = session_id
         
+        # #region agent log
         try:
+            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_receiver.py:receive_stream:before_request","message":"准备发送HTTP请求","data":{"url":url,"payload_keys":list(payload.keys())},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.flush()
+        except: pass
+        # #endregion
+        
+        try:
+            # #region agent log
+            try:
+                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_receiver.py:receive_stream:before_async_with","message":"准备发送HTTP流式请求","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                    f.flush()
+            except: pass
+            # #endregion
+            
             async with self.async_client.stream(
                 "POST",
                 url,
@@ -44,6 +69,14 @@ class StreamReceiver:
                 timeout=timeout,
                 headers={"Accept": "text/event-stream"}
             ) as response:
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_receiver.py:receive_stream:after_async_with","message":"收到HTTP响应","data":{"status_code":response.status_code},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
                 # 检查状态码
                 if response.status_code != 200:
                     error_text = await response.aread()
@@ -56,9 +89,27 @@ class StreamReceiver:
                         error_text = f"状态码: {response.status_code}"
                     raise Exception(f"流式请求失败: {error_text}")
                 
+                # #region agent log
+                try:
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_receiver.py:receive_stream:before_iter_bytes","message":"准备开始接收流式数据","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
                 # 解析 SSE 格式
                 buffer = b""
+                chunk_count = 0
                 async for chunk in response.aiter_bytes():
+                    chunk_count += 1
+                    # #region agent log
+                    if chunk_count <= 3:  # 只记录前3个chunk，避免日志过多
+                        try:
+                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"stream_receiver.py:receive_stream:received_bytes","message":"收到字节数据","data":{"chunk_count":chunk_count,"chunk_size":len(chunk)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                                f.flush()
+                        except: pass
+                    # #endregion
                     buffer += chunk
                     # 按行分割
                     while b"\n" in buffer:
