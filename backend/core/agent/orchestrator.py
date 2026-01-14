@@ -47,6 +47,13 @@ class Orchestrator:
         self.tool_registry = ToolRegistry()
         self.debug = DebugOutput()  # 调试输出
         
+        # 初始化技能系统
+        from backend.core.agent.skills.registry import SkillRegistry
+        from backend.core.agent.skills.executor import SkillExecutor
+        self.skill_registry = SkillRegistry()
+        self.skill_executor = SkillExecutor(self.tool_registry, self.llm_service)
+        self._register_skills()
+        
         # 代码执行相关组件
         self.auto_code_executor = None
         self.auto_execute_code = True  # 配置项：是否自动执行代码块
@@ -90,6 +97,9 @@ class Orchestrator:
         
         # 注册天气工具（如果配置了 JWT）
         self._register_tools()
+        
+        # 注册技能（优先于工具）
+        self._register_skills()
         
         # 初始化自动代码执行器
         self._init_auto_code_executor()
@@ -314,6 +324,29 @@ class Orchestrator:
             error_msg = f"Failed to register Whisper tool: {str(e)}. Whisper tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
+    
+    def _register_skills(self):
+        """注册所有可用技能
+        
+        技能优先于工具，当用户请求匹配到技能时，优先使用技能执行
+        """
+        try:
+            # 注册视频下载技能
+            from backend.core.agent.skills.video_downloader import VideoDownloaderSkill
+            video_downloader_skill = VideoDownloaderSkill(self.skill_executor)
+            self.skill_registry.register(video_downloader_skill)
+            logger.info("Video downloader skill registered successfully")
+        except Exception as e:
+            logger.warning(f"Failed to register video downloader skill: {str(e)}")
+        
+        # 可以在这里注册更多技能
+        # try:
+        #     from backend.core.agent.skills.video_summary import VideoSummarySkill
+        #     video_summary_skill = VideoSummarySkill(self.skill_executor)
+        #     self.skill_registry.register(video_summary_skill)
+        #     logger.info("Video summary skill registered successfully")
+        # except Exception as e:
+        #     logger.warning(f"Failed to register video summary skill: {str(e)}")
     
     def _init_auto_code_executor(self):
         """初始化自动代码执行器"""
@@ -739,6 +772,76 @@ class Orchestrator:
             user_prompt = task
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         
+        # 优先尝试匹配技能（技能优先于工具）
+        matched_skill = self.skill_registry.match(task)
+        if matched_skill:
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "匹配到技能，优先使用技能执行",
+                "details": {"skill_name": matched_skill.name, "skill_description": matched_skill.description}
+            }
+            yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+            self.debug.log_orchestrator_step("匹配到技能", {"skill_name": matched_skill.name})
+            
+            # 执行技能
+            try:
+                # 从任务中提取参数
+                import re
+                skill_parameters = {}
+                
+                # 提取 URL（支持单个或多个）
+                url_pattern = r'https?://[^\s]+|www\.[^\s]+'
+                urls = re.findall(url_pattern, task)
+                if urls:
+                    if len(urls) == 1:
+                        skill_parameters['url'] = urls[0]
+                    else:
+                        skill_parameters['urls'] = urls
+                
+                # 提取输出目录
+                output_dir_match = re.search(r'输出[到至]?[：:]\s*([^\s]+)|保存[到至]?[：:]\s*([^\s]+)', task)
+                if output_dir_match:
+                    skill_parameters['output_dir'] = output_dir_match.group(1) or output_dir_match.group(2)
+                
+                # 提取字幕相关参数
+                if '字幕' in task or 'subtitle' in task.lower():
+                    skill_parameters['subtitle_only'] = '只下载字幕' in task or 'only subtitle' in task.lower()
+                    lang_match = re.search(r'字幕[语言]?[：:]\s*([a-z-]+)', task, re.IGNORECASE)
+                    if lang_match:
+                        skill_parameters['subtitle_lang'] = lang_match.group(1)
+                
+                skill_context = {
+                    "tool_registry": self.tool_registry,
+                    "llm_service": self.llm_service,
+                    "session_id": session_id
+                }
+                
+                # 执行技能
+                skill_result = await matched_skill.execute(
+                    parameters=skill_parameters,
+                    context=skill_context
+                )
+                
+                if skill_result.success:
+                    result_text = str(skill_result.result) if skill_result.result else "技能执行成功"
+                    yield result_text
+                    
+                    # 保存消息到历史
+                    self.context_manager.add_message(session_id, MessageRole.USER, task)
+                    self.context_manager.add_message(session_id, MessageRole.ASSISTANT, result_text)
+                    self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
+                    return
+                else:
+                    error_msg = skill_result.error or "技能执行失败"
+                    yield f"技能执行失败: {error_msg}"
+                    return
+            except Exception as e:
+                logger.error(f"技能执行失败: {str(e)}", exc_info=True)
+                yield f"技能执行失败: {str(e)}"
+                return
+        
+        # 如果没有匹配到技能，使用工具
         # 获取工具定义（LLM Function Calling 格式）
         tools = self.tool_registry.get_tools_for_llm()
         tool_names = [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []
@@ -772,7 +875,9 @@ class Orchestrator:
                 async for chunk in self._chat_with_tools_stream(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
-                    tools=tools
+                    tools=tools,
+                    planning_files=planning_files,
+                    session_id=session_id
                 ):
                     # 检查是否是调试信息或工具调用信息
                     if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:"):
@@ -957,7 +1062,9 @@ class Orchestrator:
         self,
         system_prompt: str,
         user_prompt: str,
-        tools: Optional[list] = None
+        tools: Optional[list] = None,
+        planning_files: Optional[Any] = None,
+        session_id: Optional[str] = None
     ) -> AsyncIterator[str]:
         """
         带工具调用的聊天（流式版本，包含调试信息）
@@ -966,6 +1073,8 @@ class Orchestrator:
             system_prompt: 系统提示
             user_prompt: 用户提示
             tools: 工具定义列表
+            planning_files: 规划文件对象（可选，用于记录工具调用进度）
+            session_id: 会话ID（可选，用于规划文件记录）
             
         Yields:
             流式数据块（调试信息、工具调用信息或内容）
