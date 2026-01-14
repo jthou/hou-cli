@@ -33,6 +33,7 @@ from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
 from backend.core.agent.planning.manager import PlanningManager
 from backend.core.agent.planning.complexity import TaskComplexityAnalyzer
+from backend.core.agent.evaluator import ConversationEvaluator
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
 
@@ -69,10 +70,13 @@ class Orchestrator:
                 min_task_length=int(os.getenv("PLANNING_MIN_TASK_LENGTH", "20")),
                 complexity_threshold=float(os.getenv("PLANNING_COMPLEXITY_THRESHOLD", "0.3"))
             )
+            # 初始化对话评估器（用于评估对话质量并记录到规划文件）
+            self.evaluator = ConversationEvaluator(llm_service=self.llm_service)
             logger.info("规划功能已启用")
         else:
             self.planning_manager = None
             self.complexity_analyzer = None
+            self.evaluator = None
             logger.info("规划功能已禁用")
         
         # 注册天气工具（如果配置了 JWT）
@@ -801,6 +805,56 @@ class Orchestrator:
         self.context_manager.add_message(session_id, MessageRole.USER, task)
         self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_response)
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
+        
+        # 规划功能：对话完成后评估并记录到规划文件（方案2）
+        if self.enable_planning and self.evaluator and planning_files:
+            try:
+                # 评估对话质量
+                evaluation_result = await self.evaluator.evaluate_conversation_turn(
+                    user_message=task,
+                    assistant_message=full_response,
+                    context=history[-5:] if history else None  # 使用最近5条作为上下文
+                )
+                
+                # 记录评估结果到 findings.md
+                overall_score = evaluation_result.get("overall_score", 0)
+                dimension_scores = evaluation_result.get("dimension_scores", {})
+                evaluation_text = evaluation_result.get("evaluation", "")
+                
+                # 格式化评估结果
+                eval_summary = f"总体分数: {overall_score}/100\n"
+                for dim_id, score in dimension_scores.items():
+                    dim_name = self.evaluator.EVALUATION_DIMENSIONS.get(dim_id, {}).get("name", dim_id)
+                    eval_summary += f"{dim_name}: {score}/100\n"
+                if evaluation_text:
+                    eval_summary += f"评估说明: {evaluation_text}\n"
+                
+                self.planning_manager.add_finding(
+                    f"对话评估结果:\n{eval_summary}",
+                    category="Technical Decisions",
+                    session_id=session_id
+                )
+                
+                # 如果分数较低，记录到错误表
+                if overall_score < 60:
+                    self.planning_manager.add_error(
+                        f"对话质量评分较低: {overall_score}/100",
+                        attempt=1,
+                        resolution=evaluation_text or "需要改进回答质量",
+                        session_id=session_id
+                    )
+                
+                debug_info = {
+                    "type": "debug",
+                    "category": "planning",
+                    "message": "对话评估完成并记录到规划文件",
+                    "details": {"overall_score": overall_score}
+                }
+                yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                logger.info(f"对话评估完成，分数: {overall_score}/100")
+            except Exception as e:
+                logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
+                # 评估失败不影响主流程
         
         debug_info = {
             "type": "debug",

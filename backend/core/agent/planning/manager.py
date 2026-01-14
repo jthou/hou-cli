@@ -35,11 +35,21 @@ class PlanningManager:
                      如果为 None，使用当前工作目录
         """
         self.work_dir = work_dir or Path.cwd()
-        self.work_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error(f"创建规划文件目录失败: {str(e)}", exc_info=True)
+            # 降级到当前目录
+            self.work_dir = Path.cwd()
+            logger.warning(f"使用当前目录作为规划文件目录: {self.work_dir}")
         
         # 模板文件路径
         template_dir = Path(__file__).parent.parent.parent.parent / "externals" / "planning-with-files" / "templates"
         self.template_dir = template_dir
+        
+        # 检查模板目录是否存在
+        if not self.template_dir.exists():
+            logger.warning(f"模板目录不存在: {self.template_dir}，将使用默认模板")
         
         logger.info(f"PlanningManager 初始化，工作目录: {self.work_dir}")
     
@@ -75,23 +85,30 @@ class PlanningManager:
         
         Returns:
             PlanningFiles: 创建的规划文件路径
+        
+        Raises:
+            IOError: 如果文件创建失败
         """
         files = self.get_planning_files(session_id)
         
-        # 创建 task_plan.md
-        if not files.task_plan.exists():
-            self._create_task_plan(files.task_plan, task)
-            logger.info(f"创建 task_plan.md: {files.task_plan}")
-        
-        # 创建 findings.md
-        if not files.findings.exists():
-            self._create_findings(files.findings, task)
-            logger.info(f"创建 findings.md: {files.findings}")
-        
-        # 创建 progress.md
-        if not files.progress.exists():
-            self._create_progress(files.progress)
-            logger.info(f"创建 progress.md: {files.progress}")
+        try:
+            # 创建 task_plan.md
+            if not files.task_plan.exists():
+                self._create_task_plan(files.task_plan, task)
+                logger.info(f"创建 task_plan.md: {files.task_plan}")
+            
+            # 创建 findings.md
+            if not files.findings.exists():
+                self._create_findings(files.findings, task)
+                logger.info(f"创建 findings.md: {files.findings}")
+            
+            # 创建 progress.md
+            if not files.progress.exists():
+                self._create_progress(files.progress)
+                logger.info(f"创建 progress.md: {files.progress}")
+        except Exception as e:
+            logger.error(f"创建规划文件失败: {str(e)}", exc_info=True)
+            raise IOError(f"创建规划文件失败: {str(e)}") from e
         
         return files
     
