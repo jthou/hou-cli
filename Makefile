@@ -5,6 +5,8 @@ help: ## 显示帮助信息
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## 安装生产依赖
+	@echo "🔄 更新外部依赖（git submodules）..."
+	@bash scripts/update_externals.sh
 	@bash -c "source venv/bin/activate && pip install -r requirements.txt"
 	@bash -c "source venv/bin/activate && pip install -e ."
 	@bash scripts/install_ffmpeg.sh
@@ -12,8 +14,11 @@ install: ## 安装生产依赖
 	@bash -c "source venv/bin/activate && bash scripts/install_whisper.sh"
 	@bash -c "source venv/bin/activate && bash scripts/install_jupyter.sh"
 	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
+	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
 
 install-dev: ## 安装开发依赖
+	@echo "🔄 更新外部依赖（git submodules）..."
+	@bash scripts/update_externals.sh
 	@bash -c "source venv/bin/activate && pip install -r requirements-dev.txt"
 	@bash -c "source venv/bin/activate && pip install -e \".[dev]\""
 	@bash scripts/install_ffmpeg.sh
@@ -22,6 +27,7 @@ install-dev: ## 安装开发依赖
 	# Jupyter 依赖已在 requirements-dev.txt 中，但需要注册 kernel
 	@bash -c "source venv/bin/activate && python -m ipykernel install --user --name python3 --display-name \"Python 3\" 2>&1 | grep -v \"ERROR:\" || true"
 	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
+	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
 
 test: ## 运行测试
 	@bash -c "source venv/bin/activate && pytest"
