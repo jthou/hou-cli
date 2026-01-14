@@ -369,6 +369,11 @@ class Orchestrator:
                             skill = VideoSummarySkill(self.skill_executor)
                             self.skill_registry.register(skill)
                             logger.info(f"技能已注册: {skill_name}")
+                        elif skill_name == 'video_extract_srt':
+                            from backend.core.agent.skills.video_extract_srt import VideoExtractSrtSkill
+                            skill = VideoExtractSrtSkill(self.skill_executor)
+                            self.skill_registry.register(skill)
+                            logger.info(f"技能已注册: {skill_name}")
                         elif skill_name == 'video_cut':
                             from backend.core.agent.skills.video_editing.video_cut_skill import VideoCutSkill
                             skill = VideoCutSkill(self.skill_executor)
