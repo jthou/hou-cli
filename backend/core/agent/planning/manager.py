@@ -3,6 +3,8 @@ import logging
 import re
 import time
 import asyncio
+import sys
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
@@ -11,6 +13,17 @@ from collections import deque
 from threading import Lock
 
 logger = logging.getLogger(__name__)
+
+# 文件锁支持
+if platform.system() == 'Windows':
+    import msvcrt
+    HAS_FLOCK = False
+else:
+    try:
+        import fcntl
+        HAS_FLOCK = True
+    except ImportError:
+        HAS_FLOCK = False
 
 
 @dataclass
@@ -71,6 +84,20 @@ class PlanningManager:
         self._update_task: Optional[asyncio.Task] = None
         self._update_queue: Optional[asyncio.Queue] = None
         self._shutdown_event = asyncio.Event()
+        
+        # 性能监控：操作统计
+        self._performance_stats = {
+            "read_count": 0,
+            "write_count": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "update_count": 0,
+            "error_count": 0,
+            "total_read_time": 0.0,
+            "total_write_time": 0.0,
+            "total_update_time": 0.0
+        }
+        self._stats_lock = Lock()
         
         logger.info(f"PlanningManager 初始化，工作目录: {self.work_dir}")
     
@@ -183,7 +210,7 @@ class PlanningManager:
     
     def _get_cached_content(self, file_path: Path) -> Optional[str]:
         """
-        获取缓存的文件内容
+        获取缓存的文件内容（带性能监控）
         
         Args:
             file_path: 文件路径
@@ -193,11 +220,15 @@ class PlanningManager:
         """
         cache_key = str(file_path)
         current_time = time.time()
+        start_time = time.time()
         
         with self._cache_lock:
             if cache_key in self._file_cache:
                 content, timestamp = self._file_cache[cache_key]
                 if current_time - timestamp < self._cache_ttl:
+                    # 缓存命中
+                    with self._stats_lock:
+                        self._performance_stats["cache_hits"] += 1
                     return content
                 # 缓存失效，清除
                 del self._file_cache[cache_key]
@@ -206,11 +237,21 @@ class PlanningManager:
         if file_path.exists():
             try:
                 content = file_path.read_text(encoding='utf-8')
+                read_time = time.time() - start_time
+                
                 with self._cache_lock:
                     self._file_cache[cache_key] = (content, current_time)
+                
+                with self._stats_lock:
+                    self._performance_stats["read_count"] += 1
+                    self._performance_stats["cache_misses"] += 1
+                    self._performance_stats["total_read_time"] += read_time
+                
                 return content
             except Exception as e:
                 logger.warning(f"读取文件失败: {file_path}, 错误: {str(e)}")
+                with self._stats_lock:
+                    self._performance_stats["error_count"] += 1
                 return None
         return None
     
@@ -236,7 +277,7 @@ class PlanningManager:
     
     def _update_file_content(self, file_path: Path, update_func) -> bool:
         """
-        更新文件内容（带缓存失效）
+        更新文件内容（带缓存失效、文件锁和性能监控）
         
         Args:
             file_path: 文件路径
@@ -248,22 +289,90 @@ class PlanningManager:
         if not file_path.exists():
             return False
         
+        start_time = time.time()
         try:
-            # 使用缓存读取
-            content = self._get_cached_content(file_path)
-            if content is None:
-                content = file_path.read_text(encoding='utf-8')
-            
-            new_content = update_func(content)
-            
-            if new_content != content:
-                file_path.write_text(new_content, encoding='utf-8')
-                # 使缓存失效
-                self._invalidate_cache(file_path)
-                return True
-            return False
+            # 使用文件锁更新
+            if HAS_FLOCK:
+                # Linux/Unix 使用 fcntl
+                with open(file_path, 'r+', encoding='utf-8') as f:
+                    try:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # 排他锁
+                        content = f.read()
+                        new_content = update_func(content)
+                        
+                        if new_content != content:
+                            f.seek(0)
+                            f.write(new_content)
+                            f.truncate()
+                            # 使缓存失效
+                            self._invalidate_cache(file_path)
+                            
+                            # 记录性能统计
+                            update_time = time.time() - start_time
+                            with self._stats_lock:
+                                self._performance_stats["write_count"] += 1
+                                self._performance_stats["update_count"] += 1
+                                self._performance_stats["total_write_time"] += update_time
+                                self._performance_stats["total_update_time"] += update_time
+                            
+                            return True
+                        return False
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)  # 释放锁
+            elif platform.system() == 'Windows':
+                # Windows 使用 msvcrt
+                with open(file_path, 'r+', encoding='utf-8') as f:
+                    try:
+                        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # 锁定1字节
+                        content = f.read()
+                        new_content = update_func(content)
+                        
+                        if new_content != content:
+                            f.seek(0)
+                            f.write(new_content)
+                            f.truncate()
+                            # 使缓存失效
+                            self._invalidate_cache(file_path)
+                            
+                            # 记录性能统计
+                            update_time = time.time() - start_time
+                            with self._stats_lock:
+                                self._performance_stats["write_count"] += 1
+                                self._performance_stats["update_count"] += 1
+                                self._performance_stats["total_write_time"] += update_time
+                                self._performance_stats["total_update_time"] += update_time
+                            
+                            return True
+                        return False
+                    finally:
+                        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # 解锁
+            else:
+                # 不支持文件锁的系统，使用普通更新
+                content = self._get_cached_content(file_path)
+                if content is None:
+                    content = file_path.read_text(encoding='utf-8')
+                
+                new_content = update_func(content)
+                
+                if new_content != content:
+                    file_path.write_text(new_content, encoding='utf-8')
+                    # 使缓存失效
+                    self._invalidate_cache(file_path)
+                    
+                    # 记录性能统计
+                    update_time = time.time() - start_time
+                    with self._stats_lock:
+                        self._performance_stats["write_count"] += 1
+                        self._performance_stats["update_count"] += 1
+                        self._performance_stats["total_write_time"] += update_time
+                        self._performance_stats["total_update_time"] += update_time
+                    
+                    return True
+                return False
         except Exception as e:
             logger.error(f"更新文件失败: {file_path}, 错误: {str(e)}", exc_info=True)
+            with self._stats_lock:
+                self._performance_stats["error_count"] += 1
             return False
     
     def update_phase_status(self, phase_num: int, status: str, session_id: Optional[str] = None) -> bool:
@@ -395,7 +504,20 @@ class PlanningManager:
                         new_content = re.sub(pattern, replacement, new_content, flags=re.DOTALL)
                 
                 if new_content != content:
-                    file_path.write_text(new_content, encoding='utf-8')
+                    # 使用文件锁写入
+                    if HAS_FLOCK:
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                            f.write(new_content)
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    elif platform.system() == 'Windows':
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                            f.write(new_content)
+                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        file_path.write_text(new_content, encoding='utf-8')
+                    
                     self._invalidate_cache(file_path)
                     logger.debug(f"批量更新文件: {file_path.name}, 更新数量: {len(updates)}")
             except Exception as e:
@@ -501,7 +623,7 @@ class PlanningManager:
     
     def get_stats(self) -> Dict[str, Any]:
         """
-        获取统计信息
+        获取统计信息（包含性能指标）
         
         Returns:
             统计信息字典
@@ -510,12 +632,43 @@ class PlanningManager:
             all_files = list(self.work_dir.glob("*_*.md"))
             total_size = sum(f.stat().st_size for f in all_files if f.exists())
             
+            with self._stats_lock:
+                stats = self._performance_stats.copy()
+            
+            # 计算平均时间
+            avg_read_time = (stats["total_read_time"] / stats["read_count"] 
+                           if stats["read_count"] > 0 else 0.0)
+            avg_write_time = (stats["total_write_time"] / stats["write_count"] 
+                            if stats["write_count"] > 0 else 0.0)
+            avg_update_time = (stats["total_update_time"] / stats["update_count"] 
+                             if stats["update_count"] > 0 else 0.0)
+            
+            # 计算缓存命中率
+            total_cache_ops = stats["cache_hits"] + stats["cache_misses"]
+            cache_hit_rate = (stats["cache_hits"] / total_cache_ops * 100 
+                            if total_cache_ops > 0 else 0.0)
+            
             return {
                 "files_count": len(all_files),
                 "total_size_bytes": total_size,
                 "total_size_mb": round(total_size / 1024 / 1024, 2),
                 "cache_size": len(self._file_cache),
-                "pending_updates": len(self._pending_updates)
+                "pending_updates": len(self._pending_updates),
+                "performance": {
+                    "read_count": stats["read_count"],
+                    "write_count": stats["write_count"],
+                    "update_count": stats["update_count"],
+                    "error_count": stats["error_count"],
+                    "cache_hits": stats["cache_hits"],
+                    "cache_misses": stats["cache_misses"],
+                    "cache_hit_rate": round(cache_hit_rate, 2),
+                    "avg_read_time_ms": round(avg_read_time * 1000, 2),
+                    "avg_write_time_ms": round(avg_write_time * 1000, 2),
+                    "avg_update_time_ms": round(avg_update_time * 1000, 2),
+                    "total_read_time_s": round(stats["total_read_time"], 2),
+                    "total_write_time_s": round(stats["total_write_time"], 2),
+                    "total_update_time_s": round(stats["total_update_time"], 2)
+                }
             }
         except Exception as e:
             logger.error(f"获取统计信息失败: {str(e)}", exc_info=True)
@@ -524,7 +677,23 @@ class PlanningManager:
                 "total_size_bytes": 0,
                 "total_size_mb": 0,
                 "cache_size": 0,
-                "pending_updates": 0
+                "pending_updates": 0,
+                "performance": {}
+            }
+    
+    def reset_stats(self):
+        """重置性能统计"""
+        with self._stats_lock:
+            self._performance_stats = {
+                "read_count": 0,
+                "write_count": 0,
+                "cache_hits": 0,
+                "cache_misses": 0,
+                "update_count": 0,
+                "error_count": 0,
+                "total_read_time": 0.0,
+                "total_write_time": 0.0,
+                "total_update_time": 0.0
             }
     
     def check_completion(self, session_id: Optional[str] = None) -> Dict[str, Any]:

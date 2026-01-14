@@ -1,7 +1,8 @@
 """任务复杂度判断模块"""
 import logging
 import re
-from typing import List, Dict, Any
+import hashlib
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -48,23 +49,81 @@ class TaskComplexityAnalyzer:
     
     def __init__(self, 
                  min_task_length: int = 20,
-                 complexity_threshold: float = 0.3):
+                 complexity_threshold: float = 0.3,
+                 llm_service: Optional[Any] = None,
+                 use_llm: bool = False):
         """
         初始化复杂度分析器
         
         Args:
             min_task_length: 最小任务长度（字符数），超过此长度才可能复杂
             complexity_threshold: 复杂度阈值（0-1），超过此值认为是复杂任务
+            llm_service: LLM 服务实例（用于 LLM 辅助判断）
+            use_llm: 是否使用 LLM 辅助判断
         """
         self.min_task_length = min_task_length
         self.complexity_threshold = complexity_threshold
+        self.llm_service = llm_service
+        self.use_llm = use_llm
+        
+        # 判断结果缓存
+        self._judgment_cache: Dict[str, bool] = {}
+        self._cache_max_size = 1000  # 最大缓存数量
+    
+    def _get_cache_key(self, task: str) -> str:
+        """生成缓存键"""
+        # 使用任务的前100个字符作为缓存键
+        task_key = task[:100].strip().lower()
+        return hashlib.md5(task_key.encode('utf-8')).hexdigest()
+    
+    async def _is_complex_by_llm(self, task: str) -> Optional[bool]:
+        """
+        使用 LLM 判断任务复杂度
+        
+        Args:
+            task: 任务描述
+        
+        Returns:
+            是否为复杂任务，如果判断失败返回 None
+        """
+        if not self.llm_service:
+            return None
+        
+        try:
+            prompt = f"""判断以下任务是否需要详细规划（创建 task_plan.md、findings.md、progress.md）：
+
+任务：{task}
+
+请分析任务复杂度，考虑：
+1. 任务步骤数量（是否需要多个步骤）
+2. 所需工具数量（是否需要多个工具）
+3. 是否需要研究（是否需要搜索、查找资料）
+4. 是否需要多轮对话（是否需要多次交互）
+5. 任务复杂度（简单查询 vs 复杂开发）
+
+只返回 "是" 或 "否"，不要返回其他内容。"""
+            
+            response = await self.llm_service.chat(user_prompt=prompt)
+            response_lower = response.lower().strip()
+            
+            # 解析响应
+            if "是" in response_lower or "yes" in response_lower or "true" in response_lower:
+                return True
+            elif "否" in response_lower or "no" in response_lower or "false" in response_lower:
+                return False
+            else:
+                logger.warning(f"LLM 返回格式异常: {response}")
+                return None
+        except Exception as e:
+            logger.warning(f"LLM 判断失败: {str(e)}")
+            return None
     
     def is_complex_task(self, 
                        task: str, 
                        history: List[Dict[str, Any]] = None,
                        tool_call_count: int = 0) -> bool:
         """
-        判断任务是否复杂
+        判断任务是否复杂（同步版本，使用规则判断）
         
         Args:
             task: 任务描述
@@ -76,6 +135,11 @@ class TaskComplexityAnalyzer:
         """
         if not task or len(task.strip()) < self.min_task_length:
             return False
+        
+        # 检查缓存
+        cache_key = self._get_cache_key(task)
+        if cache_key in self._judgment_cache:
+            return self._judgment_cache[cache_key]
         
         # 计算复杂度分数
         score = 0.0
@@ -117,6 +181,15 @@ class TaskComplexityAnalyzer:
         
         is_complex = score >= self.complexity_threshold
         
+        # 缓存结果
+        if len(self._judgment_cache) >= self._cache_max_size:
+            # 清除最旧的缓存（简单策略：清除一半）
+            keys_to_remove = list(self._judgment_cache.keys())[:self._cache_max_size // 2]
+            for key in keys_to_remove:
+                del self._judgment_cache[key]
+        
+        self._judgment_cache[cache_key] = is_complex
+        
         logger.debug(
             f"任务复杂度分析: task='{task[:50]}', "
             f"score={score:.2f}, threshold={self.complexity_threshold}, "
@@ -124,6 +197,47 @@ class TaskComplexityAnalyzer:
         )
         
         return is_complex
+    
+    async def is_complex_task_async(self, 
+                                    task: str, 
+                                    history: List[Dict[str, Any]] = None,
+                                    tool_call_count: int = 0) -> bool:
+        """
+        判断任务是否复杂（异步版本，支持 LLM 辅助判断）
+        
+        Args:
+            task: 任务描述
+            history: 历史对话记录
+            tool_call_count: 已执行的工具调用次数
+        
+        Returns:
+            是否为复杂任务
+        """
+        if not task or len(task.strip()) < self.min_task_length:
+            return False
+        
+        # 检查缓存
+        cache_key = self._get_cache_key(task)
+        if cache_key in self._judgment_cache:
+            return self._judgment_cache[cache_key]
+        
+        # 先用规则判断
+        rule_result = self.is_complex_task(task, history, tool_call_count)
+        
+        # 如果使用 LLM 且规则判断不确定（接近阈值），使用 LLM 辅助判断
+        if self.use_llm and self.llm_service:
+            # 如果规则判断接近阈值（±0.1），使用 LLM 确认
+            rule_score = self.analyze_task(task, history).get("score", 0.0)
+            if abs(rule_score - self.complexity_threshold) < 0.1:
+                llm_result = await self._is_complex_by_llm(task)
+                if llm_result is not None:
+                    # 使用 LLM 结果
+                    self._judgment_cache[cache_key] = llm_result
+                    logger.info(f"LLM 辅助判断: task='{task[:50]}', result={llm_result}")
+                    return llm_result
+        
+        # 使用规则判断结果
+        return rule_result
     
     def analyze_task(self, task: str, history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """

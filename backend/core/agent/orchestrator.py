@@ -68,10 +68,19 @@ class Orchestrator:
             self.planning_manager = PlanningManager(work_dir=planning_work_dir)
             self.complexity_analyzer = TaskComplexityAnalyzer(
                 min_task_length=int(os.getenv("PLANNING_MIN_TASK_LENGTH", "20")),
-                complexity_threshold=float(os.getenv("PLANNING_COMPLEXITY_THRESHOLD", "0.3"))
+                complexity_threshold=float(os.getenv("PLANNING_COMPLEXITY_THRESHOLD", "0.3")),
+                llm_service=self.llm_service,
+                use_llm=os.getenv("PLANNING_USE_LLM", "false").lower() == "true"
             )
             # 初始化对话评估器（用于评估对话质量并记录到规划文件）
             self.evaluator = ConversationEvaluator(llm_service=self.llm_service)
+            
+            # 定期清理旧文件（每100次任务后清理一次）
+            self._planning_cleanup_counter = 0
+            self._planning_cleanup_interval = int(os.getenv("PLANNING_CLEANUP_INTERVAL", "100"))
+            self._planning_max_age_days = int(os.getenv("PLANNING_MAX_AGE_DAYS", "7"))
+            self._planning_max_files = int(os.getenv("PLANNING_MAX_FILES", "100"))
+            
             logger.info("规划功能已启用")
         else:
             self.planning_manager = None
@@ -571,8 +580,11 @@ class Orchestrator:
         planning_files = None
         task_plan_content = None
         if self.enable_planning and self.planning_manager and self.complexity_analyzer:
-            # 判断任务复杂度
-            is_complex = self.complexity_analyzer.is_complex_task(task, history)
+            # 判断任务复杂度（支持 LLM 辅助判断）
+            if self.complexity_analyzer.use_llm:
+                is_complex = await self.complexity_analyzer.is_complex_task_async(task, history)
+            else:
+                is_complex = self.complexity_analyzer.is_complex_task(task, history)
             
             if is_complex:
                 try:
