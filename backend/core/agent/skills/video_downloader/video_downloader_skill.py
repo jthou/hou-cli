@@ -96,7 +96,8 @@ class VideoDownloaderSkill(Skill):
         result = await self.executor.execute_workflow(
             workflow=self.workflow,
             parameters=parameters,
-            config=skill_config
+            config=skill_config,
+            external_context=context
         )
         
         return result

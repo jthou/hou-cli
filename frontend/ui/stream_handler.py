@@ -486,6 +486,79 @@ class StreamRenderer:
         else:
             console.print("[red]✗ 用户已取消执行[/red]")
     
+    def _render_evaluation_info(self, evaluation_data: dict, console: Console):
+        """渲染对话评估结果"""
+        evaluation = evaluation_data.get("evaluation", {})
+        if not evaluation:
+            return
+        
+        overall_score = evaluation.get("overall_score", 0)
+        dimension_scores = evaluation.get("dimension_scores", {})
+        evaluation_text = evaluation.get("evaluation", "")
+        
+        # 根据分数选择颜色
+        if overall_score >= 90:
+            score_color = "green"
+            score_emoji = "⭐"
+        elif overall_score >= 80:
+            score_color = "cyan"
+            score_emoji = "✓"
+        elif overall_score >= 70:
+            score_color = "yellow"
+            score_emoji = "⚠"
+        else:
+            score_color = "red"
+            score_emoji = "✗"
+        
+        # 构建内容
+        content_parts: List = []
+        
+        # 总体分数
+        score_text = Text.assemble(
+            (f"{score_emoji} 总体分数: ", "bold"),
+            (f"{overall_score}/100", f"bold {score_color}")
+        )
+        content_parts.append(score_text)
+        content_parts.append("")
+        
+        # 各维度分数
+        if dimension_scores:
+            content_parts.append(Text("各维度分数：", style="bold"))
+            dimension_names = {
+                "relevance": "相关性",
+                "accuracy": "准确性",
+                "helpfulness": "有用性",
+                "completeness": "完整性",
+                "clarity": "清晰度"
+            }
+            for dim_id, score in dimension_scores.items():
+                dim_name = dimension_names.get(dim_id, dim_id)
+                dim_color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
+                dim_text = Text.assemble(
+                    (f"  • {dim_name}: ", "dim"),
+                    (f"{score}/100", f"bold {dim_color}")
+                )
+                content_parts.append(dim_text)
+            content_parts.append("")
+        
+        # 评估说明
+        if evaluation_text:
+            content_parts.append(Text("评估说明：", style="bold"))
+            content_parts.append(Text(evaluation_text, style="dim"))
+        
+        # 渲染面板
+        title = Text.assemble(
+            ("📊 ", "bold"),
+            ("对话评估", f"bold {score_color}")
+        )
+        console.print(Panel(
+            Group(*content_parts),
+            border_style=score_color,
+            title=title,
+            padding=(1, 1),
+            box=rich.box.ROUNDED
+        ))
+    
     async def render_stream(
         self,
         stream: AsyncIterator[str],
@@ -626,13 +699,23 @@ class StreamRenderer:
                                     # #endregion
                                     # JSON 解析失败，跳过
                                     pass
+                            elif line.startswith("__EVALUATION__:"):
+                                try:
+                                    json_str = line[15:]  # 移除 "__EVALUATION__:" 前缀
+                                    # 清理 JSON 字符串中的无效字符
+                                    json_str = self._clean_unicode(json_str)
+                                    evaluation_data = json.loads(json_str)
+                                    self._render_evaluation_info(evaluation_data, console)
+                                except (json.JSONDecodeError, KeyError, UnicodeDecodeError) as e:
+                                    # JSON 解析失败，跳过
+                                    pass
                             else:
                                 # 普通内容
                                 full_content += line + "\n"
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
-                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:")):
+                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:")):
                             live.update(full_content + buffer)
                     except KeyboardInterrupt:
                         # 用户按 Ctrl+C，终止流式处理
