@@ -31,6 +31,8 @@ from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
 from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
 from backend.services.llm.llm_service import LLMService
 from shared.debug_utils import DebugOutput
+from backend.core.agent.planning.manager import PlanningManager
+from backend.core.agent.planning.complexity import TaskComplexityAnalyzer
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
 
@@ -47,6 +49,31 @@ class Orchestrator:
         # 代码执行相关组件
         self.auto_code_executor = None
         self.auto_execute_code = True  # 配置项：是否自动执行代码块
+        
+        # 规划文件管理（方案2：集成到 Orchestrator）
+        import os
+        planning_enabled = os.getenv("ENABLE_PLANNING", "true").lower() == "true"
+        self.enable_planning = planning_enabled
+        
+        if self.enable_planning:
+            # 获取规划文件工作目录
+            planning_work_dir = os.getenv("PLANNING_WORK_DIR", None)
+            if planning_work_dir:
+                from pathlib import Path
+                planning_work_dir = Path(planning_work_dir)
+            else:
+                planning_work_dir = PROJECT_ROOT / "plans"
+            
+            self.planning_manager = PlanningManager(work_dir=planning_work_dir)
+            self.complexity_analyzer = TaskComplexityAnalyzer(
+                min_task_length=int(os.getenv("PLANNING_MIN_TASK_LENGTH", "20")),
+                complexity_threshold=float(os.getenv("PLANNING_COMPLEXITY_THRESHOLD", "0.3"))
+            )
+            logger.info("规划功能已启用")
+        else:
+            self.planning_manager = None
+            self.complexity_analyzer = None
+            logger.info("规划功能已禁用")
         
         # 注册天气工具（如果配置了 JWT）
         self._register_tools()
@@ -536,8 +563,62 @@ class Orchestrator:
         yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
+        # 规划功能：检测复杂任务并创建规划文件（方案2）
+        planning_files = None
+        task_plan_content = None
+        if self.enable_planning and self.planning_manager and self.complexity_analyzer:
+            # 判断任务复杂度
+            is_complex = self.complexity_analyzer.is_complex_task(task, history)
+            
+            if is_complex:
+                try:
+                    # 创建规划文件
+                    planning_files = self.planning_manager.create_planning_files(task, session_id)
+                    
+                    # 读取规划文件内容，准备注入到 system_prompt
+                    task_plan_content = self.planning_manager.read_task_plan(session_id)
+                    
+                    debug_info = {
+                        "type": "debug",
+                        "category": "planning",
+                        "message": "检测到复杂任务，已创建规划文件",
+                        "details": {
+                            "task_plan": str(planning_files.task_plan),
+                            "findings": str(planning_files.findings),
+                            "progress": str(planning_files.progress)
+                        }
+                    }
+                    yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+                    logger.info(f"为复杂任务创建规划文件: {planning_files.task_plan}")
+                except Exception as e:
+                    logger.error(f"创建规划文件失败: {str(e)}", exc_info=True)
+                    debug_info = {
+                        "type": "debug",
+                        "category": "planning",
+                        "message": "创建规划文件失败",
+                        "details": {"error": str(e)}
+                    }
+                    yield f"__DEBUG__:{json.dumps(debug_info, ensure_ascii=False)}\n"
+        
         # 构建消息列表（与 process 方法保持一致）
-        system_prompt = """你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。
+        # 如果创建了规划文件，注入规划内容到 system_prompt
+        planning_context = ""
+        if planning_files and task_plan_content:
+            planning_context = f"""
+
+【重要】任务规划文件已创建，请遵循以下规划执行任务：
+
+{task_plan_content[:2000]}  # 限制长度，避免上下文过长
+
+请在执行任务时：
+1. 参考 task_plan.md 中的目标和阶段
+2. 完成每个阶段后，更新阶段状态
+3. 将研究发现记录到 findings.md
+4. 将操作记录到 progress.md
+5. 遇到错误时，记录到 task_plan.md 的错误表
+"""
+        
+        system_prompt = f"""你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。{planning_context}
 
 重要原则：
 - 对于简单的命令执行任务（如显示文件、查看目录、执行脚本等），严格按照用户指令执行，不要添加额外的探索、检查或推理
@@ -1105,6 +1186,37 @@ class Orchestrator:
                             "success": tool_result.success,
                             "error": tool_result.error if not tool_result.success else None
                         })
+                        
+                        # 规划功能：工具调用后，更新规划文件（方案2）
+                        if self.enable_planning and self.planning_manager and planning_files:
+                            try:
+                                # 记录工具调用到 progress.md
+                                self.planning_manager.add_progress(
+                                    f"执行工具: {tool_name}",
+                                    files_modified=[],
+                                    session_id=session_id
+                                )
+                                
+                                # 如果是研究类工具，记录到 findings.md
+                                research_tools = ["google_search", "browser", "wikipedia", "web_fetch"]
+                                if tool_name in research_tools and tool_result.success:
+                                    result_summary = str(tool_result.data)[:200] if tool_result.data else "成功"
+                                    self.planning_manager.add_finding(
+                                        f"工具 {tool_name} 执行结果: {result_summary}",
+                                        category="Research Findings",
+                                        session_id=session_id
+                                    )
+                                
+                                # 如果工具执行失败，记录错误
+                                if not tool_result.success:
+                                    self.planning_manager.add_error(
+                                        f"工具 {tool_name} 执行失败",
+                                        attempt=1,
+                                        resolution=tool_result.error or "未知错误",
+                                        session_id=session_id
+                                    )
+                            except Exception as e:
+                                logger.warning(f"更新规划文件失败: {str(e)}")
                     
                     # 将助手消息添加到消息历史
                     assistant_message = {
