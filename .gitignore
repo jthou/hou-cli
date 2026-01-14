@@ -60,3 +60,5 @@ venv/bin/hou-cli
 
 # 子模块构建产物（不提交编译后的文件）
 backend/externals/ffmpeg/build/
+tags
+TAGS
