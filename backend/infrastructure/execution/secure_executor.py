@@ -1,6 +1,7 @@
 """安全执行包装器"""
 import re
 import logging
+import os
 from typing import Optional
 from pathlib import Path
 
@@ -12,13 +13,13 @@ logger = logging.getLogger(__name__)
 
 class SecureExecutor:
     """安全执行包装器
-    
+
     提供安全检查和命令过滤功能
     """
-    
+
     # 允许的语言
     ALLOWED_LANGUAGES = ["python", "bash", "zsh", "powershell", "batch"]
-    
+
     # 命令白名单
     COMMAND_WHITELIST = [
         "python", "python3", "py",
@@ -26,7 +27,7 @@ class SecureExecutor:
         "pwsh", "powershell",
         "cmd", "cmd.exe"
     ]
-    
+
     # 命令黑名单（危险命令）
     COMMAND_BLACKLIST = [
         "rm", "del", "format", "sudo", "su",
@@ -34,19 +35,22 @@ class SecureExecutor:
         "mkfs", "fdisk", "dd",
         "killall", "pkill"
     ]
-    
+
     # 禁止访问的路径
     RESTRICTED_PATHS = [
         "/etc", "/sys", "/proc", "/dev", "/root",
         "C:\\Windows\\System32", "C:\\Windows\\SysWOW64"
     ]
     
-    # 代码长度限制（字节）
-    MAX_CODE_LENGTH = 10 * 1024  # 10KB
-    
     def __init__(self):
         """初始化安全执行器"""
         self.executor = SubprocessExecutor()
+
+        # 从环境变量读取代码长度限制（单位：KB，默认10KB）
+        max_code_kb = int(os.getenv("MAX_CODE_LENGTH_KB", "10"))
+        self.MAX_CODE_LENGTH = max_code_kb * 1024
+
+        logger.info(f"代码长度限制设置为: {self.MAX_CODE_LENGTH} 字节 ({max_code_kb}KB)")
     
     def _validate_language(self, language: str) -> Optional[str]:
         """验证语言是否允许"""
@@ -55,14 +59,78 @@ class SecureExecutor:
         return None
     
     def _check_command_blacklist(self, code: str) -> Optional[str]:
-        """检查命令是否在黑名单中"""
-        # 简单的关键词检查
+        """检查命令是否在黑名单中
+        
+        智能识别真正的命令调用，避免误判：
+        - 排除字符串字面量中的匹配（单引号、双引号、三引号）
+        - 排除字典键访问（如 ['format'], ["format"]）
+        - 排除变量名中的匹配（如 format_info）
+        - 只匹配真正的命令调用模式
+        """
         code_lower = code.lower()
+        
+        # 检测是否是 Python 代码
+        is_python_code = any(keyword in code_lower for keyword in ['import ', 'def ', 'class ', 'print(', 'if __name__'])
+        
         for dangerous_cmd in self.COMMAND_BLACKLIST:
-            # 检查是否包含危险命令（作为独立命令，不是字符串的一部分）
-            pattern = r'\b' + re.escape(dangerous_cmd) + r'\b'
-            if re.search(pattern, code_lower):
-                return f"Dangerous command '{dangerous_cmd}' is not allowed"
+            if is_python_code:
+                # Python 代码：需要更智能的检测
+                
+                # 1. 先检查是否是真正的命令调用模式（优先级最高）
+                # 匹配模式：subprocess 调用、os.system 调用、os.popen 调用等
+                # 注意：即使命令在字符串中，如果是命令调用，也应该阻止
+                command_patterns = [
+                    r'subprocess\.(call|run|Popen|check_call|check_output)\([^)]*["\']' + re.escape(dangerous_cmd),  # subprocess 调用
+                    r'os\.system\([^)]*["\']' + re.escape(dangerous_cmd),  # os.system 调用
+                    r'os\.popen\([^)]*["\']' + re.escape(dangerous_cmd),  # os.popen 调用
+                    r'Popen\([^)]*["\']' + re.escape(dangerous_cmd),  # Popen 调用
+                ]
+                
+                # 检查是否是真正的命令调用
+                is_command_call = any(re.search(pattern, code_lower) for pattern in command_patterns)
+                if is_command_call:
+                    return f"Dangerous command '{dangerous_cmd}' is not allowed"
+                
+                # 2. 排除字典键访问模式（优先级次之）
+                dict_key_patterns = [
+                    r"\[['\"]" + re.escape(dangerous_cmd) + r"['\"]\]",  # ['format'], ["format"]
+                    r"\.get\(['\"]" + re.escape(dangerous_cmd) + r"['\"]",  # .get('format')
+                    r"\[['\"]" + re.escape(dangerous_cmd) + r"['\"]\s*:",  # {'format': ...}
+                ]
+                if any(re.search(pattern, code_lower) for pattern in dict_key_patterns):
+                    # 是字典键访问，跳过
+                    continue
+                
+                # 3. 排除普通字符串字面量中的匹配（优先级最低）
+                # 匹配单引号、双引号、三引号字符串（包括多行字符串）
+                # 但排除已经在命令调用中的情况（上面已处理）
+                string_patterns = [
+                    r"['\"][^'\"]*" + re.escape(dangerous_cmd) + r"[^'\"]*['\"]",  # 单行字符串
+                    r'"""[\s\S]*?' + re.escape(dangerous_cmd) + r'[\s\S]*?"""',  # 三引号字符串
+                    r"'''[\s\S]*?" + re.escape(dangerous_cmd) + r"[\s\S]*?'''",  # 三单引号字符串
+                ]
+                if any(re.search(pattern, code_lower) for pattern in string_patterns):
+                    # 在字符串中，跳过
+                    continue
+            else:
+                # 非 Python 代码（bash、zsh、powershell 等）
+                # 排除引号字符串中的匹配
+                string_pattern = r'["\'][^"\']*' + re.escape(dangerous_cmd) + r'[^"\']*["\']'
+                if re.search(string_pattern, code_lower):
+                    continue
+                
+                # 匹配独立的命令（单词边界，且不在字符串中）
+                # 匹配行首、空格后、分号后、管道后的命令
+                command_patterns = [
+                    r'^\s*' + re.escape(dangerous_cmd) + r'\b',  # 行首
+                    r'[;\n|&]\s*' + re.escape(dangerous_cmd) + r'\b',  # 分号、换行、管道、&& 后
+                    r'\$\(' + re.escape(dangerous_cmd) + r'\b',  # $(format ...) 命令替换
+                    r'`' + re.escape(dangerous_cmd) + r'\b',  # `format ...` 命令替换
+                ]
+                
+                if any(re.search(pattern, code_lower) for pattern in command_patterns):
+                    return f"Dangerous command '{dangerous_cmd}' is not allowed"
+        
         return None
     
     def _check_restricted_paths(self, code: str) -> Optional[str]:

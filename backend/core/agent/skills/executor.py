@@ -42,11 +42,133 @@ class SkillExecutor:
         if self.progress_callback:
             self.progress_callback(message)
     
+    def _is_simple_expression(self, expression: str) -> bool:
+        """
+        判断表达式是否简单（可以使用规则式求值）
+        
+        简单表达式特征：
+        - 单个变量引用：${variable}
+        - 简单的字段访问：${steps[0].field}, ${input.field}, ${config.field}
+        - 不包含复杂逻辑运算符或嵌套表达式
+        """
+        if not expression or not isinstance(expression, str):
+            return True
+        
+        # 检查是否包含复杂操作符
+        complex_ops = [' and ', ' or ', ' not ', '==', '!=', '<', '>', '<=', '>=', 'file_exists(']
+        if any(op in expression for op in complex_ops):
+            return False
+        
+        # 检查嵌套深度（多个 ${}）
+        import re
+        matches = re.findall(r'\$\{[^}]+\}', expression)
+        if len(matches) > 1:
+            return False
+        
+        # 单个变量引用，简单
+        return True
+    
+    async def _evaluate_expression_with_llm(self, expression: str, context: Dict[str, Any]) -> Any:
+        """
+        使用 LLM 求值表达式
+        
+        优势：
+        - 可以理解复杂的表达式逻辑
+        - 更好的错误处理
+        - 更容易扩展新语法
+        """
+        import json
+        
+        logger.debug(f"[表达式求值-LLM] 开始求值表达式: {expression}")
+        
+        # 准备上下文信息（限制大小，避免 token 过多）
+        context_info = {
+            'input': context.get('input', {}),
+            'config': context.get('config', {}),
+            'step_results': context.get('step_results', [])[:5],  # 只取前5个步骤
+        }
+        
+        prompt = f"""
+根据以下上下文求值表达式：
+
+表达式: {expression}
+
+上下文:
+- input: {json.dumps(context_info['input'], ensure_ascii=False, default=str)[:1000]}
+- config: {json.dumps(context_info['config'], ensure_ascii=False, default=str)[:1000]}
+- step_results: {json.dumps(context_info['step_results'], ensure_ascii=False, default=str)[:2000]}
+
+支持的语法：
+- ${{steps[N].field}}: 访问步骤结果（step_results 是列表，索引从 0 开始）
+- ${{input.field}}: 访问输入参数
+- ${{config.field}}: 访问配置参数
+- ${{result.field}}: 访问工具执行结果
+- ${{file_exists(path)}}: 文件存在检查（返回 True/False）
+- 逻辑运算符: ==, !=, <, >, <=, >=, and, or, not
+- 布尔值: true, false
+
+重要规则：
+1. 如果变量不存在或为 None，返回 None 或 False（根据上下文）
+2. 布尔值比较时，注意类型转换（字符串 "true" 应视为 True）
+3. 文件路径检查时，注意路径格式（可能包含引号）
+
+请返回求值结果（JSON 格式）：
+{{"result": <求值结果>, "type": "<结果类型: bool|int|float|str|None>"}}
+
+只返回 JSON，不要包含其他说明文字。
+"""
+        
+        try:
+            response = await self.llm_service.chat(
+                system_prompt="你是一个表达式求值专家。请根据上下文求值表达式，返回 JSON 格式的结果。确保结果类型正确（布尔值、数字、字符串等）。",
+                user_prompt=prompt,
+                model='bailian-kimi-k2-thinking'
+            )
+            
+            # 解析响应
+            # 尝试提取 JSON
+            import re
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+            if json_match:
+                result_data = json.loads(json_match.group(0))
+                result = result_data.get('result')
+                result_type = result_data.get('type', 'unknown')
+                
+                logger.debug(f"[表达式求值-LLM] 求值成功: {expression} -> {result} (type: {result_type})")
+                
+                # 根据类型转换结果
+                if result_type == 'bool' and isinstance(result, str):
+                    return result.lower() in ('true', '1', 'yes', 'on')
+                elif result_type == 'int' and isinstance(result, str):
+                    try:
+                        return int(result)
+                    except ValueError:
+                        pass
+                elif result_type == 'float' and isinstance(result, str):
+                    try:
+                        return float(result)
+                    except ValueError:
+                        pass
+                
+                return result
+            else:
+                # 如果没有找到 JSON，尝试直接解析响应
+                logger.warning(f"[表达式求值-LLM] 无法从响应中提取 JSON: {response[:200]}")
+                # 回退到规则式
+                return None
+                
+        except Exception as e:
+            logger.warning(f"[表达式求值-LLM] LLM 求值失败: {expression}, 错误: {e}")
+            # 回退到规则式
+            return None
+    
     def _evaluate_expression(self, expression: str, context: Dict[str, Any]) -> Any:
         """
         计算表达式（简单的变量替换和条件判断）
         
-        使用统一的表达式求值工具，确保鲁棒性
+        使用混合策略：
+        - 简单表达式：使用规则式（快速）
+        - 复杂表达式：使用 LLM（灵活）
         
         支持的语法：
         - ${variable} - 变量替换
@@ -67,16 +189,77 @@ class SkillExecutor:
         if 'steps' in context:
             logger.debug(f"[表达式求值] steps type: {type(context.get('steps'))}, value: {context.get('steps')}")
         
-        # 使用统一的表达式求值工具
+        # 判断表达式复杂度
+        is_simple = self._is_simple_expression(expression)
+        logger.debug(f"[表达式求值] 表达式复杂度: {'简单' if is_simple else '复杂'}")
+        
+        # 简单表达式：使用规则式（快速）
+        if is_simple:
+            try:
+                from backend.core.agent.utils.expression_utils import ExpressionEvaluator
+                evaluator = ExpressionEvaluator(context)
+                result = evaluator.evaluate(expression)
+                logger.debug(f"[表达式求值] 规则式求值结果: {result}")
+                return result
+            except Exception as e:
+                logger.warning(f"[表达式求值] 规则式求值失败，尝试 LLM: {e}")
+                # 如果规则式失败，尝试 LLM
+        
+        # 复杂表达式：回退到规则式（LLM 调用需要在异步上下文中）
+        # 注意：复杂表达式的 LLM 求值需要在异步方法中调用 _evaluate_expression_async
+        logger.debug(f"[表达式求值] 复杂表达式，使用规则式求值: {expression}")
+        
+        # 回退到规则式（保留原有逻辑作为后备）
         try:
             from backend.core.agent.utils.expression_utils import ExpressionEvaluator
             evaluator = ExpressionEvaluator(context)
             result = evaluator.evaluate(expression)
-            logger.debug(f"[表达式求值] 使用统一工具求值结果: {result}")
+            logger.debug(f"[表达式求值] 规则式求值结果: {result}")
             return result
         except Exception as e:
-            logger.warning(f"[表达式求值] 统一工具求值失败，回退到旧方法: {e}")
+            logger.warning(f"[表达式求值] 规则式求值失败: {e}")
             # 回退到旧的实现（保留原有逻辑作为后备）
+    
+    async def _evaluate_expression_async(self, expression: str, context: Dict[str, Any]) -> Any:
+        """
+        异步版本的表达式求值（支持 LLM）
+        
+        在异步上下文中使用此方法，可以充分利用 LLM 求值复杂表达式
+        """
+        # 判断表达式复杂度
+        is_simple = self._is_simple_expression(expression)
+        logger.debug(f"[表达式求值-异步] 表达式复杂度: {'简单' if is_simple else '复杂'}")
+        
+        # 简单表达式：使用规则式（快速）
+        if is_simple:
+            try:
+                from backend.core.agent.utils.expression_utils import ExpressionEvaluator
+                evaluator = ExpressionEvaluator(context)
+                result = evaluator.evaluate(expression)
+                logger.debug(f"[表达式求值-异步] 规则式求值结果: {result}")
+                return result
+            except Exception as e:
+                logger.warning(f"[表达式求值-异步] 规则式求值失败，尝试 LLM: {e}")
+        
+        # 复杂表达式：使用 LLM
+        try:
+            result = await self._evaluate_expression_with_llm(expression, context)
+            if result is not None:
+                logger.debug(f"[表达式求值-异步] LLM 求值结果: {result}")
+                return result
+        except Exception as e:
+            logger.warning(f"[表达式求值-异步] LLM 求值失败，回退到规则式: {e}")
+        
+        # 回退到规则式
+        try:
+            from backend.core.agent.utils.expression_utils import ExpressionEvaluator
+            evaluator = ExpressionEvaluator(context)
+            result = evaluator.evaluate(expression)
+            logger.debug(f"[表达式求值-异步] 规则式求值结果: {result}")
+            return result
+        except Exception as e:
+            logger.warning(f"[表达式求值-异步] 规则式求值失败: {e}")
+            return None
         
         # 替换变量（旧实现，作为后备）
         def replace_var(match):
@@ -359,18 +542,12 @@ class SkillExecutor:
                                 if isinstance(value, bool):
                                     return 'True' if value else 'False'
                                 elif isinstance(value, str):
-                                        if value.lower() == 'true':
-                                            return 'True'
-                                        elif value.lower() == 'false':
-                                            return 'False'
-                                        else:
-                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
-                                            # 否则使用 repr() 来正确转义字符串
-                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
-                                                # 字符串值已经带引号，直接返回（移除外层引号）
-                                                return value[1:-1]
-                                            else:
-                                                return repr(value)
+                                    if value.lower() == 'true':
+                                        return 'True'
+                                    elif value.lower() == 'false':
+                                        return 'False'
+                                    else:
+                                        return repr(value)
                                 elif isinstance(value, (int, float)):
                                     return str(value)
                                 elif value is None:
@@ -384,18 +561,18 @@ class SkillExecutor:
                                 if isinstance(value, bool):
                                     return 'True' if value else 'False'
                                 elif isinstance(value, str):
-                                        if value.lower() == 'true':
-                                            return 'True'
-                                        elif value.lower() == 'false':
-                                            return 'False'
+                                    if value.lower() == 'true':
+                                        return 'True'
+                                    elif value.lower() == 'false':
+                                        return 'False'
+                                    else:
+                                        # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                                        # 否则使用 repr() 来正确转义字符串
+                                        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                            # 字符串值已经带引号，直接返回（移除外层引号）
+                                            return value[1:-1]
                                         else:
-                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
-                                            # 否则使用 repr() 来正确转义字符串
-                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
-                                                # 字符串值已经带引号，直接返回（移除外层引号）
-                                                return value[1:-1]
-                                            else:
-                                                return repr(value)
+                                            return repr(value)
                                 elif isinstance(value, (int, float)):
                                     return str(value)
                                 elif value is None:
@@ -409,18 +586,18 @@ class SkillExecutor:
                                 if isinstance(value, bool):
                                     return 'True' if value else 'False'
                                 elif isinstance(value, str):
-                                        if value.lower() == 'true':
-                                            return 'True'
-                                        elif value.lower() == 'false':
-                                            return 'False'
+                                    if value.lower() == 'true':
+                                        return 'True'
+                                    elif value.lower() == 'false':
+                                        return 'False'
+                                    else:
+                                        # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                                        # 否则使用 repr() 来正确转义字符串
+                                        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                            # 字符串值已经带引号，直接返回（移除外层引号）
+                                            return value[1:-1]
                                         else:
-                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
-                                            # 否则使用 repr() 来正确转义字符串
-                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
-                                                # 字符串值已经带引号，直接返回（移除外层引号）
-                                                return value[1:-1]
-                                            else:
-                                                return repr(value)
+                                            return repr(value)
                                 elif isinstance(value, (int, float)):
                                     return str(value)
                                 elif value is None:
@@ -503,18 +680,18 @@ class SkillExecutor:
                         return 'True' if value else 'False'
                     # 处理字符串 "true"/"false"
                     elif isinstance(value, str):
-                                        if value.lower() == 'true':
-                                            return 'True'
-                                        elif value.lower() == 'false':
-                                            return 'False'
-                                        else:
-                                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
-                                            # 否则使用 repr() 来正确转义字符串
-                                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
-                                                # 字符串值已经带引号，直接返回（移除外层引号）
-                                                return value[1:-1]
-                                            else:
-                                                return repr(value)
+                        if value.lower() == 'true':
+                            return 'True'
+                        elif value.lower() == 'false':
+                            return 'False'
+                        else:
+                            # 如果字符串值本身已经包含引号，直接返回（避免双重引号）
+                            # 否则使用 repr() 来正确转义字符串
+                            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                                # 字符串值已经带引号，直接返回（移除外层引号）
+                                return value[1:-1]
+                            else:
+                                return repr(value)
                     elif isinstance(value, (int, float)):
                         return str(value)
                     elif value is None:
@@ -740,6 +917,118 @@ class SkillExecutor:
         resolver = InputResolver(context)
         resolved = resolver.resolve(inputs, tool_name)
         
+        # 特殊处理：对于 code_executor 工具的 code 参数，只替换代码中的 ${...} 表达式
+        # 而不是对整个代码字符串进行表达式求值
+        if tool_name == 'execute_code' and 'code' in resolved:
+            code_value = resolved['code']
+            if isinstance(code_value, str) and '${' in code_value:
+                # 代码字符串中包含 ${...} 表达式，需要替换
+                import re
+                
+                def is_in_string_literal(code: str, pos: int):
+                    """
+                    检测位置 pos 是否在字符串字面量中
+                    
+                    Returns:
+                        (是否在字符串中, 字符串引号类型: 'single'/'double'/'triple_single'/'triple_double'/None)
+                    """
+                    # 向前查找最近的引号
+                    before = code[:pos]
+                    
+                    # 查找三引号字符串（优先级最高）
+                    triple_double_before = before.rfind('"""')
+                    triple_single_before = before.rfind("'''")
+                    
+                    # 查找最近的引号类型
+                    last_triple = max(triple_double_before, triple_single_before)
+                    if last_triple >= 0:
+                        # 检查是否在三引号字符串中
+                        after_triple = code[last_triple + 3:]
+                        next_triple_double = after_triple.find('"""')
+                        next_triple_single = after_triple.find("'''")
+                        
+                        # 检查下一个三引号是否在当前表达式之后
+                        expr_start = pos
+                        if triple_double_before >= triple_single_before:
+                            if next_triple_double >= 0:
+                                next_triple_pos = last_triple + 3 + next_triple_double
+                                if next_triple_pos > expr_start:
+                                    return True, 'triple_double'
+                        else:
+                            if next_triple_single >= 0:
+                                next_triple_pos = last_triple + 3 + next_triple_single
+                                if next_triple_pos > expr_start:
+                                    return True, 'triple_single'
+                    
+                    # 查找单引号和双引号（需要排除三引号的情况）
+                    # 简单方法：统计引号数量（奇数表示在字符串中）
+                    single_quotes = before.count("'") - before.count("'''") * 3
+                    double_quotes = before.count('"') - before.count('"""') * 3
+                    
+                    # 检查是否在单引号字符串中
+                    if single_quotes % 2 == 1:
+                        # 检查是否在三引号中（已处理）
+                        if last_triple < 0 or triple_single_before < last_triple:
+                            return True, 'single'
+                    
+                    # 检查是否在双引号字符串中
+                    if double_quotes % 2 == 1:
+                        # 检查是否在三引号中（已处理）
+                        if last_triple < 0 or triple_double_before < last_triple:
+                            return True, 'double'
+                    
+                    return False, None
+                
+                def replace_expr_in_code(match):
+                    """替换代码中的表达式（上下文感知）"""
+                    expr = match.group(0)  # 完整的 ${...} 表达式
+                    expr_start = match.start()
+                    
+                    try:
+                        from backend.core.agent.utils.expression_utils import ExpressionEvaluator
+                        evaluator = ExpressionEvaluator(context)
+                        result = evaluator.evaluate(expr)
+                        
+                        # 如果求值成功，替换为结果
+                        if result is not None:
+                            # 检测表达式是否在字符串字面量中
+                            in_string, quote_type = is_in_string_literal(code_value, expr_start)
+                            
+                            if in_string:
+                                # 在字符串字面量中：直接替换为值（不添加引号）
+                                if isinstance(result, str):
+                                    # 字符串：直接返回（已经在字符串字面量中）
+                                    return result
+                                elif isinstance(result, (dict, list)):
+                                    # 字典或列表：序列化为 JSON 字符串（不添加引号）
+                                    import json
+                                    return json.dumps(result, ensure_ascii=False)
+                                else:
+                                    # 其他类型：转换为字符串
+                                    return str(result)
+                            else:
+                                # 不在字符串字面量中：根据类型格式化（添加引号）
+                                if isinstance(result, str):
+                                    # 字符串：使用 repr 确保引号正确
+                                    return repr(result)
+                                elif isinstance(result, (dict, list)):
+                                    # 字典或列表：使用 json.dumps（会添加引号）
+                                    import json
+                                    return json.dumps(result, ensure_ascii=False)
+                                else:
+                                    return repr(result)
+                        else:
+                            # 如果求值失败，保留原始表达式
+                            logger.warning(f"代码中的表达式求值返回 None: {expr}，保留原始表达式")
+                            return expr
+                    except Exception as e:
+                        logger.debug(f"替换代码中的表达式失败: {expr}, 错误: {e}，保留原始表达式")
+                        return expr
+                
+                # 替换所有 ${...} 表达式
+                resolved['code'] = re.sub(r'\$\{[^}]+\}', replace_expr_in_code, code_value)
+                logger.debug(f"已替换代码中的表达式: {len(re.findall(r'\$\{[^}]+\}', code_value))} 个表达式")
+        
         # #region agent log
         try:
             import json
@@ -791,7 +1080,7 @@ class SkillExecutor:
                 condition_expr = step['condition']
                 logger.debug(f"[步骤执行] {step_name} 检查 condition: {condition_expr}")
                 logger.debug(f"[步骤执行] {step_name} 当前 context: step_results type={type(context.get('step_results'))}, steps type={type(context.get('steps'))}")
-                condition = self._evaluate_expression(condition_expr, context)
+                condition = await self._evaluate_expression_async(condition_expr, context)
                 logger.debug(f"[步骤执行] {step_name} condition 结果: {condition}, type: {type(condition)}")
                 
                 # #region agent log
@@ -826,7 +1115,7 @@ class SkillExecutor:
                 skip_expr = step['skip_if']
                 logger.debug(f"[步骤执行] {step_name} 检查 skip_if: {skip_expr}")
                 logger.debug(f"[步骤执行] {step_name} 当前 context: step_results type={type(context.get('step_results'))}, steps type={type(context.get('steps'))}")
-                skip_condition = self._evaluate_expression(skip_expr, context)
+                skip_condition = await self._evaluate_expression_async(skip_expr, context)
                 logger.debug(f"[步骤执行] {step_name} skip_if 结果: {skip_condition}, type: {type(skip_condition)}")
                 
                 # #region agent log
@@ -874,8 +1163,9 @@ class SkillExecutor:
                 return await self._execute_tool_step(step, context)
             elif step_type == 'llm_call':
                 return await self._execute_llm_step(step, context)
-            elif step_type == 'code_executor':
-                return await self._execute_code_step(step, context)
+            elif step_type == 'code_executor' or step_type == 'llm_code_generator':
+                # code_executor 已废弃，统一使用 llm_code_generator
+                return await self._execute_llm_code_generator_step(step, context)
             elif step_type == 'loop':
                 return await self._execute_loop_step(step, context)
             else:
@@ -1029,16 +1319,18 @@ class SkillExecutor:
                     else:
                         outputs[output_key] = None
                 else:
-                    outputs[output_key] = self._evaluate_expression(str(output_expr), result_context)
+                    outputs[output_key] = await self._evaluate_expression_async(str(output_expr), result_context)
         
         return outputs
     
     async def _execute_llm_step(self, step: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """执行 LLM 调用步骤"""
-        prompt = step.get('prompt', '')
+        # 优先从 inputs 中获取（标准格式），如果没有则从 step 中获取（向后兼容）
+        inputs = step.get('inputs', {})
+        prompt = step.get('prompt', '') or inputs.get('prompt', '')
         
         # 解析 prompt 中的变量
-        resolved_prompt = self._evaluate_expression(prompt, context)
+        resolved_prompt = await self._evaluate_expression_async(prompt, context)
         
         # 调用 LLM
         response = await self.llm_service.chat(
@@ -1053,345 +1345,383 @@ class SkillExecutor:
                 if output_expr == '${result.text}':
                     outputs[output_key] = response
                 else:
-                    outputs[output_key] = self._evaluate_expression(str(output_expr), context)
+                    outputs[output_key] = await self._evaluate_expression_async(str(output_expr), context)
         
         return outputs
     
-    async def _execute_code_step(self, step: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """执行代码执行步骤"""
-        code = step.get('code', '')
-        if isinstance(code, str):
-            # 对于多行代码字符串，先尝试解析变量，但如果解析后不是字符串，保持原样
-            # 注意：代码中的 ${...} 表达式需要特殊处理，不能全部替换
-            # 这里只替换明确的变量引用，保留代码结构
-            resolved_code = code
-            # 只替换明确的变量引用（如 ${input.field}, ${steps[N].field}）
-            # 但不替换代码中的其他 ${...} 结构
-            import re
-            def replace_var_safe(match):
-                var_expr = match.group(1)
-                # 只替换明确的变量引用
-                if var_expr.startswith('input.') or var_expr.startswith('steps[') or var_expr.startswith('config.'):
-                    return self._evaluate_expression(f"${{{var_expr}}}", context)
-                return match.group(0)  # 保持原样
-            
-            # 替换变量引用
-            resolved_code = re.sub(r'\$\{(input\.|steps\[|config\.)([^}]+)\}', replace_var_safe, code)
-        else:
-            resolved_code = str(code) if code else ''
-        
-        # 注入变量到代码执行环境（input, config, context）
-        # 这些变量需要在代码执行时可用，但不能与 Python 内置函数冲突
-        # 解决方案：在代码开头注入变量定义，只注入可序列化的数据
+    async def _execute_llm_code_generator_step(self, step: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """执行 LLM 代码生成步骤（替代静态代码执行）"""
         import json
-        injection_code = []
         
-        # 确保 json 模块已导入
-        has_json_import = False
+        # 1. 获取 prompt 和 code（code 可能在 inputs 中，也可能直接在 step 中）
+        # 优先从 inputs 中获取（标准格式），如果没有则从 step 中获取（向后兼容）
+        inputs = step.get('inputs', {})
+        prompt = step.get('prompt', '') or inputs.get('prompt', '')
+        code = step.get('code', '') or inputs.get('code', '')
         
-        # 注入 input 变量（从 context['input'] 获取）
-        if 'input' in context:
-            input_data = context['input']
-            # 只序列化可序列化的数据
-            try:
-                # 尝试 JSON 序列化（只支持基本类型）
-                input_json = json.dumps(input_data, ensure_ascii=False, default=str)
-                if not has_json_import:
-                    injection_code.append("import json")
-                    has_json_import = True
-                injection_code.append(f"input = json.loads({json.dumps(input_json)})")
-            except:
-                # 如果 JSON 序列化失败，创建一个空字典
-                injection_code.append("input = {}")
-        else:
-            injection_code.append("input = {}")
+        # 如果提供了 code，说明是旧的 code_executor 格式，需要转换为 prompt
+        if code and not prompt:
+            # 先替换代码中的表达式（${...} 语法）
+            # 使用正则表达式替换代码中的所有 ${...} 表达式（上下文感知）
+            import re
+            resolved_code = code
+            
+            def is_in_string_literal(code: str, pos: int):
+                """
+                检测位置 pos 是否在字符串字面量中
+                
+                Returns:
+                    (是否在字符串中, 字符串引号类型: 'single'/'double'/'triple_single'/'triple_double'/None)
+                """
+                # 向前查找最近的引号
+                before = code[:pos]
+                
+                # 查找三引号字符串（优先级最高）
+                triple_double_before = before.rfind('"""')
+                triple_single_before = before.rfind("'''")
+                
+                # 查找最近的引号类型
+                last_triple = max(triple_double_before, triple_single_before)
+                if last_triple >= 0:
+                    # 检查是否在三引号字符串中
+                    after_triple = code[last_triple + 3:]
+                    next_triple_double = after_triple.find('"""')
+                    next_triple_single = after_triple.find("'''")
         
-        # 注入 config 变量（从 context['config'] 获取，如果不存在则创建空字典）
-        if 'config' in context:
-            config_data = context['config']
-            # config 需要是可变的字典，使用 JSON 序列化
-            try:
-                config_json = json.dumps(config_data, ensure_ascii=False, default=str)
-                if not has_json_import:
-                    injection_code.append("import json")
-                    has_json_import = True
-                injection_code.append(f"config = json.loads({json.dumps(config_json)})")
-            except:
-                injection_code.append("config = {}")
-        else:
-            injection_code.append("config = {}")
-        
-        # 注入 steps 变量（从 context['step_results'] 或 context['steps'] 获取）
-        # steps 用于在代码中访问之前步骤的结果
-        steps_data = []
-        if 'steps' in context:
-            # 如果 context 中有 steps（循环步骤中的步骤结果）
-            steps_data = context['steps']
-        elif 'step_results' in context:
-            # 否则使用 step_results
-            steps_data = context['step_results']
-        
-        # 序列化 steps 数据
-        try:
-            steps_json = json.dumps(steps_data, ensure_ascii=False, default=str)
-            if not has_json_import:
-                injection_code.append("import json")
-                has_json_import = True
-            injection_code.append(f"steps = json.loads({json.dumps(steps_json)})")
-        except:
-            injection_code.append("steps = []")
-        
-        # 注入 context 变量（从 context 获取，但排除 input、config、step_results、steps 避免循环）
-        # 只注入可序列化的基本类型，对象类型跳过（因为它们无法在独立执行环境中使用）
-        # 但是，我们需要提供一个机制让代码可以访问 tool_registry
-        context_data = {}
-        for k, v in context.items():
-            if k in ['input', 'config', 'step_results', 'steps']:
-                continue
-            # 只保留可序列化的基本类型
-            if isinstance(v, (str, int, float, bool, type(None))):
-                context_data[k] = v
-            elif isinstance(v, (dict, list)):
-                # 尝试序列化字典和列表（递归检查内容是否可序列化）
+                    # 检查下一个三引号是否在当前表达式之后
+                    expr_start = pos
+                    if triple_double_before >= triple_single_before:
+                        if next_triple_double >= 0:
+                            next_triple_pos = last_triple + 3 + next_triple_double
+                            if next_triple_pos > expr_start:
+                                return True, 'triple_double'
+                    else:
+                        if next_triple_single >= 0:
+                            next_triple_pos = last_triple + 3 + next_triple_single
+                            if next_triple_pos > expr_start:
+                                return True, 'triple_single'
+                
+                # 查找单引号和双引号（需要排除三引号的情况）
+                # 简单方法：统计引号数量（奇数表示在字符串中）
+                single_quotes = before.count("'") - before.count("'''") * 3
+                double_quotes = before.count('"') - before.count('"""') * 3
+                
+                # 检查是否在单引号字符串中
+                if single_quotes % 2 == 1:
+                    # 检查是否在三引号中（已处理）
+                    if last_triple < 0 or triple_single_before < last_triple:
+                        return True, 'single'
+                
+                # 检查是否在双引号字符串中
+                if double_quotes % 2 == 1:
+                    # 检查是否在三引号中（已处理）
+                    if last_triple < 0 or triple_double_before < last_triple:
+                        return True, 'double'
+                
+                return False, None
+            
+            def replace_expr_in_code(match):
+                """替换代码中的表达式（上下文感知）"""
+                expr = match.group(0)  # 完整的 ${...} 表达式
+                expr_start = match.start()
+                
                 try:
-                    json.dumps(v, default=str)  # 测试是否可以序列化
-                    context_data[k] = v
-                except:
-                    # 如果无法序列化，跳过（不转换为字符串，因为字符串表示无法使用）
-                    pass
-            # 对于对象类型（如 tool_registry, llm_service 等），完全跳过
-            # 因为这些对象无法在独立的 subprocess 中使用
-        
-        # 特殊处理：为 tool_registry 创建一个代理机制
-        # 在代码中，可以通过一个特殊的函数来调用工具
-        # 由于代码在独立的 subprocess 中执行，我们需要通过代码注入来实现工具调用
-        if 'tool_registry' in context:
-            tool_registry = context['tool_registry']
-            # 注入一个工具调用函数，通过序列化工具参数和结果来实现
-            # 注意：这需要在代码执行时通过某种机制来实现
-            # 暂时先跳过，后续可以通过修改代码执行逻辑来实现
-            # 但是，我们可以通过修改代码来使用 tool 类型步骤，而不是在代码中直接调用工具
-            pass
-        
-        # 序列化 context_data
-        try:
-            context_json = json.dumps(context_data, ensure_ascii=False, default=str)
-            if not has_json_import:
-                injection_code.append("import json")
-                has_json_import = True
-            injection_code.append(f"context = json.loads({json.dumps(context_json)})")
-        except:
-            # 如果序列化失败，创建最小化的 context
-            context_minimal = {k: str(v) for k, v in context_data.items() if isinstance(v, (str, int, float, bool, type(None)))}
-            if context_minimal:
-                context_json = json.dumps(context_minimal, ensure_ascii=False)
-                if not has_json_import:
-                    injection_code.append("import json")
-                    has_json_import = True
-                injection_code.append(f"context = json.loads({json.dumps(context_json)})")
-            else:
-                injection_code.append("context = {}")
-        
-        # 特殊处理：如果代码中需要访问 tool_registry，我们需要注入一个工具调用机制
-        # 由于代码在独立的 subprocess 中执行，无法直接访问对象
-        # 我们通过注入一个工具调用函数来实现：通过 JSON 输出特殊标记，由 SkillExecutor 拦截并执行
-        if 'tool_registry' in context:
-            tool_registry = context['tool_registry']
-            # 在代码开头注入一个工具调用函数
-            # 这个函数会通过 JSON 输出特殊标记，SkillExecutor 会拦截并执行工具调用
-            tool_call_code = """
-import json
-import sys
+                    # 使用同步版本的表达式求值（因为这是在字符串替换中）
+                    from backend.core.agent.utils.expression_utils import ExpressionEvaluator
+                    evaluator = ExpressionEvaluator(context)
+                    result = evaluator.evaluate(expr)
+                    
+                    # 如果求值成功，替换为结果
+                    if result is not None:
+                        # 检测表达式是否在字符串字面量中
+                        in_string, quote_type = is_in_string_literal(code, expr_start)
+                        
+                        if in_string:
+                            # 在字符串字面量中：直接替换为值（不添加引号）
+                            if isinstance(result, str):
+                                # 字符串：直接返回（已经在字符串字面量中）
+                                return result
+                            elif isinstance(result, (dict, list)):
+                                # 字典或列表：序列化为 JSON 字符串（不添加引号）
+                                import json
+                                return json.dumps(result, ensure_ascii=False)
+                            else:
+                                # 其他类型：转换为字符串
+                                return str(result)
+                        else:
+                            # 不在字符串字面量中：根据类型格式化（添加引号）
+                            if isinstance(result, str):
+                                # 字符串：使用 repr 确保引号正确
+                                return repr(result)
+                            elif isinstance(result, (dict, list)):
+                                # 字典或列表：使用 json.dumps（会添加引号）
+                                import json
+                                return json.dumps(result, ensure_ascii=False)
+                            else:
+                                return repr(result)
+                    else:
+                        # 如果求值失败，保留原始表达式
+                        logger.warning(f"代码中的表达式求值返回 None: {expr}，保留原始表达式")
+                        return expr
+                except Exception as e:
+                    logger.debug(f"替换代码中的表达式失败: {expr}, 错误: {e}，保留原始表达式")
+                    return expr
+            
+            # 替换所有 ${...} 表达式
+            resolved_code = re.sub(r'\$\{[^}]+\}', replace_expr_in_code, resolved_code)
+            
+            # 将静态代码转换为 prompt，让 LLM 理解任务并生成代码
+            prompt = f"""
+请根据以下代码逻辑生成 Python 代码来完成相同的任务。
 
-# 工具调用代理函数（通过 JSON 输出特殊标记）
-def call_tool(tool_name, **kwargs):
-    \"\"\"调用工具（通过 JSON 输出特殊标记）\"\"\"
-    # 输出特殊标记，SkillExecutor 会拦截并执行
-    call_request = {
-        '__tool_call__': True,
-        'tool_name': tool_name,
-        'kwargs': kwargs
-    }
-    print(json.dumps(call_request, ensure_ascii=False))
-    sys.stdout.flush()
-    # 从 stdin 读取结果（SkillExecutor 会写入）
-    # 注意：这需要 SkillExecutor 支持双向通信
-    # 暂时返回占位符
-    return {'success': False, 'error': '工具调用需要 SkillExecutor 支持'}
+原始代码（已替换变量）：
+```python
+{resolved_code}
+```
 
-# 为了兼容性，提供一个占位符
-tool_registry = None  # 在代码执行环境中不可用，请使用 call_tool() 函数
+任务说明：
+- 这段代码需要处理输入参数和上下文数据
+- 请生成功能相同的代码，但使用更健壮的错误处理
+- 代码应该返回 JSON 格式的结果
+- 重要：代码中应该直接使用变量名（如 input, steps），而不是使用 ${{...}} 语法
+
+可用变量（已注入到执行环境，直接使用即可）：
+- input: 输入参数（字典）
+- steps: 之前步骤的结果（列表）
+- config: 配置信息（字典）
 """
-            resolved_code = tool_call_code + "\n" + resolved_code
         
-        # 将注入代码添加到代码开头
-        if injection_code:
-            resolved_code = "\n".join(injection_code) + "\n" + resolved_code
+        if not prompt:
+            raise ValueError("llm_code_generator 步骤必须提供 prompt 或 code 参数")
         
-        # 使用 code_executor 工具执行代码
+        # 2. 解析 prompt 中的变量（如果 prompt 中还有 ${...} 表达式）
+        resolved_prompt = await self._evaluate_expression_async(prompt, context)
+        
+        # 3. 构建完整的 prompt（包含上下文信息）
+        context_info = {
+            'input': context.get('input', {}),
+            'steps': context.get('step_results', []),
+            'config': context.get('config', {})
+        }
+        
+        full_prompt = f"""
+{resolved_prompt}
+
+可用变量（已注入到执行环境，直接使用即可）：
+- input: {json.dumps(context_info['input'], ensure_ascii=False, default=str)[:500]}
+- steps: 之前步骤的结果列表（长度为 {len(context_info['steps'])}）
+- config: {json.dumps(context_info['config'], ensure_ascii=False, default=str)[:500]}
+
+代码要求：
+1. 使用上述变量（不需要导入，它们已经在作用域中）
+2. 返回 JSON 格式的结果（使用 json.dumps）
+3. 包含详细的错误处理和异常捕获
+4. 代码应该可以直接执行，不需要额外的依赖
+5. 如果遇到错误，返回包含 'error' 字段的字典
+
+请只返回 Python 代码，不要包含其他说明文字。
+"""
+        
+        # 4. 调用 LLM 生成代码
+        # 优先从 inputs 中获取（标准格式），如果没有则从 step 中获取（向后兼容）
+        model = inputs.get('model') or step.get('model', 'bailian-kimi-k2-thinking')
+        logger.info(f"🎯 选择代码生成模型: {model}")
+
+        # 先设置模型，然后调用 chat
+        self.llm_service.set_model(model)
+        response = await self.llm_service.chat(
+            system_prompt="你是一个专业的 Python 代码生成专家。请根据用户的需求生成可执行的 Python 代码。代码应该健壮、包含错误处理，并返回 JSON 格式的结果。",
+            user_prompt=full_prompt
+        )
+        
+        # 5. 提取代码（从 markdown code block 中提取）
+        generated_code = self._extract_code_from_response(response)
+        
+        if not generated_code:
+            raise ValueError(f"LLM 未能生成有效代码。响应: {response[:200]}")
+        
+        logger.debug(f"生成的代码:\n{generated_code[:500]}")
+        
+        # 6. 准备执行环境（注入变量）
+        execution_code = self._prepare_execution_environment(context, generated_code)
+        
+        # 7. 执行代码
         code_executor = self.tool_registry.get_tool('execute_code')
         if not code_executor:
-            raise ValueError("code_executor 工具未找到")
+            raise ValueError("execute_code 工具未找到")
         
-        # CodeExecutorTool 有 _execute_async 方法，直接调用
         if hasattr(code_executor, '_execute_async'):
-            # 需要提供 language 参数
             tool_result = await code_executor._execute_async(
-                code=resolved_code,
+                code=execution_code,
                 language='python',
                 timeout=300,
-                explanation='技能工作流步骤：代码执行'
+                explanation='LLM 生成的代码执行'
             )
         else:
-            # 使用同步方法（在线程池中执行）
             import asyncio
             import concurrent.futures
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
                     code_executor.execute,
-                    code=resolved_code,
+                    code=execution_code,
                     language='python',
                     timeout=300
                 )
                 tool_result = await loop.run_in_executor(None, future.result)
         
         if not tool_result.success:
-            raise Exception(f"代码执行失败: {tool_result.error}")
+            error_msg = tool_result.error or "代码执行失败"
+            logger.error(f"代码执行失败: {error_msg}")
+            logger.error(f"生成的代码:\n{generated_code}")
+            raise Exception(f"代码执行失败: {error_msg}")
         
-        # 处理工具调用请求（如果代码中调用了 call_tool）
-        if tool_result.data:
+        # 8. 解析输出（JSON）
             output_text = tool_result.data.get('output', '') or tool_result.data.get('stdout', '')
-            if output_text:
-                import json
-                lines = output_text.strip().split('\n')
-                tool_calls = []
-                other_output = []
-                
-                # 解析输出，分离工具调用请求和其他输出
-                for line in lines:
-                    line = line.strip()
-                    if line.startswith('{') and '__tool_call__' in line:
-                        try:
-                            call_request = json.loads(line)
-                            if call_request.get('__tool_call__'):
-                                tool_calls.append(call_request)
-                                continue
-                        except json.JSONDecodeError:
-                            pass
-                    other_output.append(line)
-                
-                # 执行工具调用
-                if tool_calls and 'tool_registry' in context:
-                    tool_registry = context['tool_registry']
-                    tool_results = []
-                    for call_request in tool_calls:
-                        tool_name = call_request.get('tool_name')
-                        kwargs = call_request.get('kwargs', {})
-                        if tool_name:
-                            try:
-                                # 执行工具（同步调用，因为我们在异步上下文中）
-                                tool = tool_registry.get_tool(tool_name)
-                                if tool:
-                                    # 使用 asyncio 执行异步工具
-                                    import asyncio
-                                    if hasattr(tool, 'execute'):
-                                        # 同步工具
-                                        result = tool.execute(**kwargs)
-                                    elif hasattr(tool, '_execute_async'):
-                                        # 异步工具
-                                        result = asyncio.run(tool._execute_async(**kwargs))
-                                    else:
-                                        result = None
-                                    tool_results.append({
-                                        'tool_name': tool_name,
-                                        'success': result.success if result else False,
-                                        'data': result.data if result else None,
-                                        'error': result.error if result and not result.success else None
-                                    })
-                                else:
-                                    tool_results.append({
-                                        'tool_name': tool_name,
-                                        'success': False,
-                                        'error': f"工具未找到: {tool_name}"
-                                    })
-                            except Exception as e:
-                                tool_results.append({
-                                    'tool_name': tool_name,
-                                    'success': False,
-                                    'error': str(e)
-                                })
-                    
-                    # 将工具调用结果添加到 context，供代码使用
-                    context['_tool_call_results'] = tool_results
-                
-                # 尝试从其他输出中解析 JSON（最终结果）
-                parsed_result = None
-                for line in reversed(other_output):
-                    line = line.strip()
-                    if line.startswith('{') or line.startswith('['):
-                        try:
-                            parsed_result = json.loads(line)
-                            break
-                        except json.JSONDecodeError:
-                            continue
+        parsed_result = self._parse_json_output(output_text)
         
-        # 将解析的结果添加到 context 中，供后续步骤使用
-        if parsed_result:
-            context['_code_result'] = parsed_result
-            
-            # 如果代码输出了 config_updates，同步更新 context['config']
-            if 'config_updates' in parsed_result and 'config' in context:
-                config_updates = parsed_result['config_updates']
-                if isinstance(config_updates, dict):
-                    context['config'].update(config_updates)
-                    logger.debug(f"同步 config 更新: {list(config_updates.keys())}")
-                    # #region agent log
-                    import json
-                    with open(str(_DEBUG_LOG_PATH), 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"executor.py:1077","message":"同步 config 更新","data":{"config_updates_keys":list(config_updates.keys()),"config_urls":config_updates.get('urls'),"config_urls_type":str(type(config_updates.get('urls'))) if 'urls' in config_updates else None},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                    # #endregion
-        
-        # 处理输出
+        # 9. 处理输出
         outputs = {}
         if 'outputs' in step:
             for output_key, output_expr in step['outputs'].items():
-                # 如果表达式是 ${result.field}，从解析的 JSON 中提取
-                if parsed_result and output_expr.startswith('${result.'):
-                    field = output_expr[9:-1]  # 移除 ${result. 和 }
-                    if field in parsed_result:
-                        outputs[output_key] = parsed_result[field]
-                    else:
-                        # 尝试使用点号分隔的嵌套字段
-                        parts = field.split('.')
-                        value = parsed_result
-                        for part in parts:
-                            if isinstance(value, dict) and part in value:
-                                value = value[part]
-                            else:
-                                value = None
-                                break
-                        outputs[output_key] = value
-                elif output_expr == '${result.stdout}' or output_expr == '${result.output}':
-                    # 从代码执行结果中提取输出
-                    if tool_result.data:
-                        if 'output' in tool_result.data:
-                            outputs[output_key] = tool_result.data['output']
-                        elif 'stdout' in tool_result.data:
-                            outputs[output_key] = tool_result.data['stdout']
-                        else:
-                            outputs[output_key] = ''
-                    else:
-                        outputs[output_key] = ''
-                else:
-                    outputs[output_key] = self._evaluate_expression(str(output_expr), context)
+                # 构建包含 result 的上下文
+                result_context = {'result': parsed_result, **context}
+                outputs[output_key] = await self._evaluate_expression_async(
+                    str(output_expr), 
+                    result_context
+                )
+        else:
+            # 如果没有定义 outputs，将整个 parsed_result 作为输出
+            outputs = parsed_result if isinstance(parsed_result, dict) else {'result': parsed_result}
         
         return outputs
     
+    def _extract_code_from_response(self, response: str) -> str:
+        """从 LLM 响应中提取代码"""
+        import re
+        
+        # 方法1: 提取 markdown code block 中的代码
+        pattern = r'```(?:python)?\n?(.*?)```'
+        matches = re.findall(pattern, response, re.DOTALL)
+        if matches:
+            code = matches[0].strip()
+            if code:
+                return code
+        
+        # 方法2: 如果没有 code block，尝试提取代码行（以 import 或 def 开头）
+        lines = response.split('\n')
+        code_lines = []
+        in_code = False
+        
+        for line in lines:
+            stripped = line.strip()
+            # 检测代码开始
+            if (stripped.startswith('import ') or 
+                stripped.startswith('from ') or 
+                stripped.startswith('def ') or 
+                stripped.startswith('class ') or
+                stripped.startswith('#') or
+                (stripped and not stripped.startswith('请'))):
+                in_code = True
+            
+            if in_code:
+                code_lines.append(line)
+        
+        if code_lines:
+            code = '\n'.join(code_lines).strip()
+            if code:
+                return code
+        
+        # 方法3: 如果都没有，返回整个响应（可能是纯代码）
+        return response.strip()
+    
+    def _prepare_execution_environment(self, context: Dict[str, Any], code: str) -> str:
+        """准备代码执行环境（注入变量）"""
+        import json
+        
+        injection = []
+        has_json_import = False
+        
+        # 注入 input
+        if 'input' in context:
+            try:
+                input_json = json.dumps(context['input'], ensure_ascii=False, default=str)
+                if not has_json_import:
+                    injection.append("import json")
+                    has_json_import = True
+                injection.append(f"input = json.loads({json.dumps(input_json)})")
+            except Exception as e:
+                logger.warning(f"序列化 input 失败: {e}")
+                injection.append("input = {}")
+        else:
+            injection.append("input = {}")
+        
+        # 注入 steps
+        steps_data = context.get('step_results', context.get('steps', []))
+        try:
+            steps_json = json.dumps(steps_data, ensure_ascii=False, default=str)
+            if not has_json_import:
+                injection.append("import json")
+                has_json_import = True
+            injection.append(f"steps = json.loads({json.dumps(steps_json)})")
+        except Exception as e:
+            logger.warning(f"序列化 steps 失败: {e}")
+            injection.append("steps = []")
+        
+        # 注入 config
+        if 'config' in context:
+            try:
+                config_json = json.dumps(context['config'], ensure_ascii=False, default=str)
+                if not has_json_import:
+                    injection.append("import json")
+                    has_json_import = True
+                injection.append(f"config = json.loads({json.dumps(config_json)})")
+            except Exception as e:
+                logger.warning(f"序列化 config 失败: {e}")
+                injection.append("config = {}")
+        else:
+            injection.append("config = {}")
+        
+        # 组合代码
+        return '\n'.join(injection) + '\n\n' + code
+    
+    def _parse_json_output(self, output_text: str) -> Dict[str, Any]:
+        """解析代码输出的 JSON"""
+        import json
+        import re
+        
+        if not output_text:
+            return {}
+        
+        # 尝试从输出中提取 JSON
+        lines = output_text.strip().split('\n')
+        for line in reversed(lines):
+            line = line.strip()
+            if line.startswith('{') or line.startswith('['):
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+        
+        # 如果没有找到完整的 JSON，尝试提取 JSON 对象（可能跨多行）
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, output_text, re.DOTALL)
+        for match in reversed(matches):
+            try:
+                return json.loads(match)
+            except json.JSONDecodeError:
+                continue
+        
+        # 如果都没有找到，返回空字典
+        logger.warning(f"无法从输出中解析 JSON: {output_text[:200]}")
+        return {}
+    
     async def _execute_loop_step(self, step: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """执行循环步骤"""
-        items = step.get('items')
-        item_var = step.get('item_var', 'item')
+        # 优先从 inputs 中获取（标准格式），如果没有则从 step 中获取（向后兼容）
+        inputs = step.get('inputs', {})
+        items = step.get('items') or inputs.get('items')
+        item_var = step.get('item_var') or inputs.get('item_var', 'item')
         loop_steps = step.get('steps', [])
         
         if not items:
@@ -1411,7 +1741,7 @@ tool_registry = None  # 在代码执行环境中不可用，请使用 call_tool(
                 with open(str(_DEBUG_LOG_PATH), 'a') as f:
                     f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1140","message":"循环步骤: 检查 config","data":{"config_urls":config.get('urls'),"config_urls_type":str(type(config.get('urls'))) if 'urls' in config else None,"config_keys":list(config.keys())},"timestamp":int(__import__('time').time()*1000)}) + '\n')
             # #endregion
-            items = self._evaluate_expression(items, context)
+            items = await self._evaluate_expression_async(items, context)
             # #region agent log
             with open(str(_DEBUG_LOG_PATH), 'a') as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"executor.py:1128","message":"循环步骤: items 解析结果","data":{"items_type":str(type(items)),"items_value":str(items)[:200] if items else None,"is_list":isinstance(items,(list,tuple))},"timestamp":int(__import__('time').time()*1000)}) + '\n')
@@ -1497,7 +1827,7 @@ tool_registry = None  # 在代码执行环境中不可用，请使用 call_tool(
         outputs = {}
         if 'outputs' in step:
             for output_key, output_expr in step['outputs'].items():
-                outputs[output_key] = self._evaluate_expression(str(output_expr), context)
+                outputs[output_key] = await self._evaluate_expression_async(str(output_expr), context)
         
         # 将循环结果添加到 context
         context['_loop_results'] = loop_results

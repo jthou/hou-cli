@@ -533,6 +533,16 @@ def chat(message, stream):
                 if not msg.strip():
                     continue
                 
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:after_input","message":"收到用户输入","data":{"msg_length":len(msg) if msg else 0,"msg_preview":msg[:100] if msg else None,"msg_starts_with_slash":msg.startswith('/') if msg else False,"stream":stream},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
+                
                 # 检测命令模式（以 / 开头）
                 if msg.startswith('/'):
                     # 检查是否是退出命令
@@ -626,7 +636,7 @@ def chat(message, stream):
                         console.print()  # 空行
                         continue  # 命令已处理，跳过正常对话流程
                     else:
-                        # result 为 None，说明不是命令或命令返回 None，继续执行正常对话流程
+                        # result 为 None，说明 handle_command 认为这不是命令（如文件路径），继续执行正常对话流程
                         # 如果命令返回了新的会话 ID，更新当前会话
                         if new_session_id:
                             session_id = new_session_id
@@ -634,9 +644,18 @@ def chat(message, stream):
                             # 立即保存新的会话 ID
                             save_session_id(session_id)
                             console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
-                        # 继续执行正常对话流程（不 continue）
+                        # 继续执行正常对话流程（不 continue，让代码继续执行到正常对话流程）
                 
                 # 正常对话流程
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:chat:before_normal_chat","message":"准备进入正常对话流程","data":{"stream":stream,"msg":msg[:100] if msg else None,"msg_starts_with_slash":msg.startswith('/') if msg else False},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                        f.flush()
+                except: pass
+                # #endregion
                 if stream:
                     # 流式响应
                     try:
