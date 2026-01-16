@@ -1,0 +1,268 @@
+INFO] 
+[INFO] 执行数据库迁移（部署必需步骤）...
+[INFO] ==========================================
+[INFO] 执行数据库迁移（部署必需步骤）
+[INFO] ==========================================
+[INFO] 数据库迁移是部署流程的必需部分，将自动执行以下步骤：
+[INFO]   1. 确保数据库用户存在
+[INFO]   2. 自动修复数据库结构问题（创建缺失表）
+[INFO]   3. 执行数据库迁移（flask db upgrade）
+[INFO]   4. 验证迁移结果
+[INFO]   5. 初始化数据库基础数据（如果需要）
+[INFO]   6. 完整数据库结构验证和自动修复（修复缺失字段）
+[INFO] 
+[INFO] 启动数据库和Redis服务...
+[+] Running 3/3
+ ✔ Network deploy_slm-network  Created                                                                                                                                                   0.0s 
+ ✔ Container deploy-db-1       Started                                                                                                                                                   0.0s 
+ ✔ Container deploy-redis-1    Started                                                                                                                                                   0.0s 
+[INFO] 等待数据库就绪...
+[WARNING] 数据库容器状态异常: restarting
+[ERROR] 数据库容器不断重启，说明启动失败
+[ERROR] 查看容器日志（最后30行）：
+[ERROR]   Fatal glibc error: CPU does not support x86-64-v2
+[ERROR]   Fatal glibc error: CPU does not support x86-64-v2
+[ERROR] 
+[ERROR] 常见原因和解决方法：
+[ERROR]   1. 数据库配置错误：
+[ERROR]      - 检查 .env.production 中的 MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD
+[ERROR]      - 确保密码不包含特殊字符（如 $, !, & 等），如果包含请用引号括起来
+[ERROR]   2. 磁盘空间不足：
+[ERROR]      - 运行: df -h 检查磁盘空间
+[ERROR]   3. 数据卷权限问题：
+[ERROR]      - 检查数据卷目录权限
+[ERROR]   4. 端口被占用：
+[ERROR]      - 运行: netstat -tlnp | grep 3306
+[ERROR] 
+[ERROR] 手动诊断步骤：
+[ERROR]   1. 停止容器: docker-compose -f ./docker-compose.production.yml stop db
+[ERROR]   2. 删除容器: docker-compose -f ./docker-compose.production.yml rm -f db
+[ERROR]   3. 检查配置: cat ./.env.production | grep MYSQL
+[ERROR]   4. 重新启动: docker-compose -f ./docker-compose.production.yml up -d db
+[ERROR]   5. 查看日志: docker logs deploy-db-1 -f
+[ERROR] 数据库迁移失败，这是部署流程的必需步骤
+[ERROR] 部署中止，请检查数据库连接、迁移文件和权限
+root@user:/opt/slm/slm-deployment-20260115-174846/deploy# 
+
+
+连接测试失败
+
+消息：{ "connection_test": { "diagnostic_steps": [ { "description": "验证HIS系统配置参数格式", "details": { "appid": "m02LQYTTniEDNlII", "has_app_secret": true, "has_private_key": true, "has_public_key": true, "url": "http://192.168.10.199:31832" }, "message": "配置验证通过", "name": "配置验证", "step": 1, "success": true }, { "description": "测试SM2/SM4加密工具初始化", "details": { "crypto_available": true }, "message": "加密工具初始化成功", "name": "加密工具初始化", "step": 2, "success": true }, { "description": "测试能否连接到HIS服务器", "details": { "host": "192.168.10.199", "port": 31832, "tcp_connection": "success" }, "message": "TCP连接成功: 192.168.10.199:31832", "name": "网络连接测试", "step": 3, "success": true }, { "description": "测试HTTP/HTTPS协议连接", "details": { "response_headers": { "Connection": "keep-alive", "Content-Length": "6109", "Content-Type": "application/json", "Date": "Fri, 16 Jan 2026 08:45:51 GMT", "Keep-Alive": "timeout=60" }, "status_code": 404 }, "message": "HTTP连接成功: 状态码 404", "name": "HTTP连接测试", "step": 4, "success": true }, { "description": "测试SM2签名和SM4加密功能", "details": { "decryption": "success", "encryption": "success", "signature": "failed", "signature_error": "SM2签名失败: string argument without an encoding" }, "message": "加密/解密/签名测试失败: 签名", "name": "加密/签名测试", "step": 5, "success": false } ], "failed_at_step": 5, "message": "加密/签名测试失败，请检查密钥配置", "success": false }, "message": "HIS系统连接测试失败", "valid": true }
+错误：
+
+
+连接测试失败
+
+消息：{ "connection_test": { "diagnostic_steps": [ { "description": "验证HIS系统配置参数格式", "details": { "appid": "m02LQYTTniEDNlII", "has_app_secret": true, "has_private_key": true, "has_public_key": true, "url": "http://192.168.10.199:31832" }, "message": "配置验证通过", "name": "配置验证", "step": 1, "success": true }, { "description": "测试SM2/SM4加密工具初始化", "details": { "crypto_available": true }, "message": "加密工具初始化成功", "name": "加密工具初始化", "step": 2, "success": true }, { "description": "测试能否连接到HIS服务器", "details": { "host": "192.168.10.199", "port": 31832, "tcp_connection": "success" }, "message": "TCP连接成功: 192.168.10.199:31832", "name": "网络连接测试", "step": 3, "success": true }, { "description": "测试HTTP/HTTPS协议连接", "details": { "response_headers": { "Connection": "keep-alive", "Content-Length": "6109", "Content-Type": "application/json", "Date": "Fri, 16 Jan 2026 08:45:51 GMT", "Keep-Alive": "timeout=60" }, "status_code": 404 }, "message": "HTTP连接成功: 状态码 404", "name": "HTTP连接测试", "step": 4, "success": true }, { "description": "测试SM2签名和SM4加密功能", "details": { "decryption": "success", "encryption": "success", "signature": "failed", "signature_error": "SM2签名失败: string argument without an encoding" }, "message": "加密/解密/签名测试失败: 签名", "name": "加密/签名测试", "step": 5, "success": false } ], "failed_at_step": 5, "message": "加密/签名测试失败，请检查密钥配置", "success": false }, "message": "HIS系统连接测试失败", "valid": true }
+错
+
+
+
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 一键部署
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 环境: production
+[0;34m[INFO][0m 镜像目录: ./images
+[0;34m[INFO][0m 部署目录: ./deploy
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 步骤1: 加载Docker镜像
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 一键加载Docker镜像
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 镜像目录: /opt/slm/slm-deployment-20260116-171357/scripts/../images
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 步骤1: 清理旧的 MySQL 8.0 镜像
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 删除旧的 MySQL 8.0 镜像
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 未找到 MySQL 8.0 镜像，无需删除
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 步骤2: 加载 Docker 镜像
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 加载镜像: mysql-5.7-20260116-171357.tar.gz...
+Loaded image: mysql:5.7
+[0;32m[SUCCESS][0m 镜像加载成功: mysql-5.7-20260116-171357.tar.gz
+[0;34m[INFO][0m 加载镜像: redis-7-alpine-20260116-171357.tar.gz...
+Loaded image: redis:7-alpine
+[0;32m[SUCCESS][0m 镜像加载成功: redis-7-alpine-20260116-171357.tar.gz
+[0;34m[INFO][0m 加载镜像: slm-backend-20260116-171357.tar.gz...
+The image slm-backend:latest already exists, renaming the old one with ID sha256:128781169e1a0c90d1791a585ce5a47693c5a4114864127756edc82b02cbb851 to empty string
+Loaded image: slm-backend:latest
+[0;32m[SUCCESS][0m 镜像加载成功: slm-backend-20260116-171357.tar.gz
+[0;34m[INFO][0m 加载镜像: slm-frontend-20260116-171357.tar.gz...
+The image slm-frontend:latest already exists, renaming the old one with ID sha256:823892b58119c531b6485f5e00767baa5104c65ad05bcbab3eb913acc09bc0d3 to empty string
+Loaded image: slm-frontend:latest
+[0;32m[SUCCESS][0m 镜像加载成功: slm-frontend-20260116-171357.tar.gz
+[0;34m[INFO][0m 
+[0;32m[SUCCESS][0m ==========================================
+[0;32m[SUCCESS][0m 镜像加载完成
+[0;32m[SUCCESS][0m ==========================================
+[0;32m[SUCCESS][0m 共加载 4/4 个镜像
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 已加载的镜像：
+REPOSITORY     TAG        SIZE
+slm-frontend   latest     65.5MB
+slm-backend    latest     615MB
+redis          7-alpine   41.4MB
+mysql          5.7        501MB
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 步骤2: 执行部署
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 执行部署命令...
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 远程服务器部署脚本
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 环境: production
+[0;34m[INFO][0m 镜像目录: /opt/slm/slm-deployment-20260116-171357/images
+[0;34m[INFO][0m 部署目录: /opt/slm/slm-deployment-20260116-171357/deploy
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 使用 Docker Compose 命令: docker-compose
+[0;34m[INFO][0m 使用 docker-compose.yml 文件
+[0;34m[INFO][0m 加载环境变量...
+[0;32m[SUCCESS][0m 环境变量文件验证通过并已加载
+[0;34m[INFO][0m 检查HIS/LIS系统配置...
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m HIS/LIS系统配置检查
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 配置文件: /opt/slm/slm-deployment-20260116-171357/deploy/.env.production
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 检查配置项...
+[0;32m[SUCCESS][0m   ✅ LIS_BASE_URL: 已配置（http://192.168.10.161:10010）
+[0;32m[SUCCESS][0m   ✅ LIS_OUR_PRIVATE_KEY: 已配置（格式正确）
+[0;32m[SUCCESS][0m   ✅ LIS_SYSTEM_PUBLIC_KEY: 已配置（格式正确）
+[0;32m[SUCCESS][0m   ✅ HIS_APP_SECRET: 已配置
+[0;32m[SUCCESS][0m   ✅ HIS_SYSTEM_PUBLIC_KEY: 已配置（格式正确）
+[0;32m[SUCCESS][0m   ✅ LIS_APP_SECRET: 已配置
+[0;32m[SUCCESS][0m   ✅ HIS_BASE_URL: 已配置（http://192.168.10.161:10010）
+[0;32m[SUCCESS][0m   ✅ LIS_APPID: 已配置
+[0;32m[SUCCESS][0m   ✅ HIS_APPID: 已配置
+[0;32m[SUCCESS][0m   ✅ HIS_OUR_PRIVATE_KEY: 已配置（格式正确）
+[0;34m[INFO][0m 
+[0;32m[SUCCESS][0m ==========================================
+[0;32m[SUCCESS][0m 所有HIS/LIS配置项检查通过
+[0;32m[SUCCESS][0m ==========================================
+[0;32m[SUCCESS][0m HIS/LIS配置检查通过
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 执行部署前检查
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 验证环境变量配置...
+[0;32m[SUCCESS][0m 环境变量配置验证通过
+[0;32m[SUCCESS][0m docker-compose 文件包含 env_file 配置
+[0;34m[INFO][0m 可用磁盘空间: 44G
+[0;34m[INFO][0m 检查数据库连接...
+[0;32m[SUCCESS][0m 数据库连接正常
+[0;34m[INFO][0m 数据库已有数据（用户数: 18），需要备份
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m ⚠️  备份数据库（部署前必需步骤）
+[0;34m[INFO][0m ==========================================
+[1;33m[WARNING][0m 数据安全：检测到数据库已有数据，部署前必须备份数据库
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 数据库备份
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 备份目录: /opt/slm/backups
+[0;34m[INFO][0m 备份文件: /opt/slm/backups/db_backup_20260116_093758.sql.gz
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 开始备份数据库...
+[0;34m[INFO][0m 压缩备份文件...
+[0;32m[SUCCESS][0m 数据库备份完成
+[0;34m[INFO][0m 备份文件: /opt/slm/backups/db_backup_20260116_093758.sql.gz
+[0;34m[INFO][0m 文件大小: 40K
+[0;34m[INFO][0m 清理 7 天前的旧备份...
+[0;34m[INFO][0m 没有需要删除的旧备份
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 当前备份文件:
+  - db_backup_20260116_093758.sql.gz (40K, 2026-01-16 09:37:58)
+  - db_backup_20260116_084430.sql.gz (40K, 2026-01-16 08:44:31)
+  - db_backup_20260116_075915.sql.gz (40K, 2026-01-16 07:59:16)
+  - db_backup_20260116_071727.sql.gz (40K, 2026-01-16 07:17:27)
+  - db_backup_20260116_071517.sql.gz (40K, 2026-01-16 07:15:17)
+[0;32m[SUCCESS][0m 数据库备份成功（部署前必需步骤）
+[0;34m[INFO][0m 当前运行版本: unknown
+[0;32m[SUCCESS][0m 部署前检查完成
+
+[0;34m[INFO][0m 停止现有服务...
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 清理旧的容器和镜像
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 执行清理脚本: /opt/slm/slm-deployment-20260116-171357/deploy/scripts/cleanup-old-containers-images.sh
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 清理旧的 Docker 容器和镜像
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 步骤1: 清理容器
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 未找到需要清理的容器
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 步骤2: 清理镜像
+[0;34m[INFO][0m ----------------------------------------
+[0;34m[INFO][0m 找到以下镜像：
+[0;34m[INFO][0m   - slm-backend:latest (615MB)
+[0;34m[INFO][0m   - slm-frontend:latest (65.5MB)
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 删除镜像: slm-backend:latest...
+Untagged: slm-backend:latest
+Deleted: sha256:0a727585676825df2d83df26a78c7d13c44d0faa230ac4d183d99de612763813
+Deleted: sha256:59058d0e5beaa89a2bcc5b313c143662b7ae68a94526cc4551023016c8c7bbc5
+Deleted: sha256:1c75d7322e6d3964a390f28412740cf4ab81dbb3b30973376acc55fe1a3219b6
+Deleted: sha256:ba502f8bd32c170ab586ac7ca62f8c8dd2f520d419741b3a28c296f8382765e5
+Deleted: sha256:741b69fa4ea6303191ce81bf0baf93461d4a8b462c490cf074ab55e3714c1547
+[0;32m[SUCCESS][0m   ✅ slm-backend:latest 已删除
+[0;34m[INFO][0m 删除镜像: slm-frontend:latest...
+Untagged: slm-frontend:latest
+Deleted: sha256:41c1817e157f25b8e958ed3b1f92517b1a83aaab5d8db0df033931b091d8a7ce
+Deleted: sha256:177f10a8b77c29991f25c01323bc25d6abab0426da063b24ea97347603248866
+Deleted: sha256:75118e7bb9102ca5b7a0ed08a329b135df930128d97e108acbcecc050bbdd641
+[0;32m[SUCCESS][0m   ✅ slm-frontend:latest 已删除
+[0;34m[INFO][0m 
+[0;32m[SUCCESS][0m 镜像清理完成: 删除 2 个
+[0;34m[INFO][0m 
+[0;32m[SUCCESS][0m ==========================================
+[0;32m[SUCCESS][0m 清理完成
+[0;32m[SUCCESS][0m ==========================================
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 当前容器状态：
+NAMES     STATUS    IMAGE
+[0;34m[INFO][0m   无相关容器
+[0;34m[INFO][0m 
+[0;34m[INFO][0m 当前镜像状态：
+REPOSITORY   TAG        SIZE
+[0;34m[INFO][0m   无相关镜像
+[0;32m[SUCCESS][0m 清理完成
+[0;34m[INFO][0m 
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 加载所有镜像
+[0;34m[INFO][0m ==========================================
+[1;33m[WARNING][0m 未找到 后端应用 镜像文件: slm-backend-*.tar
+[1;33m[WARNING][0m 未找到 前端应用 镜像文件: slm-frontend-*.tar
+[1;33m[WARNING][0m 未找到 MySQL数据库 镜像文件: mysql-*.tar
+[0;34m[INFO][0m ✅ MySQL数据库 (mysql:5.7) 已存在，使用现有镜像
+[1;33m[WARNING][0m 未找到 Redis缓存 镜像文件: redis-*.tar
+[0;34m[INFO][0m ✅ Redis缓存 (redis:7-alpine) 已存在，使用现有镜像
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 镜像加载完成: 成功 2 个，失败 2 个
+[0;34m[INFO][0m ==========================================
+[0;34m[INFO][0m 验证镜像...
+[0;34m[INFO][0m MySQL镜像版本: mysql:5.7
+[0;31m[ERROR][0m ❌ slm-backend:latest 未找到
+[0;31m[ERROR][0m ❌ slm-frontend:latest 未找到
+[0;34m[INFO][0m ✅ mysql:5.7 已就绪
+[0;34m[INFO][0m ✅ redis:7-alpine 已就绪
+[0;31m[ERROR][0m ==========================================
+[0;31m[ERROR][0m 部署失败：以下应用镜像未找到：
+[0;31m[ERROR][0m   - slm-backend:latest
+[0;31m[ERROR][0m   - slm-frontend:latest
+[0;31m[ERROR][0m ==========================================
+[0;31m[ERROR][0m 请确保：
+[0;31m[ERROR][0m   1. 已运行上传脚本传输所有镜像文件
+[0;31m[ERROR][0m   2. 镜像文件位于: /opt/slm/slm-deployment-20260116-171357/images
+[0;31m[ERROR][0m   3. 镜像文件命名正确（slm-backend-*.tar, slm-frontend-*.tar）
+[0;31m[ERROR][0m 部署失败

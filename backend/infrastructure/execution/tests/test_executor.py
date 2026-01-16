@@ -113,3 +113,5 @@ class TestSubprocessExecutor:
         # 工作目录应该是临时目录，不是当前目录
         assert "hou-cli-sandbox" in result.output or "tmp" in result.output.lower()
 
+
+
