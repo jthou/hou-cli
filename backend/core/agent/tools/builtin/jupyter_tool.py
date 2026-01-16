@@ -11,14 +11,15 @@ logger = logging.getLogger(__name__)
 
 # 尝试导入 jupyter_client
 try:
-    from jupyter_client import KernelManager, find_kernelspecs
+    from jupyter_client import KernelManager
     from jupyter_client.blocking import BlockingKernelClient
+    from jupyter_client.kernelspec import find_kernel_specs
     JUPYTER_AVAILABLE = True
 except ImportError:
     JUPYTER_AVAILABLE = False
     KernelManager = None
     BlockingKernelClient = None
-    find_kernelspecs = None
+    find_kernel_specs = None
 
 
 class JupyterTool(Tool):
@@ -163,7 +164,7 @@ class JupyterTool(Tool):
         # 启动新的 kernel
         try:
             # 查找可用的 kernel
-            kernels = find_kernelspecs()
+            kernels = find_kernel_specs()
             if kernel_name not in kernels:
                 # 尝试使用 python3 或 python
                 if "python3" in kernels:

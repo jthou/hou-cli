@@ -20,23 +20,24 @@ class TestOrchestratorToolIntegration:
     def jwt_auth(self):
         """创建 JWT 认证实例"""
         try:
-            auth = JWTAuth.from_env(
-                issuer="test_issuer",
-                audience="test_audience",
-                subject="test_subject"
-            )
+            # JWTAuth.from_env() 会从环境变量读取：
+            # - WEATHER_JWT_PRIVATE_KEY: 私钥
+            # - QWEATHER_CREDENTIAL_ID: 凭据ID (kid)
+            # - QWEATHER_PROJECT_ID: 项目ID (sub)
+            auth = JWTAuth.from_env()
             return auth
-        except Exception:
-            pytest.skip("JWT auth not configured. Set WEATHER_JWT_PRIVATE_KEY in .env")
+        except Exception as e:
+            pytest.skip(f"JWT auth not configured: {str(e)}. Set WEATHER_JWT_PRIVATE_KEY, QWEATHER_CREDENTIAL_ID, QWEATHER_PROJECT_ID in .env")
     
     @pytest.fixture
     def orchestrator(self, jwt_auth):
         """创建 Orchestrator 实例并注册天气工具"""
         orchestrator = Orchestrator()
         
-        # 注册天气工具
+        # 注册天气工具（如果尚未注册）
         weather_tool = get_weather_tool(jwt_auth)
-        orchestrator.tool_registry.register(weather_tool)
+        if "get_weather" not in orchestrator.tool_registry.list_tools():
+            orchestrator.tool_registry.register(weather_tool)
         
         return orchestrator
     
