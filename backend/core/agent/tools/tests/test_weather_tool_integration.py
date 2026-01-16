@@ -18,14 +18,14 @@ class TestWeatherToolIntegration:
     def jwt_auth(self):
         """创建 JWT 认证实例"""
         try:
-            auth = JWTAuth.from_env(
-                issuer="test_issuer",
-                audience="test_audience",
-                subject="test_subject"
-            )
+            # JWTAuth.from_env() 会从环境变量读取：
+            # - WEATHER_JWT_PRIVATE_KEY: 私钥
+            # - QWEATHER_CREDENTIAL_ID: 凭据ID (kid)
+            # - QWEATHER_PROJECT_ID: 项目ID (sub)
+            auth = JWTAuth.from_env()
             return auth
-        except Exception:
-            pytest.skip("JWT auth not configured. Set WEATHER_JWT_PRIVATE_KEY in .env")
+        except Exception as e:
+            pytest.skip(f"JWT auth not configured: {str(e)}. Set WEATHER_JWT_PRIVATE_KEY, QWEATHER_CREDENTIAL_ID, QWEATHER_PROJECT_ID in .env")
     
     @pytest.fixture
     def weather_tool_instance(self, jwt_auth):

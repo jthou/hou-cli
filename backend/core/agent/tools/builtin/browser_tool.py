@@ -147,6 +147,79 @@ class BrowserTool(Tool):
 
         self.llm_service = llm_service
     
+    @classmethod
+    def check_health(cls) -> tuple[bool, Optional[str]]:
+        """
+        检查 BrowserTool 是否可用（健康检查）
+        
+        检查项目：
+        1. 环境变量控制（BROWSER_TOOL_ENABLED）
+        2. browser-use 库是否已安装
+        3. LLM API 配置是否完整
+        4. 已知的 API 兼容性问题
+        
+        Returns:
+            (is_available, error_message): 
+            - is_available: True 表示工具可用，False 表示不可用
+            - error_message: 如果不可用，返回错误原因；如果可用，返回 None
+        """
+        # 0. 检查环境变量控制
+        enabled = os.getenv("BROWSER_TOOL_ENABLED", "true").lower()
+        if enabled == "false":
+            return False, "BROWSER_TOOL_ENABLED=false，工具已禁用"
+        
+        # 1. 检查 browser-use 是否安装
+        if not BROWSER_USE_AVAILABLE:
+            return False, "browser-use 库未安装"
+        
+        # 2. 检查 LLM API 配置
+        try:
+            from backend.services.llm.llm_service import LLMService
+            llm_service = LLMService()
+            
+            # 检查默认模型配置
+            default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+            
+            if not api_key:
+                return False, "DEEPSEEK_API_KEY 未设置"
+            
+            # 3. 检查已知的 API 兼容性问题
+            # browser-use 库使用的 response_format 参数不被 DeepSeek API 支持
+            # 这是一个已知问题，如果使用 DeepSeek，工具将无法正常工作
+            base_url = os.getenv("DEEPSEEK_BASE_URL", "")
+            is_deepseek = "deepseek" in default_model.lower() or "deepseek" in base_url.lower()
+            
+            if is_deepseek:
+                # DeepSeek API 已知不兼容 browser-use 的 response_format 参数
+                # 根据测试结果，DeepSeek 无法正常工作
+                # 直接返回不可用，避免大模型使用不靠谱的工具
+                return False, (
+                    "LLM API 不兼容: browser-use 使用的 response_format 参数不被 DeepSeek API 支持。"
+                    "请配置支持 response_format 的 LLM（如 OpenAI、Anthropic、Google）或设置 BROWSER_TOOL_ENABLED=false 禁用此工具。"
+                )
+            
+            # 尝试创建 LLM 实例（不实际调用 API，只检查配置）
+            try:
+                browser_llm = llm_service.get_browser_use_llm(model=default_model)
+                # 如果成功创建，说明配置正确
+                # 注意：实际的 API 兼容性会在第一次使用时验证
+                return True, None
+            except ValueError as e:
+                # API Key 未设置或其他配置问题
+                error_msg = str(e)
+                if "API key" in error_msg.lower() or "未设置" in error_msg:
+                    return False, f"LLM API 配置错误: {error_msg}"
+                raise
+        except ImportError as e:
+            return False, f"LLM 服务导入失败: {str(e)}"
+        except Exception as e:
+            # 其他错误
+            error_str = str(e)
+            if "response_format" in error_str.lower() or "unavailable" in error_str.lower():
+                return False, f"LLM API 不兼容: browser-use 使用的 response_format 参数不被当前 LLM API 支持。错误: {error_str[:200]}"
+            return False, f"健康检查失败: {str(e)}"
+    
     def _get_browser_profile_dir(self, site_name: Optional[str] = None) -> Path:
         """
         获取浏览器配置文件目录（跨平台）

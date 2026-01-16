@@ -801,7 +801,7 @@ class CommandHandler:
         /gvim --mediawiki <page_title> [line_number] [--read-only]
         """
         try:
-            from backend.services.editor import GvimService, GvimServiceError
+            from backend.services.gvim_service import GvimService, GvimServiceError
             
             if not args:
                 return (

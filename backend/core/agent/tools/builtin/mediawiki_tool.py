@@ -3,9 +3,9 @@
 import re
 from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
-from backend.services.mediawiki import MediaWikiClientService
-from backend.services.mediawiki.models import MediaWikiPage, MediaWikiSearchResult
-from backend.services.mediawiki.utils import format_page_link, format_page_list_with_links
+from backend.services.mediawiki_client_service import MediaWikiClientService
+from backend.services.mediawiki_client_service.models import MediaWikiPage, MediaWikiSearchResult
+from backend.services.mediawiki_client_service.utils import format_page_link, format_page_list_with_links
 
 
 class MediaWikiTool(Tool):

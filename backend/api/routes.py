@@ -16,8 +16,8 @@ else:
     load_dotenv()
 
 from backend.core.agent.orchestrator import Orchestrator
-from backend.services.search.file_search_service import FileSearchService
-from backend.services.search.models import FileSearchRequest
+from backend.services.file_search_service.file_search_service import FileSearchService
+from backend.services.file_search_service.models import FileSearchRequest
 from backend.api.stream_sender import SSEFormatter
 from shared.debug_utils import debug_log
 
@@ -519,7 +519,7 @@ async def generate_session_summary(session_id: str):
         }
 
 # 文件搜索 API
-from backend.services.search.models import FileSearchResponse
+from backend.services.file_search_service.models import FileSearchResponse
 
 @router.get("/search/files", response_model=FileSearchResponse)
 async def search_files(
@@ -616,12 +616,12 @@ async def check_search_availability():
         }
 
 # MediaWiki API
-from backend.services.mediawiki import (
+from backend.services.mediawiki_client_service import (
     MediaWikiClientService,
     MediaWikiSyncService,
     UnifiedSearchService
 )
-from backend.services.mediawiki.models import MediaWikiPage, UnifiedSearchResult
+from backend.services.mediawiki_client_service.models import MediaWikiPage, UnifiedSearchResult
 
 _mediawiki_client = None
 _mediawiki_sync_service = None

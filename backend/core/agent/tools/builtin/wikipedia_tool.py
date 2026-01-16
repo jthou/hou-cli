@@ -3,7 +3,7 @@
 import webbrowser
 from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
-from backend.services.wikipedia import WikipediaService, WikipediaServiceError
+from backend.services.wikipedia_service import WikipediaService, WikipediaServiceError
 
 
 class WikipediaTool(Tool):

@@ -4,7 +4,7 @@ import asyncio
 import concurrent.futures
 from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
-from backend.services.google_search import GoogleSearchService, GoogleSearchServiceError
+from backend.services.google_search_service import GoogleSearchService, GoogleSearchServiceError
 
 
 class GoogleSearchTool(Tool):

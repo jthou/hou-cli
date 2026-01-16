@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
-from backend.services.editor import GvimService, GvimServiceError
+from backend.services.gvim_service import GvimService, GvimServiceError
 
 
 class GvimTool(Tool):

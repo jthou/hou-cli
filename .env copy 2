@@ -1,0 +1,569 @@
+# ============================================================================
+# hou-cli 环境变量配置模板
+# ============================================================================
+# 
+# 使用方法：
+# 1. 复制此文件为 .env: cp env.example .env
+# 2. 编辑 .env 文件，填入你的实际配置值
+# 3. .env 文件已添加到 .gitignore，不会被提交到代码仓库
+#
+# 详细文档：docs/design/env-configuration.md
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# 必需配置
+# ----------------------------------------------------------------------------
+
+# DeepSeek API 密钥
+# 获取方式：访问 https://platform.deepseek.com/ 注册并获取 API Key
+# 格式：字符串，长度至少 10 个字符
+# 示例：DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 说明：
+#   - 这是基础 LLM 服务的必需配置
+#   - 也用于 Browser Tool 的默认 LLM（如果不配置 QWEN_API_KEY 或 BAILIAN_API_KEY）
+#   - 详细配置说明见下方 "LLM 服务配置" 部分
+DEEPSEEK_API_KEY=sk-25e1b50b21b44c8288a58ad338c7c5ef
+
+# ----------------------------------------------------------------------------
+# Browser Tool 视觉功能配置（可选）
+# ----------------------------------------------------------------------------
+
+# Qwen API 密钥（可选，用于 Browser Tool 的视觉功能）
+# 说明：用于 Browser Tool 的视觉功能支持。如果任务需要视觉理解（如截图、页面分析等），
+#       Browser Tool 会自动使用 Qwen2-VL 模型。
+# 获取方式：
+#   1. 访问 https://bailian.console.aliyun.com/ 注册并登录
+#   2. 在控制台中创建 API Key
+#   3. 将 API Key 填入下方配置
+# 格式：字符串，长度至少 10 个字符
+# 示例：QWEN_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：
+#   - 这是可选配置，如果不设置，Browser Tool 将使用 DeepSeek（不支持视觉功能）
+#   - 如果设置了 BAILIAN_API_KEY（见下方 LLM 服务配置），可以替代 QWEN_API_KEY
+#   - 如果设置了 QWEN_API_KEY，任务描述中包含视觉相关关键词时会自动使用 Qwen2-VL
+#   - 视觉相关关键词包括：截图、图片、图像、视觉、识别、查看页面等
+# 详细文档：docs/troubleshooting/browser-use-qwen-vision-support.md
+QWEN_API_KEY=sk-f14c42ca59ff479cbea080a3336340f8
+
+# Qwen API Base URL（可选）
+# 说明：Qwen API 的基础 URL，使用阿里云百炼的 OpenAI 兼容接口
+# 默认值：https://dashscope.aliyuncs.com/compatible-mode/v1
+# 说明：通常不需要修改，除非使用其他兼容接口
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# Qwen 模型名称（可选）
+# 说明：使用的 Qwen 视觉模型
+# 可选值：
+#   - qwen-vl-plus: 标准版视觉模型
+#   - qwen-vl-max: 增强版视觉模型（推荐，默认值）
+# 默认值：qwen-vl-max
+# 说明：根据需求选择合适的模型，max 版本功能更强但可能更昂贵
+# QWEN_MODEL=qwen-vl-max
+
+# Browser Tool 视觉功能强制启用（可选）
+# 说明：是否强制启用视觉功能
+# 可选值：true（强制启用）, false（自动检测，默认值）
+# 默认值：false
+# 说明：
+#   - false: 根据任务描述自动检测是否需要视觉功能（推荐）
+#   - true: 所有任务都尝试使用 Qwen2-VL（如果 QWEN_API_KEY 已设置）
+# 注意：设置为 true 时，所有任务都会使用 Qwen2-VL，可能增加成本
+# BROWSER_TOOL_USE_VISION=false
+
+# Browser Tool LLM 任务分析（可选）
+# 说明：是否使用 LLM 分析任务特征来选择模型
+# 可选值：true（使用 LLM 分析，推荐）, false（使用关键词匹配）
+# 默认值：true
+# 说明：
+#   - true: 使用 DeepSeek chat 模型分析任务，智能判断需要的模型类型
+#   - false: 使用关键词匹配判断（传统方式，更快但可能不够准确）
+# 注意：使用 LLM 分析会增加一次 API 调用，但选择更准确
+# BROWSER_TOOL_USE_LLM_ANALYSIS=true
+
+# Browser Tool 页面等待超时（可选）
+# 说明：页面就绪等待超时时间（秒）
+# 默认值：8
+# 说明：
+#   - browser-use 的默认页面就绪超时是 4 秒，可能不够
+#   - 对于加载较慢的页面，可以增加这个值
+#   - 建议值：8-15 秒
+# 注意：如果 Browser 不支持此参数，将使用默认值
+# Browser Tool 页面等待超时（可选）
+# 默认值：30 秒（对于浏览器任务，10-30 秒是合理的等待时间）
+BROWSER_PAGE_WAIT_TIMEOUT=30
+
+# ----------------------------------------------------------------------------
+# 天气工具配置
+# ----------------------------------------------------------------------------
+
+# JWT 私钥（用于和风天气 API 认证）
+# 格式：Ed25519 私钥，PEM 格式（可以是单行或多行）
+# 单行示例：WEATHER_JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY----- MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC... -----END PRIVATE KEY-----"
+# 多行示例：
+# WEATHER_JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+# MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...
+# -----END PRIVATE KEY-----"
+WEATHER_JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIM82kqGAgEN44HdpCxsiBCPBS3WVI5z0Vrtw/wNdfFJl
+-----END PRIVATE KEY-----"
+
+# 和风天气 API 凭据ID（Credential ID / kid）
+# 说明：在控制台-项目管理中查看，用于 JWT Header 中的 kid 字段
+# 示例：K8GYPEQ99J
+QWEATHER_CREDENTIAL_ID=K8GYPEQ99J
+
+# 和风天气 API 项目ID（Project ID / sub）
+# 说明：在控制台-项目管理中查看项目ID（不是项目名称），用于 JWT Payload 中的 sub 字段
+# 示例：ABCDE23456
+QWEATHER_PROJECT_ID=4CE2YHEMP3
+
+# 和风天气 API Host（项目特定的 API Host，必需）
+# 说明：在和风天气控制台-设置中查看，格式为 xxx.re.qweatherapi.com
+# 示例：m53h2qmd7g.re.qweatherapi.com
+# 注意：这是必需配置，不能使用公共 API（devapi.qweather.com）
+QWEATHER_API_HOST=m53h2qmd7g.re.qweatherapi.com
+
+# JWT 过期时间（秒，默认：3600，即 1 小时，最长 24 小时）
+WEATHER_JWT_EXPIRES_IN=3600
+
+# ----------------------------------------------------------------------------
+# LLM 服务配置（多平台支持）
+# ----------------------------------------------------------------------------
+
+# 关于 TheTurbo.ai 网关平台
+# TheTurbo.ai 是一个统一的 API 网关服务，提供对多个模型提供商的访问：
+#   - OpenAI（GPT 系列）
+#   - Anthropic（Claude 系列）
+#   - Google（Gemini 系列）
+#   - xAI（Grok 系列）
+#   - Perplexity（Sonar 系列）
+# 
+# 技术架构：
+#   - TheTurbo.ai 作为网关平台，提供统一的 API 接口（兼容 OpenAI 格式）
+#   - 所有通过网关的提供商使用相同的网关地址：https://gateway.theturbo.ai/v1
+#   - 但每个提供商需要独立的 API Key（从 TheTurbo.ai 获取）
+# 
+# 配置方式：
+#   - 虽然 TheTurbo.ai 是统一的网关，但在配置上每个提供商仍然是独立的平台
+#   - 需要分别为每个提供商配置 API Key（OPENAI_API_KEY、ANTHROPIC_API_KEY 等）
+#   - 每个提供商可以独立选择模型和配置参数
+# 
+# 优势：
+#   - 统一的 API 格式，简化集成
+#   - 一个网关访问多个提供商，降低接入成本
+#   - 灵活的模型切换，无需修改代码
+
+# LLM 提供商选择（可选）
+# 可选值：deepseek, bailian, openai, anthropic, google, xai, perplexity
+# 默认值：deepseek
+# 说明：
+#   - 如果不设置，系统会根据模型名称自动检测提供商
+#   - 如果设置了，将优先使用指定的提供商
+#   - 支持使用 "平台-模型" 格式（如 "bailian-deepseek-chat"）明确指定平台
+# LLM_PROVIDER=deepseek
+
+# DeepSeek 平台配置（DeepSeek 官方平台）
+# DeepSeek API 密钥已在上面 "必需配置" 部分配置（DEEPSEEK_API_KEY）
+# DeepSeek 模型名称（可选）
+# 默认值：deepseek-chat
+# 可选值：
+#   - deepseek-chat: 标准对话模型
+#   - deepseek-coder: 代码生成专用模型
+#   - deepseek-reasoner: 推理模型
+#   - deepseek-r1: 支持思考过程的推理模型
+#   - deepseek-v2: DeepSeek V2 模型
+#   - deepseek-v2.5: DeepSeek V2.5 模型
+#   - deepseek-v3: DeepSeek V3 模型
+# DEEPSEEK_MODEL=deepseek-chat
+
+# 百炼平台配置（阿里云）
+# 百炼平台 API 密钥（可选，如果使用百炼平台）
+# 说明：可以使用 BAILIAN_API_KEY 或 DASHSCOPE_API_KEY（两者等效）
+# 获取方式：
+#   1. 访问 https://bailian.console.aliyun.com/ 注册并登录
+#   2. 在控制台中创建 API Key
+#   3. 将 API Key 填入下方配置
+# 格式：字符串，长度至少 10 个字符
+# 示例：BAILIAN_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：
+#   - 如果设置了 BAILIAN_API_KEY，可以替代上面的 QWEN_API_KEY（用于 Browser Tool 视觉功能）
+#   - 百炼平台提供多种模型，包括 Qwen 系列和 DeepSeek 系列
+#   - 百炼平台也提供 DeepSeek 模型（如 deepseek-chat, deepseek-v3.2 等）
+#   - 要使用百炼平台的模型，使用 "bailian-模型名" 格式，例如：
+#     * "bailian-deepseek-chat" = 百炼平台的 deepseek-chat
+#     * "bailian-qwen-turbo" = 百炼平台的 qwen-turbo
+BAILIAN_API_KEY=sk-f14c42ca59ff479cbea080a3336340f8
+
+# 百炼平台 API Base URL（可选）
+# 默认值：https://dashscope.aliyuncs.com/compatible-mode/v1
+# 说明：通常不需要修改，除非使用其他兼容接口
+# BAILIAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# 百炼平台模型名称（可选）
+# 默认值：qwen-turbo
+# 可选值（部分示例）：
+#   - 文本生成：qwen-turbo, qwen-plus, qwen-max, qwen3-max
+#   - 代码生成：qwen3-coder-flash, qwen3-coder-plus-2025-09-23
+#   - 视觉理解：qwen3-vl-plus-2025-12-19, qwen-vl-max-2025-08-13
+#   - 推理模型：deepseek-v3.2, qwq-plus
+#   - 图像生成：qwen-image-max-2025-12-30, wan2.6-t2i
+#   - 视频生成：wan2.6-t2v, wan2.6-i2v
+#   - 语音识别：qwen3-asr-flash-2025-09-08, fun-asr
+#   - 语音合成：qwen3-tts-flash-2025-11-27, cosyvoice-v3-flash
+# 详细模型列表请参考：backend/services/llm/model_registry.py
+# BAILIAN_MODEL=qwen-turbo
+
+# ----------------------------------------------------------------------------
+# TheTurbo.ai 网关平台 - OpenAI 配置
+# ----------------------------------------------------------------------------
+
+# OpenAI API 密钥（必需，如果使用 OpenAI 平台）
+# 说明：通过 TheTurbo.ai 网关访问 OpenAI 模型
+# 获取方式：访问 TheTurbo.ai 获取 API Key
+# 格式：字符串，长度至少 10 个字符
+# 示例：OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：这是 TheTurbo.ai 网关提供的 API Key，不是 OpenAI 官方的 API Key
+OPENAI_API_KEY=sk-jUgjOxmwVwQ_WFq6ktl8FOXtbzy5Ojg6jwQcaV7RhkidRfFg
+
+# OpenAI API Base URL（可选）
+# 默认值：https://gateway.theturbo.ai/v1
+# 说明：TheTurbo.ai 网关地址，通常不需要修改
+# OPENAI_BASE_URL=https://gateway.theturbo.ai/v1
+
+# OpenAI 模型名称（可选）
+# 默认值：gpt-5
+# 可选值：
+#   - GPT-4o 系列：gpt-4o, gpt-4o-mini
+#   - O3 系列：o3, o3-mini（支持思考过程）
+#   - GPT-4.1 系列：gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
+#   - O4 系列：o4-mini
+#   - GPT-5 系列：gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-codex
+#   - GPT-5.1 系列：gpt-5.1, gpt-5.1-codex, gpt-5.1-codex-mini
+#   - GPT-5.2 系列：gpt-5.2
+# OPENAI_MODEL=gpt-5
+
+# ----------------------------------------------------------------------------
+# TheTurbo.ai 网关平台 - Anthropic Claude 配置
+# ----------------------------------------------------------------------------
+
+# Anthropic API 密钥（必需，如果使用 Anthropic 平台）
+# 说明：通过 TheTurbo.ai 网关访问 Anthropic Claude 模型
+# 获取方式：访问 TheTurbo.ai 获取 API Key
+# 格式：字符串，长度至少 10 个字符
+# 示例：ANTHROPIC_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：这是 TheTurbo.ai 网关提供的 API Key，不是 Anthropic 官方的 API Key
+ANTHROPIC_API_KEY=sk-jUgjOxmwVwQ_WFq6ktl8FOXtbzy5Ojg6jwQcaV7RhkidRfFg
+
+# Anthropic API Base URL（可选）
+# 默认值：https://gateway.theturbo.ai/v1
+# 说明：TheTurbo.ai 网关地址，通常不需要修改
+# ANTHROPIC_BASE_URL=https://gateway.theturbo.ai/v1
+
+# Anthropic 模型名称（可选）
+# 默认值：claude-3-5-haiku-20241022
+# 可选值：
+#   - Claude 3.5 系列：claude-3-5-haiku-20241022, claude-3-5-sonnet-20241022
+#   - Claude 3.7 系列：claude-3-7-sonnet-20250219（支持 reasoning_effort 参数）
+#   - Claude Opus 4 系列：claude-opus-4-20250514（支持 reasoning_effort 参数）
+#   - Claude Sonnet 4 系列：claude-sonnet-4-20250514（支持 reasoning_effort 参数）
+#   - Claude Haiku 4 系列：claude-haiku-4-5-20251001（支持 reasoning_effort 参数）
+# ANTHROPIC_MODEL=claude-3-5-haiku-20241022
+
+# ----------------------------------------------------------------------------
+# TheTurbo.ai 网关平台 - Google Gemini 配置
+# ----------------------------------------------------------------------------
+
+# Google API 密钥（必需，如果使用 Google 平台）
+# 说明：通过 TheTurbo.ai 网关访问 Google Gemini 模型
+# 获取方式：访问 TheTurbo.ai 获取 API Key
+# 格式：字符串，长度至少 10 个字符
+# 示例：GOOGLE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：
+#   - 这是 TheTurbo.ai 网关提供的 API Key，不是 Google 官方的 API Key
+#   - 这是用于 LLM 服务的 Google API Key，与上面的 Google 搜索工具配置不同
+GOOGLE_API_KEY=sk-jUgjOxmwVwQ_WFq6ktl8FOXtbzy5Ojg6jwQcaV7RhkidRfFg
+
+# Google API Base URL（可选）
+# 默认值：https://gateway.theturbo.ai/v1
+# 说明：TheTurbo.ai 网关地址，通常不需要修改
+# GOOGLE_BASE_URL=https://gateway.theturbo.ai/v1
+
+# Google 模型名称（可选）
+# 默认值：gemini-2.5-flash
+# 可选值：
+#   - Gemini 2.0 系列：gemini-2.0-flash
+#   - Gemini 2.5 系列：gemini-2.5-flash, gemini-2.5-pro
+#   - Gemini 2.5 Thinking 系列：gemini-2.5-flash-thinking, gemini-2.5-pro-thinking（支持思考过程）
+#   - Gemini 3 系列：gemini-3-pro-preview, gemini-3-flash-preview
+# GOOGLE_MODEL=gemini-2.5-flash
+
+# ----------------------------------------------------------------------------
+# TheTurbo.ai 网关平台 - xAI Grok 配置
+# ----------------------------------------------------------------------------
+
+# xAI API 密钥（必需，如果使用 xAI 平台）
+# 说明：通过 TheTurbo.ai 网关访问 xAI Grok 模型
+# 获取方式：访问 TheTurbo.ai 获取 API Key
+# 格式：字符串，长度至少 10 个字符
+# 示例：XAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：这是 TheTurbo.ai 网关提供的 API Key，不是 xAI 官方的 API Key
+XAI_API_KEY=sk-jUgjOxmwVwQ_WFq6ktl8FOXtbzy5Ojg6jwQcaV7RhkidRfFg
+
+# xAI API Base URL（可选）
+# 默认值：https://gateway.theturbo.ai/v1
+# 说明：TheTurbo.ai 网关地址，通常不需要修改
+XAI_BASE_URL=https://gateway.theturbo.ai/v1
+
+# xAI 模型名称（可选）
+# 默认值：grok-4
+# 可选值：
+#   - Grok 3 系列：grok-3
+#   - Grok 4 系列：grok-4, grok-4-fast-non-reasoning, grok-4-fast-reasoning（支持推理）
+# XAI_MODEL=grok-4
+
+# ----------------------------------------------------------------------------
+# TheTurbo.ai 网关平台 - Perplexity Sonar 配置
+# ----------------------------------------------------------------------------
+
+# Perplexity API 密钥（必需，如果使用 Perplexity 平台）
+# 说明：通过 TheTurbo.ai 网关访问 Perplexity Sonar 模型
+# 获取方式：访问 TheTurbo.ai 获取 API Key
+# 格式：字符串，长度至少 10 个字符
+# 示例：PERPLEXITY_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：这是 TheTurbo.ai 网关提供的 API Key，不是 Perplexity 官方的 API Key
+PERPLEXITY_API_KEY=sk-jUgjOxmwVwQ_WFq6ktl8FOXtbzy5Ojg6jwQcaV7RhkidRfFg
+
+# Perplexity API Base URL（可选）
+# 默认值：https://gateway.theturbo.ai/v1
+# 说明：TheTurbo.ai 网关地址，通常不需要修改
+# PERPLEXITY_BASE_URL=https://gateway.theturbo.ai/v1
+
+# Perplexity 模型名称（可选）
+# 默认值：sonar
+# 可选值：
+#   - sonar: 标准版对话式搜索引擎（低成本）
+#   - sonar-pro: 专业版对话式搜索引擎（中等成本）
+#   - sonar-reasoning-pro: 支持推理的专业版（高成本）
+# PERPLEXITY_MODEL=sonar
+
+# ----------------------------------------------------------------------------
+# LLM 通用参数配置（可选）
+# ----------------------------------------------------------------------------
+
+# LLM 温度参数（控制输出的随机性）
+# 范围：0.0 - 2.0
+# 默认值：0.7
+# 说明：
+#   - 较低值（如 0.2）：输出更保守、确定性更强
+#   - 较高值（如 0.9）：输出更具创造性、随机性更强
+# LLM_TEMPERATURE=0.7
+
+# LLM 最大 token 数
+# 范围：> 0
+# 默认值：2000
+# 说明：限制响应长度，防止生成过长的回复
+# LLM_MAX_TOKENS=2000
+
+# LLM 服务使用说明：
+# 1. 至少需要配置一个提供商的 API 密钥
+#    - DEEPSEEK_API_KEY（必需，已在上面配置）
+#    - BAILIAN_API_KEY（可选，如果使用百炼平台）
+#    - 其他平台的 API Key（可选，见下方配置）
+# 2. 如果不设置 LLM_PROVIDER，系统会根据模型名称自动检测提供商
+# 3. 支持使用 "平台-模型" 格式明确指定平台，例如：
+#    - bailian-deepseek-chat（使用百炼平台的 deepseek-chat）
+#    - deepseek-deepseek-chat（使用 DeepSeek 平台的 deepseek-chat）
+#    - bailian-qwen-turbo（使用百炼平台的 qwen-turbo）
+#    - openai-gpt-5（使用 OpenAI 平台的 gpt-5）
+# 4. 区分百炼平台和 DeepSeek 平台的 DeepSeek 模型：
+#    - 相同模型名称（如 "deepseek-chat"）可能同时存在于两个平台
+#    - 推荐使用 "平台-模型" 格式明确指定：
+#      * "deepseek-deepseek-chat" = DeepSeek 官方平台的 deepseek-chat（使用 DEEPSEEK_API_KEY）
+#      * "bailian-deepseek-chat" = 百炼平台的 deepseek-chat（使用 BAILIAN_API_KEY）
+#    - 如果不使用 "平台-模型" 格式，系统会根据以下规则自动检测：
+#      * 如果模型名称在 BAILIAN_MODELS 中，优先使用百炼平台
+#      * 如果模型名称在 DEEPSEEK_MODELS 中，优先使用 DeepSeek 平台
+#      * 如果两个平台都有，默认使用百炼平台（因为百炼平台模型更丰富）
+# 5. 配置关系说明：
+#    - DEEPSEEK_API_KEY：用于 DeepSeek 官方平台，也作为 Browser Tool 的默认 LLM
+#    - BAILIAN_API_KEY：用于百炼平台（LLM 服务），如果设置可以替代 QWEN_API_KEY（Browser Tool 视觉功能）
+#    - QWEN_API_KEY：专门用于 Browser Tool 的视觉功能（如果未设置 BAILIAN_API_KEY）
+# 6. TheTurbo.ai 网关平台说明：
+#    - TheTurbo.ai 是一个统一的 API 网关，提供对多个模型提供商的访问
+#    - 所有通过网关的提供商（OpenAI、Anthropic、Google、xAI、Perplexity）使用相同的网关地址
+#    - 但每个提供商需要独立的 API Key（从 TheTurbo.ai 获取，不是官方 API Key）
+#    - 在配置上，每个提供商仍然是独立的平台，需要分别配置各自的 API Key
+#    - 优势：统一的 API 格式，一个网关访问多个提供商，灵活的模型切换
+# 7. 详细模型列表和推荐请参考：backend/services/llm/README.md
+
+# ----------------------------------------------------------------------------
+# 可选配置 - 后端服务
+# ----------------------------------------------------------------------------
+
+# 后端服务绑定的主机地址
+# 默认值：127.0.0.1（本地）
+# 说明：通常使用 127.0.0.1（本地）或 0.0.0.0（所有接口）
+# BACKEND_HOST=127.0.0.1
+
+# 后端服务绑定的端口号
+# 默认值：自动查找可用端口
+# 说明：如果未设置，系统会自动查找可用端口并保存到端口文件
+# 建议：设置固定端口（如 8000），避免每次启动端口变化
+# 示例：BACKEND_PORT=8000
+BACKEND_PORT=6080
+
+# ----------------------------------------------------------------------------
+# 开发环境配置（可选）
+# ----------------------------------------------------------------------------
+
+# 环境类型
+# 可选值：development（开发环境）, production（生产环境）
+# 默认值：development
+# 说明：开发环境默认启用调试输出，生产环境默认关闭
+ENV=development
+
+# 日志级别
+# 可选值：DEBUG, INFO, WARNING, ERROR, CRITICAL
+# 默认值：INFO
+# 说明：开发环境建议使用 DEBUG，生产环境建议使用 INFO
+# LOG_LEVEL=INFO
+
+# 日志文件路径（可选）
+# 默认值：自动存储在应用数据目录的 logs/backend.log
+# macOS: ~/Library/Application Support/hou-cli/logs/backend.log
+# Linux: ~/.local/share/hou-cli/logs/backend.log
+# Windows: %LOCALAPPDATA%\hou-cli\logs\backend.log
+# 说明：如果不设置，使用默认路径；日志文件会自动轮转（每个文件最大10MB，保留5个备份）
+# LOG_FILE=
+
+# Debug 日志文件路径（可选）
+# 默认值：项目根目录下的 .cursor/debug.log
+# 说明：用于记录 Orchestrator 的调试信息，包括任务执行流程、技能匹配、参数提取等
+# 格式：绝对路径或相对路径（支持 ~ 扩展）
+# 示例：DEBUG_LOG_PATH=/home/user/debug.log
+# 示例：DEBUG_LOG_PATH=~/.hou-cli/debug.log
+# 示例：DEBUG_LOG_PATH=./logs/debug.log
+# 注意：
+#   - 如果不设置，使用默认路径：项目根目录/.cursor/debug.log
+#   - 目录不存在时会自动创建
+#   - 日志文件以追加模式写入，不会覆盖已有内容
+# DEBUG_LOG_PATH=
+
+# 代码长度限制（可选）
+# 说明：限制代码执行器可执行代码的最大长度，单位为KB
+# 默认值：10 (即10KB)
+# 说明：
+#   - 用于防止过长的代码执行导致性能问题或安全风险
+#   - 如果需要执行更长的代码（如复杂的视频处理脚本），可以增加此值
+#   - 生产环境建议设置较小的值以提高安全性
+# 示例：MAX_CODE_LENGTH_KB=20 (允许20KB的代码)
+MAX_CODE_LENGTH_KB=50
+
+# 是否启用调试模式
+# 可选值：true（启用）, false（禁用）
+# 默认值：false（生产环境关闭）
+# 说明：开发环境建议设置为 true，生产环境建议设置为 false
+# 注意：如果 ENV=development，即使 DEBUG=false 也会启用调试输出
+DEBUG=true
+
+# ----------------------------------------------------------------------------
+# MediaWiki 集成配置
+# ----------------------------------------------------------------------------
+
+# MediaWiki 网站 URL（必需）
+# 说明：MediaWiki 网站的完整 URL，系统会自动使用 /api.php 端点
+# 格式：http://域名/mediawiki 或 https://域名/mediawiki
+# 示例：http://www.jthou.com/mediawiki
+# 示例：https://wiki.example.com
+# 注意：
+#   - URL 不需要包含 /api.php，系统会自动添加
+#   - 确保 URL 可以正常访问
+#   - 如果使用 HTTPS，确保证书有效
+MEDIAWIKI_URL=http://www.jthou.com/mediawiki
+
+# MediaWiki 基本认证配置（二选一：基本认证 或 Bot 认证）
+# 说明：可以使用普通用户账号或 Bot 账号，Bot 账号优先使用
+
+# MediaWiki 用户名（基本认证，可选）
+# 说明：用于访问 MediaWiki 的普通用户账号
+# 权限要求：
+#   - 读取权限：至少需要 read 权限（默认所有用户都有）
+#   - 编辑权限：需要 edit 权限（建议使用 Bot 账号）
+#   - 上传权限：需要 upload 权限（如果需要上传文件）
+# 示例：MEDIAWIKI_USERNAME=myusername
+MEDIAWIKI_USERNAME=justinhou
+
+# MediaWiki 密码（基本认证，可选）
+# 说明：对应 MEDIAWIKI_USERNAME 的密码
+# 安全提示：
+#   - 密码会以明文形式存储在 .env 文件中
+#   - 确保 .env 文件权限设置正确（建议 600）
+#   - 不要将 .env 文件提交到代码仓库
+# 示例：MEDIAWIKI_PASSWORD=your_password_here
+MEDIAWIKI_PASSWORD=jthou12345678
+
+# MediaWiki Bot 用户名（推荐使用，可选）
+# 说明：Bot 账号用于自动化操作，比普通账号更安全
+# 创建 Bot 账号步骤：
+#   1. 在 MediaWiki 中创建新用户（如 "MyBot@MyProject"）
+#   2. 为该用户分配适当的权限（edit, upload 等）
+#   3. 在 Special:BotPasswords 页面创建 Bot 密码
+#   4. 将生成的 Bot 用户名和密码填入下方配置
+# 格式：用户名@Bot名称
+# 示例：MEDIAWIKI_BOT_NAME=MyUser@MyBot
+# 注意：
+#   - 如果设置了 Bot 账号，将优先使用 Bot 认证
+#   - Bot 账号比普通账号更安全，建议使用
+MEDIAWIKI_BOT_NAME=justinhou_bot
+
+# MediaWiki Bot 密码（推荐使用，可选）
+# 说明：Bot 账号的密码（从 Special:BotPasswords 页面生成）
+# 格式：长字符串（由 MediaWiki 自动生成）
+# 示例：MEDIAWIKI_BOT_PASSWORD=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：
+#   - Bot 密码是专门为 API 访问生成的，比普通密码更安全
+#   - 如果 Bot 密码泄露，可以在 MediaWiki 中撤销，不影响主账号
+#   - 建议为不同的应用创建不同的 Bot 密码
+MEDIAWIKI_BOT_PASSWORD=ghi4vd19u8qij7f3ml208r9l6m25m12r
+
+# 配置说明：
+# 1. 至少需要配置 MEDIAWIKI_URL
+# 2. 如果只配置 URL，可以以只读模式访问（搜索、读取页面）
+# 3. 如果需要编辑、创建页面，需要配置认证信息：
+#    - 方式一：配置 MEDIAWIKI_USERNAME 和 MEDIAWIKI_PASSWORD（普通账号）
+#    - 方式二：配置 MEDIAWIKI_BOT_NAME 和 MEDIAWIKI_BOT_PASSWORD（推荐）
+# 4. 如果同时配置了普通账号和 Bot 账号，优先使用 Bot 账号
+# 5. 建议使用 Bot 账号，更安全且便于管理
+
+# ----------------------------------------------------------------------------
+# Google 搜索工具配置（可选）
+# ----------------------------------------------------------------------------
+
+# Google Custom Search API 密钥（必需）
+# 获取方式：
+#   1. 访问 https://console.cloud.google.com/ 创建 Google Cloud 项目
+#   2. 启用 "Custom Search API"（在 API 和服务 > 库中搜索并启用）
+#   3. 创建 API 密钥（在凭据页面创建）
+#   4. （可选）设置 API 密钥限制（HTTP 引用来源或 IP 地址）
+# 格式：字符串
+# 示例：GOOGLE_SEARCH_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 注意：
+#   - 免费用户每天最多 100 次查询
+#   - 建议设置 API 密钥限制以提高安全性
+# 详细文档：docs/google-search-api-setup.md
+GOOGLE_SEARCH_API_KEY=AIzaSyDFg7tQ5ZPiTwbvYOyROv7BDP0cUpJiiIA
+
+# Google Custom Search Engine ID（必需）
+# 获取方式：
+#   1. 访问 https://programmablesearchengine.google.com/controlpanel/all
+#   2. 点击"添加"创建新的搜索引擎
+#   3. 配置搜索引擎（可以搜索整个网络或特定网站）
+#   4. 创建完成后，在搜索引擎设置中获取搜索引擎 ID（cx 参数）
+# 格式：字符串
+# 示例：GOOGLE_SEARCH_ENGINE_ID=012345678901234567890:abcdefghijk
+# 注意：
+#   - 搜索引擎 ID 是必需的，用于标识您的自定义搜索引擎
+#   - 可以创建多个搜索引擎，每个都有唯一的 ID
+# 详细文档：docs/google-search-api-setup.md
+GOOGLE_SEARCH_ENGINE_ID=7642c9f1c9ea545b1
+

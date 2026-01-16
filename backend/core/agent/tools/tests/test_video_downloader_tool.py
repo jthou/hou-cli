@@ -106,7 +106,9 @@ class TestYouGetDownloader:
         )
         
         assert result.success is False
-        assert "you-get failed" in result.error
+        # 错误信息可能是中文或英文
+        error_lower = result.error.lower()
+        assert "you-get" in error_lower and ("failed" in error_lower or "失败" in error_lower or "下载失败" in result.error)
 
 
 class TestYtDlpDownloader:

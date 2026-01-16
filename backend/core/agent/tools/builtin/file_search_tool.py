@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional, List
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
-from backend.services.search import FileSearchService, FileSearchRequest
+from backend.services.file_search_service import FileSearchService, FileSearchRequest
 
 
 class FileSearchTool(Tool):

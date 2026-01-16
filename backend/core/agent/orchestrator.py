@@ -226,10 +226,18 @@ class Orchestrator:
         # 当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
         try:
             from backend.core.agent.tools.builtin.browser_tool import BrowserTool
-            browser_tool = BrowserTool()
-            self.tool_registry.register(browser_tool)
-            self.debug.log_orchestrator_step("注册工具", {"browser_tool": "registered"})
-            logger.info("Browser tool registered successfully")
+            
+            # 健康检查：确保工具可用且 API 兼容
+            is_available, health_error = BrowserTool.check_health()
+            if not is_available:
+                error_msg = f"Browser tool 健康检查失败: {health_error}. Browser tool will not be available."
+                self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+                logger.warning(error_msg)
+            else:
+                browser_tool = BrowserTool()
+                self.tool_registry.register(browser_tool)
+                self.debug.log_orchestrator_step("注册工具", {"browser_tool": "registered"})
+                logger.info("Browser tool registered successfully")
         except ImportError as e:
             error_msg = f"Browser-use not installed: {str(e)}. Browser tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
