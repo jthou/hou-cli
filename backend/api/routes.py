@@ -1,6 +1,4 @@
 """路由定义"""
-import os
-import json
 import asyncio
 from pathlib import Path
 from typing import Optional
@@ -20,7 +18,8 @@ else:
 from backend.core.agent.orchestrator import Orchestrator
 from backend.services.search.file_search_service import FileSearchService
 from backend.services.search.models import FileSearchRequest
-from backend.api.stream_sender import StreamSender
+from backend.api.stream_sender import SSEFormatter
+from shared.debug_utils import debug_log
 
 router = APIRouter()
 
@@ -34,9 +33,10 @@ def get_search_service():
         try:
             _search_service = FileSearchService()
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to initialize FileSearchService: {str(e)}", exc_info=True)
+            debug_log(
+                f"Failed to initialize FileSearchService: {str(e)}",
+                level="error"
+            )
             raise
     return _search_service
 
@@ -50,9 +50,10 @@ def get_orchestrator():
         try:
             _orchestrator = Orchestrator()
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to initialize Orchestrator: {str(e)}", exc_info=True)
+            debug_log(
+                f"Failed to initialize Orchestrator: {str(e)}",
+                level="error"
+            )
             raise
     return _orchestrator
 
@@ -63,20 +64,27 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """处理聊天请求（非流式）"""
-    import logging
     import traceback
-    logger = logging.getLogger(__name__)
     
     try:
-        logger.debug(f"收到聊天请求: message={request.message[:50]}..., session_id={request.session_id}")
+        debug_log(
+            "收到聊天请求",
+            data={
+                "message_preview": request.message[:50] if request.message else None,
+                "session_id": request.session_id
+            }
+        )
         orchestrator = get_orchestrator()
         context = {}
         if request.session_id:
             context["session_id"] = request.session_id
         
-        logger.debug("开始处理请求...")
+        debug_log("开始处理请求...")
         response = await orchestrator.process(request.message, context=context)
-        logger.debug(f"请求处理成功，响应长度: {len(response) if response else 0}")
+        debug_log(
+            "请求处理成功",
+            data={"response_length": len(response) if response else 0}
+        )
         
         # 返回响应和会话 ID（如果是新会话）
         result = {
@@ -91,7 +99,11 @@ async def chat(request: ChatRequest):
         return result
     except Exception as e:
         error_trace = traceback.format_exc()
-        logger.error(f"Chat request failed: {str(e)}\n{error_trace}")
+        debug_log(
+            f"Chat request failed: {str(e)}",
+            level="error",
+            data={"error_trace": error_trace}
+        )
         # 返回 200 状态码，但在响应中包含错误信息
         # 这样前端可以正常处理，而不是收到 502
         return {
@@ -103,163 +115,152 @@ async def chat(request: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """处理聊天请求（流式 SSE）"""
-    import logging
     import traceback
-    import json
-    import time
-    logger = logging.getLogger(__name__)
     
-    # #region agent log
-    try:
-        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:chat_stream:entry","message":"chat_stream路由被调用","data":{"message_preview":request.message[:50] if request.message else None,"session_id":request.session_id},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-            f.flush()
-    except Exception as log_err:
-        logger.error(f"日志写入失败: {log_err}")
-    # #endregion
+    debug_log(
+        "chat_stream路由被调用",
+        data={
+            "message_preview": request.message[:50] if request.message else None,
+            "session_id": request.session_id
+        }
+    )
     
     async def generate():
-        # #region agent log
-        try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:chat_stream:generate:entry","message":"generate函数被调用","data":{"message_preview":request.message[:50] if request.message else None,"session_id":request.session_id},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                f.flush()
-        except Exception as log_err:
-            logger.error(f"日志写入失败: {log_err}")
-        # #endregion
+        debug_log(
+            "generate函数被调用",
+            data={
+                "message_preview": request.message[:50] if request.message else None,
+                "session_id": request.session_id
+            }
+        )
         
         try:
-            logger.debug(f"收到流式聊天请求: message={request.message[:50]}..., session_id={request.session_id}")
+            debug_log(
+                "收到流式聊天请求",
+                data={
+                    "message_preview": request.message[:50] if request.message else None,
+                    "session_id": request.session_id
+                }
+            )
             # 立即发送一个心跳，保持连接活跃
-            yield await StreamSender.send_chunk("", "streaming")
+            yield SSEFormatter.format_chunk("", "streaming")
             
-            # #region agent log
-            try:
-                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:chat_stream:before_get_orchestrator","message":"准备获取orchestrator","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                    f.flush()
-            except Exception as log_err:
-                logger.error(f"日志写入失败: {log_err}")
-            # #endregion
+            debug_log(
+                "准备获取orchestrator",
+                hypothesis_id="B"
+            )
             
             try:
                 orchestrator = get_orchestrator()
             except Exception as orch_err:
-                # #region agent log
-                try:
-                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:chat_stream:get_orchestrator_error","message":"获取orchestrator失败","data":{"error":str(orch_err)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        f.flush()
-                except: pass
-                # #endregion
+                debug_log(
+                    "获取orchestrator失败",
+                    level="error",
+                    hypothesis_id="B",
+                    data={"error": str(orch_err)}
+                )
                 raise
             
-            # #region agent log
-            try:
-                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:chat_stream:after_get_orchestrator","message":"orchestrator已获取","data":{"orchestrator_exists":orchestrator is not None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                    f.flush()
-            except Exception as log_err:
-                logger.error(f"日志写入失败: {log_err}")
-            # #endregion
+            debug_log(
+                "orchestrator已获取",
+                hypothesis_id="B",
+                data={"orchestrator_exists": orchestrator is not None}
+            )
             
             context = {}
             if request.session_id:
                 context["session_id"] = request.session_id
             
-            logger.debug("开始流式处理请求...")
+            debug_log("开始流式处理请求...")
             
-            # #region agent log
-            try:
-                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"routes.py:chat_stream:before_stream_process","message":"准备调用stream_process","data":{"task_length":len(request.message) if request.message else 0},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                    f.flush()
-            except Exception as log_err:
-                logger.error(f"日志写入失败: {log_err}")
-            # #endregion
+            debug_log(
+                "准备调用stream_process",
+                hypothesis_id="C",
+                data={"task_length": len(request.message) if request.message else 0}
+            )
             
             try:
-                # #region agent log
-                try:
-                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:before_async_for","message":"准备进入stream_process循环","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        f.flush()
-                except Exception as log_err:
-                    logger.error(f"日志写入失败: {log_err}")
-                # #endregion
+                debug_log(
+                    "准备进入stream_process循环",
+                    hypothesis_id="F"
+                )
                 
                 chunk_count = 0
                 stream_iter = orchestrator.stream_process(request.message, context=context)
                 
-                # #region agent log
-                try:
-                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:after_get_stream_iter","message":"已获取stream_process迭代器","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        f.flush()
-                except Exception as log_err:
-                    logger.error(f"日志写入失败: {log_err}")
-                # #endregion
+                debug_log(
+                    "已获取stream_process迭代器",
+                    hypothesis_id="F"
+                )
                 
                 async for chunk in stream_iter:
                     chunk_count += 1
-                    # #region agent log
+                    debug_log(
+                        "收到chunk",
+                        hypothesis_id="F",
+                        data={
+                            "chunk_count": chunk_count,
+                            "chunk_preview": chunk[:50] if chunk else None
+                        }
+                    )
                     try:
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:received_chunk","message":"收到chunk","data":{"chunk_count":chunk_count,"chunk_preview":chunk[:50] if chunk else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                    except: pass
-                    # #endregion
-                    try:
-                        # 使用 StreamSender 发送数据块
-                        # #region agent log
-                        try:
-                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:before_send_chunk","message":"准备发送chunk","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        except: pass
-                        # #endregion
-                        yield await StreamSender.send_chunk(chunk, "streaming")
-                        # #region agent log
-                        try:
-                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:after_send_chunk","message":"chunk已发送","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        except: pass
-                        # #endregion
+                        # 使用 SSEFormatter 格式化数据块
+                        debug_log(
+                            "准备发送chunk",
+                            hypothesis_id="F"
+                        )
+                        yield SSEFormatter.format_chunk(chunk, "streaming")
+                        debug_log(
+                            "chunk已发送",
+                            hypothesis_id="F"
+                        )
                     except Exception as chunk_error:
                         # 单个 chunk 处理失败，记录但继续
-                        # #region agent log
-                        try:
-                            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"routes.py:chat_stream:chunk_error","message":"chunk处理错误","data":{"error":str(chunk_error)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        except: pass
-                        # #endregion
-                        logger.warning(f"处理 chunk 时出错: {str(chunk_error)}")
+                        debug_log(
+                            "chunk处理错误",
+                            level="warning",
+                            hypothesis_id="F",
+                            data={"error": str(chunk_error)}
+                        )
                         continue
                 # 发送完成信号
-                logger.debug("流式处理完成")
-                yield await StreamSender.send_done()
+                debug_log("流式处理完成")
+                yield SSEFormatter.format_done()
             except GeneratorExit:
                 # 客户端断开连接，正常情况
-                logger.debug("客户端断开连接")
+                debug_log("客户端断开连接")
                 raise
             except asyncio.CancelledError:
                 # 任务被取消，正常情况
-                logger.debug("流式处理被取消")
+                debug_log("流式处理被取消")
                 raise
             except Exception as inner_e:
                 # 流式处理过程中的异常
                 error_trace = traceback.format_exc()
-                logger.error(f"流式处理过程中出错: {str(inner_e)}\n{error_trace}")
+                debug_log(
+                    f"流式处理过程中出错: {str(inner_e)}",
+                    level="error",
+                    data={"error_trace": error_trace}
+                )
                 try:
                     # 发送错误信号
-                    yield await StreamSender.send_error(str(inner_e))
+                    yield SSEFormatter.format_error(str(inner_e))
                 except Exception:
                     # 如果发送错误信号也失败，记录日志
-                    logger.error("无法发送错误信号，连接可能已关闭")
+                    debug_log(
+                        "无法发送错误信号，连接可能已关闭",
+                        level="error"
+                    )
         except Exception as e:
             # 外层异常（如 orchestrator 初始化失败）
             error_trace = traceback.format_exc()
-            logger.error(f"流式聊天请求失败: {str(e)}\n{error_trace}")
+            debug_log(
+                f"流式聊天请求失败: {str(e)}",
+                level="error",
+                data={"error_trace": error_trace}
+            )
             # 发送错误信号
-            yield await StreamSender.send_error(str(e))
+            yield SSEFormatter.format_error(str(e))
     
     return StreamingResponse(
         generate(),
@@ -323,21 +324,33 @@ async def delete_session(session_id: str):
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
     """清除会话的所有消息"""
-    import logging
-    logger = logging.getLogger(__name__)
     try:
-        logger.debug(f"清除会话消息: session_id={session_id}")
+        debug_log(
+            "清除会话消息",
+            data={"session_id": session_id}
+        )
         orchestrator = get_orchestrator()
         result = orchestrator.context_manager.clear_session(session_id)
         
         if result:
-            logger.debug(f"成功清除会话消息: session_id={session_id}")
+            debug_log(
+                "成功清除会话消息",
+                data={"session_id": session_id}
+            )
             return {"success": True, "message": f"会话 {session_id} 的消息已清除"}
         else:
-            logger.warning(f"清除会话消息失败: session_id={session_id}")
+            debug_log(
+                "清除会话消息失败",
+                level="warning",
+                data={"session_id": session_id}
+            )
             return {"success": False, "error": f"会话不存在或清除失败: {session_id}"}
     except Exception as e:
-        logger.error(f"清除会话消息异常: session_id={session_id}, 错误: {e}", exc_info=True)
+        debug_log(
+            f"清除会话消息异常: {str(e)}",
+            level="error",
+            data={"session_id": session_id}
+        )
         return {
             "success": False,
             "error": str(e)
@@ -346,24 +359,35 @@ async def clear_session_messages(session_id: str):
 @router.get("/sessions/{session_id}")
 async def get_session_detail(session_id: str):
     """获取会话详情（包含消息列表）"""
-    import logging
-    logger = logging.getLogger(__name__)
     try:
-        logger.debug(f"获取会话详情: session_id={session_id}")
+        debug_log(
+            "获取会话详情",
+            data={"session_id": session_id}
+        )
         orchestrator = get_orchestrator()
         session = orchestrator.context_manager.get_session(session_id)
         
         if not session:
-            logger.warning(f"会话不存在: {session_id}")
+            debug_log(
+                "会话不存在",
+                level="warning",
+                data={"session_id": session_id}
+            )
             return {"success": False, "error": f"会话不存在: {session_id}"}
         
         # 获取消息列表（不压缩，用于显示）
-        logger.debug(f"获取消息列表: session_id={session_id}, compressed=False")
+        debug_log(
+            "获取消息列表",
+            data={"session_id": session_id, "compressed": False}
+        )
         messages = orchestrator.context_manager.get_messages(
             session_id,
             compressed=False
         )
-        logger.debug(f"获取到 {len(messages)} 条消息")
+        debug_log(
+            f"获取到 {len(messages)} 条消息",
+            data={"count": len(messages)}
+        )
         
         # 转换为字典格式
         messages_data = [
@@ -386,10 +410,17 @@ async def get_session_detail(session_id: str):
             },
             "messages": messages_data
         }
-        logger.debug(f"成功获取会话详情: session_id={session_id}, messages_count={len(messages_data)}")
+        debug_log(
+            "成功获取会话详情",
+            data={"session_id": session_id, "messages_count": len(messages_data)}
+        )
         return result
     except Exception as e:
-        logger.error(f"获取会话详情失败: session_id={session_id}, 错误: {e}", exc_info=True)
+        debug_log(
+            f"获取会话详情失败: {str(e)}",
+            level="error",
+            data={"session_id": session_id}
+        )
         return {
             "success": False,
             "error": str(e)
@@ -488,23 +519,7 @@ async def generate_session_summary(session_id: str):
         }
 
 # 文件搜索 API
-from backend.services.search.file_search_service import FileSearchService
-from backend.services.search.models import FileSearchRequest, FileSearchResponse
-
-_search_service = None
-
-def get_search_service():
-    """获取 FileSearchService 实例（单例模式）"""
-    global _search_service
-    if _search_service is None:
-        try:
-            _search_service = FileSearchService()
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to initialize FileSearchService: {str(e)}", exc_info=True)
-            raise
-    return _search_service
+from backend.services.search.models import FileSearchResponse
 
 @router.get("/search/files", response_model=FileSearchResponse)
 async def search_files(
@@ -532,9 +547,6 @@ async def search_files(
     Returns:
         FileSearchResponse: 搜索结果响应
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         # 验证参数
         if limit < 1 or limit > 1000:
@@ -570,7 +582,10 @@ async def search_files(
         return response
         
     except Exception as e:
-        logger.error(f"File search failed: {e}", exc_info=True)
+        debug_log(
+            f"File search failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,
@@ -580,9 +595,6 @@ async def search_files(
 @router.get("/search/availability")
 async def check_search_availability():
     """检查搜索功能可用性"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         search_service = get_search_service()
         available, error = search_service.check_availability()
@@ -593,7 +605,10 @@ async def check_search_availability():
             "error": error
         }
     except Exception as e:
-        logger.error(f"检查搜索可用性失败: {e}", exc_info=True)
+        debug_log(
+            f"检查搜索可用性失败: {str(e)}",
+            level="error"
+        )
         return {
             "success": False,
             "available": False,
@@ -620,9 +635,10 @@ def get_mediawiki_client():
             _mediawiki_client = MediaWikiClientService()
             _mediawiki_client.connect()
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to initialize MediaWiki client: {str(e)}", exc_info=True)
+            debug_log(
+                f"Failed to initialize MediaWiki client: {str(e)}",
+                level="error"
+            )
             raise
     return _mediawiki_client
 
@@ -634,9 +650,10 @@ def get_mediawiki_sync_service():
             client = get_mediawiki_client()
             _mediawiki_sync_service = MediaWikiSyncService(client=client)
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to initialize MediaWiki sync service: {str(e)}", exc_info=True)
+            debug_log(
+                f"Failed to initialize MediaWiki sync service: {str(e)}",
+                level="error"
+            )
             raise
     return _mediawiki_sync_service
 
@@ -648,9 +665,10 @@ def get_unified_search_service():
             client = get_mediawiki_client()
             _unified_search_service = UnifiedSearchService(mediawiki_client=client)
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to initialize unified search service: {str(e)}", exc_info=True)
+            debug_log(
+                f"Failed to initialize unified search service: {str(e)}",
+                level="error"
+            )
             raise
     return _unified_search_service
 
@@ -673,9 +691,6 @@ async def search_mediawiki(
     Returns:
         搜索结果列表
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         if limit < 1 or limit > 100:
             from fastapi import HTTPException
@@ -701,7 +716,10 @@ async def search_mediawiki(
             ]
         }
     except Exception as e:
-        logger.error(f"MediaWiki search failed: {e}", exc_info=True)
+        debug_log(
+            f"MediaWiki search failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,
@@ -718,9 +736,6 @@ async def get_mediawiki_page(title: str):
     Returns:
         页面内容
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         client = get_mediawiki_client()
         page = client.get_page(title)
@@ -745,7 +760,10 @@ async def get_mediawiki_page(title: str):
             }
         }
     except Exception as e:
-        logger.error(f"Get MediaWiki page failed: {e}", exc_info=True)
+        debug_log(
+            f"Get MediaWiki page failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,
@@ -763,9 +781,6 @@ async def edit_mediawiki_page(title: str, request: MediaWikiEditRequest):
     Returns:
         编辑结果
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         client = get_mediawiki_client()
         success = client.edit_page(
@@ -786,7 +801,10 @@ async def edit_mediawiki_page(title: str, request: MediaWikiEditRequest):
                 detail="Edit failed"
             )
     except Exception as e:
-        logger.error(f"Edit MediaWiki page failed: {e}", exc_info=True)
+        debug_log(
+            f"Edit MediaWiki page failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,
@@ -807,9 +825,6 @@ async def trigger_sync(
     Returns:
         同步结果
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         sync_service = get_mediawiki_sync_service()
         
@@ -823,7 +838,10 @@ async def trigger_sync(
             "result": result
         }
     except Exception as e:
-        logger.error(f"MediaWiki sync failed: {e}", exc_info=True)
+        debug_log(
+            f"MediaWiki sync failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,
@@ -837,9 +855,6 @@ async def get_sync_status():
     Returns:
         同步状态信息
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         sync_service = get_mediawiki_sync_service()
         status = sync_service.get_sync_status()
@@ -849,7 +864,10 @@ async def get_sync_status():
             "status": status
         }
     except Exception as e:
-        logger.error(f"Get sync status failed: {e}", exc_info=True)
+        debug_log(
+            f"Get sync status failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,
@@ -859,8 +877,6 @@ async def get_sync_status():
 @router.get("/tools/list")
 async def list_tools():
     """获取可用工具列表"""
-    import logging
-    logger = logging.getLogger(__name__)
     try:
         orchestrator = get_orchestrator()
         # 获取工具对象（不是名称列表）
@@ -897,7 +913,10 @@ async def list_tools():
             "count": len(tools_info)
         }
     except Exception as e:
-        logger.error(f"获取工具列表失败: {e}", exc_info=True)
+        debug_log(
+            f"获取工具列表失败: {str(e)}",
+            level="error"
+        )
         return {
             "success": False,
             "error": str(e)
@@ -919,9 +938,6 @@ async def unified_search(
     Returns:
         合并后的搜索结果
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         if limit < 1 or limit > 100:
             from fastapi import HTTPException
@@ -953,7 +969,10 @@ async def unified_search(
             ]
         }
     except Exception as e:
-        logger.error(f"Unified search failed: {e}", exc_info=True)
+        debug_log(
+            f"Unified search failed: {str(e)}",
+            level="error"
+        )
         from fastapi import HTTPException
         raise HTTPException(
             status_code=500,

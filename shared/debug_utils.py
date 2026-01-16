@@ -1,4 +1,6 @@
 """调试输出工具"""
+import os
+import json
 import logging
 from typing import Optional, Any, Dict
 from rich.console import Console
@@ -8,6 +10,135 @@ from shared.config import Config
 config = Config()
 console = Console()
 logger = logging.getLogger(__name__)
+
+
+def get_debug_log_path() -> Optional[str]:
+    """获取调试日志文件路径（从环境变量读取）"""
+    debug_log_path = os.getenv("DEBUG_LOG_PATH")
+    if debug_log_path:
+        return debug_log_path
+    # 如果环境变量未设置，返回 None（不记录日志）
+    return None
+
+
+def debug_log(
+    message: str,
+    location: Optional[str] = None,
+    level: str = "debug",
+    data: Optional[dict] = None,
+    hypothesis_id: str = "A",
+    logger_name: Optional[str] = None
+):
+    """统一的调试日志接口
+    
+    同时支持：
+    - 标准 Python logging（debug/info/warning/error）
+    - 文件日志（如果设置了 DEBUG_LOG_PATH）
+    
+    自动获取调用位置信息（类似 C 的 __FILE__, __FUNCTION__, __LINE__）：
+    - 如果 location 未提供，自动从调用栈获取文件名、函数名和行号
+    
+    Args:
+        message: 日志消息
+        location: 日志位置（如 "routes.py:chat_stream:entry"），可选，不提供则自动获取
+        level: 日志级别（debug/info/warning/error），默认 "debug"
+        data: 附加数据字典（可选）
+        hypothesis_id: 假设ID（默认 "A"），仅用于文件日志
+        logger_name: logger 名称，None 时使用调用者的模块名
+    """
+    import inspect
+    from pathlib import Path
+    
+    # 自动获取调用位置信息（类似 C 的 __FILE__, __FUNCTION__, __LINE__）
+    # 注意：获取的是调用 debug_log() 的位置，不是 debug_log 函数自身的位置
+    if location is None:
+        frame = inspect.currentframe()
+        # frame 是 debug_log 函数自己的帧
+        # frame.f_back 是调用 debug_log() 的位置（调用者）
+        if frame and frame.f_back:
+            caller_frame = frame.f_back  # 获取调用者的帧
+            # 获取文件名（只取文件名，不包含路径）
+            file_path = caller_frame.f_code.co_filename
+            file_name = Path(file_path).name
+            # 获取函数名（调用 debug_log 的函数名）
+            function_name = caller_frame.f_code.co_name
+            # 获取行号（调用 debug_log 的行号）
+            line_number = caller_frame.f_lineno
+            # 构建 location 字符串
+            location = f"{file_name}:{function_name}:{line_number}"
+        else:
+            location = "unknown"
+    
+    # 1. 输出到标准 logging
+    if logger_name:
+        log = logging.getLogger(logger_name)
+    else:
+        # 自动获取调用者的模块名
+        frame = inspect.currentframe()
+        if frame and frame.f_back:
+            caller_module = frame.f_back.f_globals.get('__name__', __name__)
+            log = logging.getLogger(caller_module)
+        else:
+            log = logger
+    
+    # 格式化消息
+    full_message = f"[{location}] {message}"
+    
+    # 如果有附加数据，添加到消息中
+    if data:
+        data_str = ", ".join([f"{k}={v}" for k, v in data.items()])
+        full_message = f"{full_message} | {data_str}"
+    
+    # 根据级别输出
+    if level == "debug":
+        log.debug(full_message)
+    elif level == "info":
+        log.info(full_message)
+    elif level == "warning":
+        log.warning(full_message)
+    elif level == "error":
+        log.error(full_message)
+    
+    # 2. 写入文件日志（如果设置了 DEBUG_LOG_PATH）
+    debug_log_path = get_debug_log_path()
+    if debug_log_path:
+        try:
+            import time
+            log_entry = {
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": hypothesis_id,
+                "location": location,
+                "message": message,
+                "level": level,
+                "data": data or {},
+                "timestamp": int(time.time() * 1000)
+            }
+            with open(debug_log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+                f.flush()
+        except Exception as log_err:
+            log.error(f"文件日志写入失败: {log_err}")
+
+
+def write_debug_log(
+    location: str,
+    message: str,
+    hypothesis_id: str = "A",
+    data: Optional[dict] = None,
+    log_error: bool = True
+):
+    """写入调试日志（已废弃，请使用 debug_log）
+    
+    为了向后兼容保留，内部调用 debug_log
+    """
+    debug_log(
+        message=message,
+        location=location,
+        level="debug",
+        data=data,
+        hypothesis_id=hypothesis_id
+    )
 
 class DebugOutput:
     """调试输出类"""

@@ -1,5 +1,6 @@
 """技能注册表"""
 import logging
+import re
 from typing import Dict, Optional, List
 from pathlib import Path
 import yaml
@@ -133,6 +134,9 @@ class SkillRegistry:
             subtitle_keywords = ["字幕", "subtitle", "srt", "转成", "转"]
             ffmpeg_keywords = ["ffmpeg"]
             whisper_keywords = ["whisper"]
+            cut_keywords = ["剪辑", "cut", "trim", "slice", "裁剪", "截取", "提取片段", "片段"]
+            merge_keywords = ["合并", "merge", "拼接", "连接"]
+            edit_keywords = ["编辑", "edit", "处理"]
             
             has_download = any(kw in user_input_lower for kw in download_keywords)
             has_summary = any(kw in user_input_lower for kw in summary_keywords)
@@ -141,6 +145,13 @@ class SkillRegistry:
             has_subtitle = any(kw in user_input_lower for kw in subtitle_keywords)
             has_ffmpeg = any(kw in user_input_lower for kw in ffmpeg_keywords)
             has_whisper = any(kw in user_input_lower for kw in whisper_keywords)
+            has_cut = any(kw in user_input_lower for kw in cut_keywords)
+            has_merge = any(kw in user_input_lower for kw in merge_keywords)
+            has_edit = any(kw in user_input_lower for kw in edit_keywords)
+            
+            # 检测时间范围（如 00:05:00 到 00:19:00）
+            time_pattern = r'\d{1,2}:\d{2}:\d{2}'
+            has_time_range = bool(re.search(time_pattern, user_input))
             
             # 3. 检查技能描述中的关键词
             skill_desc_lower = skill.description.lower()
@@ -151,23 +162,43 @@ class SkillRegistry:
             skill_has_subtitle = any(kw in skill_desc_lower for kw in subtitle_keywords)
             skill_has_ffmpeg = any(kw in skill_desc_lower for kw in ffmpeg_keywords)
             skill_has_whisper = any(kw in skill_desc_lower for kw in whisper_keywords)
+            skill_has_cut = any(kw in skill_desc_lower for kw in cut_keywords)
+            skill_has_merge = any(kw in skill_desc_lower for kw in merge_keywords)
+            skill_has_edit = any(kw in skill_desc_lower for kw in edit_keywords)
             
             # 4. 本地文件路径特殊处理
             if is_local_file:
-                # 如果是本地文件路径，优先匹配支持本地文件的技能
-                if skill.name == 'video_extract_srt':
-                    # video_extract_srt 专门用于提取字幕，最高优先级
-                    score += 1000  # 最高优先级
-                    # 如果用户明确提到字幕、srt、提取等关键词，额外加分
-                    if has_subtitle or has_ffmpeg or has_whisper:
-                        score += 500
+                # 如果是本地文件路径，根据用户意图匹配技能
+                
+                # 优先处理明确的编辑操作（剪辑、合并等）
+                if has_cut or has_time_range:
+                    # 如果用户要求剪辑或提供了时间范围，优先匹配 video_cut
+                    if skill.name == 'video_cut':
+                        score += 1200  # 最高优先级（高于 video_extract_srt）
+                    elif skill.name == 'video_extract_srt':
+                        score -= 500  # 降低优先级（因为不是剪辑操作）
+                elif has_merge:
+                    # 如果用户要求合并，优先匹配 video_merge
+                    if skill.name == 'video_merge':
+                        score += 1200  # 最高优先级
+                    elif skill.name == 'video_extract_srt':
+                        score -= 500  # 降低优先级
+                elif has_subtitle or has_ffmpeg or has_whisper:
+                    # 如果用户明确提到字幕、srt、提取等关键词，优先匹配 video_extract_srt
+                    if skill.name == 'video_extract_srt':
+                        score += 1000  # 高优先级
+                    elif skill.name == 'video_cut':
+                        score -= 300  # 降低优先级（因为不是字幕操作）
+                elif skill.name == 'video_extract_srt':
+                    # 默认情况下，本地文件路径匹配 video_extract_srt（但优先级较低）
+                    score += 600  # 中等优先级
                 elif skill.name == 'video_downloader':
                     # video_downloader 只处理 URL，不处理本地文件
                     score -= 500  # 降低优先级
                 elif skill.name in ['video_cut', 'video_merge', 'video_subtitle_overlay']:
-                    # 其他视频编辑技能不支持音频提取和字幕生成，降低优先级
-                    if has_audio or has_subtitle or has_ffmpeg or has_whisper:
-                        score -= 300  # 降低优先级
+                    # 其他视频编辑技能，如果没有明确的操作意图，降低优先级
+                    if not (has_cut or has_merge or has_edit):
+                        score -= 200  # 降低优先级
             
             # 5. URL 特殊处理
             if is_url:
@@ -212,6 +243,22 @@ class SkillRegistry:
                 elif skill_has_audio or skill_has_ffmpeg or skill_has_whisper:
                     score += 200
             
+            # 如果用户要求剪辑（cut/trim/slice），优先匹配 video_cut
+            if has_cut or has_time_range:
+                if skill.name == 'video_cut':
+                    score += 800  # 高优先级
+                elif skill_has_cut:
+                    score += 400
+                elif skill.name == 'video_extract_srt':
+                    score -= 300  # 降低优先级（因为不是剪辑操作）
+            
+            # 如果用户要求合并，优先匹配 video_merge
+            if has_merge:
+                if skill.name == 'video_merge':
+                    score += 800  # 高优先级
+                elif skill_has_merge:
+                    score += 400
+            
             # 视频相关关键词匹配
             if has_video and skill_has_video:
                 score += 50
@@ -240,4 +287,3 @@ class SkillRegistry:
             logger.debug(f"其他候选技能: {[(s.name, score) for score, s in matched_skills[1:3]]}")
         
         return best_match
-

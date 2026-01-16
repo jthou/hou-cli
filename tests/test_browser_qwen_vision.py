@@ -61,28 +61,28 @@ def load_browser_tool():
 async def test_qwen_configuration():
     """测试 Qwen 配置"""
     print("=" * 60)
-    print("测试 1: Qwen 配置检查")
+    print("测试 1: 视觉模型配置检查")
     print("=" * 60)
     
-    qwen_api_key = os.environ.get('QWEN_API_KEY')
-    qwen_base_url = os.getenv('QWEN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-    qwen_model = os.getenv('QWEN_MODEL', 'qwen-vl-max')
+    bailian_api_key = os.environ.get('BAILIAN_API_KEY')
+    bailian_base_url = os.getenv('BAILIAN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+    vision_model = os.getenv('BROWSER_TOOL_VISION_MODEL', 'qwen-vl-max-2025-08-13')
     use_vision = os.getenv('BROWSER_TOOL_USE_VISION', 'false').lower() == 'true'
     
-    print(f"QWEN_API_KEY: {'已设置' if qwen_api_key else '未设置'}")
-    if qwen_api_key:
-        print(f"  - 长度: {len(qwen_api_key)}")
+    print(f"BAILIAN_API_KEY: {'已设置' if bailian_api_key else '未设置'}")
+    if bailian_api_key:
+        print(f"  - 长度: {len(bailian_api_key)}")
     
-    print(f"QWEN_BASE_URL: {qwen_base_url}")
-    print(f"QWEN_MODEL: {qwen_model}")
+    print(f"BAILIAN_BASE_URL: {bailian_base_url}")
+    print(f"BROWSER_TOOL_VISION_MODEL: {vision_model}")
     print(f"BROWSER_TOOL_USE_VISION: {use_vision}")
     
-    if not qwen_api_key:
-        print("\n⚠️  QWEN_API_KEY 未设置，视觉功能将不可用")
-        print("   请在 .env 文件中设置 QWEN_API_KEY")
+    if not bailian_api_key:
+        print("\n⚠️  BAILIAN_API_KEY 未设置，视觉功能将不可用")
+        print("   请在 .env 文件中设置 BAILIAN_API_KEY")
         return False
     
-    print("\n✅ Qwen 配置检查通过")
+    print("\n✅ 视觉模型配置检查通过")
     return True
 
 
@@ -152,9 +152,9 @@ async def test_llm_creation():
     
     tool = BrowserTool()
     
-    qwen_api_key = os.environ.get('QWEN_API_KEY')
-    if not qwen_api_key:
-        print("⚠️  QWEN_API_KEY 未设置，跳过此测试")
+    bailian_api_key = os.environ.get('BAILIAN_API_KEY')
+    if not bailian_api_key:
+        print("⚠️  BAILIAN_API_KEY 未设置，跳过此测试")
         return False
     
     try:
@@ -193,9 +193,9 @@ async def test_browser_task_with_vision():
     browser_module = load_browser_tool()
     BrowserTool = browser_module.BrowserTool
     
-    qwen_api_key = os.environ.get('QWEN_API_KEY')
-    if not qwen_api_key:
-        print("⚠️  QWEN_API_KEY 未设置，跳过此测试")
+    bailian_api_key = os.environ.get('BAILIAN_API_KEY')
+    if not bailian_api_key:
+        print("⚠️  BAILIAN_API_KEY 未设置，跳过此测试")
         return False
     
     tool = BrowserTool()
@@ -260,7 +260,7 @@ async def main():
     
     if not config_ok:
         print("\n⚠️  配置检查失败，部分测试将跳过")
-        print("   请先配置 QWEN_API_KEY")
+        print("   请先配置 BAILIAN_API_KEY")
     
     # 测试 2: 视觉检测
     detection_ok = await test_vision_detection()

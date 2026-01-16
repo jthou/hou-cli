@@ -1,4 +1,4 @@
-"""流式发送模块 - 负责向后端发送流式数据"""
+"""流式数据格式化模块 - 负责将数据格式化为 SSE (Server-Sent Events) 格式"""
 import json
 import asyncio
 from typing import AsyncIterator, Optional, Callable, Any
@@ -36,13 +36,13 @@ class StreamMessageBuilder:
         return f"__STATUS__:{json.dumps(status_data, ensure_ascii=False)}\n"
 
 
-class StreamSender:
-    """流式数据发送器，负责将数据以 SSE 格式发送到前端"""
+class SSEFormatter:
+    """SSE (Server-Sent Events) 格式化器，负责将数据格式化为 SSE 格式"""
     
     @staticmethod
-    async def send_chunk(content: str, status: str = "streaming") -> str:
+    def format_chunk(content: str, status: str = "streaming") -> str:
         """
-        发送一个数据块（SSE 格式）
+        格式化一个数据块（SSE 格式）
         
         Args:
             content: 内容
@@ -54,9 +54,9 @@ class StreamSender:
         return f"data: {json.dumps({'content': content, 'status': status}, ensure_ascii=False)}\n\n"
     
     @staticmethod
-    async def send_debug(debug_data: dict) -> str:
+    def format_debug(debug_data: dict) -> str:
         """
-        发送调试信息
+        格式化调试信息
         
         Args:
             debug_data: 调试数据字典
@@ -67,9 +67,9 @@ class StreamSender:
         return f"__DEBUG__:{json.dumps(debug_data, ensure_ascii=False)}\n"
     
     @staticmethod
-    async def send_tool(tool_data: dict) -> str:
+    def format_tool(tool_data: dict) -> str:
         """
-        发送工具调用信息
+        格式化工具调用信息
         
         Args:
             tool_data: 工具数据字典
@@ -80,9 +80,9 @@ class StreamSender:
         return f"__TOOL__:{json.dumps(tool_data, ensure_ascii=False)}\n"
     
     @staticmethod
-    async def send_confirm(confirm_data: dict) -> str:
+    def format_confirm(confirm_data: dict) -> str:
         """
-        发送确认请求
+        格式化确认请求
         
         Args:
             confirm_data: 确认数据字典
@@ -93,9 +93,9 @@ class StreamSender:
         return f"__CONFIRM__:{json.dumps(confirm_data, ensure_ascii=False)}\n"
     
     @staticmethod
-    async def send_evaluation(evaluation_data: dict) -> str:
+    def format_evaluation(evaluation_data: dict) -> str:
         """
-        发送评估结果
+        格式化评估结果
         
         Args:
             evaluation_data: 评估数据字典
@@ -106,9 +106,9 @@ class StreamSender:
         return f"__EVALUATION__:{json.dumps(evaluation_data, ensure_ascii=False)}\n"
     
     @staticmethod
-    async def send_status(status_data: dict) -> str:
+    def format_status(status_data: dict) -> str:
         """
-        发送状态更新（用于长任务）
+        格式化状态更新（用于长任务）
         
         Args:
             status_data: 状态数据字典，包含：
@@ -124,13 +124,13 @@ class StreamSender:
         return f"__STATUS__:{json.dumps(status_data, ensure_ascii=False)}\n"
     
     @staticmethod
-    async def send_done() -> str:
-        """发送完成信号"""
-        return await StreamSender.send_chunk("", "done")
+    def format_done() -> str:
+        """格式化完成信号"""
+        return SSEFormatter.format_chunk("", "done")
     
     @staticmethod
-    async def send_error(error: str) -> str:
-        """发送错误信号"""
+    def format_error(error: str) -> str:
+        """格式化错误信号"""
         return f"data: {json.dumps({'content': '', 'status': 'error', 'error': error}, ensure_ascii=False)}\n\n"
 
 
@@ -215,7 +215,7 @@ class LongTaskMonitor:
                     estimated_remaining = max(0, estimated_total - elapsed_time)
                     status_data["estimated_remaining"] = round(estimated_remaining, 2)
                 
-                status_str = await StreamSender.send_status(status_data)
+                status_str = SSEFormatter.format_status(status_data)
                 try:
                     await self.send_func(status_str)
                 except Exception as e:

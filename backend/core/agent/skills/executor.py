@@ -1577,7 +1577,7 @@ class SkillExecutor:
             raise Exception(f"代码执行失败: {error_msg}")
         
         # 8. 解析输出（JSON）
-            output_text = tool_result.data.get('output', '') or tool_result.data.get('stdout', '')
+        output_text = tool_result.data.get('output', '') or tool_result.data.get('stdout', '')
         parsed_result = self._parse_json_output(output_text)
         
         # 9. 处理输出

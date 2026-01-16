@@ -20,9 +20,9 @@ Browser Tool 支持在 DeepSeek 和 Qwen 之间，以及视觉模型和 chat 模
 
 #### 第二级：模型选择
 - **输入**: use_vision 标志
-- **输出**: 使用的模型（DeepSeek 或 Qwen2-VL）
+- **输出**: 使用的模型（DeepSeek 或 Qwen-VL）
 - **逻辑**:
-  - 如果需要视觉功能 → 使用 Qwen2-VL（如果已配置）
+  - 如果需要视觉功能 → 使用 Qwen-VL（如果已配置 `BAILIAN_API_KEY` 和 `BROWSER_TOOL_VISION_MODEL`）
   - 如果不需要视觉功能 → 使用 DeepSeek（默认）
 
 ### 2. 当前实现流程
@@ -42,10 +42,10 @@ use_vision 标志
     ↓
 _create_llm(use_vision)
     ├─ use_vision=True
-    │   ├─ 检查 QWEN_API_KEY
-    │   │   ├─ 已设置 → 使用 Qwen2-VL
+    │   ├─ 检查 BROWSER_TOOL_VISION_MODEL 和 BAILIAN_API_KEY
+    │   │   ├─ 已设置 → 使用 Qwen-VL（通过 model_config.py 获取配置）
     │   │   └─ 未设置 → 回退到 DeepSeek（警告）
-    │   └─ 使用 Qwen2-VL 配置
+    │   └─ 使用 Qwen-VL 配置（ChatOpenAI + 百炼平台 API）
     └─ use_vision=False
         └─ 使用 DeepSeek 配置
 ```
@@ -69,9 +69,9 @@ _create_llm(use_vision)
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `QWEN_API_KEY` | 必需（如果使用 Qwen） | - | Qwen API 密钥 |
-| `QWEN_BASE_URL` | 可选 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | Qwen API 地址 |
-| `QWEN_MODEL` | 可选 | `qwen-vl-max` | Qwen 模型名称 |
+| `BAILIAN_API_KEY` | 必需（如果使用视觉模型） | - | 百炼平台 API 密钥 |
+| `BAILIAN_BASE_URL` | 可选 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 百炼平台 API 地址 |
+| `BROWSER_TOOL_VISION_MODEL` | 可选 | `qwen-vl-max-2025-08-13` | 视觉模型名称 |
 | `BROWSER_TOOL_USE_VISION` | 可选 | `false` | 强制启用视觉功能 |
 | `DEEPSEEK_API_KEY` | 必需 | - | DeepSeek API 密钥 |
 | `DEEPSEEK_MODEL` | 可选 | `deepseek-chat` | DeepSeek 模型名称 |
@@ -84,7 +84,7 @@ _create_llm(use_vision)
 
 ### 2. 成本优化
 - 普通任务使用 DeepSeek（成本较低）
-- 只在需要视觉功能时使用 Qwen2-VL（成本较高）
+- 只在需要视觉功能时使用 Qwen-VL（成本较高）
 
 ### 3. 灵活性
 - 支持环境变量强制启用视觉功能
@@ -97,7 +97,7 @@ _create_llm(use_vision)
 ## 当前限制
 
 ### 1. 二元选择
-- 当前只支持 DeepSeek（chat）和 Qwen2-VL（视觉）
+- 当前只支持 DeepSeek（chat）和 Qwen-VL（视觉）
 - 不支持在多个 chat 模型之间选择（如 deepseek-chat vs deepseek-reasoner）
 - 不支持在多个视觉模型之间选择（如 qwen-vl-plus vs qwen-vl-max）
 
@@ -198,7 +198,7 @@ async def _execute_async(self, **kwargs):
         result = await agent.run()
     except VisionRequiredError:
         # 如果执行失败且需要视觉，切换到 Qwen
-        logger.info("切换到 Qwen2-VL 模型")
+        logger.info("切换到 Qwen-VL 模型")
         llm = self._create_llm(use_vision=True)
         result = await agent.run()
     

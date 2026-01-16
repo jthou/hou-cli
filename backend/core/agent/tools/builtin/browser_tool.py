@@ -28,13 +28,11 @@ if _externals_path.exists():
 
 try:
     from browser_use import Agent, Browser
-    from browser_use.llm.deepseek.chat import ChatDeepSeek
     BROWSER_USE_AVAILABLE = True
 except ImportError as e:
     BROWSER_USE_AVAILABLE = False
     Agent = None
     Browser = None
-    ChatDeepSeek = None
     logger.warning(f"Failed to import browser-use: {e}")
 
 
@@ -168,14 +166,72 @@ class BrowserTool(Tool):
         profile_dir.mkdir(parents=True, exist_ok=True)
         return profile_dir
 
-    def _create_llm(self):
-        """创建 LLM 实例（使用 DeepSeek）"""
-        api_key = os.environ.get('DEEPSEEK_API_KEY')
-        if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY 环境变量未设置")
+    def _needs_vision(self, task: str) -> bool:
+        """
+        检测任务是否需要视觉功能
+        
+        Args:
+            task: 任务描述
+            
+        Returns:
+            bool: 是否需要视觉功能
+        """
+        # 检查强制启用标志
+        force_vision = os.getenv("BROWSER_TOOL_USE_VISION", "false").lower() == "true"
+        if force_vision:
+            logger.info("BROWSER_TOOL_USE_VISION=true，强制启用视觉功能")
+            return True
+        
+        # 关键词检测（明确的视觉关键词）
+        vision_keywords = [
+            "截图", "图片", "图像", "视觉", "识别", "视觉分析", "页面截图",
+            "页面内容", "页面布局", "页面元素", "页面结构", "页面样式", "分析页面",
+            "screenshot", "image", "visual", "recognize", "see", "view"
+        ]
+        
+        task_lower = task.lower()
+        for keyword in vision_keywords:
+            if keyword in task_lower:
+                logger.info(f"检测到视觉关键词 '{keyword}'，启用视觉功能")
+                return True
+        
+        return False
 
-        model_name = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-        return ChatDeepSeek(model=model_name, api_key=api_key)
+    def _create_llm(self, use_vision: bool = False):
+        """
+        创建 LLM 实例（使用 LLMService 统一管理）
+        
+        Args:
+            use_vision: 是否需要视觉功能
+            
+        Returns:
+            LLM 实例（browser-use 兼容的 BaseChatModel）
+        """
+        # 使用 LLMService 统一管理模型配置
+        if self.llm_service is None:
+            from backend.services.llm.llm_service import LLMService
+            self.llm_service = LLMService()
+        
+        if use_vision:
+            # 使用视觉模型（Qwen-VL）
+            vision_model = os.getenv("BROWSER_TOOL_VISION_MODEL", "qwen-vl-max-2025-08-13")
+            logger.info(f"使用视觉模型: {vision_model}")
+            
+            try:
+                # 通过 LLMService 获取 browser-use 兼容的 LLM 实例
+                browser_llm = self.llm_service.get_browser_use_llm(model=vision_model)
+                logger.info(f"视觉模型已创建: {vision_model}")
+                return browser_llm
+            except Exception as e:
+                logger.warning(f"无法创建视觉模型，回退到 DeepSeek: {e}")
+                # 回退到 DeepSeek
+                default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+                return self.llm_service.get_browser_use_llm(model=default_model)
+        else:
+            # 使用 DeepSeek（默认）
+            default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+            logger.info(f"使用 DeepSeek 模型: {default_model}")
+            return self.llm_service.get_browser_use_llm(model=default_model)
 
     def execute(self, **kwargs) -> ToolResult:
         """执行浏览器任务（同步包装异步方法）"""
@@ -213,8 +269,11 @@ class BrowserTool(Tool):
         elif timeout > 300:
             timeout = 300
 
+        # 检测是否需要视觉功能
+        use_vision = self._needs_vision(task)
+        
         # 创建 LLM
-        llm = self._create_llm()
+        llm = self._create_llm(use_vision=use_vision)
 
         # 创建 Browser 实例（根据官方文档推荐的方式）
         # 优化：根据 headless 模式调整等待时间
@@ -279,6 +338,7 @@ class BrowserTool(Tool):
             "flash_mode": True,  # 启用快速模式，跳过思考过程
             "step_timeout": 30,  # 减少单步超时时间（默认 120s，改为 30s）
             "register_done_callback": on_task_done,
+            "use_vision": use_vision,  # 根据任务需求启用视觉功能
         }
 
         # 如果提供了扩展系统消息，添加到 Agent

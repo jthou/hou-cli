@@ -41,13 +41,21 @@ class PathExtractor:
         
         # 策略2：在目录路径之后提取文件名
         if dir_path:
-            filenames = cls._extract_filenames_after_dir(text, dir_end_pos)
-            for filename in filenames:
-                full_path = cls._join_path(dir_path, filename)
-                if full_path:
-                    paths.append(full_path)
-        else:
-            # 如果没有找到目录路径，尝试直接提取完整路径
+            # 检查 dir_path 是否已经是完整文件路径（包含文件扩展名）
+            # 如果是，直接使用它，不要尝试提取文件名
+            if any(dir_path.endswith(ext) for ext in cls.ALL_EXTENSIONS):
+                # dir_path 已经是完整路径，直接使用
+                paths.append(dir_path)
+            else:
+                # dir_path 是目录路径，尝试提取文件名
+                filenames = cls._extract_filenames_after_dir(text, dir_end_pos)
+                for filename in filenames:
+                    full_path = cls._join_path(dir_path, filename)
+                    if full_path:
+                        paths.append(full_path)
+        
+        # 如果策略1和2没有提取到路径，尝试直接提取完整路径
+        if not paths:
             full_paths = cls._extract_full_paths(text)
             paths.extend(full_paths)
         
@@ -68,17 +76,25 @@ class PathExtractor:
         Returns:
             (目录路径, 目录路径结束位置)
         """
+        # 规范化：处理以 // 开头的路径
+        normalized_text = text
+        if text.startswith('//') and not text.startswith('///'):
+            normalized_text = text[1:]  # 移除多余的 /
+        
         # 查找"目录下"或"目录"提示词
         dir_hint_pattern = r'目录下?\s*'
-        dir_hint_match = re.search(dir_hint_pattern, text, re.IGNORECASE)
+        dir_hint_match = re.search(dir_hint_pattern, normalized_text, re.IGNORECASE)
         
         if dir_hint_match:
             # 在"目录下"之前提取目录路径
-            prefix = text[:dir_hint_match.start()]
-            dir_pattern = r'^((?:[~/]|/home/|/Users/|[A-Za-z]:\\\\)[^\s"\'\),。，、]+(?:\s+[^\s"\'\),。，、]+)*)'
+            prefix = normalized_text[:dir_hint_match.start()]
+            dir_pattern = r'^((?:[~/]|//?|/home/|/Users/|[A-Za-z]:\\\\)[^\s"\'\),。，、]+(?:\s+[^\s"\'\),。，、]+)*)'
             dir_match = re.search(dir_pattern, prefix, re.IGNORECASE)
             if dir_match:
                 dir_path = dir_match.group(1).rstrip('.,;:!?)\'"）').strip()
+                # 规范化：处理以 // 开头的路径
+                if dir_path.startswith('//') and not dir_path.startswith('///'):
+                    dir_path = dir_path[1:]  # 移除多余的 /
                 # 扩展 ~ 路径
                 if dir_path.startswith('~'):
                     dir_path = str(Path(dir_path).expanduser())
@@ -86,10 +102,13 @@ class PathExtractor:
                 return dir_path, dir_end_pos
         
         # 如果没有"目录下"提示词，尝试从开头提取目录路径
-        dir_pattern = r'^((?:[~/]|/home/|/Users/|[A-Za-z]:\\\\)[^\s"\'\),。，、]+(?:\s+[^\s"\'\),。，、]+)*(?=\s+[【\w\u4e00-\u9fff]))'
-        dir_match = re.search(dir_pattern, text, re.IGNORECASE)
+        dir_pattern = r'^((?:[~/]|//?|/home/|/Users/|[A-Za-z]:\\\\)[^\s"\'\),。，、]+(?:\s+[^\s"\'\),。，、]+)*(?=\s+[【\w\u4e00-\u9fff]))'
+        dir_match = re.search(dir_pattern, normalized_text, re.IGNORECASE)
         if dir_match:
             dir_path = dir_match.group(1).rstrip('.,;:!?)\'"）').strip()
+            # 规范化：处理以 // 开头的路径
+            if dir_path.startswith('//') and not dir_path.startswith('///'):
+                dir_path = dir_path[1:]  # 移除多余的 /
             if dir_path.startswith('~'):
                 dir_path = str(Path(dir_path).expanduser())
             return dir_path, len(dir_path)
@@ -135,12 +154,23 @@ class PathExtractor:
         """
         paths = []
         
+        # 规范化：处理以 // 开头的路径（用户输入错误，应该是 /）
+        normalized_text = text
+        if text.startswith('//') and not text.startswith('///'):
+            normalized_text = text[1:]  # 移除多余的 /
+        
         # 匹配完整路径模式：/path/to/file.ext 或 ~/path/to/file.ext
-        full_path_pattern = r'(?:^|(?<=\s))((?:[~/]|/home/|/Users/|[A-Za-z]:\\\\)[^\s"\'\),。，、]+(?:\s+[^\s"\'\),。，、]+)*?\.(?:mp4|avi|mkv|mov|flv|webm|m4a|mp3|wav|srt))'
-        matches = re.finditer(full_path_pattern, text, re.IGNORECASE)
+        # 支持以 / 或 // 开头的路径（// 会在规范化后处理）
+        # 支持路径中包含空格和中文字符，直到文件扩展名
+        # 使用非贪婪匹配，匹配到第一个文件扩展名就停止
+        full_path_pattern = r'(?:^|(?<=\s))((?:[~/]|//?|/home/|/Users/|[A-Za-z]:\\\\)[^\s"\'\),。，、]+(?:[^\s"\'\),。，、\d]+[^\s"\'\),。，、]*?)?\.(?:mp4|avi|mkv|mov|flv|webm|m4a|mp3|wav|srt))'
+        matches = re.finditer(full_path_pattern, normalized_text, re.IGNORECASE)
         
         for match in matches:
             path = match.group(1).rstrip('.,;:!?)\'"）')
+            # 规范化：处理以 // 开头的路径
+            if path.startswith('//') and not path.startswith('///'):
+                path = path[1:]  # 移除多余的 /
             # 移除"目录下"等提示词
             path = re.sub(r'\s+目录下?\s+', '/', path)
             path = re.sub(r'\s+目录下?$', '', path)
@@ -148,6 +178,29 @@ class PathExtractor:
                 path = str(Path(path).expanduser())
             if path:
                 paths.append(path)
+        
+        # 如果上面的模式没有匹配到，尝试更宽松的模式：匹配包含空格的路径
+        # 这个模式会匹配从 / 开始到文件扩展名结束的所有内容（包括空格）
+        if not paths:
+            # 找到第一个 / 的位置
+            slash_pos = normalized_text.find('/')
+            if slash_pos >= 0:
+                # 从 / 开始，找到第一个文件扩展名
+                ext_pattern = r'\.(?:mp4|avi|mkv|mov|flv|webm|m4a|mp3|wav|srt)'
+                ext_match = re.search(ext_pattern, normalized_text[slash_pos:], re.IGNORECASE)
+                if ext_match:
+                    # 提取从 / 到扩展名结束的路径
+                    path_end = slash_pos + ext_match.end()
+                    potential_path = normalized_text[slash_pos:path_end].strip()
+                    # 检查路径是否合理（至少包含目录分隔符或文件扩展名）
+                    if '/' in potential_path[1:] or '.' in potential_path:
+                        # 规范化：处理以 // 开头的路径
+                        if potential_path.startswith('//') and not potential_path.startswith('///'):
+                            potential_path = potential_path[1:]
+                        if potential_path.startswith('~'):
+                            potential_path = str(Path(potential_path).expanduser())
+                        if potential_path:
+                            paths.append(potential_path)
         
         return paths
     

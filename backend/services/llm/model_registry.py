@@ -26,9 +26,12 @@ class ModelRegistry:
         "gpt-4o",
         "gpt-4o-mini",
         "chatgpt-4o-latest",
+        # O1 系列
+        "o1-preview",  # 预览版，支持链式思考
         # O3 系列
         "o3",
         "o3-mini",
+        "o3-mini-2025-01-31",  # 日期快照版本
         # GPT-4.1 系列
         "gpt-4.1",
         "gpt-4.1-mini",
@@ -37,7 +40,6 @@ class ModelRegistry:
         "o4-mini",
         # GPT-5 系列
         "gpt-5",
-        "gpt-5-chat-latest",
         "gpt-5-mini",
         "gpt-5-nano",
         "gpt-5-codex",
@@ -49,7 +51,6 @@ class ModelRegistry:
         "gpt-5.1-codex-max",
         # GPT-5.2 系列
         "gpt-5.2",
-        "gpt-5.2-chat-latest",
     }
     
     # Anthropic Claude 模型（通过 TheTurbo.ai 网关）
@@ -77,23 +78,12 @@ class ModelRegistry:
         # Gemini 2.5 系列
         "gemini-2.5-flash",
         "gemini-2.5-pro",
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash-lite-preview-06-17",
+        "gemini-2.5-flash-image",  # 多模态图像模型（高速轻量）
         "gemini-2.5-flash-thinking",  # 输出思考过程
         "gemini-2.5-pro-thinking",  # 输出思考过程
         # Gemini 3 系列
         "gemini-3-pro-preview",
-        "gemini-3-flash-preview",
-    }
-    
-    # xAI Grok 模型（通过 TheTurbo.ai 网关）
-    XAI_MODELS = {
-        # Grok 3 系列
-        "grok-3",
-        # Grok 4 系列
-        "grok-4",
-        "grok-4-fast-non-reasoning",
-        "grok-4-fast-reasoning",  # 支持推理
+        "gemini-3-pro-image-preview",  # 多模态图像模型（高精度细节）
     }
     
     # Perplexity Sonar 模型（通过 TheTurbo.ai 网关）
@@ -244,11 +234,6 @@ class ModelRegistry:
         r"^gemini-",  # Gemini 系列（包括 gemini-2.5-flash, gemini-3-pro 等）
     ]
     
-    # xAI Grok 模型名称模式匹配
-    XAI_MODEL_PATTERNS = [
-        r"^grok-",  # Grok 系列（包括 grok-3, grok-4 等）
-    ]
-    
     # Perplexity Sonar 模型名称模式匹配
     PERPLEXITY_MODEL_PATTERNS = [
         r"^sonar",  # Sonar 系列（包括 sonar, sonar-pro, sonar-reasoning-pro）
@@ -288,16 +273,21 @@ class ModelRegistry:
             actual_model = parts[1]
             
             # 检查前缀是否是已知的提供商
-            if prefix in ["bailian", "deepseek", "openai", "anthropic", "google", "xai", "perplexity"]:
+            if prefix in ["bailian", "deepseek", "openai", "anthropic", "google", "perplexity", "theturbogateway"]:
                 # 进一步验证：剩余部分应该看起来像一个模型名称
                 # 如果剩余部分太短（少于3个字符）或只是单个单词，可能不是 "平台-模型" 格式
                 # 例如："deepseek-chat" 不应该被解析为 ("deepseek", "chat")
                 # 但 "bailian-deepseek-chat" 应该被解析为 ("bailian", "deepseek-chat")
                 
-                # 如果前缀是 "bailian"、"openai"、"anthropic"、"google"、"xai" 或 "perplexity"，总是认为是 "平台-模型" 格式
-                if prefix in ["bailian", "openai", "anthropic", "google", "xai", "perplexity"]:
+                # 如果前缀是 "bailian" 或 "theturbogateway"，总是认为是 "平台-模型" 格式
+                if prefix in ["bailian", "theturbogateway"]:
                     logger.info(f"解析模型名称: {model_name} -> 提供商: {prefix}, 模型: {actual_model}")
                     return prefix, actual_model
+                
+                # 如果前缀是 "openai"、"anthropic"、"google"、"perplexity"，统一映射为 "theturbogateway"
+                if prefix in ["openai", "anthropic", "google", "perplexity"]:
+                    logger.info(f"解析模型名称: {model_name} -> 提供商: theturbogateway (原服务: {prefix}), 模型: {actual_model}")
+                    return "theturbogateway", actual_model
                 
                 # 如果前缀是 "deepseek"，需要更谨慎
                 # 只有当剩余部分看起来像是一个完整的模型名称时才认为是 "平台-模型" 格式
@@ -311,7 +301,7 @@ class ModelRegistry:
                        actual_model.startswith("llama") or actual_model.startswith("gpt") or \
                        actual_model.startswith("o") or actual_model.startswith("chatgpt") or \
                        actual_model.startswith("claude") or actual_model.startswith("gemini") or \
-                       actual_model.startswith("grok") or actual_model.startswith("sonar"):
+                       actual_model.startswith("sonar"):
                         logger.info(f"解析模型名称: {model_name} -> 提供商: {prefix}, 模型: {actual_model}")
                         return prefix, actual_model
         
@@ -328,7 +318,7 @@ class ModelRegistry:
             model_name: 模型名称
             
         Returns:
-            提供商名称 ("deepseek" 或 "bailian")
+            提供商名称 ("deepseek", "bailian", 或 "theturbogateway")
         """
         model_lower = model_name.lower().strip()
         
@@ -350,50 +340,42 @@ class ModelRegistry:
             if re.match(pattern, model_lower):
                 return "bailian"
         
-        # 检查是否是 OpenAI 模型
+        # 检查是否是 TheTurbo.ai 网关服务模型（统一返回 theturbogateway）
+        # OpenAI 模型
         if model_lower in cls.OPENAI_MODELS:
-            return "openai"
+            return "theturbogateway"
         
         # 使用 OpenAI 模型模式匹配
         for pattern in cls.OPENAI_MODEL_PATTERNS:
             if re.match(pattern, model_lower):
-                return "openai"
+                return "theturbogateway"
         
-        # 检查是否是 Anthropic Claude 模型
+        # Anthropic Claude 模型
         if model_lower in cls.ANTHROPIC_MODELS:
-            return "anthropic"
+            return "theturbogateway"
         
         # 使用 Anthropic Claude 模型模式匹配
         for pattern in cls.ANTHROPIC_MODEL_PATTERNS:
             if re.match(pattern, model_lower):
-                return "anthropic"
+                return "theturbogateway"
         
-        # 检查是否是 Google Gemini 模型
+        # Google Gemini 模型
         if model_lower in cls.GOOGLE_MODELS:
-            return "google"
+            return "theturbogateway"
         
         # 使用 Google Gemini 模型模式匹配
         for pattern in cls.GOOGLE_MODEL_PATTERNS:
             if re.match(pattern, model_lower):
-                return "google"
+                return "theturbogateway"
         
-        # 检查是否是 xAI Grok 模型
-        if model_lower in cls.XAI_MODELS:
-            return "xai"
-        
-        # 使用 xAI Grok 模型模式匹配
-        for pattern in cls.XAI_MODEL_PATTERNS:
-            if re.match(pattern, model_lower):
-                return "xai"
-        
-        # 检查是否是 Perplexity Sonar 模型
+        # Perplexity Sonar 模型
         if model_lower in cls.PERPLEXITY_MODELS:
-            return "perplexity"
+            return "theturbogateway"
         
         # 使用 Perplexity Sonar 模型模式匹配
         for pattern in cls.PERPLEXITY_MODEL_PATTERNS:
             if re.match(pattern, model_lower):
-                return "perplexity"
+                return "theturbogateway"
         
         # 检查是否是 DeepSeek 模型（在 DeepSeek 平台上）
         if model_lower in cls.DEEPSEEK_MODELS:
@@ -402,6 +384,54 @@ class ModelRegistry:
         # 默认返回 deepseek（向后兼容）
         logger.warning(f"无法识别模型 {model_name} 的提供商，默认使用 deepseek")
         return "deepseek"
+    
+    @classmethod
+    def detect_turbogateway_service(cls, model_name: str) -> Optional[str]:
+        """
+        检测模型是否属于 TheTurbo.ai 网关，并返回服务类型
+        
+        Args:
+            model_name: 模型名称
+            
+        Returns:
+            服务类型（"openai"/"anthropic"/"google"/"perplexity"）或 None
+            如果模型不属于 TheTurbo.ai 网关，返回 None
+        """
+        model_lower = model_name.lower().strip()
+        
+        # 检查是否是 OpenAI 模型
+        if model_lower in cls.OPENAI_MODELS:
+            return "openai"
+        
+        for pattern in cls.OPENAI_MODEL_PATTERNS:
+            if re.match(pattern, model_lower):
+                return "openai"
+        
+        # 检查是否是 Anthropic 模型
+        if model_lower in cls.ANTHROPIC_MODELS:
+            return "anthropic"
+        
+        for pattern in cls.ANTHROPIC_MODEL_PATTERNS:
+            if re.match(pattern, model_lower):
+                return "anthropic"
+        
+        # 检查是否是 Google 模型
+        if model_lower in cls.GOOGLE_MODELS:
+            return "google"
+        
+        for pattern in cls.GOOGLE_MODEL_PATTERNS:
+            if re.match(pattern, model_lower):
+                return "google"
+        
+        # 检查是否是 Perplexity 模型
+        if model_lower in cls.PERPLEXITY_MODELS:
+            return "perplexity"
+        
+        for pattern in cls.PERPLEXITY_MODEL_PATTERNS:
+            if re.match(pattern, model_lower):
+                return "perplexity"
+        
+        return None
     
     @classmethod
     def normalize_model_name(cls, model_name: str, provider: str) -> str:
@@ -434,24 +464,8 @@ class ModelRegistry:
             # 如果没有映射，直接返回原名称（百炼平台通常直接使用模型名称）
             return model_name
         
-        if provider == "openai":
-            # OpenAI 平台：保持原名称
-            return model_name
-        
-        if provider == "anthropic":
-            # Anthropic 平台：保持原名称
-            return model_name
-        
-        if provider == "google":
-            # Google 平台：保持原名称
-            return model_name
-        
-        if provider == "xai":
-            # xAI 平台：保持原名称
-            return model_name
-        
-        if provider == "perplexity":
-            # Perplexity 平台：保持原名称
+        if provider == "theturbogateway":
+            # TheTurbo.ai 网关：保持原名称
             return model_name
         
         # DeepSeek 平台：保持原名称
@@ -472,16 +486,14 @@ class ModelRegistry:
             return sorted(list(cls.BAILIAN_MODELS))
         elif provider == "deepseek":
             return sorted(list(cls.DEEPSEEK_MODELS))
-        elif provider == "openai":
-            return sorted(list(cls.OPENAI_MODELS))
-        elif provider == "anthropic":
-            return sorted(list(cls.ANTHROPIC_MODELS))
-        elif provider == "google":
-            return sorted(list(cls.GOOGLE_MODELS))
-        elif provider == "xai":
-            return sorted(list(cls.XAI_MODELS))
-        elif provider == "perplexity":
-            return sorted(list(cls.PERPLEXITY_MODELS))
+        elif provider == "theturbogateway":
+            # TheTurbo.ai 网关包含所有服务类型的模型
+            all_models = set()
+            all_models.update(cls.OPENAI_MODELS)
+            all_models.update(cls.ANTHROPIC_MODELS)
+            all_models.update(cls.GOOGLE_MODELS)
+            all_models.update(cls.PERPLEXITY_MODELS)
+            return sorted(list(all_models))
         else:
             return []
     
@@ -496,11 +508,7 @@ class ModelRegistry:
         return {
             "deepseek": cls.get_available_models("deepseek"),
             "bailian": cls.get_available_models("bailian"),
-            "openai": cls.get_available_models("openai"),
-            "anthropic": cls.get_available_models("anthropic"),
-            "google": cls.get_available_models("google"),
-            "xai": cls.get_available_models("xai"),
-            "perplexity": cls.get_available_models("perplexity"),
+            "theturbogateway": cls.get_available_models("theturbogateway"),
         }
     
     # 模型成本等级（相对成本，用于成本感知推荐）
@@ -534,11 +542,6 @@ class ModelRegistry:
         "gemini-2.5-pro": "medium",
         "gemini-2.5-flash-thinking": "medium",
         "gemini-2.5-pro-thinking": "high",
-        # xAI 平台（成本中等）
-        "grok-3": "medium",
-        "grok-4": "medium",
-        "grok-4-fast-non-reasoning": "low",
-        "grok-4-fast-reasoning": "medium",
         # Perplexity 平台（成本中等）
         "sonar": "low",
         "sonar-pro": "medium",
@@ -617,18 +620,18 @@ class ModelRegistry:
         
         # 文本生成任务
         if task_type in [None, "text", "chat", "writing"]:
-            if not provider or provider == "openai":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "openai",
+                    "provider": "theturbogateway",
                     "model": "gpt-5",
-                    "description": "OpenAI GPT-5，强大的文本生成能力",
-                    "cost_level": cls.get_model_cost_level("openai", "gpt-5")
+                    "description": "OpenAI GPT-5，强大的文本生成能力（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gpt-5")
                 })
                 recommendations.append({
-                    "provider": "openai",
+                    "provider": "theturbogateway",
                     "model": "gpt-4o-mini",
-                    "description": "OpenAI GPT-4o Mini，低成本文本生成",
-                    "cost_level": cls.get_model_cost_level("openai", "gpt-4o-mini")
+                    "description": "OpenAI GPT-4o Mini，低成本文本生成（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gpt-4o-mini")
                 })
             if not provider or provider == "bailian":
                 recommendations.append({
@@ -649,31 +652,30 @@ class ModelRegistry:
                     "description": "通义千问 Turbo，低成本文本生成",
                     "cost_level": cls.get_model_cost_level("bailian", "qwen-turbo-latest")
                 })
-            if not provider or provider == "anthropic":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "anthropic",
+                    "provider": "theturbogateway",
                     "model": "claude-3-5-sonnet-20241022",
-                    "description": "Claude 3.5 Sonnet，强大的对话和写作能力",
-                    "cost_level": cls.get_model_cost_level("anthropic", "claude-3-5-sonnet-20241022")
+                    "description": "Claude 3.5 Sonnet，强大的对话和写作能力（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "claude-3-5-sonnet-20241022")
                 })
                 recommendations.append({
-                    "provider": "anthropic",
+                    "provider": "theturbogateway",
                     "model": "claude-3-5-haiku-20241022",
-                    "description": "Claude 3.5 Haiku，低成本文本生成",
-                    "cost_level": cls.get_model_cost_level("anthropic", "claude-3-5-haiku-20241022")
+                    "description": "Claude 3.5 Haiku，低成本文本生成（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "claude-3-5-haiku-20241022")
                 })
-            if not provider or provider == "google":
                 recommendations.append({
-                    "provider": "google",
+                    "provider": "theturbogateway",
                     "model": "gemini-2.5-pro",
-                    "description": "Gemini 2.5 Pro，多模态理解生成",
-                    "cost_level": cls.get_model_cost_level("google", "gemini-2.5-pro")
+                    "description": "Gemini 2.5 Pro，多模态理解生成（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gemini-2.5-pro")
                 })
                 recommendations.append({
-                    "provider": "google",
+                    "provider": "theturbogateway",
                     "model": "gemini-2.5-flash",
-                    "description": "Gemini 2.5 Flash，低成本多模态理解",
-                    "cost_level": cls.get_model_cost_level("google", "gemini-2.5-flash")
+                    "description": "Gemini 2.5 Flash，低成本多模态理解（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gemini-2.5-flash")
                 })
         
         # 代码生成任务
@@ -698,12 +700,12 @@ class ModelRegistry:
                     "description": "通义千问3 Coder Flash，优化仓库级别理解（低成本）",
                     "cost_level": cls.get_model_cost_level("bailian", "qwen3-coder-flash")
                 })
-            if not provider or provider == "openai":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "openai",
+                    "provider": "theturbogateway",
                     "model": "gpt-5-codex",
-                    "description": "GPT-5 Codex，代码生成专用",
-                    "cost_level": cls.get_model_cost_level("openai", "gpt-5-codex")
+                    "description": "GPT-5 Codex，代码生成专用（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gpt-5-codex")
                 })
         
         # 推理任务
@@ -715,18 +717,18 @@ class ModelRegistry:
                     "description": "DeepSeek R1，支持思考过程",
                     "cost_level": cls.get_model_cost_level("deepseek", "deepseek-r1")
                 })
-            if not provider or provider == "openai":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "openai",
+                    "provider": "theturbogateway",
                     "model": "o3",
-                    "description": "OpenAI O3，支持思考过程",
-                    "cost_level": cls.get_model_cost_level("openai", "o3")
+                    "description": "OpenAI O3，支持思考过程（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "o3")
                 })
                 recommendations.append({
-                    "provider": "openai",
+                    "provider": "theturbogateway",
                     "model": "o3-mini",
-                    "description": "OpenAI O3 Mini，支持思考过程（中等成本）",
-                    "cost_level": cls.get_model_cost_level("openai", "o3-mini")
+                    "description": "OpenAI O3 Mini，支持思考过程（中等成本，通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "o3-mini")
                 })
             if not provider or provider == "bailian":
                 recommendations.append({
@@ -741,33 +743,24 @@ class ModelRegistry:
                     "description": "通义千问 QwQ Plus，达到 DeepSeek-R1 满血版水平",
                     "cost_level": cls.get_model_cost_level("bailian", "qwq-plus")
                 })
-            if not provider or provider == "anthropic":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "anthropic",
+                    "provider": "theturbogateway",
                     "model": "claude-3-7-sonnet-20250219",
-                    "description": "Claude 3.7 Sonnet，支持 reasoning_effort 参数",
-                    "cost_level": cls.get_model_cost_level("anthropic", "claude-3-7-sonnet-20250219")
+                    "description": "Claude 3.7 Sonnet，支持 reasoning_effort 参数（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "claude-3-7-sonnet-20250219")
                 })
-            if not provider or provider == "google":
                 recommendations.append({
-                    "provider": "google",
+                    "provider": "theturbogateway",
                     "model": "gemini-2.5-flash-thinking",
-                    "description": "Gemini 2.5 Flash Thinking，输出思考过程",
-                    "cost_level": cls.get_model_cost_level("google", "gemini-2.5-flash-thinking")
+                    "description": "Gemini 2.5 Flash Thinking，输出思考过程（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gemini-2.5-flash-thinking")
                 })
-            if not provider or provider == "xai":
                 recommendations.append({
-                    "provider": "xai",
-                    "model": "grok-4-fast-reasoning",
-                    "description": "Grok 4 Fast Reasoning，支持推理",
-                    "cost_level": cls.get_model_cost_level("xai", "grok-4-fast-reasoning")
-                })
-            if not provider or provider == "perplexity":
-                recommendations.append({
-                    "provider": "perplexity",
+                    "provider": "theturbogateway",
                     "model": "sonar-reasoning-pro",
-                    "description": "Sonar Reasoning Pro，支持推理",
-                    "cost_level": cls.get_model_cost_level("perplexity", "sonar-reasoning-pro")
+                    "description": "Sonar Reasoning Pro，支持推理（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "sonar-reasoning-pro")
                 })
         
         # 视觉理解任务
@@ -785,19 +778,18 @@ class ModelRegistry:
                     "description": "通义千问 VL Max，超大规模视觉语言模型",
                     "cost_level": cls.get_model_cost_level("bailian", "qwen-vl-max-2025-08-13")
                 })
-            if not provider or provider == "google":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "google",
+                    "provider": "theturbogateway",
                     "model": "gemini-2.5-pro",
-                    "description": "Gemini 2.5 Pro，支持多模态理解（图像、视频）",
-                    "cost_level": cls.get_model_cost_level("google", "gemini-2.5-pro")
+                    "description": "Gemini 2.5 Pro，支持多模态理解（图像、视频，通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gemini-2.5-pro")
                 })
-            if not provider or provider == "anthropic":
                 recommendations.append({
-                    "provider": "anthropic",
+                    "provider": "theturbogateway",
                     "model": "claude-opus-4-20250514",
-                    "description": "Claude Opus 4，支持图片理解",
-                    "cost_level": cls.get_model_cost_level("anthropic", "claude-opus-4-20250514")
+                    "description": "Claude Opus 4，支持图片理解（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "claude-opus-4-20250514")
                 })
         
         # 图像生成任务
@@ -866,25 +858,24 @@ class ModelRegistry:
         
         # 搜索任务
         if task_type in [None, "search", "web_search"]:
-            if not provider or provider == "perplexity":
+            if not provider or provider == "theturbogateway":
                 recommendations.append({
-                    "provider": "perplexity",
+                    "provider": "theturbogateway",
                     "model": "sonar-pro",
-                    "description": "Perplexity Sonar Pro，对话式搜索引擎",
-                    "cost_level": cls.get_model_cost_level("perplexity", "sonar-pro")
+                    "description": "Perplexity Sonar Pro，对话式搜索引擎（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "sonar-pro")
                 })
                 recommendations.append({
-                    "provider": "perplexity",
+                    "provider": "theturbogateway",
                     "model": "sonar",
-                    "description": "Perplexity Sonar，低成本对话式搜索引擎",
-                    "cost_level": cls.get_model_cost_level("perplexity", "sonar")
+                    "description": "Perplexity Sonar，低成本对话式搜索引擎（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "sonar")
                 })
-            if not provider or provider == "google":
                 recommendations.append({
-                    "provider": "google",
+                    "provider": "theturbogateway",
                     "model": "gemini-2.5-pro",
-                    "description": "Gemini 2.5 Pro，支持 Google Search",
-                    "cost_level": cls.get_model_cost_level("google", "gemini-2.5-pro")
+                    "description": "Gemini 2.5 Pro，支持 Google Search（通过 TheTurbo.ai 网关）",
+                    "cost_level": cls.get_model_cost_level("theturbogateway", "gemini-2.5-pro")
                 })
         
         # 为所有推荐添加成本等级（如果还没有）
@@ -932,7 +923,12 @@ class ModelRegistry:
             "provider": provider,
             "actual_model": actual_model,
             "normalized_name": normalized_name,
-            "is_available": normalized_name in cls.BAILIAN_MODELS or normalized_name in cls.DEEPSEEK_MODELS or normalized_name in cls.OPENAI_MODELS or normalized_name in cls.ANTHROPIC_MODELS or normalized_name in cls.GOOGLE_MODELS or normalized_name in cls.XAI_MODELS or normalized_name in cls.PERPLEXITY_MODELS,
+            "is_available": (normalized_name in cls.BAILIAN_MODELS or 
+                            normalized_name in cls.DEEPSEEK_MODELS or 
+                            normalized_name in cls.OPENAI_MODELS or 
+                            normalized_name in cls.ANTHROPIC_MODELS or 
+                            normalized_name in cls.GOOGLE_MODELS or 
+                            normalized_name in cls.PERPLEXITY_MODELS),
             "full_name": f"{provider}-{normalized_name}"  # 完整格式名称
         }
 

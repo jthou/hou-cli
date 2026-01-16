@@ -174,20 +174,42 @@ class ConversationEvaluator:
         import re
         
         try:
-            # 尝试提取 JSON（可能包含在代码块中）
-            json_match = re.search(r'\{[^{}]*"overall_score"[^{}]*\}', evaluation_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
-            else:
-                # 尝试直接解析整个文本
-                result = json.loads(evaluation_text)
+            # 方法1: 尝试提取代码块中的 JSON（```json ... ```）
+            code_block_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+            code_block_match = re.search(code_block_pattern, evaluation_text, re.DOTALL)
+            if code_block_match:
+                json_str = code_block_match.group(1)
+                try:
+                    result = json.loads(json_str)
+                    return self._normalize_evaluation_result(result)
+                except json.JSONDecodeError:
+                    pass
             
-            # 验证和规范化结果
+            # 方法2: 尝试提取第一个完整的 JSON 对象（支持嵌套）
+            # 使用更智能的方法：找到第一个 {，然后找到匹配的 }
+            brace_count = 0
+            start_idx = evaluation_text.find('{')
+            if start_idx >= 0:
+                for i in range(start_idx, len(evaluation_text)):
+                    if evaluation_text[i] == '{':
+                        brace_count += 1
+                    elif evaluation_text[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_str = evaluation_text[start_idx:i+1]
+                            try:
+                                result = json.loads(json_str)
+                                return self._normalize_evaluation_result(result)
+                            except json.JSONDecodeError:
+                                break
+            
+            # 方法3: 尝试直接解析整个文本
+            result = json.loads(evaluation_text)
             return self._normalize_evaluation_result(result)
             
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning(f"解析评估结果失败，使用默认值: {str(e)}")
+            logger.debug(f"评估文本内容: {evaluation_text[:500]}")
             return self._get_default_evaluation_result()
     
     def _normalize_evaluation_result(self, result: Dict[str, Any]) -> Dict[str, Any]:

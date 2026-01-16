@@ -38,7 +38,7 @@ from shared.debug_utils import DebugOutput
 from backend.core.agent.planning.manager import PlanningManager
 from backend.core.agent.planning.complexity import TaskComplexityAnalyzer
 from backend.core.agent.evaluator import ConversationEvaluator
-from backend.api.stream_sender import StreamSender, LongTaskMonitor, StreamMessageBuilder
+from backend.api.stream_sender import SSEFormatter, LongTaskMonitor, StreamMessageBuilder
 from backend.core.agent.task_manager import task_manager
 # from backend.core.workflow.workflow_identifier import WorkflowIdentifier
 # from backend.core.workflow.workflow_engine import WorkflowEngine
@@ -603,7 +603,7 @@ class Orchestrator:
         tools = self.tool_registry.get_tools_for_llm()
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools)})
         
-        # 智能模型选择：使用 chat 模型分析任务，决定使用哪个模型
+        # 智能模型选择：使用推理模型分析任务，决定使用哪个模型
         selected_model = await self._select_model(task)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
@@ -1657,17 +1657,57 @@ class Orchestrator:
                         parameters['url'] = urls[0]
                         logger.warning(f"检测到多个 URL（共 {len(urls)} 个），但技能不支持数组参数，将处理第一个: {urls[0]}")
         
-        # 提取本地文件路径（适用于 video_extract_srt 等需要本地文件路径的技能）
-        # 使用统一的路径提取工具，确保鲁棒性
-        from backend.core.agent.utils.path_utils import PathExtractor
-        local_files = PathExtractor.extract_paths(task)
+        # 提取本地文件路径（适用于 video_extract_srt、video_cut 等需要本地文件路径的技能）
+        # 使用 file_search_tool 来查找文件，而不是复杂的正则表达式
+        local_files = []
+        
+        # 检查技能是否需要文件路径参数
+        file_path_params = [p for p in skill.parameters if 'file' in p.name.lower() or 'path' in p.name.lower()]
+        if file_path_params:
+            # 从用户输入中提取文件名关键词（简化提取）
+            # 尝试提取文件名模式（包含扩展名）
+            filename_pattern = r'([\w\u4e00-\u9fff【】！×\s\-_]+\.(?:mp4|avi|mkv|mov|flv|webm|m4v|3gp|ts|mts|vob|ogv|rm|rmvb|asf|f4v|m2v|mpg|mpeg|mpe|mpv|m2ts|mts|mxf|divx|amv|qt|yuv|bik|drc|gifv|mng|nsv|roq|svi|viv|wmv|y4m|mp3|wav|m4a|aac|ogg|flac|srt|vtt|ass|ssa))'
+            filename_matches = re.findall(filename_pattern, task, re.IGNORECASE)
+            
+            if filename_matches:
+                # 使用 file_search_tool 搜索文件
+                try:
+                    file_search_tool = self.tool_registry.get_tool('file_search')
+                    if file_search_tool:
+                        # 提取文件名关键词（去掉扩展名，用于搜索）
+                        search_query = filename_matches[0].split('.')[0].strip()
+                        # 如果文件名包含特殊字符，尝试使用完整文件名
+                        if len(search_query) < 5:
+                            search_query = filename_matches[0]
+                        
+                        # 执行文件搜索
+                        search_result = file_search_tool.execute(
+                            query=search_query,
+                            file_type=f"*.{filename_matches[0].split('.')[-1]}" if '.' in filename_matches[0] else None,
+                            limit=5
+                        )
+                        
+                        if search_result.success and search_result.data:
+                            results = search_result.data.get('results', [])
+                            if results:
+                                # 使用第一个匹配的文件
+                                local_files = [results[0]['path']]
+                                logger.info(f"使用 file_search_tool 找到文件: {local_files[0]}")
+                            else:
+                                logger.warning(f"file_search_tool 未找到匹配文件: {search_query}")
+                        else:
+                            logger.warning(f"file_search_tool 搜索失败: {search_result.error if hasattr(search_result, 'error') else 'unknown error'}")
+                    else:
+                        logger.warning("file_search_tool 未注册，无法使用文件搜索")
+                except Exception as e:
+                    logger.warning(f"使用 file_search_tool 搜索文件失败: {e}", exc_info=True)
         
         # #region agent log
         try:
             import json
             import time
             with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:after_extract_local_files","message":"提取本地文件路径后","data":{"local_files":local_files,"local_files_count":len(local_files),"skill_name":skill.name},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:after_file_search","message":"使用file_search_tool查找文件后","data":{"local_files":local_files,"local_files_count":len(local_files),"skill_name":skill.name},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                 f.flush()
         except: pass
         # #endregion
@@ -1714,6 +1754,53 @@ class Orchestrator:
                             f.flush()
                     except: pass
                     # #endregion
+        
+        # 对于 video_cut 技能，提取 input_file、segments 和 output_file 参数
+        if skill.name == 'video_cut':
+            if local_files and len(local_files) >= 1:
+                # 设置 input_file 参数
+                parameters['input_file'] = local_files[0]
+                
+                # 提取时间范围（格式：HH:MM:SS 或 MM:SS）
+                time_pattern = r'(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})'
+                times = re.findall(time_pattern, task)
+                
+                if len(times) >= 2:
+                    # 找到两个时间点，作为开始和结束时间
+                    start_time = times[0]
+                    end_time = times[1]
+                    
+                    # 确保时间格式为 HH:MM:SS
+                    def normalize_time(t):
+                        parts = t.split(':')
+                        if len(parts) == 2:
+                            # MM:SS -> 00:MM:SS
+                            return f"00:{parts[0]}:{parts[1]}"
+                        return t
+                    
+                    start_time = normalize_time(start_time)
+                    end_time = normalize_time(end_time)
+                    
+                    # 构建 segments 数组
+                    parameters['segments'] = [{
+                        'start_time': start_time,
+                        'end_time': end_time
+                    }]
+                    
+                    # 生成输出文件名（基于输入文件名和时间范围）
+                    from pathlib import Path
+                    input_path = Path(parameters['input_file'])
+                    # 移除时间中的冒号，用于文件名
+                    time_str = f"{start_time.replace(':', '')}-{end_time.replace(':', '')}"
+                    output_name = f"{input_path.stem}_cut_{time_str}{input_path.suffix}"
+                    parameters['output_file'] = str(input_path.parent / output_name)
+                    
+                    logger.info(f"提取 video_cut 参数: input_file={parameters['input_file']}, segments={parameters['segments']}, output_file={parameters['output_file']}")
+                elif len(times) == 1:
+                    # 只有一个时间点，可能是开始时间，需要提示用户
+                    logger.warning(f"只检测到一个时间点: {times[0]}，video_cut 需要开始和结束时间")
+                else:
+                    logger.warning("未检测到时间范围，video_cut 需要时间段信息")
         
         # 使用默认值填充可选参数
         for param in skill.parameters:
@@ -2447,37 +2534,47 @@ class Orchestrator:
     
     async def _select_model(self, task: str) -> str:
         """
-        使用 chat 模型智能选择最适合的模型
+        使用推理模型智能选择最适合的模型
         
         Args:
             task: 用户任务
             
         Returns:
-            选定的模型名称: "deepseek-chat", "deepseek-reasoner", 或 "deepseek-coder"
+            选定的模型名称（从配置的 CHAT_MODEL、CODE_MODEL、REASONING_MODEL 中选择）
         """
-        # 使用 chat 模型分析任务类型
-        model_selection_prompt = f"""分析以下任务，决定应该使用哪个 DeepSeek 模型：
+        from backend.services.llm.model_config import get_model_config_manager
+        
+        config_manager = get_model_config_manager()
+        
+        # 获取配置的模型
+        chat_model = config_manager.get_chat_model()
+        code_model = config_manager.get_code_model()
+        reasoning_model = config_manager.get_reasoning_model()
+        
+        # 使用推理模型分析任务类型
+        model_selection_prompt = f"""分析以下任务，决定应该使用哪个模型：
 
 任务：{task}
 
 可选模型：
-1. deepseek-chat: 适用于日常对话、文本生成、翻译、信息检索等一般性任务
-2. deepseek-reasoner: 适用于需要复杂推理的任务，如数学推理、逻辑分析、策略制定、问题解决等
-3. deepseek-coder: 适用于代码生成、代码补全、代码修复、代码审查、编程相关任务，以及简单的命令执行（如 ls、cat、cd 等）
+1. {chat_model}: 适用于日常对话、文本生成、翻译、信息检索等一般性任务
+2. {reasoning_model}: 适用于需要复杂推理的任务，如数学推理、逻辑分析、策略制定、问题解决、工具选择决策等
+3. {code_model}: 适用于代码生成、代码补全、代码修复、代码审查、编程相关任务，以及简单的命令执行（如 ls、cat、cd 等）
 
 重要提示：
-- 如果任务是执行简单的系统命令（如显示文件、查看目录、执行脚本等），应该使用 deepseek-coder
-- 如果任务需要复杂的逻辑推理、多步骤分析、策略制定，使用 deepseek-reasoner
-- 如果任务只是简单的命令执行，不要使用 deepseek-reasoner，避免过度思考
+- 如果任务是执行简单的系统命令（如显示文件、查看目录、执行脚本等），应该使用 {code_model}
+- 如果任务需要复杂的逻辑推理、多步骤分析、策略制定、工具选择，使用 {reasoning_model}
+- 如果任务只是简单的命令执行，不要使用 {reasoning_model}，避免过度思考
+- 如果任务是一般性对话或文本生成，使用 {chat_model}
 
-请只返回模型名称（deepseek-chat、deepseek-reasoner 或 deepseek-coder），不要返回其他内容。"""
+请只返回模型名称（{chat_model}、{reasoning_model} 或 {code_model}），不要返回其他内容。"""
 
         try:
-            # 临时切换到 chat 模型进行分析
+            # 临时切换到推理模型进行分析
             original_model = self.llm_service.model
-            self.llm_service.set_model("deepseek-chat")
+            self.llm_service.set_model(reasoning_model)
             
-            # 使用 chat 模型分析
+            # 使用推理模型分析
             analysis = await self.llm_service.chat(
                 system_prompt="你是一个模型选择助手，根据任务类型选择最合适的模型。",
                 user_prompt=model_selection_prompt
@@ -2488,14 +2585,29 @@ class Orchestrator:
             
             # 解析返回的模型名称
             analysis = analysis.strip().lower()
-            if "deepseek-reasoner" in analysis or "reasoner" in analysis:
-                return "deepseek-reasoner"
-            elif "deepseek-coder" in analysis or "coder" in analysis:
-                return "deepseek-coder"
+            if reasoning_model.lower() in analysis or "reasoner" in analysis or "reasoning" in analysis:
+                return reasoning_model
+            elif code_model.lower() in analysis or "coder" in analysis or "code" in analysis:
+                return code_model
             else:
-                # 默认使用 chat 模型
-                return "deepseek-chat"
+                # 默认使用对话模型
+                return chat_model
                 
         except Exception as e:
-            logger.warning(f"模型选择失败，使用默认模型: {e}")
-            return "deepseek-chat"
+            logger.warning(f"模型选择失败，使用默认对话模型: {e}")
+            return chat_model
+    
+    def get_chat_model(self) -> str:
+        """获取对话模型配置"""
+        from backend.services.llm.model_config import get_model_config_manager
+        return get_model_config_manager().get_chat_model()
+    
+    def get_code_model(self) -> str:
+        """获取编码模型配置"""
+        from backend.services.llm.model_config import get_model_config_manager
+        return get_model_config_manager().get_code_model()
+    
+    def get_reasoning_model(self) -> str:
+        """获取推理模型配置"""
+        from backend.services.llm.model_config import get_model_config_manager
+        return get_model_config_manager().get_reasoning_model()

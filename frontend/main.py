@@ -626,27 +626,17 @@ def chat(message, stream):
                                     console.print(str(result))
                                 except:
                                     console.print(f"[red]无法显示结果: {type(result).__name__}[/red]")
-                        # 如果命令返回了新的会话 ID，更新当前会话
-                        if new_session_id:
-                            session_id = new_session_id
-                            command_handler.current_session_id = session_id
-                            # 立即保存新的会话 ID
-                            save_session_id(session_id)
-                            console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
-                        console.print()  # 空行
-                        continue  # 命令已处理，跳过正常对话流程
-                    else:
-                        # result 为 None，说明 handle_command 认为这不是命令（如文件路径），继续执行正常对话流程
-                        # 如果命令返回了新的会话 ID，更新当前会话
-                        if new_session_id:
-                            session_id = new_session_id
-                            command_handler.current_session_id = session_id
-                            # 立即保存新的会话 ID
-                            save_session_id(session_id)
-                            console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
-                        # 继续执行正常对话流程（不 continue，让代码继续执行到正常对话流程）
+                    # 如果命令返回了新的会话 ID，更新当前会话
+                    if new_session_id:
+                        session_id = new_session_id
+                        command_handler.current_session_id = session_id
+                        # 立即保存新的会话 ID
+                        save_session_id(session_id)
+                        console.print(f"[dim]当前会话: {session_id[:8]}...[/dim]")
+                    console.print()  # 空行
+                    continue  # 命令已处理，跳过正常对话流程
                 
-                # 正常对话流程
+                # 正常对话流程（msg 不以 / 开头）
                 # #region agent log
                 try:
                     import json

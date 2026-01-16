@@ -17,11 +17,11 @@
 from backend.services.llm.llm_service import LLMService
 
 # 方式 1：初始化时指定模型（推荐）
-llm_service = LLMService(model="openai-gpt-5")
+llm_service = LLMService(model="gpt-5")  # 自动识别为 theturbogateway
 
 # 方式 2：使用默认模型，然后切换
 llm_service = LLMService()
-llm_service.set_model("openai-gpt-5")
+llm_service.set_model("gpt-5")  # 自动识别为 theturbogateway
 ```
 
 ### 2. 使用推荐功能选择模型
@@ -54,7 +54,7 @@ if code_models:
 recommendations = llm_service.recommend_models("code")
 
 # 指定提供商推荐
-recommendations = llm_service.recommend_models("reasoning", provider="bailian")
+recommendations = llm_service.recommend_models("reasoning", provider="theturbogateway")
 
 # 获取所有推荐（不指定任务类型）
 all_recommendations = llm_service.recommend_models()
@@ -77,13 +77,13 @@ all_recommendations = llm_service.recommend_models()
 ### 文本生成任务
 
 **推荐模型：**
-- `openai-gpt-5` - OpenAI GPT-5，强大的文本生成能力
+- `gpt-5` - OpenAI GPT-5（通过 TheTurbo.ai 网关），强大的文本生成能力
 - `bailian-qwen3-max` - 通义千问3 Max，适配复杂智能体场景
 - `bailian-qwen-plus-2025-12-01` - 通义千问 Plus，支持思考模式融合
-- `anthropic-claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet
+- `claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet（通过 TheTurbo.ai 网关）
 
 ```python
-llm_service.set_model("openai-gpt-5")
+llm_service.set_model("gpt-5")  # 自动识别为 theturbogateway
 # 或
 llm_service.set_model("bailian-qwen3-max")
 ```
@@ -105,14 +105,14 @@ llm_service.set_model("bailian-qwen3-coder-plus-2025-09-23")
 
 **推荐模型：**
 - `deepseek-deepseek-r1` - DeepSeek R1，支持思考过程
-- `openai-o3` - OpenAI O3，支持思考过程
+- `o3` - OpenAI O3（通过 TheTurbo.ai 网关），支持思考过程
 - `bailian-deepseek-v3.2` - DeepSeek V3.2，支持深度思考
 - `bailian-qwq-plus` - 通义千问 QwQ Plus
 
 ```python
 llm_service.set_model("deepseek-deepseek-r1")
 # 或
-llm_service.set_model("openai-o3")
+llm_service.set_model("o3")  # 自动识别为 theturbogateway
 ```
 
 ### 视觉理解任务
@@ -120,7 +120,7 @@ llm_service.set_model("openai-o3")
 **推荐模型：**
 - `bailian-qwen3-vl-plus-2025-12-19` - 通义千问3 VL Plus
 - `bailian-qwen-vl-max-2025-08-13` - 通义千问 VL Max
-- `google-gemini-2.5-pro` - Gemini 2.5 Pro
+- `gemini-2.5-pro` - Gemini 2.5 Pro（通过 TheTurbo.ai 网关）
 
 ```python
 llm_service.set_model("bailian-qwen3-vl-plus-2025-12-19")
@@ -150,11 +150,11 @@ llm_service.set_model("bailian-wan2.6-t2v")
 ### 搜索任务
 
 **推荐模型：**
-- `perplexity-sonar-pro` - Perplexity Sonar Pro
-- `google-gemini-2.5-pro` - Gemini 2.5 Pro（支持 Google Search）
+- `sonar-pro` - Perplexity Sonar Pro（通过 TheTurbo.ai 网关）
+- `gemini-2.5-pro` - Gemini 2.5 Pro（通过 TheTurbo.ai 网关，支持 Google Search）
 
 ```python
-llm_service.set_model("perplexity-sonar-pro")
+llm_service.set_model("sonar-pro")  # 自动识别为 theturbogateway
 ```
 
 ## 动态切换模型
@@ -167,7 +167,7 @@ from backend.services.llm.llm_service import LLMService
 llm_service = LLMService()
 
 # 切换到不同的模型（自动切换提供商）
-llm_service.set_model("openai-gpt-5")  # 切换到 OpenAI GPT-5
+llm_service.set_model("gpt-5")  # 切换到 TheTurbo.ai 网关的 GPT-5
 response1 = await llm_service.chat(user_prompt="写一篇文章")
 
 llm_service.set_model("deepseek-deepseek-coder")  # 切换到 DeepSeek Coder
@@ -202,7 +202,7 @@ switch_model_for_task(llm_service, "vision")     # 视觉任务
 
 ```python
 # 开始使用文本生成模型
-llm_service.set_model("openai-gpt-5")
+llm_service.set_model("gpt-5")  # 自动识别为 theturbogateway
 response1 = await llm_service.chat(user_prompt="写一篇文章")
 
 # 切换到代码生成模型
@@ -301,12 +301,12 @@ llm_service.set_model("deepseek-chat")  # 不确定是哪个平台
 ```python
 # 低成本模型（适合简单任务）
 llm_service.set_model("bailian-qwen-turbo")
-llm_service.set_model("google-gemini-2.5-flash")
+llm_service.set_model("gemini-2.5-flash")  # 自动识别为 theturbogateway
 
 # 高性能模型（适合复杂任务）
 llm_service.set_model("openai-gpt-5")
 llm_service.set_model("bailian-qwen3-max")
-llm_service.set_model("anthropic-claude-opus-4-20250514")
+llm_service.set_model("claude-opus-4-20250514")  # 自动识别为 theturbogateway
 ```
 
 ### 5. 测试不同模型
@@ -317,9 +317,9 @@ llm_service.set_model("anthropic-claude-opus-4-20250514")
 async def try_multiple_models(task: str):
     """尝试多个模型，选择最佳结果"""
     models_to_try = [
-        "openai-gpt-5",
+        "gpt-5",
         "bailian-qwen3-max",
-        "anthropic-claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20241022",
     ]
     
     results = []
@@ -386,5 +386,6 @@ all_models = llm_service.list_all_models()
 for provider, models in all_models.items():
     print(f"{provider}: {len(models)} 个模型")
 ```
+
 
 

@@ -1,12 +1,47 @@
 # LLM 服务配置说明
 
+## 架构设计
+
+本系统采用**统一配置字典**设计，所有 LLM 提供商通过统一的 `LLMService._init_client(config)` 方法初始化。
+
+**配置字典结构：**
+```python
+{
+    "model": "gpt-5",           # 模型名称
+    "api_key": "sk-xxx",        # API Key
+    "base_url": "https://...",  # Base URL
+    "provider": "theturbogateway"  # 提供商名称
+}
+```
+
 ## 支持的提供商
 
-### 1. OpenAI（通过 TheTurbo.ai 网关）
+### 1. TheTurbo.ai 网关（统一提供商：theturbogateway）
+
+**说明：** TheTurbo.ai 是一个统一的 API 网关，提供对多个模型提供商的访问：
+- OpenAI（GPT 系列、O3 系列等）
+- Anthropic（Claude 系列）
+- Google（Gemini 系列）
+- xAI（Grok 系列）
+- Perplexity（Sonar 系列）
 
 **环境变量配置：**
 ```bash
-LLM_PROVIDER=openai  # 设置为 openai
+LLM_PROVIDER=theturbogateway  # 统一提供商标识
+TURBOGATEWAY_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，统一 Base URL
+
+# 根据要使用的模型，配置对应的 API Key
+OPENAI_API_KEY=your_openai_api_key      # 如果使用 OpenAI 模型
+ANTHROPIC_API_KEY=your_anthropic_api_key  # 如果使用 Anthropic 模型
+GOOGLE_API_KEY=your_google_api_key      # 如果使用 Google 模型
+XAI_API_KEY=your_xai_api_key            # 如果使用 xAI 模型
+PERPLEXITY_API_KEY=your_perplexity_api_key  # 如果使用 Perplexity 模型
+```
+
+#### 1.1 OpenAI 模型（通过 TheTurbo.ai 网关）
+
+**环境变量配置：**
+```bash
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-5  # 可选，默认为 gpt-5
 OPENAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai 网关
@@ -19,9 +54,13 @@ OPENAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai
 - `gpt-4o-mini` - GPT-4o 迷你版
 - `chatgpt-4o-latest` - ChatGPT 4o 最新版
 
+**O1 系列（支持链式思考）：**
+- `o1-preview` - O1 预览版，支持链式思考
+
 **O3 系列（支持思考过程）：**
 - `o3` - O3 标准版
 - `o3-mini` - O3 迷你版
+- `o3-mini-2025-01-31` - O3 Mini 日期快照版本（便于复现评测与合规存档）
 
 **GPT-4.1 系列：**
 - `gpt-4.1` - GPT-4.1 标准版
@@ -33,7 +72,6 @@ OPENAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai
 
 **GPT-5 系列：**
 - `gpt-5` - GPT-5 标准版（默认）
-- `gpt-5-chat-latest` - GPT-5 聊天最新版
 - `gpt-5-mini` - GPT-5 迷你版
 - `gpt-5-nano` - GPT-5 纳米版
 - `gpt-5-codex` - GPT-5 代码版
@@ -42,12 +80,11 @@ OPENAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai
 - `gpt-5.1` - GPT-5.1 标准版
 - `gpt-5.1-chat-latest` - GPT-5.1 聊天最新版
 - `gpt-5.1-codex` - GPT-5.1 代码版
-- `gpt-5.1-codex-mini` - GPT-5.1 代码迷你版
-- `gpt-5.1-codex-max` - GPT-5.1 代码最大版
+- `gpt-5.1-codex-mini` - GPT-5.1 代码迷你版（轻量高效，适合快速响应）
+- `gpt-5.1-codex-max` - GPT-5.1 代码最大版（最高性能，面向复杂系统设计）
 
 **GPT-5.2 系列：**
-- `gpt-5.2` - GPT-5.2 标准版
-- `gpt-5.2-chat-latest` - GPT-5.2 聊天最新版
+- `gpt-5.2` - GPT-5.2 标准版（更强推理、更稳对话、支持多模态与长上下文）
 
 **API Key 获取：**
 1. 访问 [TheTurbo.ai](https://theturbo.ai/)
@@ -59,11 +96,10 @@ OPENAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai
 - 如需提高缓存命中率，多轮对话模式可携带 HTTP 请求头 `X-Conversation-Id` 加随机字符串请求
 - 平台会优先路由到后端同一账号上
 
-### 2. Anthropic Claude（通过 TheTurbo.ai 网关）
+#### 1.2 Anthropic Claude 模型（通过 TheTurbo.ai 网关）
 
 **环境变量配置：**
 ```bash
-LLM_PROVIDER=anthropic  # 设置为 anthropic
 ANTHROPIC_API_KEY=your_anthropic_api_key
 ANTHROPIC_MODEL=claude-3-5-haiku-20241022  # 可选，默认为 claude-3-5-haiku-20241022
 ANTHROPIC_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai 网关
@@ -102,11 +138,10 @@ ANTHROPIC_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo
 - 如需提高缓存命中率，多轮对话模式可携带 HTTP 请求头 `X-Conversation-Id` 加随机字符串请求
 - 平台会优先路由到后端同一账号上
 
-### 3. Google Gemini（通过 TheTurbo.ai 网关）
+#### 1.3 Google Gemini 模型（通过 TheTurbo.ai 网关）
 
 **环境变量配置：**
 ```bash
-LLM_PROVIDER=google  # 设置为 google
 GOOGLE_API_KEY=your_google_api_key
 GOOGLE_MODEL=gemini-2.5-flash  # 可选，默认为 gemini-2.5-flash
 GOOGLE_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai 网关
@@ -120,14 +155,13 @@ GOOGLE_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai
 **Gemini 2.5 系列：**
 - `gemini-2.5-flash` - Gemini 2.5 Flash（默认）
 - `gemini-2.5-pro` - Gemini 2.5 Pro
-- `gemini-2.5-flash-lite` - Gemini 2.5 Flash Lite
-- `gemini-2.5-flash-lite-preview-06-17` - Gemini 2.5 Flash Lite 预览版
+- `gemini-2.5-flash-image` - Gemini 2.5 Flash Image（高速轻量多模态图像模型）
 - `gemini-2.5-flash-thinking` - Gemini 2.5 Flash Thinking（输出思考过程）
 - `gemini-2.5-pro-thinking` - Gemini 2.5 Pro Thinking（输出思考过程）
 
 **Gemini 3 系列：**
-- `gemini-3-pro-preview` - Gemini 3 Pro 预览版
-- `gemini-3-flash-preview` - Gemini 3 Flash 预览版
+- `gemini-3-pro-preview` - Gemini 3 Pro 预览版（旗舰级通用模型，支持多模态）
+- `gemini-3-pro-image-preview` - Gemini 3 Pro Image 预览版（高精度多模态图像模型，偏向高精度与细节）
 
 **API Key 获取：**
 1. 访问 [TheTurbo.ai](https://theturbo.ai/)
@@ -145,17 +179,18 @@ GOOGLE_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai
 - 如需提高缓存命中率，多轮对话模式可携带 HTTP 请求头 `X-Conversation-Id` 加随机字符串请求
 - 平台会优先路由到后端同一账号上
 
-### 4. xAI Grok（通过 TheTurbo.ai 网关）
+#### 1.4 xAI Grok 模型（通过 TheTurbo.ai 网关）
+
+⚠️ **注意：根据 TheTurbo.ai 最新模型清单，Grok 模型目前可能不可用或已被移除。如果遇到 403 权限错误，请使用其他模型。**
 
 **环境变量配置：**
 ```bash
-LLM_PROVIDER=xai  # 设置为 xai
 XAI_API_KEY=your_xai_api_key
-XAI_MODEL=grok-4  # 可选，默认为 grok-4
+XAI_MODEL=grok-4  # 可选，默认为 grok-4（注意：可能不可用）
 XAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai 网关
 ```
 
-**支持的模型：**
+**支持的模型（可能不可用）：**
 
 **Grok 3 系列：**
 - `grok-3` - Grok 3
@@ -171,21 +206,28 @@ XAI_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai �
 3. 在控制台获取 API Key
 
 **注意事项：**
+- ⚠️ **重要**：TheTurbo.ai 当前模型清单中未包含 Grok 模型，可能已被移除或暂时不可用
+- 如果遇到 403 权限错误（模型未启用），请使用其他可用模型
 - Grok 支持 OpenAI 协议（通过 `/v1/chat/completions` 端点）
 - `grok-4-fast-reasoning` 支持推理功能
 - 平台为保障并发资源量，后端为多账号负载
 - 如需提高缓存命中率，多轮对话模式可携带 HTTP 请求头 `X-Conversation-Id` 加随机字符串请求
 - 平台会优先路由到后端同一账号上
 
-### 5. Perplexity Sonar（通过 TheTurbo.ai 网关）
+#### 1.5 Perplexity Sonar 模型（通过 TheTurbo.ai 网关）
 
 **环境变量配置：**
 ```bash
-LLM_PROVIDER=perplexity  # 设置为 perplexity
 PERPLEXITY_API_KEY=your_perplexity_api_key
 PERPLEXITY_MODEL=sonar  # 可选，默认为 sonar
 PERPLEXITY_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurbo.ai 网关
 ```
+
+**TheTurbo.ai 网关统一说明：**
+- 所有服务都通过 TheTurbo.ai 网关访问，使用相同的网关地址
+- 但每个服务需要独立的 API Key（从 TheTurbo.ai 获取）
+- 系统会自动根据模型名称识别服务类型并选择对应的 API Key
+- 提供商统一标识为 `theturbogateway`
 
 **支持的模型：**
 
@@ -208,7 +250,7 @@ PERPLEXITY_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，默认为 TheTurb
 - 如需提高缓存命中率，多轮对话模式可携带 HTTP 请求头 `X-Conversation-Id` 加随机字符串请求
 - 平台会优先路由到后端同一账号上
 
-### 6. DeepSeek（默认）
+### 2. DeepSeek（默认）
 
 **环境变量配置：**
 ```bash
@@ -224,7 +266,7 @@ DEEPSEEK_MODEL=deepseek-chat  # 可选，默认为 deepseek-chat
 - `deepseek-r1` - 支持思考过程的模型
 - `deepseek-v2`, `deepseek-v2.5`, `deepseek-v3` - 版本化模型
 
-### 7. 阿里云百炼平台
+### 3. 阿里云百炼平台
 
 **环境变量配置：**
 ```bash
@@ -368,11 +410,11 @@ BAILIAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1  # 可选
 from backend.services.llm.llm_service import LLMService
 
 # 方式 1：使用 "平台-模型" 格式（推荐）
-llm_service = LLMService(model="openai-gpt-5")  # OpenAI 平台的 gpt-5
-llm_service = LLMService(model="anthropic-claude-3-5-haiku-20241022")  # Anthropic 平台的 Claude
-llm_service = LLMService(model="google-gemini-2.5-flash")  # Google 平台的 Gemini
-llm_service = LLMService(model="xai-grok-4")  # xAI 平台的 Grok
-llm_service = LLMService(model="perplexity-sonar")  # Perplexity 平台的 Sonar
+llm_service = LLMService(model="gpt-5")  # TheTurbo.ai 网关的 gpt-5（自动识别为 theturbogateway）
+llm_service = LLMService(model="claude-3-5-haiku-20241022")  # TheTurbo.ai 网关的 Claude
+llm_service = LLMService(model="gemini-2.5-flash")  # TheTurbo.ai 网关的 Gemini
+llm_service = LLMService(model="grok-4")  # TheTurbo.ai 网关的 Grok
+llm_service = LLMService(model="sonar")  # TheTurbo.ai 网关的 Sonar
 llm_service = LLMService(model="bailian-deepseek-chat")  # 百炼平台的 deepseek-chat
 llm_service = LLMService(model="deepseek-deepseek-chat")  # DeepSeek 平台的 deepseek-chat
 llm_service = LLMService(model="bailian-deepseek3.2")  # 百炼平台的 deepseek3.2
@@ -380,16 +422,16 @@ llm_service = LLMService(model="bailian-qwen-max")  # 百炼平台的 qwen-max
 
 # 方式 2：动态切换（使用 "平台-模型" 格式）
 llm_service = LLMService()
-llm_service.set_model("openai-gpt-5")  # 切换到 OpenAI 平台的 gpt-5
-llm_service.set_model("openai-o3")  # 切换到 OpenAI 平台的 o3（支持思考过程）
-llm_service.set_model("anthropic-claude-3-5-haiku-20241022")  # 切换到 Anthropic 平台的 Claude
-llm_service.set_model("anthropic-claude-opus-4-20250514")  # 切换到 Anthropic 平台的 Claude Opus 4
-llm_service.set_model("google-gemini-2.5-flash")  # 切换到 Google 平台的 Gemini
-llm_service.set_model("google-gemini-2.5-flash-thinking")  # 切换到 Google 平台的 Gemini Thinking
-llm_service.set_model("xai-grok-4")  # 切换到 xAI 平台的 Grok
-llm_service.set_model("xai-grok-4-fast-reasoning")  # 切换到 xAI 平台的 Grok 推理版本
-llm_service.set_model("perplexity-sonar")  # 切换到 Perplexity 平台的 Sonar
-llm_service.set_model("perplexity-sonar-reasoning-pro")  # 切换到 Perplexity 平台的 Sonar 推理版本
+llm_service.set_model("gpt-5")  # 切换到 TheTurbo.ai 网关的 gpt-5
+llm_service.set_model("o3")  # 切换到 TheTurbo.ai 网关的 o3（支持思考过程）
+llm_service.set_model("claude-3-5-haiku-20241022")  # 切换到 TheTurbo.ai 网关的 Claude
+llm_service.set_model("claude-opus-4-20250514")  # 切换到 TheTurbo.ai 网关的 Claude Opus 4
+llm_service.set_model("gemini-2.5-flash")  # 切换到 TheTurbo.ai 网关的 Gemini
+llm_service.set_model("gemini-2.5-flash-thinking")  # 切换到 TheTurbo.ai 网关的 Gemini Thinking
+llm_service.set_model("grok-4")  # 切换到 TheTurbo.ai 网关的 Grok
+llm_service.set_model("grok-4-fast-reasoning")  # 切换到 TheTurbo.ai 网关的 Grok 推理版本
+llm_service.set_model("sonar")  # 切换到 TheTurbo.ai 网关的 Sonar
+llm_service.set_model("sonar-reasoning-pro")  # 切换到 TheTurbo.ai 网关的 Sonar 推理版本
 llm_service.set_model("bailian-deepseek-chat")  # 切换到百炼平台的 deepseek-chat
 llm_service.set_model("deepseek-deepseek-coder")  # 切换到 DeepSeek 平台的 deepseek-coder
 llm_service.set_model("bailian-qwen-max")  # 切换到百炼平台的 qwen-max
@@ -398,32 +440,32 @@ llm_service.set_model("bailian-qwen-max")  # 切换到百炼平台的 qwen-max
 ### 支持的格式
 
 **1. "平台-模型" 格式（推荐）：**
-- `openai-gpt-5` - OpenAI 平台的 gpt-5
-- `openai-o3` - OpenAI 平台的 o3
-- `anthropic-claude-3-5-haiku-20241022` - Anthropic 平台的 Claude 3.5 Haiku
-- `anthropic-claude-opus-4-20250514` - Anthropic 平台的 Claude Opus 4
-- `google-gemini-2.5-flash` - Google 平台的 Gemini 2.5 Flash
-- `google-gemini-2.5-pro` - Google 平台的 Gemini 2.5 Pro
-- `xai-grok-4` - xAI 平台的 Grok 4
-- `xai-grok-4-fast-reasoning` - xAI 平台的 Grok 4 推理版本
-- `perplexity-sonar` - Perplexity 平台的 Sonar
-- `perplexity-sonar-pro` - Perplexity 平台的 Sonar Pro
+- `theturbogateway-gpt-5` - TheTurbo.ai 网关的 gpt-5（OpenAI 服务）
+- `theturbogateway-o3` - TheTurbo.ai 网关的 o3（OpenAI 服务）
+- `theturbogateway-claude-3-5-haiku-20241022` - TheTurbo.ai 网关的 Claude（Anthropic 服务）
+- `theturbogateway-claude-opus-4-20250514` - TheTurbo.ai 网关的 Claude Opus 4（Anthropic 服务）
+- `theturbogateway-gemini-2.5-flash` - TheTurbo.ai 网关的 Gemini（Google 服务）
+- `theturbogateway-gemini-2.5-pro` - TheTurbo.ai 网关的 Gemini Pro（Google 服务）
+- `theturbogateway-grok-4` - TheTurbo.ai 网关的 Grok 4（xAI 服务）
+- `theturbogateway-grok-4-fast-reasoning` - TheTurbo.ai 网关的 Grok 4 推理版本（xAI 服务）
+- `theturbogateway-sonar` - TheTurbo.ai 网关的 Sonar（Perplexity 服务）
+- `theturbogateway-sonar-pro` - TheTurbo.ai 网关的 Sonar Pro（Perplexity 服务）
 - `bailian-deepseek-chat` - 百炼平台的 deepseek-chat
 - `deepseek-deepseek-chat` - DeepSeek 平台的 deepseek-chat
 - `bailian-deepseek3.2` - 百炼平台的 deepseek3.2
 - `bailian-qwen-max` - 百炼平台的 qwen-max
 
-**2. 传统格式（向后兼容，但可能混淆）：**
-- `gpt-5` - 自动检测（OpenAI 平台）
-- `o3` - 自动检测（OpenAI 平台）
-- `claude-3-5-haiku-20241022` - 自动检测（Anthropic 平台）
-- `claude-opus-4-20250514` - 自动检测（Anthropic 平台）
-- `gemini-2.5-flash` - 自动检测（Google 平台）
-- `gemini-2.5-pro` - 自动检测（Google 平台）
-- `grok-4` - 自动检测（xAI 平台）
-- `grok-4-fast-reasoning` - 自动检测（xAI 平台）
-- `sonar` - 自动检测（Perplexity 平台）
-- `sonar-pro` - 自动检测（Perplexity 平台）
+**2. 传统格式（向后兼容，自动识别为 theturbogateway）：**
+- `gpt-5` - 自动检测为 TheTurbo.ai 网关（OpenAI 服务）
+- `o3` - 自动检测为 TheTurbo.ai 网关（OpenAI 服务）
+- `claude-3-5-haiku-20241022` - 自动检测为 TheTurbo.ai 网关（Anthropic 服务）
+- `claude-opus-4-20250514` - 自动检测为 TheTurbo.ai 网关（Anthropic 服务）
+- `gemini-2.5-flash` - 自动检测为 TheTurbo.ai 网关（Google 服务）
+- `gemini-2.5-pro` - 自动检测为 TheTurbo.ai 网关（Google 服务）
+- `grok-4` - 自动检测为 TheTurbo.ai 网关（xAI 服务）
+- `grok-4-fast-reasoning` - 自动检测为 TheTurbo.ai 网关（xAI 服务）
+- `sonar` - 自动检测为 TheTurbo.ai 网关（Perplexity 服务）
+- `sonar-pro` - 自动检测为 TheTurbo.ai 网关（Perplexity 服务）
 - `deepseek-chat` - 自动检测（默认 DeepSeek 平台）
 - `qwen-max` - 自动检测（百炼平台）
 
@@ -478,32 +520,29 @@ from backend.services.llm.llm_service import LLMService
 llm_service = LLMService()
 
 # 方式 2：指定初始模型（自动检测提供商）
-llm_service = LLMService(model="openai-gpt-5")  # 自动使用 OpenAI 平台
-llm_service = LLMService(model="anthropic-claude-3-5-haiku-20241022")  # 自动使用 Anthropic 平台
-llm_service = LLMService(model="google-gemini-2.5-flash")  # 自动使用 Google 平台
-llm_service = LLMService(model="xai-grok-4")  # 自动使用 xAI 平台
-llm_service = LLMService(model="perplexity-sonar")  # 自动使用 Perplexity 平台
+llm_service = LLMService(model="gpt-5")  # 自动使用 TheTurbo.ai 网关（OpenAI 服务）
+llm_service = LLMService(model="claude-3-5-haiku-20241022")  # 自动使用 TheTurbo.ai 网关（Anthropic 服务）
+llm_service = LLMService(model="gemini-2.5-flash")  # 自动使用 TheTurbo.ai 网关（Google 服务）
+llm_service = LLMService(model="grok-4")  # 自动使用 TheTurbo.ai 网关（xAI 服务）
+llm_service = LLMService(model="sonar")  # 自动使用 TheTurbo.ai 网关（Perplexity 服务）
 llm_service = LLMService(model="deepseek3.2")  # 自动使用百炼平台
 
 # 方式 3：明确指定提供商
-llm_service = LLMService(provider="openai")
-llm_service = LLMService(provider="anthropic")
-llm_service = LLMService(provider="google")
-llm_service = LLMService(provider="xai")
-llm_service = LLMService(provider="perplexity")
-llm_service = LLMService(provider="bailian")
+llm_service = LLMService(provider="theturbogateway")  # TheTurbo.ai 网关（统一提供商）
+llm_service = LLMService(provider="bailian")  # 百炼平台
+llm_service = LLMService(provider="deepseek")  # DeepSeek 平台
 
 # 动态切换模型（自动切换提供商）
-llm_service.set_model("openai-gpt-5")  # 切换到 OpenAI 平台的 gpt-5
-llm_service.set_model("openai-o3")  # 切换到 OpenAI 平台的 o3
-llm_service.set_model("anthropic-claude-3-5-haiku-20241022")  # 切换到 Anthropic 平台的 Claude
-llm_service.set_model("anthropic-claude-opus-4-20250514")  # 切换到 Anthropic 平台的 Claude Opus 4
-llm_service.set_model("google-gemini-2.5-flash")  # 切换到 Google 平台的 Gemini
-llm_service.set_model("google-gemini-2.5-flash-thinking")  # 切换到 Google 平台的 Gemini Thinking
-llm_service.set_model("xai-grok-4")  # 切换到 xAI 平台的 Grok
-llm_service.set_model("xai-grok-4-fast-reasoning")  # 切换到 xAI 平台的 Grok 推理版本
-llm_service.set_model("perplexity-sonar")  # 切换到 Perplexity 平台的 Sonar
-llm_service.set_model("perplexity-sonar-reasoning-pro")  # 切换到 Perplexity 平台的 Sonar 推理版本
+llm_service.set_model("gpt-5")  # 切换到 TheTurbo.ai 网关的 gpt-5
+llm_service.set_model("o3")  # 切换到 TheTurbo.ai 网关的 o3
+llm_service.set_model("claude-3-5-haiku-20241022")  # 切换到 TheTurbo.ai 网关的 Claude
+llm_service.set_model("claude-opus-4-20250514")  # 切换到 TheTurbo.ai 网关的 Claude Opus 4
+llm_service.set_model("gemini-2.5-flash")  # 切换到 TheTurbo.ai 网关的 Gemini
+llm_service.set_model("gemini-2.5-flash-thinking")  # 切换到 TheTurbo.ai 网关的 Gemini Thinking
+llm_service.set_model("grok-4")  # 切换到 TheTurbo.ai 网关的 Grok
+llm_service.set_model("grok-4-fast-reasoning")  # 切换到 TheTurbo.ai 网关的 Grok 推理版本
+llm_service.set_model("sonar")  # 切换到 TheTurbo.ai 网关的 Sonar
+llm_service.set_model("sonar-reasoning-pro")  # 切换到 TheTurbo.ai 网关的 Sonar 推理版本
 llm_service.set_model("deepseek3.2")  # 切换到百炼平台的 deepseek3.2
 llm_service.set_model("qwen-max")  # 继续使用百炼平台
 llm_service.set_model("deepseek-coder")  # 切换到 DeepSeek 平台
@@ -522,8 +561,12 @@ model_info = llm_service.get_model_info()  # 当前模型信息
 
 ```bash
 # 选择提供商（可选，如果不设置会根据模型名称自动检测）
-LLM_PROVIDER=openai  # 或 anthropic, google, xai, perplexity, bailian, deepseek
+LLM_PROVIDER=theturbogateway  # 或 bailian, deepseek
 
+# TheTurbo.ai 网关统一配置
+TURBOGATEWAY_BASE_URL=https://gateway.theturbo.ai/v1  # 可选，统一 Base URL
+
+# 根据要使用的模型，配置对应的 API Key
 # OpenAI 配置（通过 TheTurbo.ai 网关）
 OPENAI_API_KEY=sk-xxx
 OPENAI_MODEL=gpt-5  # 或 o3, gpt-4o 等
@@ -560,31 +603,25 @@ DEEPSEEK_MODEL=deepseek-chat
 
 ## 模型识别规则
 
-### OpenAI 模型识别
+### TheTurbo.ai 网关模型识别
 
-以下模型会被识别为 OpenAI 平台：
+以下模型会被识别为 TheTurbo.ai 网关（`theturbogateway` 提供商）：
+
+**OpenAI 服务模型：**
 - 所有以 `gpt-` 开头的模型（如 `gpt-4o`, `gpt-5`, `gpt-5.1` 等）
 - 所有以 `o` 开头后跟数字的模型（如 `o3`, `o3-mini`, `o4-mini`）
 - 所有以 `chatgpt-` 开头的模型
 
-### Anthropic Claude 模型识别
-
-以下模型会被识别为 Anthropic 平台：
+**Anthropic 服务模型：**
 - 所有以 `claude-` 开头的模型（如 `claude-3-5-haiku-20241022`, `claude-opus-4-20250514` 等）
 
-### Google Gemini 模型识别
-
-以下模型会被识别为 Google 平台：
+**Google 服务模型：**
 - 所有以 `gemini-` 开头的模型（如 `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-pro-preview` 等）
 
-### xAI Grok 模型识别
-
-以下模型会被识别为 xAI 平台：
+**xAI 服务模型：**
 - 所有以 `grok-` 开头的模型（如 `grok-3`, `grok-4`, `grok-4-fast-reasoning` 等）
 
-### Perplexity Sonar 模型识别
-
-以下模型会被识别为 Perplexity 平台：
+**Perplexity 服务模型：**
 - 所有以 `sonar` 开头的模型（如 `sonar`, `sonar-pro`, `sonar-reasoning-pro` 等）
 
 ### 百炼平台模型识别
@@ -596,23 +633,54 @@ DEEPSEEK_MODEL=deepseek-chat
 
 ### DeepSeek 平台模型识别
 
-以下模型会被识别为 DeepSeek 平台：
+⚠️ **重要：DeepSeek 模型在两个平台都存在，需要明确区分！**
+
+**DeepSeek 官方平台模型：**
 - `deepseek-chat`, `deepseek-coder`, `deepseek-reasoner`, `deepseek-r1`
 - `deepseek-v2`, `deepseek-v2.5`, `deepseek-v3`（不带具体版本号）
+- 使用 `DEEPSEEK_API_KEY` 和 `https://api.deepseek.com`
+
+**百炼平台的 DeepSeek 模型：**
+- 基础模型：`deepseek-chat`, `deepseek-coder`, `deepseek-reasoner`, `deepseek-r1`, `deepseek-v2`, `deepseek-v2.5`, `deepseek-v3`
+- 百炼平台独有：`deepseek-v3.2`, `deepseek-v3.2-exp`, `deepseek-v3.1`, `deepseek3.2`
+- 使用 `BAILIAN_API_KEY` 和 `https://dashscope.aliyuncs.com/compatible-mode/v1`
+
+**如何区分：**
+
+1. **推荐方式：使用 "平台-模型" 格式**
+   ```python
+   # DeepSeek 官方平台
+   llm_service.set_model("deepseek-deepseek-chat")
+   llm_service.set_model("deepseek-deepseek-v3")
+   
+   # 百炼平台
+   llm_service.set_model("bailian-deepseek-chat")
+   llm_service.set_model("bailian-deepseek-v3.2")  # 百炼平台独有
+   ```
+
+2. **自动检测规则（如果不使用 "平台-模型" 格式）**
+   - 如果模型名称包含版本号（如 `v3.2`, `3.2`, `v3.1`, `3.1`, `-exp`），自动识别为百炼平台
+   - 如果模型名称在 `DEEPSEEK_MODELS` 中且不包含版本号，优先使用 DeepSeek 平台
+   - 如果两个平台都有且无法区分，默认使用 DeepSeek 平台（官方平台）
+
+3. **通过 provider 参数明确指定**
+   ```python
+   llm_service.set_model("deepseek-chat", provider="deepseek")  # DeepSeek 平台
+   llm_service.set_model("deepseek-chat", provider="bailian")   # 百炼平台
+   ```
 
 ## 注意事项
 
 1. **API Key 格式**：
-   - OpenAI 通过 TheTurbo.ai 网关，API Key 格式通常为 `sk-xxx`
-   - Anthropic Claude 通过 TheTurbo.ai 网关，API Key 格式通常为 `sk-xxx`
-   - Google Gemini 通过 TheTurbo.ai 网关，API Key 格式通常为 `sk-xxx`
-   - xAI Grok 通过 TheTurbo.ai 网关，API Key 格式通常为 `sk-xxx`
-   - Perplexity Sonar 通过 TheTurbo.ai 网关，API Key 格式通常为 `sk-xxx`
-   - 百炼平台使用 DashScope API Key，格式通常为 `sk-xxx`
-   - DeepSeek 使用 DeepSeek API Key，格式通常为 `sk-xxx`
+   - TheTurbo.ai 网关（所有服务）：API Key 格式通常为 `sk-xxx`，每个服务需要独立的 API Key
+   - 百炼平台：使用 DashScope API Key，格式通常为 `sk-xxx`
+   - DeepSeek：使用 DeepSeek API Key，格式通常为 `sk-xxx`
 2. **兼容性**：
-   - OpenAI、Anthropic Claude、Google Gemini、xAI Grok、Perplexity Sonar 和百炼平台都通过 OpenAI 兼容模式提供 API，使用相同的接口
-   - DeepSeek 也使用 OpenAI 兼容 API
+   - 所有提供商都通过 OpenAI 兼容模式提供 API，使用相同的接口
+   - 系统使用统一的 `_init_client(config)` 方法初始化所有客户端
+3. **统一设计**：
+   - 所有提供商使用相同的配置字典结构：`{model, api_key, base_url, provider}`
+   - 模型切换时自动检测提供商并更新配置
 3. **模型名称**：系统会自动识别和映射模型名称，但建议使用标准名称
 4. **工具调用**：所有平台都支持 Function Calling（工具调用）
 5. **思考过程/推理能力**：以下模型支持思考过程或推理参数：
