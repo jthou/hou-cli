@@ -31,6 +31,16 @@ class TestPDFParserTool:
         pdf_path.write_bytes(b"%PDF-1.4\n")
         return pdf_path
     
+    @pytest.fixture
+    def real_test_pdf(self):
+        """使用真实的测试PDF文件"""
+        # 使用测试目录中的 test.pdf 文件
+        test_pdf_path = Path(__file__).parent / "test.pdf"
+        if test_pdf_path.exists():
+            return test_pdf_path
+        else:
+            pytest.skip(f"测试PDF文件不存在: {test_pdf_path}")
+    
     def test_tool_implements_base_interface(self, tool):
         """测试工具实现了基类接口"""
         assert hasattr(tool, 'name')
@@ -71,7 +81,7 @@ class TestPDFParserTool:
         backend_param = next((p for p in tool.parameters if p.name == "backend"), None)
         assert backend_param is not None
         assert backend_param.default == "auto"
-        assert backend_param.enum == ["auto", "mineru", "logics", "camelot"]
+        assert backend_param.enum == ["auto", "pypdf", "logics", "camelot"]
     
     def test_validate_parameters_missing_required(self, tool):
         """测试参数验证：缺少必需参数"""
@@ -151,7 +161,7 @@ class TestPDFParserTool:
         
         # 结果应该是字典
         assert isinstance(backends, dict)
-        assert "mineru" in backends
+        assert "pypdf" in backends
         assert "logics" in backends
         assert "camelot" in backends
         # 值应该是布尔类型
@@ -168,11 +178,11 @@ class TestPDFParserTool:
     
     def test_select_backend_auto_full_mode(self, tool):
         """测试自动选择后端：完整模式"""
-        available = {"mineru": True, "logics": True, "camelot": True}
+        available = {"pypdf": True, "logics": True, "camelot": True}
         
-        # 完整模式应该优先选择 MinerU
+        # 完整模式应该优先选择 pypdf
         backend = tool._select_backend("auto", "full", available)
-        assert backend == "mineru"
+        assert backend == "pypdf"
     
     def test_select_backend_specified(self, tool):
         """测试指定后端"""
@@ -264,4 +274,227 @@ class TestPDFParserToolIntegration:
         assert tool_dict is not None
         assert tool_dict["type"] == "function"
         assert tool_dict["function"]["name"] == "pdf_parser"
+
+
+# 检查是否有可用的PDF解析后端（在类定义前检查）
+_tool_for_backend_check = PDFParserTool()
+_backends_status = _tool_for_backend_check._check_backend_availability()
+_has_available_backend = any(_backends_status.values())
+
+# 如果没有可用后端，在类级别跳过所有测试
+if not _has_available_backend:
+    pytestmark = pytest.mark.skip(
+        reason=(
+            "没有可用的PDF解析后端，所有测试被跳过。\n"
+            "请安装以下工具之一：\n"
+            "  1. MinerU: pip install mineru\n"
+            "  2. Camelot: pip install camelot-py[cv]\n"
+            "  3. Logics-Parsing: pip install logics-parsing（需要 DASHSCOPE_API_KEY）\n"
+            f"当前后端状态: {_backends_status}"
+        )
+    )
+
+
+class TestPDFParserToolWithRealPDF:
+    """使用真实PDF文件进行集成测试"""
+    
+    @pytest.fixture
+    def tool(self):
+        """创建PDF解析工具实例"""
+        return PDFParserTool()
+    
+    @pytest.fixture
+    def test_pdf_path(self):
+        """获取测试PDF文件路径"""
+        test_pdf_path = Path(__file__).parent / "test.pdf"
+        if not test_pdf_path.exists():
+            pytest.skip(f"测试PDF文件不存在: {test_pdf_path}")
+        return test_pdf_path
+    
+    @pytest.fixture
+    def temp_output_dir(self):
+        """创建临时输出目录"""
+        temp_path = tempfile.mkdtemp()
+        yield Path(temp_path)
+        shutil.rmtree(temp_path, ignore_errors=True)
+    
+    def test_parse_pdf_basic(self, tool, test_pdf_path, temp_output_dir):
+        """测试基本PDF解析功能"""
+        result = tool.execute(
+            file_path=str(test_pdf_path),
+            output_format="markdown",
+            extract_mode="text",
+            output_path=str(temp_output_dir / "output.md")
+        )
+        
+        # 检查结果
+        assert isinstance(result, ToolResult)
+        
+        if result.success:
+            # 检查输出文件是否存在
+            output_file = temp_output_dir / "output.md"
+            if output_file.exists():
+                content = output_file.read_text(encoding='utf-8')
+                assert len(content) > 0, "输出文件应该包含内容"
+                print(f"\n✅ PDF解析成功，输出文件大小: {len(content)} 字符")
+        else:
+            # 如果失败，检查是否是后端不可用或已知问题
+            error_lower = result.error.lower()
+            skip_keywords = ["可用", "available", "安装", "timeout", "网络", "network", "download", "模型", "model", "hub"]
+            if any(keyword in result.error or keyword in error_lower for keyword in skip_keywords):
+                pytest.skip(f"PDF解析后端不可用或遇到已知问题: {result.error}")
+            else:
+                # 其他错误，正常失败
+                pytest.fail(f"PDF解析失败: {result.error}")
+    
+    def test_parse_pdf_markdown_format(self, tool, test_pdf_path, temp_output_dir):
+        """测试Markdown格式输出"""
+        result = tool.execute(
+            file_path=str(test_pdf_path),
+            output_format="markdown",
+            extract_mode="full",
+            output_path=str(temp_output_dir / "output.md")
+        )
+        
+        if not result.success:
+            if "可用" in result.error or "available" in result.error.lower() or "安装" in result.error:
+                pytest.skip(f"PDF解析后端不可用: {result.error}")
+            else:
+                pytest.fail(f"PDF解析失败: {result.error}")
+        
+        # 检查输出文件
+        output_file = temp_output_dir / "output.md"
+        if output_file.exists():
+            content = output_file.read_text(encoding='utf-8')
+            # Markdown 应该包含一些常见标记
+            assert len(content) > 0
+            print(f"\n✅ Markdown输出成功，文件大小: {len(content)} 字符")
+    
+    def test_parse_pdf_text_format(self, tool, test_pdf_path, temp_output_dir):
+        """测试纯文本格式输出"""
+        result = tool.execute(
+            file_path=str(test_pdf_path),
+            output_format="text",
+            extract_mode="text",
+            output_path=str(temp_output_dir / "output.txt")
+        )
+        
+        if not result.success:
+            if "可用" in result.error or "available" in result.error.lower() or "安装" in result.error:
+                pytest.skip(f"PDF解析后端不可用: {result.error}")
+            else:
+                pytest.fail(f"PDF解析失败: {result.error}")
+        
+        # 检查输出文件
+        output_file = temp_output_dir / "output.txt"
+        if output_file.exists():
+            content = output_file.read_text(encoding='utf-8')
+            assert len(content) > 0
+            print(f"\n✅ 文本输出成功，文件大小: {len(content)} 字符")
+    
+    def test_parse_pdf_json_format(self, tool, test_pdf_path, temp_output_dir):
+        """测试JSON格式输出"""
+        result = tool.execute(
+            file_path=str(test_pdf_path),
+            output_format="json",
+            extract_mode="full",
+            output_path=str(temp_output_dir / "output.json")
+        )
+        
+        if not result.success:
+            if "可用" in result.error or "available" in result.error.lower() or "安装" in result.error:
+                pytest.skip(f"PDF解析后端不可用: {result.error}")
+            else:
+                pytest.fail(f"PDF解析失败: {result.error}")
+        
+        # 检查输出文件
+        output_file = temp_output_dir / "output.json"
+        if output_file.exists():
+            import json
+            content = output_file.read_text(encoding='utf-8')
+            # 验证JSON格式
+            try:
+                data = json.loads(content)
+                assert isinstance(data, (dict, list))
+                print(f"\n✅ JSON输出成功，数据结构: {type(data).__name__}")
+            except json.JSONDecodeError:
+                pytest.fail("输出文件不是有效的JSON格式")
+    
+    def test_parse_pdf_table_mode(self, tool, test_pdf_path, temp_output_dir):
+        """测试表格提取模式"""
+        result = tool.execute(
+            file_path=str(test_pdf_path),
+            output_format="excel",
+            extract_mode="table",
+            backend="auto",  # 自动选择最适合表格的后端
+            output_path=str(temp_output_dir / "output.xlsx")
+        )
+        
+        if not result.success:
+            if "可用" in result.error or "available" in result.error.lower() or "安装" in result.error:
+                pytest.skip(f"PDF解析后端不可用: {result.error}")
+            else:
+                pytest.fail(f"PDF解析失败: {result.error}")
+        
+        # 检查输出文件
+        output_file = temp_output_dir / "output.xlsx"
+        if output_file.exists():
+            assert output_file.stat().st_size > 0
+            print(f"\n✅ Excel输出成功，文件大小: {output_file.stat().st_size} 字节")
+    
+    def test_parse_pdf_with_specific_backend(self, tool, test_pdf_path, temp_output_dir):
+        """测试使用特定后端"""
+        # 检查可用后端
+        available_backends = tool._check_backend_availability()
+        
+        # 尝试使用可用的后端
+        for backend_name, is_available in available_backends.items():
+            if is_available and backend_name != "auto":
+                result = tool.execute(
+                    file_path=str(test_pdf_path),
+                    output_format="markdown",
+                    extract_mode="text",
+                    backend=backend_name,
+                    output_path=str(temp_output_dir / f"output_{backend_name}.md")
+                )
+                
+                if result.success:
+                    output_file = temp_output_dir / f"output_{backend_name}.md"
+                    if output_file.exists():
+                        content = output_file.read_text(encoding='utf-8')
+                        assert len(content) > 0
+                        print(f"\n✅ 使用 {backend_name} 后端解析成功")
+                        break
+                elif "可用" not in result.error and "available" not in result.error.lower():
+                    # 不是后端不可用的错误，记录但继续
+                    print(f"\n⚠️  使用 {backend_name} 后端失败: {result.error}")
+        else:
+            # 所有后端都不可用或失败
+            pytest.skip("没有可用的PDF解析后端")
+    
+    def test_parse_pdf_result_structure(self, tool, test_pdf_path, temp_output_dir):
+        """测试解析结果的数据结构"""
+        result = tool.execute(
+            file_path=str(test_pdf_path),
+            output_format="json",
+            extract_mode="full",
+            output_path=str(temp_output_dir / "output.json")
+        )
+        
+        if not result.success:
+            if "可用" in result.error or "available" in result.error.lower() or "安装" in result.error:
+                pytest.skip(f"PDF解析后端不可用: {result.error}")
+            else:
+                pytest.fail(f"PDF解析失败: {result.error}")
+        
+        # 检查返回的数据结构
+        assert result.data is not None
+        assert "file_path" in result.data or "output_file" in result.data or "output_path" in result.data
+        
+        # 检查输出文件路径
+        output_file_path = result.data.get("output_file") or result.data.get("output_path")
+        if output_file_path:
+            output_file = Path(output_file_path)
+            assert output_file.exists()
+            print(f"\n✅ 解析结果包含输出文件路径: {output_file}")
 

@@ -1,10 +1,9 @@
 """PDF 解析工具实现
 
 支持多种PDF解析后端：
-1. MinerU - 完全本地化，PDF转Markdown（学术文献、RAG知识库）
-2. Logics-Parsing - 阿里Qwen2.5-VL模型，高质量解析（需要API密钥）
-3. Camelot - 专业表格提取（金融年报等复杂表格）
-4. PDF-Extract-Kit - 表格坐标提取（需配合OCR）
+1. pypdf/pdfplumber - 基础文本提取（稳定可靠，无需网络）
+2. Camelot - 专业表格提取（金融年报等复杂表格）
+3. Logics-Parsing - 阿里Qwen2.5-VL模型，高质量解析（需要API密钥）
 
 自动选择最合适的后端，或根据用户需求指定。
 """
@@ -66,7 +65,7 @@ class PDFParserTool(Tool):
                 ),
                 required=False,
                 default="auto",
-                enum=["auto", "mineru", "logics", "camelot"]
+                enum=["auto", "pypdf", "logics", "camelot"]
             ),
             ToolParameter(
                 name="output_path",
@@ -85,14 +84,14 @@ class PDFParserTool(Tool):
                 "- file_path: PDF文件路径（必需）"
                 "- output_format: 输出格式，'markdown'、'json'、'excel'、'text'，默认 'markdown'"
                 "- extract_mode: 提取模式，'full'（完整）、'text'（仅文本）、'table'（仅表格）、'formula'（仅公式），默认 'full'"
-                "- backend: 指定后端，'auto'（自动）、'mineru'（本地免费）、'logics'（阿里API）、'camelot'（表格），默认 'auto'"
+                "- backend: 指定后端，'auto'（自动）、'pypdf'（基础文本）、'logics'（阿里API）、'camelot'（表格），默认 'auto'"
                 "- output_path: 输出文件路径（可选）"
                 "\n使用示例："
                 "- 解析PDF为Markdown：file_path='/path/to/file.pdf', output_format='markdown'"
                 "- 提取表格：file_path='/path/to/file.pdf', extract_mode='table', output_format='excel'"
                 "- 使用特定后端：file_path='/path/to/file.pdf', backend='mineru'"
                 "\n后端说明："
-                "- mineru: 完全本地化，免费，适合学术文献、RAG知识库"
+                "- pypdf: 基础文本提取，稳定可靠，无需网络，适合一般PDF文本提取"
                 "- logics: 阿里Qwen2.5-VL API，高质量解析，需要API密钥，有免费额度"
                 "- camelot: 专业表格提取，免费，适合金融年报等复杂表格"
             ),
@@ -113,28 +112,18 @@ class PDFParserTool(Tool):
             return self._available_backends
         
         backends = {
-            "mineru": False,
+            "pypdf": False,
             "logics": False,
             "camelot": False,
         }
         
-        # 检查 MinerU
+        # 检查 pypdf/pdfplumber（基础文本提取，稳定可靠）
         try:
-            result = subprocess.run(
-                ["mineru", "--version"],
-                capture_output=True,
-                timeout=5,
-                text=True
-            )
-            if result.returncode == 0 or "mineru" in result.stdout.lower() or "mineru" in result.stderr.lower():
-                backends["mineru"] = True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            try:
-                # 尝试作为Python模块
-                import mineru
-                backends["mineru"] = True
-            except ImportError:
-                pass
+            import pypdf
+            import pdfplumber
+            backends["pypdf"] = True
+        except ImportError:
+            pass
         
         # 检查 Logics-Parsing（需要API密钥）
         try:
@@ -161,55 +150,63 @@ class PDFParserTool(Tool):
         self._available_backends = backends
         return backends
     
-    def _parse_with_mineru(self, file_path: str, output_format: str, extract_mode: str, output_path: Optional[str]) -> Dict[str, Any]:
-        """使用 MinerU 解析PDF"""
+    def _parse_with_pypdf(self, file_path: str, output_format: str, extract_mode: str, output_path: Optional[str]) -> Dict[str, Any]:
+        """使用 pypdf/pdfplumber 解析PDF（基础文本提取）"""
         try:
+            import pypdf
+            import pdfplumber
+            
             pdf_path = Path(file_path)
             if not pdf_path.exists():
                 raise FileNotFoundError(f"PDF文件不存在: {file_path}")
             
             # 确定输出路径
             if not output_path:
-                output_path = str(pdf_path.parent / f"{pdf_path.stem}.md")
+                if output_format == "json":
+                    output_path = str(pdf_path.parent / f"{pdf_path.stem}.json")
+                elif output_format == "text":
+                    output_path = str(pdf_path.parent / f"{pdf_path.stem}.txt")
+                else:
+                    output_path = str(pdf_path.parent / f"{pdf_path.stem}.md")
             
-            # 构建命令
-            cmd = ["mineru", "convert", str(pdf_path), "--output", output_path]
+            # 使用 pdfplumber 提取文本（比 pypdf 更准确）
+            text_content = []
+            page_count = 0
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                page_count = len(pdf.pages)
+                for page_num, page in enumerate(pdf.pages, 1):
+                    text = page.extract_text()
+                    if text:
+                        if output_format == "markdown":
+                            text_content.append(f"## 第 {page_num} 页\n\n{text}\n")
+                        else:
+                            text_content.append(f"第 {page_num} 页:\n{text}\n")
             
-            # 根据提取模式添加参数
-            if extract_mode == "table":
-                cmd.append("--tables-only")
-            elif extract_mode == "formula":
-                cmd.append("--formulas-only")
+            content = "\n".join(text_content)
             
-            # 执行转换
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=300,  # 5分钟超时
-                text=True
-            )
-            
-            if result.returncode != 0:
-                raise RuntimeError(f"MinerU转换失败: {result.stderr}")
-            
-            # 读取输出文件
+            # 根据输出格式保存
             output_file = Path(output_path)
-            if output_file.exists():
-                content = output_file.read_text(encoding='utf-8')
-                return {
-                    "success": True,
-                    "output_path": str(output_path),
-                    "content": content,
-                    "content_length": len(content),
-                    "backend": "mineru"
-                }
+            if output_format == "json":
+                import json
+                output_file.write_text(
+                    json.dumps({"pages": page_count, "content": content}, ensure_ascii=False, indent=2),
+                    encoding='utf-8'
+                )
             else:
-                raise RuntimeError("MinerU未生成输出文件")
+                output_file.write_text(content, encoding='utf-8')
+            
+            return {
+                "success": True,
+                "output_path": str(output_path),
+                "content": content,
+                "content_length": len(content),
+                "backend": "pypdf"
+            }
                 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("MinerU解析超时（超过5分钟）")
+        except ImportError:
+            raise RuntimeError("pypdf/pdfplumber未安装，请运行: pip install pypdf pdfplumber")
         except Exception as e:
-            raise RuntimeError(f"MinerU解析失败: {str(e)}")
+            raise RuntimeError(f"PDF解析失败: {str(e)}")
     
     def _parse_with_logics(self, file_path: str, output_format: str, extract_mode: str, output_path: Optional[str]) -> Dict[str, Any]:
         """使用 Logics-Parsing 解析PDF"""
@@ -313,28 +310,27 @@ class PDFParserTool(Tool):
             else:
                 raise RuntimeError(f"指定的后端 '{backend}' 不可用")
         
-        # 自动选择逻辑
-        if extract_mode == "table":
-            # 表格提取优先使用 Camelot
-            if available.get("camelot"):
-                return "camelot"
+        # 自动选择逻辑：优先使用稳定可靠的后端
+        # 1. 表格提取优先使用 Camelot
+        if extract_mode == "table" and available.get("camelot"):
+            return "camelot"
         
-        # 优先使用本地免费工具
-        if available.get("mineru"):
-            return "mineru"
+        # 2. 文本提取优先使用 pypdf（稳定可靠，无需网络）
+        if available.get("pypdf"):
+            return "pypdf"
         
-        # 其次使用API工具（如果有密钥）
+        # 3. Logics-Parsing：API工具（如果有密钥）
         if available.get("logics"):
             return "logics"
         
-        # 最后尝试 Camelot
+        # 4. Camelot：也可以用于一般提取
         if available.get("camelot"):
             return "camelot"
         
         raise RuntimeError(
             "没有可用的PDF解析后端。\n"
             "请安装以下工具之一：\n"
-            "1. MinerU: pip install mineru\n"
+            "1. pypdf/pdfplumber: pip install pypdf pdfplumber（已包含在 requirements.txt）\n"
             "2. Camelot: pip install camelot-py[cv]\n"
             "3. Logics-Parsing: pip install logics-parsing（需要API密钥）"
         )
@@ -388,8 +384,8 @@ class PDFParserTool(Tool):
             selected_backend = self._select_backend(backend, extract_mode, available)
             
             # 根据后端执行解析
-            if selected_backend == "mineru":
-                result = self._parse_with_mineru(file_path, output_format, extract_mode, output_path)
+            if selected_backend == "pypdf":
+                result = self._parse_with_pypdf(file_path, output_format, extract_mode, output_path)
             elif selected_backend == "logics":
                 result = self._parse_with_logics(file_path, output_format, extract_mode, output_path)
             elif selected_backend == "camelot":

@@ -82,22 +82,26 @@ ipykernel>=6.25.0
 # 注意：browser-cookie3 需要系统级别的浏览器访问权限
 # 参考：https://github.com/borisbabic/browser_cookie3
 
-# ===== PDF 解析工具（可选功能） =====
-# 支持多种PDF解析后端，至少安装一个即可使用：
-# 1. MinerU（推荐，完全本地化，免费）：
-#    pip install mineru
+# ===== PDF 解析工具 =====
+# 支持多种PDF解析后端，用于 PDF 解析功能测试
+# 1. MinerU（推荐，完全本地化，免费，包含所有功能）
+mineru[all]>=2.7.0
 #    适合：学术文献、RAG知识库构建
-# 2. Camelot（表格提取，免费）：
-#    pip install camelot-py[cv]
+#    参考：https://github.com/opendatalab/MinerU
+
+# 2. Camelot（表格提取，免费，带 OpenCV 支持）
+camelot-py[cv]>=1.0.0
 #    适合：金融年报等复杂表格提取
-# 3. Logics-Parsing（阿里API，需密钥）：
-#    pip install logics-parsing
+#    注意：可能需要系统级安装 ghostscript（如：brew install ghostscript）
+#    参考：https://github.com/camelot-dev/camelot
+
+# 3. Logics-Parsing（阿里API，需密钥，可选）
+# logics-parsing>=0.1.0
 #    需要设置环境变量：DASHSCOPE_API_KEY 或 ALIBABA_CLOUD_API_KEY
 #    适合：高质量解析，有免费额度（30天内100万Tokens）
-# 参考：
-# - MinerU: https://github.com/opendatalab/MinerU
-# - Camelot: https://github.com/camelot-dev/camelot
-# - Logics-Parsing: https://github.com/alibaba/logics-parsing
+#    注意：如果未在 PyPI 发布，可能需要从 GitHub 安装：
+#    pip install git+https://github.com/alibaba/Logics-Parsing.git
+#    参考：https://github.com/alibaba/Logics-Parsing
 
 
 

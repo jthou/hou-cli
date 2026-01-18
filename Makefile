@@ -15,6 +15,7 @@ install: ## 安装生产依赖
 	@bash -c "source venv/bin/activate && bash scripts/install_jupyter.sh"
 	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
 	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
+	@bash -c "source venv/bin/activate && PDF_PARSERS=mineru bash scripts/install_pdf_parsers.sh"
 
 install-dev: ## 安装开发依赖
 	@echo "🔄 更新外部依赖（git submodules）..."
@@ -28,6 +29,7 @@ install-dev: ## 安装开发依赖
 	@bash -c "source venv/bin/activate && python -m ipykernel install --user --name python3 --display-name \"Python 3\" 2>&1 | grep -v \"ERROR:\" || true"
 	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
 	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
+	@bash -c "source venv/bin/activate && PDF_PARSERS=all bash scripts/install_pdf_parsers.sh"
 
 test: ## 运行测试
 	@bash -c "source venv/bin/activate && pytest"
