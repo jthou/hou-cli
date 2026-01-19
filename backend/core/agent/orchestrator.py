@@ -37,6 +37,11 @@ from backend.core.agent.skills.base import SkillResult
 from shared.debug_utils import DebugOutput
 from backend.core.agent.planning.manager import PlanningManager
 from backend.core.agent.planning.complexity import TaskComplexityAnalyzer
+from backend.core.agent.planning.task_decomposer import TaskDecomposer
+from backend.core.agent.planning.execution_planner import ExecutionPlanner
+from backend.core.agent.planning.model_switcher import ModelSwitcher
+from backend.core.agent.planning.adaptive_strategy import AdaptiveStrategy, ExecutionMetrics
+from backend.core.agent.planning.autonomous_executor import AutonomousExecutor
 from backend.core.agent.evaluator import ConversationEvaluator
 from backend.api.stream_sender import SSEFormatter, LongTaskMonitor, StreamMessageBuilder
 from backend.core.agent.task_manager import task_manager
@@ -91,6 +96,36 @@ class Orchestrator:
             # 初始化对话评估器（用于评估对话质量并记录到规划文件）
             self.evaluator = ConversationEvaluator(llm_service=self.llm_service)
             
+            # 初始化自主执行器（替代传统规划文件模式）
+            autonomous_execution_enabled = (
+                os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
+            )
+            if autonomous_execution_enabled:
+                self.autonomous_executor = AutonomousExecutor(
+                    llm_service=self.llm_service,
+                    tool_registry=self.tool_registry,
+                    planning_manager=self.planning_manager
+                )
+                logger.info("自主执行功能已启用（替代传统规划文件模式）")
+            else:
+                self.autonomous_executor = None
+                logger.info("自主执行功能已禁用（使用传统规划文件模式）")
+            
+            # 初始化任务分解器和执行计划生成器（阶段2）
+            task_decomposition_enabled = os.getenv("ENABLE_TASK_DECOMPOSITION", "false").lower() == "true"
+            if task_decomposition_enabled:
+                self.task_decomposer = TaskDecomposer(
+                    llm_service=self.llm_service,
+                    tool_registry=self.tool_registry,
+                    complexity_analyzer=self.complexity_analyzer
+                )
+                self.execution_planner = ExecutionPlanner(llm_service=self.llm_service)
+                logger.info("任务分解功能已启用")
+            else:
+                self.task_decomposer = None
+                self.execution_planner = None
+                logger.info("任务分解功能已禁用")
+            
             # 定期清理旧文件（每100次任务后清理一次）
             self._planning_cleanup_counter = 0
             self._planning_cleanup_interval = int(os.getenv("PLANNING_CLEANUP_INTERVAL", "100"))
@@ -109,6 +144,40 @@ class Orchestrator:
             else:
                 self.evaluator = None
             logger.info("规划功能已禁用")
+            
+            # 即使规划功能禁用，如果任务分解启用，仍然初始化分解器
+            task_decomposition_enabled = os.getenv("ENABLE_TASK_DECOMPOSITION", "false").lower() == "true"
+            if task_decomposition_enabled:
+                # 创建一个简单的复杂度分析器（不依赖规划功能）
+                self.complexity_analyzer = TaskComplexityAnalyzer(
+                    min_task_length=int(os.getenv("PLANNING_MIN_TASK_LENGTH", "20")),
+                    complexity_threshold=float(os.getenv("PLANNING_COMPLEXITY_THRESHOLD", "0.3")),
+                    llm_service=self.llm_service,
+                    use_llm=os.getenv("PLANNING_USE_LLM", "false").lower() == "true"
+                )
+                self.task_decomposer = TaskDecomposer(
+                    llm_service=self.llm_service,
+                    tool_registry=self.tool_registry,
+                    complexity_analyzer=self.complexity_analyzer
+                )
+                self.execution_planner = ExecutionPlanner(llm_service=self.llm_service)
+                logger.info("任务分解功能已启用（规划功能已禁用）")
+            else:
+                self.task_decomposer = None
+                self.execution_planner = None
+        
+        # 初始化动态模型切换器（阶段2，始终启用）
+        self.model_switcher = ModelSwitcher()
+        logger.info("动态模型切换功能已启用")
+        
+        # 初始化自适应策略管理器（阶段2，可选）
+        adaptive_strategy_enabled = os.getenv("ENABLE_ADAPTIVE_STRATEGY", "false").lower() == "true"
+        if adaptive_strategy_enabled:
+            self.adaptive_strategy = AdaptiveStrategy(model_switcher=self.model_switcher)
+            logger.info("自适应策略功能已启用")
+        else:
+            self.adaptive_strategy = None
+            logger.info("自适应策略功能已禁用")
         
         # 注册天气工具（如果配置了 JWT）
         self._register_tools()
@@ -840,6 +909,43 @@ class Orchestrator:
                 is_complex = False
             
             if is_complex:
+                # 检查是否使用自主执行模式
+                autonomous_execution_enabled = (
+                    os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
+                )
+                
+                if autonomous_execution_enabled and self.autonomous_executor:
+                    # 使用自主执行模式
+                    try:
+                        debug_info = {
+                            "type": "debug",
+                            "category": "autonomous_execution",
+                            "message": "检测到复杂任务，使用自主执行模式",
+                            "details": {}
+                        }
+                        yield StreamMessageBuilder.build_debug(debug_info)
+                        logger.info("使用自主执行模式处理复杂任务")
+                        
+                        # 使用自主执行器执行任务
+                        async for output in self.autonomous_executor.execute(
+                            task=task,
+                            context=context,
+                            session_id=session_id
+                        ):
+                            yield output
+                        
+                        return  # 自主执行完成，直接返回
+                    except Exception as e:
+                        logger.error(f"自主执行失败: {str(e)}", exc_info=True)
+                        debug_info = {
+                            "type": "debug",
+                            "category": "autonomous_execution",
+                            "message": "自主执行失败，降级到传统模式",
+                            "details": {"error": str(e)}
+                        }
+                        yield StreamMessageBuilder.build_debug(debug_info)
+                
+                # 传统规划文件模式
                 try:
                     # 创建规划文件
                     planning_files = self.planning_manager.create_planning_files(task, session_id)
@@ -989,6 +1095,78 @@ class Orchestrator:
         else:
             user_prompt = task
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+        
+        # 4.5. 任务分解（阶段2：如果启用）
+        execution_plan = None
+        if self.task_decomposer and self.execution_planner:
+            task_decomposition_enabled = os.getenv("ENABLE_TASK_DECOMPOSITION", "false").lower() == "true"
+            if task_decomposition_enabled:
+                try:
+                    debug_info = {
+                        "type": "debug",
+                        "category": "task_decomposition",
+                        "message": "开始任务分解",
+                        "details": {}
+                    }
+                    yield StreamMessageBuilder.build_debug(debug_info)
+                    
+                    # 分解任务
+                    subtasks = await self.task_decomposer.decompose_task(task, context)
+                    logger.info(f"任务分解完成，共 {len(subtasks)} 个子任务")
+                    
+                    if len(subtasks) > 1:
+                        # 验证子任务
+                        is_valid, error_msg = self.task_decomposer.validate_subtasks(subtasks)
+                        if not is_valid:
+                            logger.warning(f"子任务验证失败: {error_msg}，继续使用原始任务")
+                            subtasks = [subtasks[0]]  # 降级到第一个子任务
+                        
+                        # 创建执行计划
+                        execution_plan = self.execution_planner.plan_execution(
+                            subtasks=subtasks,
+                            task_description=task
+                        )
+                        
+                        debug_info = {
+                            "type": "debug",
+                            "category": "task_decomposition",
+                            "message": "任务分解完成",
+                            "details": {
+                                "subtask_count": len(subtasks),
+                                "parallel_groups": len(execution_plan.parallel_groups),
+                                "estimated_time": execution_plan.estimated_total_time
+                            }
+                        }
+                        yield StreamMessageBuilder.build_debug(debug_info)
+                        
+                        # 更新 system_prompt 以包含执行计划信息
+                        plan_summary = "\n".join([
+                            f"{i+1}. {st.name}: {st.description}" 
+                            for i, st in enumerate(subtasks[:5])  # 只显示前5个
+                        ])
+                        if len(subtasks) > 5:
+                            plan_summary += f"\n... 还有 {len(subtasks) - 5} 个子任务"
+                        
+                        planning_context += f"""
+
+【任务分解结果】
+任务已分解为 {len(subtasks)} 个子任务：
+{plan_summary}
+
+请按照执行计划逐步完成每个子任务。
+"""
+                        logger.info(f"执行计划创建完成: {len(execution_plan.parallel_groups)} 个并行组")
+                    else:
+                        logger.debug("任务不需要分解或只有一个子任务")
+                except Exception as e:
+                    logger.error(f"任务分解失败: {e}", exc_info=True)
+                    debug_info = {
+                        "type": "debug",
+                        "category": "task_decomposition",
+                        "message": "任务分解失败，使用原始任务",
+                        "details": {"error": str(e)}
+                    }
+                    yield StreamMessageBuilder.build_debug(debug_info)
         
         # 5. 优先尝试匹配技能（集成任务管理和规划更新）
         # #region agent log
@@ -1913,6 +2091,15 @@ class Orchestrator:
             max_iterations = 100  # 最多 100 轮工具调用循环
             iteration = 0
             
+            # ===== 自适应策略：收集执行指标（阶段2） =====
+            import time
+            execution_start_time = time.time()
+            tool_call_count = 0
+            tool_success_count = 0
+            tool_failure_count = 0
+            model_switch_count = 0
+            task_complexity = None
+            
             while iteration < max_iterations:
                 iteration += 1
                 debug_info = {
@@ -1948,6 +2135,102 @@ class Orchestrator:
                     }
                     yield StreamMessageBuilder.build_debug(debug_info)
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
+                    
+                    # ===== 根据工具类型选择模型（新增） =====
+                    # 检测工具调用时，根据工具元数据选择最合适的模型
+                    from backend.core.agent.tools.metadata import tool_metadata_registry
+                    from backend.services.llm.model_config import get_model_config_manager
+                    
+                    # 收集所有工具推荐的模型类型
+                    recommended_models = set()
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call.function.name
+                        metadata = tool_metadata_registry.get_metadata(tool_name)
+                        if metadata and metadata.recommended_model:
+                            recommended_models.add(metadata.recommended_model)
+                    
+                    # 如果所有工具都推荐同一个模型类型，切换到该模型
+                    if len(recommended_models) == 1:
+                        recommended_model_type = list(recommended_models)[0]
+                        config_manager = get_model_config_manager()
+                        current_model = self.llm_service.model
+                        
+                        # 根据推荐模型类型切换
+                        if recommended_model_type == "code":
+                            target_model = config_manager.get_code_model()
+                        elif recommended_model_type == "reasoning":
+                            target_model = config_manager.get_reasoning_model()
+                        elif recommended_model_type == "chat":
+                            target_model = config_manager.get_chat_model()
+                        else:
+                            target_model = None
+                        
+                        # 如果目标模型与当前模型不同，进行切换
+                        if target_model and target_model != current_model:
+                            logger.info(f"工具调用检测：切换到 {recommended_model_type} 模型 ({target_model})")
+                            self.llm_service.set_model(target_model)
+                            debug_info = {
+                                "type": "debug",
+                                "category": "orchestrator",
+                                "message": "模型切换",
+                                "details": {
+                                    "reason": "工具类型推荐",
+                                    "from": current_model,
+                                    "to": target_model,
+                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                }
+                            }
+                            yield StreamMessageBuilder.build_debug(debug_info)
+                            self.debug.log_orchestrator_step(
+                                "模型切换",
+                                {
+                                    "reason": "工具类型推荐",
+                                    "from": current_model,
+                                    "to": target_model,
+                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                }
+                            )
+                    elif len(recommended_models) > 1:
+                        # 多个工具推荐不同模型，选择优先级最高的（reasoning > code > chat）
+                        config_manager = get_model_config_manager()
+                        current_model = self.llm_service.model
+                        
+                        if "reasoning" in recommended_models:
+                            target_model = config_manager.get_reasoning_model()
+                            recommended_model_type = "reasoning"
+                        elif "code" in recommended_models:
+                            target_model = config_manager.get_code_model()
+                            recommended_model_type = "code"
+                        else:
+                            target_model = config_manager.get_chat_model()
+                            recommended_model_type = "chat"
+                        
+                        if target_model != current_model:
+                            logger.info(f"工具调用检测：多个工具推荐不同模型，选择 {recommended_model_type} 模型 ({target_model})")
+                            self.llm_service.set_model(target_model)
+                            debug_info = {
+                                "type": "debug",
+                                "category": "orchestrator",
+                                "message": "模型切换",
+                                "details": {
+                                    "reason": "多工具推荐（选择优先级最高）",
+                                    "from": current_model,
+                                    "to": target_model,
+                                    "recommended_models": list(recommended_models),
+                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                }
+                            }
+                            yield StreamMessageBuilder.build_debug(debug_info)
+                            self.debug.log_orchestrator_step(
+                                "模型切换",
+                                {
+                                    "reason": "多工具推荐（选择优先级最高）",
+                                    "from": current_model,
+                                    "to": target_model,
+                                    "recommended_models": list(recommended_models),
+                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                }
+                            )
                     
                     # 执行所有工具调用
                     tool_results = []
@@ -2088,6 +2371,79 @@ class Orchestrator:
                             "error": tool_result.error if not tool_result.success else None
                         }
                         yield StreamMessageBuilder.build_tool(tool_info)
+                        
+                        # ===== 自适应策略：收集工具执行指标（阶段2） =====
+                        tool_call_count += 1
+                        if tool_result.success:
+                            tool_success_count += 1
+                        else:
+                            tool_failure_count += 1
+                        
+                        # ===== 动态模型切换：根据执行结果分析是否需要切换模型（阶段2） =====
+                        if self.model_switcher and hasattr(self, 'complexity_analyzer') and self.complexity_analyzer:
+                            try:
+                                # 分析执行结果
+                                task_complexity = None
+                                if hasattr(self.complexity_analyzer, 'analyze_task'):
+                                    # 尝试获取任务复杂度（如果可用）
+                                    pass  # 暂时跳过，因为需要任务描述
+                                
+                                # 分析是否需要切换模型
+                                tool_result_dict = {
+                                    "success": tool_result.success,
+                                    "data": tool_result.data if tool_result.success else None,
+                                    "error": tool_result.error if not tool_result.success else None
+                                }
+                                
+                                current_model = self.llm_service.model
+                                target_model = self.model_switcher.analyze_execution_result(
+                                    tool_name=tool_name,
+                                    tool_result=tool_result_dict,
+                                    current_model=current_model,
+                                    task_complexity=task_complexity
+                                )
+                                
+                                # 检查是否应该切换（限制切换次数）
+                                switch_count = len([r for r in self.model_switcher.switch_history 
+                                                   if r.to_model != current_model])
+                                if self.model_switcher.should_switch_model(
+                                    current_model=current_model,
+                                    target_model=target_model,
+                                    switch_count=switch_count,
+                                    max_switches=3
+                                ):
+                                    logger.info(f"根据执行结果切换模型: {current_model} -> {target_model}")
+                                    self.llm_service.set_model(target_model)
+                                    model_switch_count += 1
+                                    
+                                    # 记录切换
+                                    self.model_switcher.record_switch(
+                                        from_model=current_model,
+                                        to_model=target_model,
+                                        reason=f"工具 {tool_name} 执行结果分析",
+                                        context={
+                                            "tool_name": tool_name,
+                                            "tool_success": tool_result.success,
+                                            "task_complexity": task_complexity.value if task_complexity else None
+                                        }
+                                    )
+                                    
+                                    # 发送调试信息
+                                    debug_info = {
+                                        "type": "debug",
+                                        "category": "model_switcher",
+                                        "message": "模型切换",
+                                        "details": {
+                                            "reason": "执行结果分析",
+                                            "from": current_model,
+                                            "to": target_model,
+                                            "tool_name": tool_name,
+                                            "tool_success": tool_result.success
+                                        }
+                                    }
+                                    yield StreamMessageBuilder.build_debug(debug_info)
+                            except Exception as e:
+                                logger.warning(f"动态模型切换分析失败: {e}", exc_info=True)
                         
                         # 记录详细的执行结果
                         if not tool_result.success:
@@ -2260,6 +2616,35 @@ class Orchestrator:
                 
                 # 如果没有工具调用，返回内容
                 if hasattr(response, 'content') and response.content:
+                    # ===== 自适应策略：记录执行指标并分析（阶段2） =====
+                    if self.adaptive_strategy and tool_call_count > 0:
+                        execution_time = time.time() - execution_start_time
+                        metrics = ExecutionMetrics(
+                            tool_call_count=tool_call_count,
+                            tool_success_count=tool_success_count,
+                            tool_failure_count=tool_failure_count,
+                            model_switch_count=model_switch_count,
+                            execution_time=execution_time,
+                            average_tool_time=execution_time / tool_call_count if tool_call_count > 0 else 0.0,
+                            complexity=task_complexity
+                        )
+                        
+                        # 记录执行指标
+                        self.adaptive_strategy.record_execution(metrics, user_prompt)
+                        
+                        # 分析并调整策略
+                        adjustments = self.adaptive_strategy.analyze_and_adjust(metrics)
+                        if adjustments:
+                            for adjustment in adjustments:
+                                debug_info = {
+                                    "type": "debug",
+                                    "category": "adaptive_strategy",
+                                    "message": "策略调整建议",
+                                    "details": adjustment.to_dict()
+                                }
+                                yield StreamMessageBuilder.build_debug(debug_info)
+                                logger.info(f"策略调整建议: {adjustment.reason}")
+                    
                     yield response.content
                     return
                 
@@ -2268,6 +2653,24 @@ class Orchestrator:
                 return
             
             # 达到最大迭代次数，返回错误信息
+            # ===== 自适应策略：记录执行指标（阶段2） =====
+            if self.adaptive_strategy and tool_call_count > 0:
+                execution_time = time.time() - execution_start_time
+                metrics = ExecutionMetrics(
+                    tool_call_count=tool_call_count,
+                    tool_success_count=tool_success_count,
+                    tool_failure_count=tool_failure_count,
+                    model_switch_count=model_switch_count,
+                    execution_time=execution_time,
+                    average_tool_time=execution_time / tool_call_count if tool_call_count > 0 else 0.0,
+                    complexity=task_complexity
+                )
+                self.adaptive_strategy.record_execution(metrics, user_prompt)
+                adjustments = self.adaptive_strategy.analyze_and_adjust(metrics)
+                if adjustments:
+                    for adjustment in adjustments:
+                        logger.info(f"策略调整建议: {adjustment.reason}")
+            
             debug_info = {
                 "type": "debug",
                 "category": "orchestrator",
@@ -2359,6 +2762,77 @@ class Orchestrator:
                 # 检查是否有工具调用
                 if hasattr(response, 'tool_calls') and response.tool_calls:
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
+                    
+                    # ===== 根据工具类型选择模型（新增） =====
+                    # 检测工具调用时，根据工具元数据选择最合适的模型
+                    from backend.core.agent.tools.metadata import tool_metadata_registry
+                    from backend.services.llm.model_config import get_model_config_manager
+                    
+                    # 收集所有工具推荐的模型类型
+                    recommended_models = set()
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call.function.name
+                        metadata = tool_metadata_registry.get_metadata(tool_name)
+                        if metadata and metadata.recommended_model:
+                            recommended_models.add(metadata.recommended_model)
+                    
+                    # 如果所有工具都推荐同一个模型类型，切换到该模型
+                    if len(recommended_models) == 1:
+                        recommended_model_type = list(recommended_models)[0]
+                        config_manager = get_model_config_manager()
+                        current_model = self.llm_service.model
+                        
+                        # 根据推荐模型类型切换
+                        if recommended_model_type == "code":
+                            target_model = config_manager.get_code_model()
+                        elif recommended_model_type == "reasoning":
+                            target_model = config_manager.get_reasoning_model()
+                        elif recommended_model_type == "chat":
+                            target_model = config_manager.get_chat_model()
+                        else:
+                            target_model = None
+                        
+                        # 如果目标模型与当前模型不同，进行切换
+                        if target_model and target_model != current_model:
+                            logger.info(f"工具调用检测：切换到 {recommended_model_type} 模型 ({target_model})")
+                            self.llm_service.set_model(target_model)
+                            self.debug.log_orchestrator_step(
+                                "模型切换",
+                                {
+                                    "reason": "工具类型推荐",
+                                    "from": current_model,
+                                    "to": target_model,
+                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                }
+                            )
+                    elif len(recommended_models) > 1:
+                        # 多个工具推荐不同模型，选择优先级最高的（reasoning > code > chat）
+                        config_manager = get_model_config_manager()
+                        current_model = self.llm_service.model
+                        
+                        if "reasoning" in recommended_models:
+                            target_model = config_manager.get_reasoning_model()
+                            recommended_model_type = "reasoning"
+                        elif "code" in recommended_models:
+                            target_model = config_manager.get_code_model()
+                            recommended_model_type = "code"
+                        else:
+                            target_model = config_manager.get_chat_model()
+                            recommended_model_type = "chat"
+                        
+                        if target_model != current_model:
+                            logger.info(f"工具调用检测：多个工具推荐不同模型，选择 {recommended_model_type} 模型 ({target_model})")
+                            self.llm_service.set_model(target_model)
+                            self.debug.log_orchestrator_step(
+                                "模型切换",
+                                {
+                                    "reason": "多工具推荐（选择优先级最高）",
+                                    "from": current_model,
+                                    "to": target_model,
+                                    "recommended_models": list(recommended_models),
+                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                }
+                            )
                     
                     # 执行所有工具调用
                     tool_results = []
@@ -2550,7 +3024,14 @@ class Orchestrator:
         Returns:
             选定的模型名称（从配置的 CHAT_MODEL、CODE_MODEL、REASONING_MODEL 中选择）
         """
+        import os
         from backend.services.llm.model_config import get_model_config_manager
+        from backend.core.agent.models import TaskComplexity
+        
+        # 如果禁用了智能模型选择，直接返回默认模型
+        if os.getenv("DISABLE_SMART_MODEL_SELECTION", "false").lower() == "true":
+            config_manager = get_model_config_manager()
+            return config_manager.get_chat_model()
         
         config_manager = get_model_config_manager()
         
@@ -2559,7 +3040,140 @@ class Orchestrator:
         code_model = config_manager.get_code_model()
         reasoning_model = config_manager.get_reasoning_model()
         
-        # 使用推理模型分析任务类型
+        # ===== 1. 任务复杂度评估（新增） =====
+        # 使用复杂度分析器评估任务复杂度
+        if self.complexity_analyzer:
+            try:
+                complexity_analysis = self.complexity_analyzer.analyze_task(task)
+                complexity_score = complexity_analysis.get("score", 0.0)
+                
+                # 根据复杂度分数映射到 TaskComplexity 枚举
+                if complexity_score >= 0.5:
+                    # 复杂任务（score >= 0.5）→ 优先使用推理模型
+                    logger.debug(f"任务复杂度: COMPLEX (score={complexity_score:.2f}), 选择推理模型")
+                    return reasoning_model
+                elif complexity_score < 0.2:
+                    # 简单任务（score < 0.2）→ 继续使用快速规则判断
+                    logger.debug(f"任务复杂度: SIMPLE (score={complexity_score:.2f}), 使用快速规则判断")
+                    # 继续执行下面的快速规则判断
+                else:
+                    # 中等复杂度任务（0.2 <= score < 0.5）→ 结合快速规则和复杂度判断
+                    logger.debug(f"任务复杂度: MEDIUM (score={complexity_score:.2f}), 结合快速规则判断")
+                    # 继续执行下面的快速规则判断
+            except Exception as e:
+                logger.warning(f"复杂度评估失败: {e}，继续使用快速规则判断")
+                # 评估失败时降级到快速规则判断
+        
+        # ===== 2. 快速规则判断（避免 LLM 调用） =====
+        task_lower = task.lower()
+        
+        # 代码相关关键词（具体操作类）- 扩展列表
+        code_keywords = [
+            # 执行操作
+            "执行", "execute", "运行", "run", "启动", "start",
+            # 命令操作
+            "ls", "cat", "cd", "mkdir", "rm", "mv", "cp", "grep", "find", "ps", "kill",
+            # 编程操作
+            "编写", "write", "创建", "create", "生成代码", "generate code",
+            # 函数和脚本
+            "函数", "function", "方法", "method", "脚本", "script", "程序", "program",
+            # 代码相关
+            "代码", "code", "编程", "programming", "开发", "develop",
+            # 调试和测试
+            "调试", "debug", "测试", "test", "单元测试", "unit test",
+            # 编译和构建
+            "编译", "compile", "构建", "build", "打包", "package"
+        ]
+        
+        # 代码生成相关关键词（需要区分）- 扩展列表
+        code_generation_keywords = [
+            "代码", "code", "编程", "program", "程序", "programming",
+            "实现", "implement", "开发", "develop", "创建", "create"
+        ]
+        
+        # 推理相关关键词（优先级更高）- 扩展列表
+        reasoning_keywords = [
+            # 分析类
+            "分析", "analyze", "分析", "analysis", "解析", "parse", "理解", "understand",
+            # 推理类
+            "推理", "reasoning", "思考", "think", "思考", "thinking", "推断", "infer",
+            # 策略类
+            "策略", "strategy", "计划", "plan", "规划", "planning", "设计", "design",
+            # 解决类
+            "解决", "solve", "处理", "handle", "应对", "deal with",
+            # 问题类
+            "为什么", "why", "如何", "how", "什么", "what", "哪里", "where",
+            # 报告类
+            "报告", "report", "总结", "summary", "概述", "overview", "评估", "evaluate",
+            # 研究类
+            "研究", "research", "调研", "investigate", "调查", "investigation", "探索", "explore",
+            # 多步骤类
+            "然后", "then", "接着", "next", "最后", "finally", "首先", "first", "其次", "second",
+            "多步骤", "multi-step", "步骤", "step", "流程", "process",
+            # 比较类
+            "比较", "compare", "对比", "contrast", "评估", "evaluate", "判断", "judge",
+            # 优化类
+            "优化", "optimize", "改进", "improve", "提升", "enhance", "重构", "refactor"
+        ]
+        
+        # 优先判断：如果任务包含推理关键词，使用推理模型
+        # 注意：推理关键词检查要在代码关键词之前，避免"分析代码结构"被误判
+        reasoning_keyword_count = sum(1 for keyword in reasoning_keywords if keyword in task_lower)
+        if reasoning_keyword_count > 0:
+            # 但如果同时包含代码生成关键词，需要更智能的判断
+            # 例如："写代码" vs "分析代码结构"
+            code_gen_count = sum(1 for keyword in code_generation_keywords if keyword in task_lower)
+            
+            # 如果推理关键词明显多于代码生成关键词，使用推理模型
+            # 或者包含明确的推理动作词（如"分析"、"研究"、"报告"）
+            strong_reasoning_keywords = ["分析", "analyze", "研究", "research", "报告", "report", 
+                                        "评估", "evaluate", "比较", "compare", "优化", "optimize",
+                                        "总结", "summary", "概述", "overview", "判断", "judge"]
+            has_strong_reasoning = any(kw in task_lower for kw in strong_reasoning_keywords)
+            
+            if has_strong_reasoning or reasoning_keyword_count > code_gen_count:
+                logger.debug(f"推理关键词匹配: count={reasoning_keyword_count}, 选择推理模型")
+                return reasoning_model
+        
+        # 检查复杂模式（如"生成.*文章"、"生成.*报告"）- 扩展模式
+        import re
+        reasoning_patterns = [
+            r"生成.*文章",
+            r"生成.*报告",
+            r"生成.*分析",
+            r"撰写.*报告",
+            r"编写.*报告",
+            r"创建.*报告",
+            r"制作.*报告",
+            r"输出.*报告",
+            r"生成.*总结",
+            r"生成.*评估",
+            r"生成.*对比",
+            r"生成.*比较"
+        ]
+        if any(re.search(pattern, task_lower) for pattern in reasoning_patterns):
+            logger.debug("推理模式匹配，选择推理模型")
+            return reasoning_model
+        
+        # 判断：如果任务包含代码操作关键词，使用代码模型
+        code_keyword_count = sum(1 for keyword in code_keywords if keyword in task_lower)
+        if code_keyword_count > 0:
+            # 如果同时包含推理关键词，需要判断优先级
+            if reasoning_keyword_count == 0 or code_keyword_count > reasoning_keyword_count * 2:
+                logger.debug(f"代码关键词匹配: count={code_keyword_count}, 选择代码模型")
+                return code_model
+        
+        # 判断：如果任务包含代码生成关键词，使用代码模型
+        code_gen_count = sum(1 for keyword in code_generation_keywords if keyword in task_lower)
+        if code_gen_count > 0 and reasoning_keyword_count == 0:
+            logger.debug(f"代码生成关键词匹配: count={code_gen_count}, 选择代码模型")
+            return code_model
+        
+        # 如果任务很短（少于20字符），默认使用对话模型，避免 LLM 调用
+        if len(task.strip()) < 20:
+            return chat_model
+        
+        # 对于复杂任务，使用 LLM 分析（但设置超时）
         model_selection_prompt = f"""分析以下任务，决定应该使用哪个模型：
 
 任务：{task}
@@ -2578,15 +3192,31 @@ class Orchestrator:
 请只返回模型名称（{chat_model}、{reasoning_model} 或 {code_model}），不要返回其他内容。"""
 
         try:
-            # 临时切换到推理模型进行分析
+            # 临时切换到推理模型进行分析（设置较短的超时）
             original_model = self.llm_service.model
+            original_timeout = None
+            
+            # 临时设置较短的超时（10秒）
+            if hasattr(self.llm_service, '_init_client'):
+                # 保存原始超时设置
+                pass
+            
             self.llm_service.set_model(reasoning_model)
             
-            # 使用推理模型分析
-            analysis = await self.llm_service.chat(
-                system_prompt="你是一个模型选择助手，根据任务类型选择最合适的模型。",
-                user_prompt=model_selection_prompt
-            )
+            # 使用推理模型分析（添加超时保护）
+            import asyncio
+            try:
+                analysis = await asyncio.wait_for(
+                    self.llm_service.chat(
+                        system_prompt="你是一个模型选择助手，根据任务类型选择最合适的模型。",
+                        user_prompt=model_selection_prompt
+                    ),
+                    timeout=10.0  # 10秒超时
+                )
+            except asyncio.TimeoutError:
+                logger.warning("模型选择 LLM 调用超时，使用默认对话模型")
+                self.llm_service.set_model(original_model)
+                return chat_model
             
             # 恢复原模型
             self.llm_service.set_model(original_model)
