@@ -28,6 +28,7 @@ class StreamRenderer:
     def __init__(self, renderer_factory=None):
         # renderer_factory 参数保留以兼容现有代码，但不再使用
         self.interactive_executor = None  # 延迟初始化，需要 console
+        self.current_status_line = None  # 当前状态行内容（用于同一行更新）
 
     def _clean_unicode(self, text: str) -> str:
         """
@@ -560,8 +561,14 @@ class StreamRenderer:
             box=rich.box.ROUNDED
         ))
     
-    def _render_status_info(self, status_data: dict, console: Console):
-        """渲染状态更新信息（用于长任务）"""
+    def _render_status_info(self, status_data: dict, console: Console, inline: bool = True):
+        """渲染状态更新信息（用于长任务）
+        
+        Args:
+            status_data: 状态数据字典
+            console: Rich Console 实例
+            inline: 是否在同一行显示（默认 True）
+        """
         task = status_data.get("task", "未知任务")
         progress = status_data.get("progress", 0)
         message = status_data.get("message", "处理中...")
@@ -579,34 +586,57 @@ class StreamRenderer:
                 minutes = int((seconds % 3600) // 60)
                 return f"{hours}小时{minutes}分"
         
-        # 构建内容
-        content_parts: List = []
-        content_parts.append(Text(f"📊 任务: {task}", style="bold"))
-        content_parts.append("")
-        
-        # 进度条
-        progress_bar = "█" * int(progress // 2) + "░" * (50 - int(progress // 2))
-        content_parts.append(Text(f"进度: [{progress_bar}] {progress}%", style="cyan"))
-        content_parts.append("")
-        
-        # 状态消息
-        content_parts.append(Text(f"状态: {message}", style="dim"))
-        content_parts.append("")
-        
-        # 时间信息
-        time_info = f"已用时间: {format_time(elapsed_time)}"
-        if estimated_remaining is not None:
-            time_info += f" | 预计剩余: {format_time(estimated_remaining)}"
-        content_parts.append(Text(time_info, style="dim"))
-        
-        # 渲染面板
-        console.print(Panel(
-            Group(*content_parts),
-            border_style="blue",
-            title="[blue]📊 任务状态[/blue]",
-            padding=(1, 1),
-            box=rich.box.ROUNDED
-        ))
+        if inline:
+            # 同一行显示（使用 \r 回车符）
+            # 构建状态行文本
+            status_parts = []
+            status_parts.append(f"[cyan]📊 {task}[/cyan]")
+            
+            if progress > 0:
+                # 简化的进度条（更短）
+                bar_length = 20
+                filled = int(progress * bar_length / 100)
+                progress_bar = "█" * filled + "░" * (bar_length - filled)
+                status_parts.append(f"[cyan][{progress_bar}] {progress}%[/cyan]")
+            
+            status_parts.append(f"[dim]{message}[/dim]")
+            status_parts.append(f"[dim]⏱️ {format_time(elapsed_time)}[/dim]")
+            
+            if estimated_remaining is not None:
+                status_parts.append(f"[dim]⏳ {format_time(estimated_remaining)}[/dim]")
+            
+            status_line = " | ".join(status_parts)
+            # 使用 \r 在同一行更新，并清除到行尾
+            console.print(f"\r{status_line}", end="", overflow="ignore")
+        else:
+            # 多行显示（原有方式，用于详细状态）
+            content_parts: List = []
+            content_parts.append(Text(f"📊 任务: {task}", style="bold"))
+            content_parts.append("")
+            
+            # 进度条
+            progress_bar = "█" * int(progress // 2) + "░" * (50 - int(progress // 2))
+            content_parts.append(Text(f"进度: [{progress_bar}] {progress}%", style="cyan"))
+            content_parts.append("")
+            
+            # 状态消息
+            content_parts.append(Text(f"状态: {message}", style="dim"))
+            content_parts.append("")
+            
+            # 时间信息
+            time_info = f"已用时间: {format_time(elapsed_time)}"
+            if estimated_remaining is not None:
+                time_info += f" | 预计剩余: {format_time(estimated_remaining)}"
+            content_parts.append(Text(time_info, style="dim"))
+            
+            # 渲染面板
+            console.print(Panel(
+                Group(*content_parts),
+                border_style="blue",
+                title="[blue]📊 任务状态[/blue]",
+                padding=(1, 1),
+                box=rich.box.ROUNDED
+            ))
     
     async def render_stream(
         self,
@@ -636,6 +666,9 @@ class StreamRenderer:
             self.interactive_executor = InteractiveExecutor(console)
         
         # 使用 Live 组件实时更新，流式显示文本
+        # 状态行内容（用于在同一行更新）- 必须在with语句外初始化
+        status_display = None
+        
         try:
             # #region agent log
             try:
@@ -683,15 +716,55 @@ class StreamRenderer:
                             elif msg_type == "evaluation":
                                 self._render_evaluation_info(msg_data, console)
                             elif msg_type == "status":
-                                self._render_status_info(msg_data, console)
+                                # 状态更新：在同一行显示（不换行）
+                                # 简化显示：直接显示后端发送的消息
+                                message = msg_data.get("message", "处理中...")
+                                task = msg_data.get("task", "")
+                                elapsed_time = msg_data.get("elapsed_time", 0)
+                                
+                                # 格式化时间
+                                def format_time(seconds):
+                                    if seconds < 60:
+                                        return f"{int(seconds)}秒"
+                                    elif seconds < 3600:
+                                        return f"{int(seconds // 60)}分{int(seconds % 60)}秒"
+                                    else:
+                                        hours = int(seconds // 3600)
+                                        minutes = int((seconds % 3600) // 60)
+                                        return f"{hours}小时{minutes}分"
+                                
+                                # 构建简单的状态行
+                                status_parts = []
+                                if task:
+                                    status_parts.append(f"[cyan]{task}[/cyan]")
+                                status_parts.append(f"[dim]{message}[/dim]")
+                                if elapsed_time > 0:
+                                    status_parts.append(f"[dim]⏱️ {format_time(elapsed_time)}[/dim]")
+                                
+                                status_display = " | ".join(status_parts) if status_parts else message
+                                # 更新 Live 组件：将状态行和内容合并显示
+                                display_content = full_content
+                                if status_display:
+                                    display_content = f"{full_content}\n{status_display}"
+                                live.update(display_content)
+                                # 更新当前状态行内容
+                                self.current_status_line = msg_data
                             elif msg_type == "content":
                                 # 普通内容
+                                # 如果有状态行，先将其添加到内容中（结束状态行）
+                                if status_display:
+                                    full_content += "\n"  # 换行，结束状态行
+                                    status_display = None
+                                    self.current_status_line = None
                                 full_content += msg_data + "\n"
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
                         if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:")):
-                            live.update(full_content + buffer)
+                            display_content = full_content + buffer
+                            if status_display:
+                                display_content = f"{display_content}\n{status_display}"
+                            live.update(display_content)
                     except KeyboardInterrupt:
                         # 用户按 Ctrl+C，终止流式处理
                         raise  # 重新抛出，让外层处理

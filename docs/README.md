@@ -122,13 +122,16 @@
 
 ### 归档文档
 `archived/` 目录包含历史文档和已完成任务的文档：
+- `archived/phases/` - 阶段实施相关的历史文档
 - `archived/tests/` - 测试相关的历史文档
+- `archived/fixes/` - 问题修复相关的历史文档
+- `archived/optimization/` - 优化相关的历史文档
 - `archived/packaging/` - 打包相关的历史文档
 - `archived/tools/` - 工具相关的历史文档
 - `archived/browser/` - 浏览器相关的历史文档
 - `archived/design/` - 设计相关的历史文档
 
-详见 [归档文档 README](archived/README.md)
+详见 [归档文档索引](archived/ARCHIVE_INDEX.md)
 
 ### 子目录文档
 - `design/` - 详细的设计文档
@@ -149,7 +152,7 @@
 3. **更新索引** - 当文档结构变化时，更新本文档
 
 ### 文档整理计划
-详见 [文档整理计划](DOCUMENTATION_ORGANIZATION_PLAN.md) 和 [文档整理总结](DOCUMENTATION_ORGANIZATION_SUMMARY.md)
+文档整理相关的计划文档已归档到 `archived/` 目录，可通过 Git 历史查看。
 
 ---
 

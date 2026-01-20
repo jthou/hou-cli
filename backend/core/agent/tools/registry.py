@@ -1,6 +1,7 @@
 """Tool 注册器"""
 from typing import Dict, Optional, List
 from backend.core.agent.tools.base import Tool, ToolResult
+from backend.core.agent.tools.metadata import tool_metadata_registry
 
 
 class ToolRegistry:
@@ -27,6 +28,23 @@ class ToolRegistry:
         if tool.name in self._tools:
             raise ValueError(f"Tool '{tool.name}' is already registered")
         self._tools[tool.name] = tool
+        
+        # 如果工具有元数据属性，同步到元数据注册表
+        # 优先使用工具实例的元数据，如果没有则使用默认元数据
+        metadata = tool_metadata_registry.get_metadata(tool.name)
+        if metadata:
+            # 如果工具实例有元数据，更新元数据注册表
+            # 注意：只更新工具实例明确提供的属性，不要覆盖默认元数据
+            if hasattr(tool, 'metadata') and tool.metadata:
+                # 如果工具实例有 metadata 属性，使用它
+                if hasattr(tool.metadata, 'requires_reasoning'):
+                    metadata.requires_reasoning = tool.metadata.requires_reasoning
+                if hasattr(tool.metadata, 'requires_code'):
+                    metadata.requires_code = tool.metadata.requires_code
+                if hasattr(tool.metadata, 'recommended_model'):
+                    metadata.recommended_model = tool.metadata.recommended_model
+                if hasattr(tool.metadata, 'can_parallel'):
+                    metadata.can_parallel = tool.metadata.can_parallel
     
     def get_tool(self, name: str) -> Optional[Tool]:
         """

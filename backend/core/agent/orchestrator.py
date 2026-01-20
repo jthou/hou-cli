@@ -213,22 +213,6 @@ class Orchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
-        # 注册 Jupyter 工具（交互式代码执行）
-        try:
-            from backend.core.agent.tools.builtin.jupyter_tool import JupyterTool
-            jupyter_tool = JupyterTool()
-            self.tool_registry.register(jupyter_tool)
-            self.debug.log_orchestrator_step("注册工具", {"jupyter_tool": "registered"})
-            logger.info("Jupyter tool registered successfully")
-        except ImportError as e:
-            error_msg = f"Jupyter-client not installed: {str(e)}. Jupyter tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        except Exception as e:
-            error_msg = f"Failed to register Jupyter tool: {str(e)}. Jupyter tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
         # 注册文件搜索工具（本地操作）
         try:
             from backend.core.agent.tools.builtin.file_search_tool import FileSearchTool
@@ -517,7 +501,9 @@ class Orchestrator:
         self.debug.log_orchestrator_step("开始处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
         
         # 优先检查是否有匹配的技能
-        matched_skill = self.skill_registry.match(task)
+        matched_skill = None
+        if self.skill_registry is not None:
+            matched_skill = self.skill_registry.match(task)
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
@@ -1168,7 +1154,44 @@ class Orchestrator:
                     }
                     yield StreamMessageBuilder.build_debug(debug_info)
         
-        # 5. 优先尝试匹配技能（集成任务管理和规划更新）
+        # 5. 检查是否启用自主执行（优先于技能匹配）
+        autonomous_execution_enabled = (
+            os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
+        )
+        
+        if autonomous_execution_enabled and self.autonomous_executor:
+            # 如果启用了自主执行，优先使用自主执行（不依赖复杂度判断）
+            try:
+                debug_info = {
+                    "type": "debug",
+                    "category": "autonomous_execution",
+                    "message": "启用自主执行模式，跳过技能匹配",
+                    "details": {}
+                }
+                yield StreamMessageBuilder.build_debug(debug_info)
+                logger.info("启用自主执行模式，跳过技能匹配")
+                
+                # 使用自主执行器执行任务
+                async for output in self.autonomous_executor.execute(
+                    task=task,
+                    context=context,
+                    session_id=session_id
+                ):
+                    yield output
+                
+                return  # 自主执行完成，直接返回
+            except Exception as e:
+                logger.error(f"自主执行失败: {str(e)}", exc_info=True)
+                debug_info = {
+                    "type": "debug",
+                    "category": "autonomous_execution",
+                    "message": "自主执行失败，降级到技能匹配",
+                    "details": {"error": str(e)}
+                }
+                yield StreamMessageBuilder.build_debug(debug_info)
+                # 继续执行，尝试技能匹配
+        
+        # 6. 优先尝试匹配技能（集成任务管理和规划更新）
         # #region agent log
         try:
             with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
@@ -1176,7 +1199,9 @@ class Orchestrator:
         except: pass
         # #endregion
         
-        matched_skill = self.skill_registry.match(task)
+        matched_skill = None
+        if self.skill_registry is not None:
+            matched_skill = self.skill_registry.match(task)
         
         # #region agent log
         try:

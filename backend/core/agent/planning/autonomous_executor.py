@@ -470,12 +470,50 @@ class AutonomousExecutor:
         # 4. 多轮对话循环
         self.current_iteration = 0
         self.execution_history = []
+        
+        # 导入时间模块用于心跳
+        import time
+        last_output_time = time.time()
+        heartbeat_interval = 30.0  # 每30秒发送一次心跳
 
         while self.current_iteration < self.max_iterations:
             self.current_iteration += 1
+            
+            # 输出当前轮次开始信息
+            yield f"\n[执行第 {self.current_iteration}/{self.max_iterations} 轮]\n"
+            last_output_time = time.time()
 
+            # 输出工具调用信息（在执行前）
+            if self.current_iteration > 1:
+                # 检查是否需要发送心跳（如果长时间没有输出）
+                current_time = time.time()
+                if current_time - last_output_time >= heartbeat_interval:
+                    yield f"\n[状态] 正在处理中... (已用时 {int(current_time - last_output_time)} 秒)\n"
+                    last_output_time = current_time
+            
             # 执行单轮对话
             result = await self._execute_single_turn(messages, tools)
+            
+            # 输出工具调用和执行结果
+            if result.get("tool_calls"):
+                for tool_call in result.get("tool_calls", []):
+                    if hasattr(tool_call, 'function'):
+                        tool_name = tool_call.function.name
+                        yield f"\n[工具调用] 正在执行: {tool_name}\n"
+                        last_output_time = time.time()
+            
+            if result.get("tool_results"):
+                for tool_result in result.get("tool_results", []):
+                    tool_name = tool_result.get("tool_name", "未知工具")
+                    if tool_result.get("success"):
+                        yield f"[工具结果] {tool_name} 执行成功\n"
+                    else:
+                        error_msg = tool_result.get("error", "未知错误")
+                        yield (
+                            f"[工具结果] {tool_name} 执行失败: "
+                            f"{error_msg}\n"
+                        )
+                    last_output_time = time.time()
 
             # 记录执行历史
             self.execution_history.append({

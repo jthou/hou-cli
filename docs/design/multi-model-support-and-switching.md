@@ -1,8 +1,21 @@
 # 多模型支持与模型切换技术实现
 
+## 文档关系
+
+本文档与以下文档共同构成了项目的模型管理和编排系统：
+
+- **[编排逻辑改进方案](../ORCHESTRATION_IMPROVEMENT_PLAN.md)**：介绍如何在编排层面使用多模型系统，包括任务分解、模型选择策略、工具调用优化等
+- **本文档**：介绍多模型支持的技术实现，包括模型注册、提供商管理、模型切换机制等
+
+**文档职责划分**：
+- **本文档**：关注"如何支持多模型"（技术实现层面）
+- **编排改进方案**：关注"如何使用多模型"（应用策略层面）
+
 ## 概述
 
 本项目实现了一套完整的多模型支持与动态切换机制，支持 7 个主流 LLM 提供商，涵盖 200+ 个模型，并提供了智能的模型识别、推荐和切换功能。本文档详细介绍了该系统的设计思路、核心组件和实现细节。
+
+> 💡 **提示**：关于如何在编排逻辑中使用这些模型，请参考 [编排逻辑改进方案](../ORCHESTRATION_IMPROVEMENT_PLAN.md)，该文档详细介绍了推理模型、对话模型和编程模型的使用策略。
 
 ## 架构设计
 
@@ -529,6 +542,151 @@ DEEPSEEK_MODELS = {
 }
 ```
 
+## 模型配置管理
+
+### ModelConfigManager（模型配置管理器）
+
+系统提供了 `ModelConfigManager` 来统一管理不同用途的模型配置。**重要**：模型选择不是自主的，而是基于 `.env` 文件中的环境变量配置。
+
+#### 环境变量配置
+
+系统通过以下三个环境变量配置三种类型的模型：
+
+1. **CHAT_MODEL**：对话模型
+   - 默认值：`deepseek-chat`
+   - 用途：日常对话、文本生成、信息检索等一般性任务
+
+2. **CODE_MODEL**：编程模型
+   - 默认值：`deepseek-coder`
+   - 用途：代码生成、代码补全、代码修复、命令执行等
+
+3. **REASONING_MODEL**：推理模型
+   - 默认值：`deepseek-reasoner`
+   - 用途：复杂推理、任务规划、工具选择决策等
+
+#### 配置示例
+
+在 `.env` 文件中配置：
+
+```bash
+# 对话模型
+CHAT_MODEL=openai-gpt-5
+
+# 编程模型
+CODE_MODEL=deepseek-coder
+
+# 推理模型
+REASONING_MODEL=bailian-deepseek-v3.2
+```
+
+#### 使用 ModelConfigManager
+
+```python
+from backend.services.llm.model_config import get_model_config_manager
+
+# 获取配置管理器
+config_manager = get_model_config_manager()
+
+# 获取配置的模型名称
+chat_model = config_manager.get_chat_model()        # 从 CHAT_MODEL 环境变量读取
+code_model = config_manager.get_code_model()        # 从 CODE_MODEL 环境变量读取
+reasoning_model = config_manager.get_reasoning_model()  # 从 REASONING_MODEL 环境变量读取
+
+# 获取模型配置信息（包含提供商、API Key 等）
+chat_config = config_manager.get_model_config_by_type("chat")
+code_config = config_manager.get_model_config_by_type("code")
+reasoning_config = config_manager.get_model_config_by_type("reasoning")
+```
+
+#### 模型配置验证
+
+```python
+# 验证所有配置的模型是否有效
+validation_result = config_manager.validate_config()
+# 返回：{"chat": True, "code": True, "reasoning": False}
+```
+
+> 💡 **重要说明**：
+> - 模型选择**不是自主的**，而是基于 `.env` 文件中的环境变量配置
+> - 编排系统根据任务类型从这三个配置的模型中选择一个使用
+> - 支持"平台-模型"格式，系统会自动识别提供商并切换 API Key
+> - 详见 `env.example` 文件中的配置说明
+
+## 与编排系统的集成
+
+### 模型分类体系
+
+在多模型支持系统中，模型按照能力可以分为三类：
+
+1. **推理模型（Reasoning Model）**
+   - 特点：支持思考过程，擅长复杂推理、任务规划
+   - 配置：通过 `REASONING_MODEL` 环境变量配置
+   - 使用场景：任务分解、工具选择决策、执行策略规划
+
+2. **对话模型（Chat Model）**
+   - 特点：通用对话能力，响应快速
+   - 配置：通过 `CHAT_MODEL` 环境变量配置
+   - 使用场景：日常对话、信息检索、简单工具调用
+
+3. **编程模型（Code Model）**
+   - 特点：专为代码生成优化
+   - 配置：通过 `CODE_MODEL` 环境变量配置
+   - 使用场景：代码生成、命令执行、脚本编写
+
+> 📖 **详细使用策略**：关于如何在编排逻辑中使用这三类模型，请参考 [编排逻辑改进方案](../ORCHESTRATION_IMPROVEMENT_PLAN.md) 中的"分层模型使用策略"章节。
+
+### 模型选择与编排的协作
+
+编排系统通过以下方式使用多模型支持系统：
+
+```python
+from backend.services.llm.model_config import get_model_config_manager
+
+# 1. 从环境变量配置获取模型（通过 ModelConfigManager）
+config_manager = get_model_config_manager()
+chat_model = config_manager.get_chat_model()        # 从 CHAT_MODEL 环境变量读取
+code_model = config_manager.get_code_model()        # 从 CODE_MODEL 环境变量读取
+reasoning_model = config_manager.get_reasoning_model()  # 从 REASONING_MODEL 环境变量读取
+
+# 2. 编排系统根据任务类型选择模型（从配置的模型中选择）
+selected_model = await orchestrator._select_model(task)
+# _select_model() 内部会从 chat_model、code_model、reasoning_model 中选择一个
+
+# 3. 使用 LLMService 切换模型
+llm_service.set_model(selected_model)
+
+# 4. 执行任务
+response = await llm_service.chat(...)
+
+# 5. 根据执行结果可能需要切换模型（仍然从配置的模型中选择）
+if needs_reasoning:
+    llm_service.set_model(reasoning_model)  # 使用配置的推理模型
+elif needs_code:
+    llm_service.set_model(code_model)       # 使用配置的编程模型
+else:
+    llm_service.set_model(chat_model)       # 使用配置的对话模型
+```
+
+> 💡 **重要**：模型选择基于 `.env` 文件中的环境变量配置，不是硬编码的模型名称。
+
+### 模型推荐与编排决策
+
+编排系统可以利用模型推荐功能进行智能决策：
+
+```python
+# 编排系统使用推荐功能
+recommendations = llm_service.recommend_models(
+    task_type="reasoning",  # 根据任务类型
+    cost_level="medium"     # 考虑成本
+)
+
+# 选择最适合的模型
+if recommendations:
+    best_model = recommendations[0]
+    model_name = f"{best_model['provider']}-{best_model['model']}"
+    llm_service.set_model(model_name)
+```
+
 ## 最佳实践
 
 ### 1. 使用 "平台-模型" 格式
@@ -571,6 +729,299 @@ llm_service.set_model("bailian-qwen-turbo")
 llm_service.set_model("openai-gpt-5")
 ```
 
+### 4. 在编排系统中使用模型分类
+
+在编排逻辑中，应该根据模型的能力类型进行选择：
+
+```python
+# ✅ 推荐：根据任务类型选择模型类别
+if task_requires_reasoning:
+    model = reasoning_model  # 推理模型
+elif task_requires_code:
+    model = code_model      # 编程模型
+else:
+    model = chat_model      # 对话模型
+
+# ❌ 不推荐：总是使用同一个模型
+model = chat_model  # 可能不适合所有任务
+```
+
+> 📖 **更多编排策略**：关于任务分解、工具选择、并行执行等高级编排策略，请参考 [编排逻辑改进方案](../ORCHESTRATION_IMPROVEMENT_PLAN.md)。
+
+## 推理模型的多轮对话支持
+
+### 当前实现状态
+
+推理模型（如 DeepSeek R1、OpenAI O3、Claude Opus 4 等）在多轮对话中的思考过程处理存在以下情况：
+
+#### 1. 思考过程的提取
+
+系统能够检测并提取推理模型的思考过程：
+
+```python
+# 在 chat() 方法中
+if self.supports_thinking and hasattr(result, 'reasoning_content'):
+    thinking = result.reasoning_content
+    if thinking:
+        self.debug.log_llm_thinking(thinking)  # 记录到调试日志
+
+# 在 stream_chat() 方法中
+if self.supports_thinking:
+    if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+        thinking_chunk = chunk.choices[0].delta.reasoning_content
+        if thinking_chunk:
+            thinking_chunks.append(thinking_chunk)
+```
+
+#### 2. 当前限制
+
+**问题：思考过程没有被保存到消息历史中**
+
+当前实现中，思考过程只被记录到调试日志（`debug.log_llm_thinking()`），但没有：
+- 保存到上下文管理器的消息历史中
+- 在多轮对话中传递给后续请求
+- 作为消息的一部分存储
+
+这导致以下问题：
+
+1. **思考过程丢失**：在多轮对话中，之前的思考过程无法被后续对话参考
+2. **推理连续性中断**：推理模型无法基于之前的推理过程继续思考
+3. **调试困难**：思考过程只存在于调试日志中，难以追踪和分析
+
+### 解决方案建议
+
+#### 方案 1：将思考过程保存到消息元数据（推荐）
+
+修改 `ContextManager.add_message()` 和消息保存逻辑，将思考过程保存到消息的 `metadata` 中：
+
+```python
+# 在 LLMService.chat() 中
+response = await self.client.chat.completions.create(**request_params)
+result = response.choices[0].message
+content = result.content
+
+# 提取思考过程
+thinking = None
+if self.supports_thinking and hasattr(result, 'reasoning_content'):
+    thinking = result.reasoning_content
+
+# 返回包含思考过程的响应对象
+return {
+    "content": content,
+    "thinking": thinking,  # 新增：思考过程
+    "tool_calls": result.tool_calls if hasattr(result, 'tool_calls') else None
+}
+```
+
+```python
+# 在 Orchestrator 中保存消息
+response_obj = await self._chat_with_tools(...)
+response_content = response_obj.get("content", "")
+thinking = response_obj.get("thinking")  # 获取思考过程
+
+# 保存消息，将思考过程存入 metadata
+metadata = {}
+if thinking:
+    metadata["thinking"] = thinking
+
+self.context_manager.add_message(
+    session_id, 
+    MessageRole.ASSISTANT, 
+    response_content,
+    metadata=metadata
+)
+```
+
+#### 方案 2：在消息内容中包含思考过程
+
+将思考过程作为消息内容的一部分保存：
+
+```python
+# 构建包含思考过程的完整响应
+if thinking:
+    full_response = f"<thinking>\n{thinking}\n</thinking>\n\n{content}"
+else:
+    full_response = content
+
+self.context_manager.add_message(
+    session_id, 
+    MessageRole.ASSISTANT, 
+    full_response
+)
+```
+
+**优点**：
+- 实现简单
+- 思考过程直接可见
+
+**缺点**：
+- 增加了消息长度和 token 消耗
+- 可能影响某些模型的性能
+
+#### 方案 3：使用专门的消息角色
+
+为思考过程定义专门的消息角色：
+
+```python
+# 在 MessageRole 中添加
+class MessageRole(Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    THINKING = "thinking"  # 新增：思考过程
+
+# 保存思考过程
+if thinking:
+    self.context_manager.add_message(
+        session_id, 
+        MessageRole.THINKING, 
+        thinking
+    )
+
+self.context_manager.add_message(
+    session_id, 
+    MessageRole.ASSISTANT, 
+    content
+)
+```
+
+**优点**：
+- 思考过程和回复内容分离
+- 便于后续处理和检索
+
+**缺点**：
+- 需要修改消息模型和存储结构
+- 某些 LLM API 可能不支持自定义角色
+
+#### 方案 4：在获取历史消息时合并思考过程
+
+在 `get_messages_for_llm()` 中，将思考过程合并到消息内容中：
+
+```python
+def get_messages_for_llm(
+    self,
+    session_id: str,
+    max_messages: Optional[int] = None,
+    max_tokens: Optional[int] = None
+) -> List[Dict[str, str]]:
+    """获取用于 LLM 的消息格式，合并思考过程"""
+    messages = self.get_messages(session_id, max_messages, max_tokens)
+    
+    result = []
+    for msg in messages:
+        content = msg.content
+        
+        # 如果消息有思考过程，合并到内容中
+        if msg.metadata and "thinking" in msg.metadata:
+            thinking = msg.metadata["thinking"]
+            content = f"<thinking>\n{thinking}\n</thinking>\n\n{content}"
+        
+        result.append({
+            "role": msg.role.value,
+            "content": content
+        })
+    
+    return result
+```
+
+### 推荐实现
+
+建议采用**方案 1（元数据存储）+ 方案 4（动态合并）**的组合：
+
+1. **存储阶段**：将思考过程保存到消息的 `metadata` 中
+2. **使用阶段**：在 `get_messages_for_llm()` 中，根据模型是否支持思考过程，决定是否合并思考过程到消息内容
+
+这样既保留了思考过程的原始数据，又能在需要时灵活使用。
+
+### 实现示例
+
+```python
+# 1. 修改 LLMService.chat() 返回思考过程
+async def chat(self, ...):
+    # ... 现有代码 ...
+    
+    result = response.choices[0].message
+    content = result.content
+    
+    # 提取思考过程
+    thinking = None
+    if self.supports_thinking and hasattr(result, 'reasoning_content'):
+        thinking = result.reasoning_content
+        if thinking:
+            self.debug.log_llm_thinking(thinking)
+    
+    # 返回包含思考过程的字典
+    if thinking:
+        return {
+            "content": content,
+            "thinking": thinking
+        }
+    return content
+
+# 2. 修改 Orchestrator 保存思考过程
+response = await self._chat_with_tools(...)
+
+# 处理响应（可能是字符串或字典）
+if isinstance(response, dict):
+    response_content = response.get("content", "")
+    thinking = response.get("thinking")
+else:
+    response_content = response
+    thinking = None
+
+# 保存消息
+metadata = {}
+if thinking:
+    metadata["thinking"] = thinking
+
+self.context_manager.add_message(
+    session_id, 
+    MessageRole.ASSISTANT, 
+    response_content,
+    metadata=metadata
+)
+
+# 3. 修改 get_messages_for_llm() 合并思考过程
+def get_messages_for_llm(
+    self,
+    session_id: str,
+    max_messages: Optional[int] = None,
+    max_tokens: Optional[int] = None,
+    include_thinking: bool = False  # 新增参数
+) -> List[Dict[str, str]]:
+    """获取用于 LLM 的消息格式"""
+    messages = self.get_messages(session_id, max_messages, max_tokens)
+    
+    result = []
+    for msg in messages:
+        content = msg.content
+        
+        # 如果启用思考过程且消息包含思考过程，合并到内容中
+        if include_thinking and msg.metadata and "thinking" in msg.metadata:
+            thinking = msg.metadata["thinking"]
+            content = f"<thinking>\n{thinking}\n</thinking>\n\n{content}"
+        
+        result.append({
+            "role": msg.role.value,
+            "content": content
+        })
+    
+    return result
+
+# 4. 在使用时根据模型决定是否包含思考过程
+history = self.context_manager.get_messages_for_llm(
+    session_id,
+    include_thinking=self.llm_service.supports_thinking  # 如果模型支持思考，包含历史思考过程
+)
+```
+
+### 注意事项
+
+1. **Token 消耗**：思考过程会增加消息长度，需要监控 token 使用情况
+2. **模型兼容性**：不同模型的思考过程格式可能不同，需要统一处理
+3. **性能影响**：包含思考过程会增加上下文长度，可能影响响应速度
+4. **选择性包含**：建议只在模型支持思考过程时才包含历史思考过程
+
 ## 总结
 
 本项目实现了一套完整、灵活、易用的多模型支持与切换系统，具有以下特点：
@@ -582,7 +1033,15 @@ llm_service.set_model("openai-gpt-5")
 5. **统一的 API 接口**
 6. **良好的扩展性**
 
-该系统为项目提供了强大的模型管理能力，使得开发者可以轻松地在不同模型之间切换，根据任务需求选择最合适的模型。
+### 已知限制和改进方向
+
+1. **推理模型的思考过程保存**：当前思考过程只记录到调试日志，未保存到消息历史（见上文解决方案）
+2. **多轮对话中的思考连续性**：需要实现思考过程的保存和传递机制
+3. **思考过程的格式统一**：不同模型的思考过程格式需要统一处理
+
+该系统为项目提供了强大的模型管理能力，使得开发者可以轻松地在不同模型之间切换，根据任务需求选择最合适的模型。通过实现上述改进，可以进一步提升推理模型在多轮对话中的表现。
+
+
 
 
 

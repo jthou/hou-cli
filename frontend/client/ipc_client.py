@@ -284,7 +284,10 @@ class IPCClient:
         # 使用 StreamReceiver 接收流式数据
         chunk_count = 0
         try:
-            async for chunk in self.stream_receiver.receive_stream(message, session_id, timeout=300.0):
+            # 从环境变量读取超时配置，默认300秒（5分钟）
+            import os
+            stream_timeout = float(os.getenv("STREAM_TIMEOUT", "300.0"))
+            async for chunk in self.stream_receiver.receive_stream(message, session_id, timeout=stream_timeout):
                 chunk_count += 1
                 # #region agent log
                 if chunk_count <= 3:  # 只记录前3个chunk

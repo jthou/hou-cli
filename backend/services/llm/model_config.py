@@ -222,6 +222,51 @@ class ModelConfigManager:
                 result[model_type] = False
         
         return result
+    
+    def get_max_iterations_stream(self) -> int:
+        """
+        获取流式处理的最大迭代次数
+        
+        Returns:
+            最大迭代次数，默认 100
+        """
+        return int(os.getenv("MAX_TOOL_ITERATIONS_STREAM", "100"))
+    
+    def get_max_iterations_non_stream(self) -> int:
+        """
+        获取非流式处理的最大迭代次数
+        
+        Returns:
+            最大迭代次数，默认 5
+        """
+        return int(os.getenv("MAX_TOOL_ITERATIONS_NON_STREAM", "5"))
+    
+    def is_smart_model_selection_enabled(self) -> bool:
+        """
+        检查是否启用智能模型选择
+        
+        Returns:
+            是否启用，默认 True
+        """
+        return os.getenv("ENABLE_SMART_MODEL_SELECTION", "true").lower() == "true"
+    
+    def is_task_decomposition_enabled(self) -> bool:
+        """
+        检查是否启用任务分解
+        
+        Returns:
+            是否启用，默认 False（分阶段启用）
+        """
+        return os.getenv("ENABLE_TASK_DECOMPOSITION", "false").lower() == "true"
+    
+    def is_parallel_execution_enabled(self) -> bool:
+        """
+        检查是否启用并行执行
+        
+        Returns:
+            是否启用，默认 False（分阶段启用）
+        """
+        return os.getenv("ENABLE_PARALLEL_EXECUTION", "false").lower() == "true"
 
 
 # 全局单例

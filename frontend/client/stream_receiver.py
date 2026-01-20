@@ -1,5 +1,6 @@
 """流式接收模块 - 负责从后端接收流式数据"""
 import json
+import os
 from typing import AsyncIterator, Optional
 import httpx
 from pathlib import Path
@@ -18,7 +19,7 @@ class StreamReceiver:
         self,
         message: str,
         session_id: Optional[str] = None,
-        timeout: float = 300.0
+        timeout: Optional[float] = None
     ) -> AsyncIterator[str]:
         """
         接收流式数据
@@ -26,12 +27,16 @@ class StreamReceiver:
         Args:
             message: 用户消息
             session_id: 会话 ID（可选）
-            timeout: 超时时间（秒）
+            timeout: 超时时间（秒），如果为None则从环境变量读取，默认300秒
             
         Yields:
             流式数据块（原始字符串）
         """
         import time
+        
+        # 从环境变量读取超时配置，默认300秒（5分钟）
+        if timeout is None:
+            timeout = float(os.getenv("STREAM_TIMEOUT", "300.0"))
         # #region agent log
         try:
             with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
@@ -62,11 +67,25 @@ class StreamReceiver:
             except: pass
             # #endregion
             
+            # 配置超时：使用详细超时配置，支持长任务
+            # - connect: 连接超时（10秒）
+            # - read: 读取超时（空闲超时，60秒）- 如果60秒内没有收到任何数据才超时
+            # - write: 写入超时（10秒）
+            # - pool: 连接池超时（10秒）
+            # 注意：read 超时是空闲超时，不是总超时，所以即使任务总时间很长，只要后端持续发送数据就不会超时
+            from httpx import Timeout
+            stream_timeout = Timeout(
+                connect=10.0,  # 连接超时
+                read=60.0,      # 读取超时（空闲超时）- 关键：这是空闲超时，不是总超时
+                write=10.0,     # 写入超时
+                pool=10.0       # 连接池超时
+            )
+            
             async with self.async_client.stream(
                 "POST",
                 url,
                 json=payload,
-                timeout=timeout,
+                timeout=stream_timeout,  # 使用详细超时配置
                 headers={"Accept": "text/event-stream"}
             ) as response:
                 # #region agent log
@@ -100,8 +119,23 @@ class StreamReceiver:
                 # 解析 SSE 格式
                 buffer = b""
                 chunk_count = 0
+                last_data_time = time.time()  # 记录最后收到数据的时间（用于空闲超时检测）
+                idle_timeout = 120.0  # 空闲超时：如果120秒内没有收到任何数据，认为超时
+                
                 async for chunk in response.aiter_bytes():
                     chunk_count += 1
+                    current_time = time.time()
+                    
+                    # 检查空闲超时（双重保障）
+                    if current_time - last_data_time > idle_timeout:
+                        raise ConnectionError(
+                            f"流式请求空闲超时: 超过 {int(idle_timeout)} 秒未收到数据。"
+                            f"请检查后端服务是否正常运行，或任务是否卡住。"
+                        )
+                    
+                    # 更新最后收到数据的时间
+                    last_data_time = current_time
+                    
                     # #region agent log
                     if chunk_count <= 3:  # 只记录前3个chunk，避免日志过多
                         try:
@@ -135,6 +169,8 @@ class StreamReceiver:
                                 if data.get("status") == "streaming":
                                     content = data.get("content", "")
                                     if content:  # 只yield非空内容
+                                        # 更新最后收到数据的时间（包括心跳和内容）
+                                        last_data_time = time.time()
                                         yield content
                                 elif data.get("status") == "done":
                                     return
@@ -145,8 +181,19 @@ class StreamReceiver:
                                 continue
                             except UnicodeDecodeError:
                                 continue
-        except httpx.TimeoutException:
-            raise ConnectionError("流式请求超时: 任务处理时间过长（超过 5 分钟）。请尝试将任务分解为更小的步骤。")
+        except httpx.TimeoutException as e:
+            # httpx 的超时异常，可能是连接超时或读取超时（空闲超时）
+            error_msg = str(e)
+            if "read" in error_msg.lower() or "idle" in error_msg.lower():
+                raise ConnectionError(
+                    "流式请求空闲超时: 超过60秒未收到数据。"
+                    "请检查后端服务是否正常运行，或任务是否卡住。"
+                )
+            else:
+                raise ConnectionError(
+                    f"流式请求超时: {error_msg}\n"
+                    "提示: 请检查后端服务是否正常运行，或任务是否过于复杂导致超时"
+                )
         except httpx.RequestError as e:
             error_msg = str(e)
             if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():

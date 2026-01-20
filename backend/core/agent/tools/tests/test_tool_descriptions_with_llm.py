@@ -223,7 +223,6 @@ def _ensure_all_tools_registered():
         from backend.core.agent.tools.builtin.file_search_tool import FileSearchTool
         from backend.core.agent.tools.builtin.browser_tool import BrowserTool
         from backend.core.agent.tools.builtin.gvim_tool import GvimTool
-        from backend.core.agent.tools.builtin.jupyter_tool import JupyterTool
         from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
         from backend.core.agent.tools.builtin.video_downloader_tool import VideoDownloaderTool
         from backend.core.agent.tools.builtin.zhihu_zhida_tool import ZhihuZhidaTool
@@ -240,7 +239,6 @@ def _ensure_all_tools_registered():
             GoogleSearchTool(),
             FileSearchTool(),
             GvimTool(),
-            JupyterTool(),
             MediaWikiTool(),
             VideoDownloaderTool(),
             ZhihuZhidaTool(),
@@ -579,7 +577,6 @@ async def test_specific_tool_description(validator, tool_name: str = "whisper"):
     "google_search",
     "file_search",
     "gvim",
-    "jupyter",
     "mediawiki",
     "video_downloader",
     "zhihu_zhida",

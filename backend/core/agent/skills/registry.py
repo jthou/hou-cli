@@ -264,14 +264,18 @@ class SkillRegistry:
                 score += 50
             
             # 7. 优先级加分（P0 > P1 > P2）
+            # 注意：只有在有相关匹配（score > 0）时才给优先级加分，避免误匹配
             priority = getattr(skill, 'priority', 'P1')
-            if priority == 'P0':
-                score += 100
-            elif priority == 'P1':
-                score += 50
+            if score > 0:  # 只有在已有匹配分数时才给优先级加分
+                if priority == 'P0':
+                    score += 100
+                elif priority == 'P1':
+                    score += 50
             
             # 8. 如果分数大于 0，添加到匹配列表
-            if score > 0:
+            # 添加最低匹配阈值，避免完全无关的技能被匹配
+            min_match_threshold = 50  # 最低匹配分数阈值
+            if score >= min_match_threshold:
                 matched_skills.append((score, skill))
         
         # 如果没有匹配的技能，返回 None

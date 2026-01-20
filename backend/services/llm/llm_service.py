@@ -141,8 +141,11 @@ class LLMService:
             config: 配置字典，包含 model, api_key, base_url, provider
         """
         # 配置 httpx 客户端
+        # 超时设置：连接30秒，读取60秒（测试环境），写入30秒
+        # 生产环境可以通过环境变量覆盖
+        read_timeout = float(os.getenv("LLM_READ_TIMEOUT", "60.0"))
         http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(300.0, connect=30.0, read=300.0, write=30.0),
+            timeout=httpx.Timeout(read_timeout, connect=30.0, read=read_timeout, write=30.0),
             trust_env=False
         )
         

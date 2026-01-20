@@ -13,7 +13,7 @@ load_dotenv()
 project_root = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from backend.core.agent.tools.builtin.whisper_tool import WhisperTool, WhisperProgressCapture
+from backend.core.agent.tools.builtin.whisper_tool import WhisperTool
 from backend.core.agent.tools.base import ToolResult
 
 
@@ -91,19 +91,9 @@ class TestWhisperTool:
             assert "未安装" in result.error or "not found" in result.error.lower()
 
     def test_progress_capture(self):
-        """测试进度捕获器"""
-        progress_messages = []
-        
-        def progress_callback(msg: str):
-            progress_messages.append(msg)
-        
-        with WhisperProgressCapture(progress_callback=progress_callback):
-            # 模拟一些输出
-            import sys
-            print("测试输出", file=sys.stderr)
-        
-        # 验证回调被调用（如果有进度消息）
-        # 注意：实际进度消息取决于 Whisper 的输出格式
+        """测试进度捕获器（WhisperProgressCapture 已移除，跳过此测试）"""
+        # WhisperProgressCapture 类已被移除，跳过此测试
+        pytest.skip("WhisperProgressCapture 类已被移除")
 
     def test_language_auto_detection(self, tool):
         """测试语言自动检测"""

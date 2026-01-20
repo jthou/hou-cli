@@ -29,14 +29,6 @@ class ToolMetadataRegistry:
             can_parallel=False  # 代码执行通常不能并行
         ))
         
-        self.register(ToolMetadata(
-            tool_name="jupyter",
-            requires_code=True,
-            recommended_model="code",
-            complexity=TaskComplexity.MEDIUM,
-            can_parallel=False
-        ))
-        
         # 搜索检索类工具
         self.register(ToolMetadata(
             tool_name="google_search",

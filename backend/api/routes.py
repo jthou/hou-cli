@@ -193,8 +193,26 @@ async def chat_stream(request: ChatRequest):
                     hypothesis_id="F"
                 )
                 
+                # 添加心跳机制：定期发送状态更新，防止超时
+                import time
+                last_heartbeat_time = time.time()
+                heartbeat_interval = 30.0  # 每30秒发送一次心跳
+                
                 async for chunk in stream_iter:
                     chunk_count += 1
+                    current_time = time.time()
+                    
+                    # 如果超过心跳间隔，发送心跳
+                    if current_time - last_heartbeat_time >= heartbeat_interval:
+                        status_data = {
+                            "task": "处理中",
+                            "progress": 0,
+                            "message": "任务正在执行中...",
+                            "elapsed_time": round(current_time - last_heartbeat_time, 2)
+                        }
+                        yield SSEFormatter.format_status(status_data)
+                        last_heartbeat_time = current_time
+                    
                     debug_log(
                         "收到chunk",
                         hypothesis_id="F",
@@ -210,6 +228,8 @@ async def chat_stream(request: ChatRequest):
                             hypothesis_id="F"
                         )
                         yield SSEFormatter.format_chunk(chunk, "streaming")
+                        # 更新心跳时间（有数据输出时也更新）
+                        last_heartbeat_time = time.time()
                         debug_log(
                             "chunk已发送",
                             hypothesis_id="F"

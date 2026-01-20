@@ -15,14 +15,6 @@ except ImportError:
     _browser_available = False
     BrowserTool = None
 
-# Jupyter 工具（可选，需要安装 jupyter-client）
-try:
-    from .jupyter_tool import JupyterTool
-    _jupyter_available = True
-except ImportError:
-    _jupyter_available = False
-    JupyterTool = None
-
 # 文件整理工具（可选，需要安装 Local-File-Organizer）
 try:
     from .file_organizer_tool import FileOrganizerTool
@@ -83,9 +75,6 @@ __all__ = [
 
 if _browser_available:
     __all__.append("BrowserTool")
-
-if _jupyter_available:
-    __all__.append("JupyterTool")
 
 if _file_organizer_available:
     __all__.append("FileOrganizerTool")

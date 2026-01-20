@@ -24,16 +24,19 @@
 6. **test_gvim_tool.py** - GvimTool 测试
    - 需要：无（需要安装 gvim）
 
-7. **test_jupyter_tool.py** - JupyterTool 测试
-   - 需要：无（需要安装 jupyter-client）
+7. **test_browser_tool_cdp.py** - BrowserTool CDP 连接测试
+   - 专门测试 Chrome DevTools Protocol (CDP) 连接功能
+   - 检测浏览器环境配置问题（CDP 连接失败、浏览器未初始化等）
+   - 需要：browser-use、DEEPSEEK_API_KEY、正确配置的浏览器环境
 
 8. **test_zhihu_zhida_tool.py** - ZhihuZhidaTool 测试
    - 需要：`DEEPSEEK_API_KEY`（用于 browser 工具）
 
-### 已有的测试文件（14 个）
+### 已有的测试文件（15 个）
 
 - test_base.py
 - test_browser_tool.py
+- test_browser_tool_cdp.py
 - test_ffmpeg_tool.py
 - test_file_organizer_tool.py
 - test_pdf_parser_tool.py
@@ -72,7 +75,6 @@
 - **WikipediaTool** - 公开 API
 - **CodeExecutorTool** - 本地代码执行
 - **GvimTool** - 需要安装 gvim
-- **JupyterTool** - 需要安装 jupyter-client
 - **WhisperTool** - 需要安装 openai-whisper
 - **FFmpegTool** - 需要安装 ffmpeg
 - **VideoDownloaderTool** - 需要安装 yt-dlp/you-get
@@ -116,8 +118,8 @@ pytest backend/core/agent/tools/tests/test_code_executor_tool.py -v
 # GvimTool
 pytest backend/core/agent/tools/tests/test_gvim_tool.py -v
 
-# JupyterTool
-pytest backend/core/agent/tools/tests/test_jupyter_tool.py -v
+# BrowserTool CDP 连接测试
+pytest backend/core/agent/tools/tests/test_browser_tool_cdp.py -v
 
 # ZhihuZhidaTool
 pytest backend/core/agent/tools/tests/test_zhihu_zhida_tool.py -v
