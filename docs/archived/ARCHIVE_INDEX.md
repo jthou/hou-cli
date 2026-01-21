@@ -10,6 +10,8 @@ archived/
 ├── tests/           # 测试相关文档
 ├── fixes/            # 修复相关文档
 ├── optimization/    # 优化相关文档
+├── features/         # 功能相关文档
+├── analysis/         # 分析相关文档
 ├── browser/         # 浏览器相关文档
 ├── design/           # 设计相关文档
 ├── packaging/        # 打包相关文档
@@ -34,18 +36,39 @@ archived/
 
 **归档原因**: 这些阶段已完成，文档保留作为历史记录。
 
-### 测试相关文档 (`tests/`)
+### 测试相关文档 (`tests/`) - 20 个
 
-这些文档记录了测试过程和结果，测试已完成。
+这些文档记录了测试过程和结果，测试已完成或文档已过时。
 
+**测试报告和总结**:
 - **TEST_STATUS_FINAL.md** - 最终测试状态报告
 - **TEST_FIXES_SUMMARY.md** - 测试修复总结
 - **PHASE2_TEST_OPTIMIZATION_SUMMARY.md** - 阶段2测试优化总结
 - **PHASE2_TEST_REPORT.md** - 阶段2测试报告
 - **TEST_FAILURES_ANALYSIS.md** - 测试失败分析
 - **AUTONOMOUS_EXECUTOR_TEST_RESULTS.md** - 自主执行器测试结果
+- **TEST_RESULTS_FINAL.md** - 最终测试结果
+- **TESTING_FINAL.md** - 测试最终报告
+- **TESTING_SUMMARY.md** - 测试总结
 
-**归档原因**: 测试已完成，文档保留作为历史记录和参考。
+**测试指南（已过时/重复）**:
+- **TEST_EXECUTION_GUIDE.md** - 测试执行指南（特定场景）
+- **testing-guide.md** - Tools 测试指南（与 TESTING_GUIDE.md 重复）
+
+**测试整理相关**:
+- **test-cleanup-summary.md** - 测试清理总结
+- **test-directory-reorganization-plan.md** - 测试目录重组计划
+- **test-directory-reorganization-summary.md** - 测试目录重组总结
+- **test-fixes-summary.md** - 测试修复总结
+- **skipped-tests-summary.md** - 跳过测试总结
+- **skipped-tests-update.md** - 跳过测试更新
+- **tools-test-coverage-summary.md** - 工具测试覆盖总结
+- **warnings-fixes-summary.md** - 警告修复总结
+
+**其他**:
+- **packaging-summary.md** - 打包总结
+
+**归档原因**: 测试已完成或文档已过时/重复，文档保留作为历史记录和参考。
 
 ### 修复相关文档 (`fixes/`)
 
@@ -75,6 +98,8 @@ archived/
 - **测试相关** → `archived/tests/`
 - **问题修复** → `archived/fixes/`
 - **性能优化** → `archived/optimization/`
+- **功能相关** → `archived/features/`
+- **分析相关** → `archived/analysis/`
 
 ### 按时间查找
 
@@ -104,6 +129,7 @@ mv docs/archived/tests/TEST_STATUS_FINAL.md docs/analysis/
 ## 📅 归档日期
 
 - **2026-01-20**: 归档阶段实施、测试、修复和优化相关文档
+- **2026-01-20**: 归档功能、分析和测试相关文档（第二轮整理）
 
 ---
 

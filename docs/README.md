@@ -8,13 +8,12 @@
 
 - **[架构问题分析](architecture-issues-analysis.md)** - 当前架构问题分析和改进建议
 - **[Services vs Tools 澄清](services-vs-tools-clarification.md)** - Services 和 Tools 的核心区别和关系
-- **[实现设计差距分析](implementation-design-gap-analysis.md)** - 实现与设计之间的差距分析
 - **[外部依赖包装策略](externals-wrapping-strategy.md)** - 外部依赖的包装和管理策略
 - **[LLM 工具调用机制](llm-tool-calling-mechanism.md)** - LLM 如何调用工具的详细机制
 
 ### 🧪 测试指南
 
-- **[测试指南](testing-guide.md)** - 完整的测试指南（主文档）
+- **[测试指南](TESTING_GUIDE.md)** - 完整的测试指南（主文档）
 - **[测试快速开始](TESTING_QUICK_START.md)** - 快速开始测试的指南
 - **[如何测试 Tools](how-to-test-tools.md)** - 工具测试的详细说明
 - **[工具描述 LLM 测试指南](tool-description-llm-test-guide.md)** - 使用 LLM 验证工具描述的测试方法
@@ -24,7 +23,6 @@
 - **[发布指南](RELEASE.md)** - 如何创建和发布新版本
 - **[打包指南](PACKAGING.md)** - 完整的打包流程和说明
 - **[打包快速开始](packaging-quickstart.md)** - 快速打包指南
-- **[打包总结](packaging-summary.md)** - 打包相关总结
 
 ### 🔧 开发与配置
 
@@ -59,7 +57,7 @@
 3. [LLM 工具调用机制](llm-tool-calling-mechanism.md) - 理解工具调用
 
 #### 🔧 开发工作
-1. [测试指南](testing-guide.md) - 编写和运行测试
+1. [测试指南](TESTING_GUIDE.md) - 编写和运行测试
 2. [如何测试 Tools](how-to-test-tools.md) - 测试工具
 3. [开发笔记](dev-notes.md) - 查看开发历史
 
@@ -70,7 +68,7 @@
 ### 按主题分类
 
 #### 测试相关
-- [测试指南](testing-guide.md)
+- [测试指南](TESTING_GUIDE.md)
 - [测试快速开始](TESTING_QUICK_START.md)
 - [如何测试 Tools](how-to-test-tools.md)
 - [工具描述 LLM 测试指南](tool-description-llm-test-guide.md)
@@ -78,7 +76,6 @@
 #### 架构相关
 - [架构问题分析](architecture-issues-analysis.md)
 - [Services vs Tools 澄清](services-vs-tools-clarification.md)
-- [实现设计差距分析](implementation-design-gap-analysis.md)
 - [外部依赖包装策略](externals-wrapping-strategy.md)
 - [LLM 工具调用机制](llm-tool-calling-mechanism.md)
 
@@ -86,7 +83,6 @@
 - [发布指南](RELEASE.md)
 - [打包指南](PACKAGING.md)
 - [打包快速开始](packaging-quickstart.md)
-- [打包总结](packaging-summary.md)
 
 #### 配置相关
 - [Google Search API 设置](google-search-api-setup.md)
@@ -105,14 +101,15 @@
 - **配置 API** → [Google Search API 设置](google-search-api-setup.md)
 - **测试工具** → [如何测试 Tools](how-to-test-tools.md)
 - **查看开发历史** → [开发笔记](dev-notes.md)
+- **调试浏览器工具** → [Browser-Use 集成调试指南](BROWSER_USE_DEBUGGING_GUIDE.md)
 
 ### 按角色查找
 
 **我是...**
 - **新贡献者** → 从 [测试快速开始](TESTING_QUICK_START.md) 和 [架构问题分析](architecture-issues-analysis.md) 开始
-- **测试工程师** → 查看 [测试指南](testing-guide.md) 和 [如何测试 Tools](how-to-test-tools.md)
+- **测试工程师** → 查看 [测试指南](TESTING_GUIDE.md) 和 [如何测试 Tools](how-to-test-tools.md)
 - **维护者** → 查看 [发布指南](RELEASE.md) 和 [打包指南](PACKAGING.md)
-- **架构师** → 查看 [架构问题分析](architecture-issues-analysis.md) 和 [实现设计差距分析](implementation-design-gap-analysis.md)
+- **架构师** → 查看 [架构问题分析](architecture-issues-analysis.md) 和 [Services vs Tools 澄清](services-vs-tools-clarification.md)
 
 ---
 
@@ -127,6 +124,8 @@
 - `archived/tests/` - 测试相关的历史文档
 - `archived/fixes/` - 问题修复相关的历史文档
 - `archived/optimization/` - 优化相关的历史文档
+- `archived/features/` - 功能相关的历史文档
+- `archived/analysis/` - 分析相关的历史文档
 - `archived/packaging/` - 打包相关的历史文档
 - `archived/tools/` - 工具相关的历史文档
 - `archived/browser/` - 浏览器相关的历史文档
