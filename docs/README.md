@@ -30,6 +30,7 @@
 
 - **[开发笔记](dev-notes.md)** - 项目开发日志和重要进展
 - **[Google Search API 设置](google-search-api-setup.md)** - Google Search API 配置指南
+- **[Browser-Use 集成调试指南](BROWSER_USE_DEBUGGING_GUIDE.md)** - 如何在 browser-use 源码中设置断点和调试
 
 ### 📁 其他目录
 

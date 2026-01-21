@@ -650,9 +650,49 @@ class YtDlpDownloader(DownloaderAdapter):
             # 只提取音频
             elif options.get('extract_audio_only'):
                 ydl_opts['format'] = 'bestaudio/best'
+                
+                # 检查 FFmpeg 是否支持 MP3 编码器
+                audio_format = options.get('audio_format', 'mp3')
+                if audio_format.lower() == 'mp3':
+                    # 检查 MP3 编码器是否可用
+                    ffmpeg_path = _get_ffmpeg_path()
+                    if ffmpeg_path.exists():
+                        try:
+                            import subprocess
+                            result = subprocess.run(
+                                [str(ffmpeg_path), '-encoders'],
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                            # 检查是否支持 libmp3lame 编码器
+                            if 'libmp3lame' not in result.stdout:
+                                logger.warning("FFmpeg 不支持 MP3 编码器（libmp3lame），改用 AAC 格式")
+                                audio_format = 'aac'
+                        except Exception as e:
+                            logger.warning(f"无法检查 FFmpeg 编码器，改用 AAC 格式: {e}")
+                            audio_format = 'aac'
+                    else:
+                        # 如果本地 FFmpeg 不存在，检查系统 FFmpeg
+                        try:
+                            import subprocess
+                            result = subprocess.run(
+                                ['ffmpeg', '-encoders'],
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                            if 'libmp3lame' not in result.stdout:
+                                logger.warning("系统 FFmpeg 不支持 MP3 编码器（libmp3lame），改用 AAC 格式")
+                                audio_format = 'aac'
+                        except Exception:
+                            # 如果检查失败，默认使用 AAC（更通用）
+                            logger.warning("无法检查 FFmpeg 编码器，改用 AAC 格式")
+                            audio_format = 'aac'
+                
                 ydl_opts['postprocessors'] = [{  # type: ignore
                     'key': 'FFmpegExtractAudio',
-                    'preferredcodec': options.get('audio_format', 'mp3'),
+                    'preferredcodec': audio_format,
                     'preferredquality': options.get('audio_quality', '192'),
                 }]
             else:

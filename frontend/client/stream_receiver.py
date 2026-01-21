@@ -69,16 +69,18 @@ class StreamReceiver:
             
             # 配置超时：使用详细超时配置，支持长任务
             # - connect: 连接超时（10秒）
-            # - read: 读取超时（空闲超时，60秒）- 如果60秒内没有收到任何数据才超时
+            # - read: 读取超时（空闲超时）- 如果指定时间内没有收到任何数据才超时
             # - write: 写入超时（10秒）
             # - pool: 连接池超时（10秒）
             # 注意：read 超时是空闲超时，不是总超时，所以即使任务总时间很长，只要后端持续发送数据就不会超时
+            # 对于视频下载等长任务，增加 read 超时时间（从环境变量读取，默认 300 秒）
             from httpx import Timeout
+            read_timeout = float(os.getenv("STREAM_READ_TIMEOUT", "300.0"))  # 默认 5 分钟空闲超时
             stream_timeout = Timeout(
-                connect=10.0,  # 连接超时
-                read=60.0,      # 读取超时（空闲超时）- 关键：这是空闲超时，不是总超时
-                write=10.0,     # 写入超时
-                pool=10.0       # 连接池超时
+                connect=10.0,      # 连接超时
+                read=read_timeout,  # 读取超时（空闲超时）- 关键：这是空闲超时，不是总超时
+                write=10.0,        # 写入超时
+                pool=10.0          # 连接池超时
             )
             
             async with self.async_client.stream(
