@@ -677,6 +677,12 @@ class LLMService:
                         if name == 'provider':
                             # browser-use 可能需要 provider 属性
                             return self.original_config.get('provider', 'unknown')
+                        elif name == 'model':
+                            # browser-use 可能需要 model 属性
+                            return self.original_config.get('model', 'unknown-model')
+                        elif name == 'model_name':
+                            # 有些实现可能使用 model_name
+                            return self.original_config.get('model', 'unknown-model')
                         try:
                             return getattr(self.llm, name)
                         except AttributeError:
