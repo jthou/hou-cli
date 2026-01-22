@@ -660,9 +660,53 @@ class LLMService:
                 # 某些 LLM 不支持 response_format，避免使用可能导致错误的参数
                 # 传递 timeout 以避免 browser-use 内部添加不兼容参数
                 llm_kwargs["timeout"] = 120
+                
+                # 确保不会传递任何可能导致 response_format 错误的参数
+                # 对于不支持 response_format 的模型，创建一个包装类
+                from langchain_openai import ChatOpenAI as LangChainChatOpenAI
+                browser_llm = LangChainChatOpenAI(**llm_kwargs)
+                
+                # 创建一个代理对象来拦截可能导致问题的方法
+                class ResponseFormatSafeLLM:
+                    def __init__(self, llm, original_config):
+                        self.llm = llm
+                        self.original_config = original_config  # 保留原始配置信息
+                        
+                    def __getattr__(self, name):
+                        # 特殊处理某些属性，如果底层实例没有，则返回默认值或模拟值
+                        if name == 'provider':
+                            # browser-use 可能需要 provider 属性
+                            return self.original_config.get('provider', 'unknown')
+                        try:
+                            return getattr(self.llm, name)
+                        except AttributeError:
+                            # 如果底层实例没有该属性，返回一个合适的默认值或模拟实现
+                            if name == 'bind_tools':
+                                return self.bind_tools
+                            elif name == 'with_structured_output':
+                                return self.with_structured_output
+                            else:
+                                raise
+                    
+                    def bind_tools(self, tools, **kwargs):
+                        # 过滤掉可能导致 response_format 错误的参数
+                        safe_kwargs = {k: v for k, v in kwargs.items() 
+                                     if k != "strict" and k != "response_format"}
+                        return self.llm.bind_tools(tools, **safe_kwargs)
+                    
+                    def with_structured_output(self, schema, **kwargs):
+                        # 对于不支持 response_format 的模型，使用工具绑定作为替代
+                        # 这是一种简化处理方式，避免调用可能导致错误的方法
+                        from langchain_core.utils.function_calling import convert_to_openai_tool
+                        tool = convert_to_openai_tool(schema)
+                        return self.llm.bind_tools([tool])
+                
+                browser_llm = ResponseFormatSafeLLM(browser_llm, config)
+            else:
+                # 创建 ChatOpenAI 实例（browser-use 兼容）
+                browser_llm = ChatOpenAI(**llm_kwargs)
             
-            # 创建 ChatOpenAI 实例（browser-use 兼容）
-            browser_llm = ChatOpenAI(**llm_kwargs)
+            
             
             logger.info(
                 f"创建 browser-use 兼容的 LLM: "
