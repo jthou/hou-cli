@@ -300,6 +300,44 @@ class Orchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册细粒度浏览器操作工具（可选，根据配置决定是否启用）
+        enable_fine_grained_browser_tools = os.getenv("BROWSER_TOOL_ENABLE_FINE_GRAINED_TOOLS", "false").lower() == "true"
+        if enable_fine_grained_browser_tools:
+            try:
+                from backend.core.agent.tools.builtin.browser_action_tool import (
+                    BrowserNavigateTool,
+                    BrowserClickTool,
+                    BrowserFillTool,
+                    BrowserSearchTool,
+                    BrowserExtractTool
+                )
+                
+                # 注册细粒度浏览器工具
+                fine_grained_tools = [
+                    BrowserNavigateTool(),
+                    BrowserClickTool(),
+                    BrowserFillTool(),
+                    BrowserSearchTool(),
+                    BrowserExtractTool()
+                ]
+                
+                for tool in fine_grained_tools:
+                    self.tool_registry.register(tool)
+                    logger.info(f"细粒度浏览器工具已注册: {tool.name}")
+                
+                self.debug.log_orchestrator_step("细粒度浏览器工具注册", {
+                    "count": len(fine_grained_tools),
+                    "tools": [tool.name for tool in fine_grained_tools]
+                })
+            except ImportError as e:
+                error_msg = f"细粒度浏览器工具导入失败: {str(e)}. 细粒度浏览器工具将不可用."
+                self.debug.log_orchestrator_step("细粒度浏览器工具注册失败", {"error": error_msg})
+                logger.warning(error_msg)
+            except Exception as e:
+                error_msg = f"细粒度浏览器工具注册失败: {str(e)}. 细粒度浏览器工具将不可用."
+                self.debug.log_orchestrator_step("细粒度浏览器工具注册失败", {"error": error_msg})
+                logger.warning(error_msg)
+        
         # 注册 Google 搜索工具（用于在 Google 上搜索网络信息）
         try:
             from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool

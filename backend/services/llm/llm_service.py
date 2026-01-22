@@ -10,6 +10,7 @@ from shared.debug_utils import DebugOutput
 if TYPE_CHECKING:
     from browser_use.llm.base import BaseChatModel
 
+
 logger = logging.getLogger(__name__)
 
 # 延迟导入，避免循环依赖
@@ -573,6 +574,31 @@ class LLMService:
             logger.error(f"网络错误: {e}", exc_info=True)
             raise
     
+    def supports_response_format(self) -> bool:
+        """
+        检查当前 LLM 是否支持 response_format 参数
+        """
+        provider = self.provider
+        model = self.model
+        
+        # DeepSeek 不支持 response_format
+        if provider == self.PROVIDER_DEEPSEEK:
+            return False
+        
+        # 百炼平台部分模型支持
+        if provider == self.PROVIDER_BAILIAN:
+            unsupported_models = ["qwen-turbo"]  # 根据实际情况调整
+            if model in unsupported_models:
+                return False
+            return True
+        
+        # TheTurbo.ai 网关支持大多数模型
+        if provider == self.PROVIDER_TURBOGATEWAY:
+            return True
+        
+        # 默认认为支持
+        return True
+    
     def get_browser_use_llm(self, model: Optional[str] = None):
         """
         获取 browser-use 兼容的 LLM 实例
@@ -585,6 +611,19 @@ class LLMService:
             
         Note:
             这个方法返回的 LLM 实例可以直接用于 browser-use 的 Agent
+        """
+        return self.get_browser_use_llm_with_adaptation(model)
+    
+    def get_browser_use_llm_with_adaptation(self, model: Optional[str] = None, disable_response_schema: bool = False):
+        """
+        获取 browser-use 兼容的 LLM 实例，带适配层支持
+        
+        Args:
+            model: 模型名称（可选），如果不提供则使用当前模型
+            disable_response_schema: 是否禁用响应格式模式
+            
+        Returns:
+            browser-use 兼容的 BaseChatModel 实例
         """
         # 延迟导入，避免循环依赖
         try:
@@ -604,18 +643,32 @@ class LLMService:
             # 获取当前配置
             config = self._get_model_config(self.model)
             
+            # 检查是否支持 response_format
+            supports_response_format = self.supports_response_format()
+            
+            # 准备参数
+            llm_kwargs = {
+                "model": config["model"],
+                "api_key": config["api_key"],
+                "base_url": config["base_url"],
+                "temperature": self.temperature,
+                "max_retries": 5
+            }
+            
+            # 根据兼容性决定是否添加额外参数
+            if disable_response_schema or not supports_response_format:
+                # 某些 LLM 不支持 response_format，避免使用可能导致错误的参数
+                # 传递 timeout 以避免 browser-use 内部添加不兼容参数
+                llm_kwargs["timeout"] = 120
+            
             # 创建 ChatOpenAI 实例（browser-use 兼容）
-            browser_llm = ChatOpenAI(
-                model=config["model"],
-                api_key=config["api_key"],
-                base_url=config["base_url"],
-                temperature=self.temperature,
-                max_retries=5
-            )
+            browser_llm = ChatOpenAI(**llm_kwargs)
             
             logger.info(
                 f"创建 browser-use 兼容的 LLM: "
-                f"model={config['model']}, provider={config['provider']}"
+                f"model={config['model']}, provider={config['provider']}, "
+                f"supports_response_format={supports_response_format}, "
+                f"disable_response_schema={disable_response_schema}"
             )
             
             return browser_llm

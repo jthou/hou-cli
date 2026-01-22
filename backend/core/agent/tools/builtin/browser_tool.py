@@ -186,22 +186,19 @@ class BrowserTool(Tool):
             
             # 3. 检查已知的 API 兼容性问题
             # browser-use 库使用的 response_format 参数不被 DeepSeek API 支持
-            # 这是一个已知问题，如果使用 DeepSeek，工具将无法正常工作
+            # 但现在我们有了适配层，所以不再需要完全禁用 DeepSeek
             base_url = os.getenv("DEEPSEEK_BASE_URL", "")
             is_deepseek = "deepseek" in default_model.lower() or "deepseek" in base_url.lower()
             
+            # 不再完全禁用 DeepSeek，因为我们有适配层
+            # 如果是 DeepSeek，我们会使用适配层来绕过 response_format 限制
             if is_deepseek:
-                # DeepSeek API 已知不兼容 browser-use 的 response_format 参数
-                # 根据测试结果，DeepSeek 无法正常工作
-                # 直接返回不可用，避免大模型使用不靠谱的工具
-                return False, (
-                    "LLM API 不兼容: browser-use 使用的 response_format 参数不被 DeepSeek API 支持。"
-                    "请配置支持 response_format 的 LLM（如 OpenAI、Anthropic、Google）或设置 BROWSER_TOOL_ENABLED=false 禁用此工具。"
-                )
+                logger.info("检测到 DeepSeek API，将使用适配层绕过 response_format 限制")
             
             # 尝试创建 LLM 实例（不实际调用 API，只检查配置）
             try:
-                browser_llm = llm_service.get_browser_use_llm(model=default_model)
+                # 使用适配版本的 LLM 创建方法
+                browser_llm = llm_service.get_browser_use_llm_with_adaptation(model=default_model)
                 # 如果成功创建，说明配置正确
                 # 注意：实际的 API 兼容性会在第一次使用时验证
                 return True, None
@@ -285,26 +282,32 @@ class BrowserTool(Tool):
             from backend.services.llm.llm_service import LLMService
             self.llm_service = LLMService()
         
+        # 如果需要视觉功能，直接使用视觉模型
         if use_vision:
-            # 使用视觉模型（Qwen-VL）
             vision_model = os.getenv("BROWSER_TOOL_VISION_MODEL", "qwen-vl-max-2025-08-13")
             logger.info(f"使用视觉模型: {vision_model}")
             
             try:
                 # 通过 LLMService 获取 browser-use 兼容的 LLM 实例
-                browser_llm = self.llm_service.get_browser_use_llm(model=vision_model)
+                browser_llm = self.llm_service.get_browser_use_llm_with_adaptation(model=vision_model)
                 logger.info(f"视觉模型已创建: {vision_model}")
                 return browser_llm
             except Exception as e:
                 logger.warning(f"无法创建视觉模型，回退到 DeepSeek: {e}")
                 # 回退到 DeepSeek
                 default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-                return self.llm_service.get_browser_use_llm(model=default_model)
-        else:
-            # 使用 DeepSeek（默认）
-            default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-            logger.info(f"使用 DeepSeek 模型: {default_model}")
-            return self.llm_service.get_browser_use_llm(model=default_model)
+                return self.llm_service.get_browser_use_llm_with_adaptation(
+                    model=default_model,
+                    disable_response_schema=True  # 防止 response_format 相关错误
+                )
+        
+        # 使用默认模型（如果没有任务特定的智能选择需求）
+        default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        logger.info(f"使用默认模型: {default_model}")
+        return self.llm_service.get_browser_use_llm_with_adaptation(
+            model=default_model,
+            disable_response_schema=True  # 防止 response_format 相关错误
+        )
 
     def execute(self, **kwargs) -> ToolResult:
         """执行浏览器任务（同步包装异步方法）"""
