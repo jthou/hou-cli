@@ -361,6 +361,15 @@ class BrowserTool(Tool):
             "keep_alive": keep_alive,  # 支持链式任务
         }
         
+        # 在 macOS 上，显式设置 Chrome 路径以避免查找问题
+        import platform
+        if platform.system() == "Darwin":  # macOS
+            import os
+            macos_chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            if os.path.exists(macos_chrome_path):
+                browser_kwargs["executable_path"] = macos_chrome_path
+                logger.info(f"已设置 Chrome 可执行文件路径: {macos_chrome_path}")
+        
         # 如果提供了 user_data_dir，使用它来保存登录状态
         if user_data_dir:
             # 如果 user_data_dir 是相对路径或简单的站点名称，使用项目配置目录
