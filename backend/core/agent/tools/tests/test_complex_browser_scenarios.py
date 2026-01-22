@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 """复杂浏览器任务场景测试 - 搜索、打开网页、提取内容并生成报告"""
 import pytest
 from unittest.mock import Mock, patch
+
 from backend.core.agent.tools.builtin.browser_intelligence import BrowserIntelligence
 from backend.core.agent.tools.builtin.browser_action_tool import (
     BrowserNavigateTool,
