@@ -131,24 +131,73 @@ class BrowserNavigateTool(BrowserActionTool):
     
     def _execute_action(self, **kwargs) -> ToolResult:
         """执行导航操作"""
-        # 这里会通过 browser-use 执行实际的导航操作
-        # 由于 browser-use 是异步的，这里我们只是模拟返回
-        url = kwargs.get("url")
-        new_tab = kwargs.get("new_tab", False)
+        # 同步版本，我们调用异步版本
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         
-        # 实际实现需要整合 browser-use
-        return ToolResult(
-            success=True,
-            data={
-                "message": f"导航到 {url} {'(新标签页)' if new_tab else '(当前标签页)'}",
-                "url": url,
-                "new_tab": new_tab
-            }
-        )
+        async def run_async():
+            return await self._execute_action_async(**kwargs)
+        
+        return loop.run_until_complete(run_async())
     
     async def _execute_action_async(self, **kwargs) -> ToolResult:
         """执行导航操作（异步）"""
-        return self._execute_action(**kwargs)
+        from browser_use import Agent
+        
+        url = kwargs.get("url")
+        new_tab = kwargs.get("new_tab", False)
+        
+        try:
+            # 获取适配后的LLM
+            llm = self.llm_service.get_browser_use_llm_with_adaptation(
+                model='deepseek-chat'
+            )
+            
+            # 创建 agent 执行导航
+            agent = Agent(
+                task=f"{'在新标签页' if new_tab else '在当前标签页'}导航到 {url}",
+                llm=llm,
+            )
+            
+            result = await agent.run()
+            
+            # 检查 agent 是否成功完成任务
+            # 如果结果中有错误信息，应该反映到工具结果中
+            result_str = str(result)
+            has_items_error = 'items' in result_str
+            has_consecutive_failures = 'consecutive failures' in result_str
+            
+            if has_items_error or has_consecutive_failures:
+                return ToolResult(
+                    success=False,  # 实际上任务失败了
+                    error=f"浏览器操作未能完成: {result_str[:200]}...",
+                    data={
+                        "message": f"导航到 {url} 失败",
+                        "url": url,
+                        "new_tab": new_tab,
+                        "result": result_str,
+                        "error_details": "模型响应格式与browser-use不兼容导致任务失败"
+                    }
+                )
+            else:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "message": f"成功导航到 {url} {'(新标签页)' if new_tab else '(当前标签页)'}",
+                        "url": url,
+                        "new_tab": new_tab,
+                        "result": str(result)
+                    }
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"导航失败: {str(e)}"
+            )
 
 
 class BrowserClickTool(BrowserActionTool):
@@ -190,31 +239,84 @@ class BrowserClickTool(BrowserActionTool):
     
     def _execute_action(self, **kwargs) -> ToolResult:
         """执行点击操作"""
+        # 同步版本，我们调用异步版本
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        async def run_async():
+            return await self._execute_action_async(**kwargs)
+        
+        return loop.run_until_complete(run_async())
+    
+    async def _execute_action_async(self, **kwargs) -> ToolResult:
+        """执行点击操作（异步）"""
+        from browser_use import Agent
+        
         index = kwargs.get("index")
         text = kwargs.get("text")
         coord_x = kwargs.get("coordinate_x")
         coord_y = kwargs.get("coordinate_y")
         
-        # 实际实现需要整合 browser-use
-        return ToolResult(
-            success=True,
-            data={
-                "message": (
-                    f"点击元素 index={index}, "
-                    f"text='{text}', "
-                    f"coord=({coord_x}, {coord_y})"
-                ),
-                "index": index,
-                "text": text,
-                "coordinate": (coord_x, coord_y)
-                if coord_x is not None and coord_y is not None
-                else None
-            }
-        )
-    
-    async def _execute_action_async(self, **kwargs) -> ToolResult:
-        """执行点击操作（异步）"""
-        return self._execute_action(**kwargs)
+        try:
+            # 获取适配后的LLM
+            llm = self.llm_service.get_browser_use_llm_with_adaptation(
+                model='deepseek-chat'
+            )
+            
+            # 构建任务描述
+            if text:
+                task_desc = f"点击文本为 '{text}' 的元素"
+            elif coord_x is not None and coord_y is not None:
+                task_desc = f"点击坐标 ({coord_x}, {coord_y}) 处的元素"
+            else:
+                task_desc = f"点击索引为 {index} 的元素"
+            
+            # 创建 agent 执行点击
+            agent = Agent(
+                task=task_desc,
+                llm=llm,
+            )
+            
+            result = await agent.run()
+            
+            # 检查 agent 是否成功完成任务
+            result_str = str(result)
+            has_items_error = 'items' in result_str
+            has_consecutive_failures = 'consecutive failures' in result_str
+            
+            if has_items_error or has_consecutive_failures:
+                return ToolResult(
+                    success=False,  # 实际上任务失败了
+                    error=f"浏览器操作未能完成: {result_str[:200]}...",
+                    data={
+                        "message": f"点击元素 {task_desc} 失败",
+                        "index": index,
+                        "text": text,
+                        "coordinate": (coord_x, coord_y) if coord_x is not None and coord_y is not None else None,
+                        "result": result_str,
+                        "error_details": "模型响应格式与browser-use不兼容导致任务失败"
+                    }
+                )
+            else:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "message": f"成功点击元素: {task_desc}",
+                        "index": index,
+                        "text": text,
+                        "coordinate": (coord_x, coord_y) if coord_x is not None and coord_y is not None else None,
+                        "result": str(result)
+                    }
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"点击失败: {str(e)}"
+            )
 
 
 class BrowserFillTool(BrowserActionTool):
@@ -251,24 +353,78 @@ class BrowserFillTool(BrowserActionTool):
     
     def _execute_action(self, **kwargs) -> ToolResult:
         """执行填充操作"""
+        # 同步版本，我们调用异步版本
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        async def run_async():
+            return await self._execute_action_async(**kwargs)
+        
+        return loop.run_until_complete(run_async())
+    
+    async def _execute_action_async(self, **kwargs) -> ToolResult:
+        """执行填充操作（异步）"""
+        from browser_use import Agent
+        
         index = kwargs.get("index")
         text = kwargs.get("text")
         clear = kwargs.get("clear", True)
         
-        # 实际实现需要整合 browser-use
-        return ToolResult(
-            success=True,
-            data={
-                "message": f"在索引 {index} 的输入框中填入文本: {text}",
-                "index": index,
-                "text": text,
-                "clear": clear
-            }
-        )
-    
-    async def _execute_action_async(self, **kwargs) -> ToolResult:
-        """执行填充操作（异步）"""
-        return self._execute_action(**kwargs)
+        try:
+            # 获取适配后的LLM
+            llm = self.llm_service.get_browser_use_llm_with_adaptation(
+                model='deepseek-chat'
+            )
+            
+            # 构建任务描述
+            task_desc = f"在索引为 {index} 的输入框中填入文本 '{text}'{' (先清空)' if clear else ''}"
+            
+            # 创建 agent 执行填充
+            agent = Agent(
+                task=task_desc,
+                llm=llm,
+            )
+            
+            result = await agent.run()
+            
+            # 检查 agent 是否成功完成任务
+            result_str = str(result)
+            has_items_error = 'items' in result_str
+            has_consecutive_failures = 'consecutive failures' in result_str
+            
+            if has_items_error or has_consecutive_failures:
+                return ToolResult(
+                    success=False,  # 实际上任务失败了
+                    error=f"浏览器操作未能完成: {result_str[:200]}...",
+                    data={
+                        "message": f"填充输入框 {task_desc} 失败",
+                        "index": index,
+                        "text": text,
+                        "clear": clear,
+                        "result": result_str,
+                        "error_details": "模型响应格式与browser-use不兼容导致任务失败"
+                    }
+                )
+            else:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "message": f"成功填充输入框: {task_desc}",
+                        "index": index,
+                        "text": text,
+                        "clear": clear,
+                        "result": str(result)
+                    }
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"填充失败: {str(e)}"
+            )
 
 
 class BrowserSearchTool(BrowserActionTool):
@@ -299,22 +455,75 @@ class BrowserSearchTool(BrowserActionTool):
     
     def _execute_action(self, **kwargs) -> ToolResult:
         """执行搜索操作"""
-        query = kwargs.get("query")
-        engine = kwargs.get("engine", "google")
+        # 同步版本，我们调用异步版本
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         
-        # 实际实现需要整合 browser-use
-        return ToolResult(
-            success=True,
-            data={
-                "message": f"使用 {engine} 搜索: {query}",
-                "query": query,
-                "engine": engine
-            }
-        )
+        async def run_async():
+            return await self._execute_action_async(**kwargs)
+        
+        return loop.run_until_complete(run_async())
     
     async def _execute_action_async(self, **kwargs) -> ToolResult:
         """执行搜索操作（异步）"""
-        return self._execute_action(**kwargs)
+        from browser_use import Agent
+        
+        query = kwargs.get("query")
+        engine = kwargs.get("engine", "google")
+        
+        try:
+            # 获取适配后的LLM
+            llm = self.llm_service.get_browser_use_llm_with_adaptation(
+                model='deepseek-chat'
+            )
+            
+            # 构建任务描述
+            task_desc = f"使用 {engine} 搜索 '{query}'"
+            
+            # 创建 agent 执行搜索
+            agent = Agent(
+                task=task_desc,
+                llm=llm,
+            )
+            
+            result = await agent.run()
+            
+            # 检查 agent 是否成功完成任务
+            result_str = str(result)
+            has_items_error = 'items' in result_str
+            has_consecutive_failures = 'consecutive failures' in result_str
+            
+            if has_items_error or has_consecutive_failures:
+                return ToolResult(
+                    success=False,  # 实际上任务失败了
+                    error=f"浏览器操作未能完成: {result_str[:200]}...",
+                    data={
+                        "message": f"搜索 {task_desc} 失败",
+                        "query": query,
+                        "engine": engine,
+                        "result": result_str,
+                        "error_details": "模型响应格式与browser-use不兼容导致任务失败"
+                    }
+                )
+            else:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "message": f"成功搜索: {task_desc}",
+                        "query": query,
+                        "engine": engine,
+                        "result": str(result)
+                    }
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"搜索失败: {str(e)}"
+            )
 
 
 class BrowserExtractTool(BrowserActionTool):
@@ -345,19 +554,72 @@ class BrowserExtractTool(BrowserActionTool):
     
     def _execute_action(self, **kwargs) -> ToolResult:
         """执行内容提取操作"""
-        query = kwargs.get("query")
-        extract_links = kwargs.get("extract_links", False)
+        # 同步版本，我们调用异步版本
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         
-        # 实际实现需要整合 browser-use
-        return ToolResult(
-            success=True,
-            data={
-                "message": f"从当前页面提取信息: {query}",
-                "query": query,
-                "extract_links": extract_links
-            }
-        )
+        async def run_async():
+            return await self._execute_action_async(**kwargs)
+        
+        return loop.run_until_complete(run_async())
     
     async def _execute_action_async(self, **kwargs) -> ToolResult:
         """执行内容提取操作（异步）"""
-        return self._execute_action(**kwargs)
+        from browser_use import Agent
+        
+        query = kwargs.get("query")
+        extract_links = kwargs.get("extract_links", False)
+        
+        try:
+            # 获取适配后的LLM
+            llm = self.llm_service.get_browser_use_llm_with_adaptation(
+                model='deepseek-chat'
+            )
+            
+            # 构建任务描述
+            task_desc = f"从当前页面提取信息: {query}{' (包括链接)' if extract_links else ''}"
+            
+            # 创建 agent 执行提取
+            agent = Agent(
+                task=task_desc,
+                llm=llm,
+            )
+            
+            result = await agent.run()
+            
+            # 检查 agent 是否成功完成任务
+            result_str = str(result)
+            has_items_error = 'items' in result_str
+            has_consecutive_failures = 'consecutive failures' in result_str
+            
+            if has_items_error or has_consecutive_failures:
+                return ToolResult(
+                    success=False,  # 实际上任务失败了
+                    error=f"浏览器操作未能完成: {result_str[:200]}...",
+                    data={
+                        "message": f"提取信息 {task_desc} 失败",
+                        "query": query,
+                        "extract_links": extract_links,
+                        "result": result_str,
+                        "error_details": "模型响应格式与browser-use不兼容导致任务失败"
+                    }
+                )
+            else:
+                return ToolResult(
+                    success=True,
+                    data={
+                        "message": f"成功提取信息: {task_desc}",
+                        "query": query,
+                        "extract_links": extract_links,
+                        "result": str(result)
+                    }
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"提取失败: {str(e)}"
+            )

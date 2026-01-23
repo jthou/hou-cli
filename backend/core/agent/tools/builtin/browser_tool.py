@@ -349,7 +349,12 @@ class BrowserTool(Tool):
         use_vision = self._needs_vision(task)
         
         # 创建 LLM
-        llm = self._create_llm(use_vision=use_vision)
+        try:
+            llm = self._create_llm(use_vision=use_vision)
+        except Exception as e:
+            # 如果 LLM 创建失败，记录错误但继续执行
+            logger.error(f"创建 LLM 失败: {e}")
+            raise
 
         # 创建 Browser 实例（根据官方文档推荐的方式）
         # 优化：根据 headless 模式调整等待时间

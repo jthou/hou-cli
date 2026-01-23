@@ -2,12 +2,13 @@
 import os
 from dataclasses import dataclass
 
+
 @dataclass
 class Config:
     """配置类"""
     # 后端配置
     backend_host: str = os.getenv("BACKEND_HOST", "127.0.0.1")
-    backend_port: int = int(os.getenv("BACKEND_PORT", "8000"))
+    backend_port: int = int(os.getenv("BACKEND_PORT", "8000") or "8000")
     
     # LLM 配置
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")

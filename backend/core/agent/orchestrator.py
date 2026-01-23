@@ -1,4 +1,4 @@
-"""Agent 编排器"""
+"""统一智能编排器"""
 import os
 import logging
 from pathlib import Path
@@ -12,6 +12,7 @@ def get_project_root() -> Path:
     """获取项目根目录"""
     return Path(__file__).parent.parent.parent.parent
 
+
 PROJECT_ROOT = get_project_root()
 
 # 加载 .env 文件（在导入 LLMService 之前）
@@ -22,7 +23,6 @@ else:
     # 尝试从当前目录加载
     load_dotenv()
 
-from backend.core.agent.coordinator import AgentCoordinator
 from backend.core.context.manager import ContextManager as FullContextManager
 from backend.core.context.models import MessageRole
 from backend.core.agent.tools.registry import ToolRegistry
@@ -42,25 +42,20 @@ from backend.core.agent.planning.execution_planner import ExecutionPlanner
 from backend.core.agent.planning.model_switcher import ModelSwitcher
 from backend.core.agent.planning.adaptive_strategy import AdaptiveStrategy, ExecutionMetrics
 from backend.core.agent.planning.autonomous_executor import AutonomousExecutor
-from backend.core.agent.evaluator import ConversationEvaluator
 from backend.api.stream_sender import SSEFormatter, LongTaskMonitor, StreamMessageBuilder
 from backend.core.agent.task_manager import task_manager
-# from backend.core.workflow.workflow_identifier import WorkflowIdentifier
-# from backend.core.workflow.workflow_engine import WorkflowEngine
 
-class Orchestrator:
-    """Agent 编排器，负责任务分解和 Agent 协调"""
+
+class UnifiedOrchestrator:
+    """统一智能编排器，使用推理模型智能选择和协调agents及tools"""
     
     def __init__(self):
-        self.coordinator = AgentCoordinator()
         self.llm_service = LLMService()
         self.context_manager = FullContextManager()
         self.tool_registry = ToolRegistry()
         self.debug = DebugOutput()  # 调试输出
         
         # 初始化技能系统
-        from backend.core.agent.skills.registry import SkillRegistry
-        from backend.core.agent.skills.executor import SkillExecutor
         self.skill_registry = SkillRegistry()
         self.skill_executor = SkillExecutor(self.tool_registry, self.llm_service)
         
@@ -68,12 +63,12 @@ class Orchestrator:
         self.auto_code_executor = None
         self.auto_execute_code = True  # 配置项：是否自动执行代码块
         
-        # 规划文件管理（方案2：集成到 Orchestrator）
+        # 规划文件管理
         import os
         planning_enabled = os.getenv("ENABLE_PLANNING", "true").lower() == "true"
         self.enable_planning = planning_enabled
         
-        # 对话评估功能（可以独立于规划功能启用）
+        # 对话评估功能
         evaluation_enabled = os.getenv("ENABLE_EVALUATION", "true").lower() == "true"
         self.enable_evaluation = evaluation_enabled
         
@@ -93,10 +88,10 @@ class Orchestrator:
                 llm_service=self.llm_service,
                 use_llm=os.getenv("PLANNING_USE_LLM", "false").lower() == "true"
             )
-            # 初始化对话评估器（用于评估对话质量并记录到规划文件）
+            # 初始化对话评估器
             self.evaluator = ConversationEvaluator(llm_service=self.llm_service)
             
-            # 初始化自主执行器（替代传统规划文件模式）
+            # 初始化自主执行器
             autonomous_execution_enabled = (
                 os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
             )
@@ -111,7 +106,7 @@ class Orchestrator:
                 self.autonomous_executor = None
                 logger.info("自主执行功能已禁用（使用传统规划文件模式）")
             
-            # 初始化任务分解器和执行计划生成器（阶段2）
+            # 初始化任务分解器和执行计划生成器
             task_decomposition_enabled = os.getenv("ENABLE_TASK_DECOMPOSITION", "false").lower() == "true"
             if task_decomposition_enabled:
                 self.task_decomposer = TaskDecomposer(
@@ -126,7 +121,7 @@ class Orchestrator:
                 self.execution_planner = None
                 logger.info("任务分解功能已禁用")
             
-            # 定期清理旧文件（每100次任务后清理一次）
+            # 定期清理旧文件
             self._planning_cleanup_counter = 0
             self._planning_cleanup_interval = int(os.getenv("PLANNING_CLEANUP_INTERVAL", "100"))
             self._planning_max_age_days = int(os.getenv("PLANNING_MAX_AGE_DAYS", "7"))
@@ -166,11 +161,11 @@ class Orchestrator:
                 self.task_decomposer = None
                 self.execution_planner = None
         
-        # 初始化动态模型切换器（阶段2，始终启用）
+        # 初始化动态模型切换器（始终启用）
         self.model_switcher = ModelSwitcher()
         logger.info("动态模型切换功能已启用")
         
-        # 初始化自适应策略管理器（阶段2，可选）
+        # 初始化自适应策略管理器（可选）
         adaptive_strategy_enabled = os.getenv("ENABLE_ADAPTIVE_STRATEGY", "false").lower() == "true"
         if adaptive_strategy_enabled:
             self.adaptive_strategy = AdaptiveStrategy(model_switcher=self.model_switcher)
@@ -179,17 +174,462 @@ class Orchestrator:
             self.adaptive_strategy = None
             logger.info("自适应策略功能已禁用")
         
-        # 注册天气工具（如果配置了 JWT）
+        # 注册工具和技能
         self._register_tools()
-        
-        # 注册技能（优先于工具）
         self._register_skills()
         
         # 初始化自动代码执行器
         self._init_auto_code_executor()
         
-        # self.workflow_identifier = WorkflowIdentifier()
-        # self.workflow_engine = WorkflowEngine(self)
+        # 统一的技能匹配服务
+        self.skill_matcher = SkillMatcher(self.skill_registry)
+    
+    async def process(self, task: str, context: Optional[Dict] = None) -> str:
+        """智能处理任务，使用LLM决定如何协调agents和tools"""
+        # 优先检查是否有匹配的技能
+        matched_skill = None
+        if self.skill_registry is not None:
+            matched_skill = await self.skill_matcher.match(task)
+        
+        if matched_skill:
+            logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
+            self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
+            
+            # 提取技能参数
+            skill_params = self._extract_skill_parameters(task, matched_skill)
+            
+            # 执行技能
+            try:
+                # 设置上下文
+                session_id = context.get("session_id") if context else None
+                if not session_id:
+                    session_id = self.context_manager.create_session()
+                
+                skill_context = {
+                    'tool_registry': self.tool_registry,
+                    'llm_service': self.llm_service,
+                    'context_manager': self.context_manager,
+                    'session_id': session_id
+                }
+                
+                skill_result = await matched_skill.execute(skill_params, skill_context)
+                
+                if skill_result.success:
+                    logger.info(f"技能 {matched_skill.name} 执行成功")
+                    result_text = self._format_skill_result(matched_skill, skill_result)
+                    return result_text
+                else:
+                    logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
+                    # 技能执行失败，继续使用LLM处理
+            except Exception as e:
+                logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
+                # 技能执行异常，继续使用LLM处理
+        
+        # 如果没有匹配到技能或技能执行失败，使用LLM智能编排
+        return await self._intelligent_orchestration(task, context)
+    
+    async def _intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> str:
+        """使用LLM智能编排agents和tools"""
+        # 获取会话ID
+        session_id = context.get("session_id") if context else None
+        if not session_id:
+            session_id = self.context_manager.create_session()
+        
+        # 获取历史消息
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,
+            max_tokens=None
+        )
+        
+        # 获取所有可用的agents和tools
+        available_agents = ["chat_agent", "code_agent", "filesystem_agent", "pdf_agent", "writing_blog_agent"]
+        available_tools = [tool.name for tool in self.tool_registry.get_all_tools()]
+        
+        # 构建智能编排的系统提示
+        system_prompt = f"""你是智能编排助手，根据用户的需求智能选择和协调agents和tools来完成任务。
+
+可用agents: {', '.join(available_agents)}
+可用tools: {', '.join(available_tools)}
+
+编排原则：
+1. 分析用户需求的本质和目标
+2. 选择最适合的agent或tool组合
+3. 如果需要多个步骤，规划执行序列
+4. 优先选择能直接解决问题的agent或tool
+5. 如果需要复杂操作，考虑组合使用多个工具
+
+请按以下JSON格式返回你的编排计划：
+{{
+    "selected_component": "选择的组件类型 (agent/tool)",
+    "component_name": "组件名称",
+    "action": "具体操作",
+    "parameters": {{}},
+    "reason": "选择此组件的理由"
+}}
+"""
+        
+        # 构建用户提示
+        if history:
+            history_text = "\n".join([
+                f"{msg['role'].upper()}: {msg['content']}" 
+                for msg in history[-5:]  # 只取最近5条消息
+            ])
+            user_prompt = f"历史对话:\n{history_text}\n\n当前任务：{task}"
+        else:
+            user_prompt = f"任务：{task}"
+        
+        try:
+            # 使用LLM决定编排策略
+            orchestration_plan = await self.llm_service.chat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            )
+            
+            # 解析编排计划
+            import json
+            plan = json.loads(orchestration_plan)
+            
+            component_type = plan.get("selected_component")
+            component_name = plan.get("component_name")
+            action = plan.get("action")
+            params = plan.get("parameters", {})
+            
+            if component_type == "agent":
+                return await self._execute_agent(component_name, task, params, session_id)
+            elif component_type == "tool":
+                return await self._execute_tool(component_name, params, session_id)
+            else:
+                # 如果LLM没有给出明确的编排方案，使用默认处理
+                return await self._default_processing(task, session_id)
+        
+        except Exception as e:
+            logger.warning(f"智能编排失败，使用默认处理: {e}")
+            return await self._default_processing(task, session_id)
+    
+    async def _execute_agent(self, agent_name: str, task: str, params: Dict, session_id: str) -> str:
+        """执行指定的agent"""
+        # 这里可以根据agent名称动态调用相应的agent
+        # 暂时使用通用处理方式
+        logger.info(f"执行agent: {agent_name}，任务: {task}")
+        
+        # 根据agent类型执行不同的逻辑
+        if agent_name == "writing_blog_agent":
+            from backend.core.agent.agents.writing_blog_agent import BlogWritingAgent
+            agent = BlogWritingAgent(self.llm_service, self.tool_registry)
+            # 使用参数执行博客写作
+            result = await agent.execute(params)
+            return result
+        elif agent_name == "code_agent":
+            # 代码agent处理逻辑
+            pass
+        elif agent_name == "filesystem_agent":
+            # 文件系统agent处理逻辑
+            pass
+        elif agent_name == "pdf_agent":
+            # PDF agent处理逻辑
+            pass
+        elif agent_name == "chat_agent":
+            # 聊天agent处理逻辑
+            pass
+        
+        # 默认处理
+        return await self._default_processing(task, session_id)
+    
+    async def _execute_tool(self, tool_name: str, params: Dict, session_id: str) -> str:
+        """执行指定的tool"""
+        # 从工具注册表获取工具并执行
+        tool = self.tool_registry.get_tool(tool_name)
+        if tool:
+            try:
+                result = await tool.execute(**params)
+                if result.success:
+                    return str(result.data) if result.data else result.message
+                else:
+                    return f"工具执行失败: {result.error}"
+            except Exception as e:
+                logger.error(f"工具 {tool_name} 执行失败: {e}")
+                return f"工具执行出错: {str(e)}"
+        else:
+            return f"未找到工具: {tool_name}"
+    
+    async def _default_processing(self, task: str, session_id: str) -> str:
+        """默认处理逻辑"""
+        # 获取历史消息
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,
+            max_tokens=None
+        )
+        
+        # 构建系统提示
+        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
+        
+        # 构建用户提示
+        if history:
+            history_text = "\n".join([
+                f"{msg['role'].upper()}: {msg['content']}" 
+                for msg in history[-5:]
+            ])
+            user_prompt = f"{history_text}\n\n新任务：{task}"
+        else:
+            user_prompt = task
+        
+        # 使用LLM生成回复
+        response = await self.llm_service.chat(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt
+        )
+        
+        # 保存消息到历史
+        self.context_manager.add_message(session_id, MessageRole.USER, task)
+        self.context_manager.add_message(session_id, MessageRole.ASSISTANT, response)
+        
+        return response
+    
+    async def stream_process(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
+        """流式处理任务"""
+        # 发送调试信息：开始技能匹配
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "开始技能匹配",
+            "details": {"task": task[:50] + "..." if len(task) > 50 else task}
+        }
+        yield StreamMessageBuilder.build_debug(debug_info)
+        
+        # 优先检查是否有匹配的技能
+        matched_skill = None
+        if self.skill_registry is not None:
+            matched_skill = await self.skill_matcher.match(task)
+        
+        if matched_skill:
+            logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "技能匹配",
+                "details": {"skill": matched_skill.name}
+            }
+            yield StreamMessageBuilder.build_debug(debug_info)
+            
+            # 提取技能参数
+            skill_params = self._extract_skill_parameters(task, matched_skill)
+            
+            # 执行技能
+            try:
+                # 设置上下文
+                session_id = context.get("session_id") if context else None
+                if not session_id:
+                    session_id = self.context_manager.create_session()
+                
+                # 创建进度回调
+                def progress_callback(message: str):
+                    progress_msg = {
+                        "type": "progress",
+                        "message": message,
+                        "skill": matched_skill.name
+                    }
+                    yield StreamMessageBuilder.build_progress(progress_msg)
+                
+                skill_context = {
+                    'tool_registry': self.tool_registry,
+                    'llm_service': self.llm_service,
+                    'context_manager': self.context_manager,
+                    'session_id': session_id,
+                    'progress_callback': progress_callback
+                }
+                
+                skill_result = await matched_skill.execute(skill_params, skill_context)
+                
+                if skill_result.success:
+                    logger.info(f"技能 {matched_skill.name} 执行成功")
+                    result_text = self._format_skill_result(matched_skill, skill_result)
+                    for char in result_text:
+                        yield char
+                else:
+                    logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
+                    error_msg = f"技能执行失败: {skill_result.error}，将使用LLM处理\n\n"
+                    for char in error_msg:
+                        yield char
+            except Exception as e:
+                logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
+                error_msg = f"技能执行异常: {str(e)}，将使用LLM处理\n\n"
+                for char in error_msg:
+                    yield char
+        
+        # 如果没有匹配到技能或技能执行失败，使用流式智能编排
+        async for chunk in self._stream_intelligent_orchestration(task, context):
+            yield chunk
+    
+    async def _stream_intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
+        """流式智能编排agents和tools"""
+        # 获取会话ID
+        session_id = context.get("session_id") if context else None
+        if not session_id:
+            session_id = self.context_manager.create_session()
+        
+        # 获取历史消息
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,
+            max_tokens=None
+        )
+        
+        # 获取所有可用的agents和tools
+        available_agents = ["chat_agent", "code_agent", "filesystem_agent", "pdf_agent", "writing_blog_agent"]
+        available_tools = [tool.name for tool in self.tool_registry._tools.values()]
+        
+        # 构建智能编排的系统提示
+        system_prompt = f"""你是智能编排助手，根据用户的需求智能选择和协调agents和tools来完成任务。
+
+可用agents: {', '.join(available_agents)}
+可用tools: {', '.join(available_tools)}
+
+编排原则：
+1. 分析用户需求的本质和目标
+2. 选择最适合的agent或tool组合
+3. 如果需要多个步骤，规划执行序列
+4. 优先选择能直接解决问题的agent或tool
+5. 如果需要复杂操作，考虑组合使用多个工具
+
+请按以下JSON格式返回你的编排计划：
+{{
+    "selected_component": "选择的组件类型 (agent/tool)",
+    "component_name": "组件名称",
+    "action": "具体操作",
+    "parameters": {{}},
+    "reason": "选择此组件的理由"
+}}
+"""
+        
+        # 构建用户提示
+        if history:
+            history_text = "\n".join([
+                f"{msg['role'].upper()}: {msg['content']}" 
+                for msg in history[-5:]
+            ])
+            user_prompt = f"历史对话:\n{history_text}\n\n当前任务：{task}"
+        else:
+            user_prompt = f"任务：{task}"
+        
+        try:
+            # 使用LLM决定编排策略
+            orchestration_plan = await self.llm_service.chat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            )
+            
+            # 解析编排计划
+            import json
+            plan = json.loads(orchestration_plan)
+            
+            component_type = plan.get("selected_component")
+            component_name = plan.get("component_name")
+            action = plan.get("action")
+            params = plan.get("parameters", {})
+            
+            if component_type == "agent":
+                async for chunk in self._stream_execute_agent(component_name, task, params, session_id):
+                    yield chunk
+            elif component_type == "tool":
+                async for chunk in self._stream_execute_tool(component_name, params, session_id):
+                    yield chunk
+            else:
+                # 如果LLM没有给出明确的编排方案，使用默认处理
+                async for chunk in self._stream_default_processing(task, session_id):
+                    yield chunk
+        
+        except Exception as e:
+            logger.warning(f"智能编排失败，使用默认处理: {e}")
+            async for chunk in self._stream_default_processing(task, session_id):
+                yield chunk
+    
+    async def _stream_execute_agent(self, agent_name: str, task: str, params: Dict, session_id: str) -> AsyncIterator[str]:
+        """流式执行指定的agent"""
+        logger.info(f"流式执行agent: {agent_name}，任务: {task}")
+        # 这里可以根据agent名称动态调用相应的agent
+        # 暂时使用通用处理方式
+        yield f"执行 {agent_name} 代理... "
+        result = await self._execute_agent(agent_name, task, params, session_id)
+        for char in result:
+            yield char
+    
+    async def _stream_execute_tool(self, tool_name: str, params: Dict, session_id: str) -> AsyncIterator[str]:
+        """流式执行指定的tool"""
+        logger.info(f"流式执行tool: {tool_name}，参数: {params}")
+        # 从工具注册表获取工具并执行
+        tool = self.tool_registry.get_tool(tool_name)
+        if tool:
+            try:
+                result = await tool.execute(**params)
+                if result.success:
+                    result_str = str(result.data) if result.data else result.message
+                    for char in f"工具 {tool_name} 执行成功: ":
+                        yield char
+                    for char in result_str:
+                        yield char
+                else:
+                    error_msg = f"工具执行失败: {result.error}"
+                    for char in error_msg:
+                        yield char
+            except Exception as e:
+                error_msg = f"工具 {tool_name} 执行失败: {e}"
+                for char in error_msg:
+                    yield char
+        else:
+            error_msg = f"未找到工具: {tool_name}"
+            for char in error_msg:
+                yield char
+    
+    async def _stream_default_processing(self, task: str, session_id: str) -> AsyncIterator[str]:
+        """流式默认处理逻辑"""
+        # 获取历史消息
+        history = self.context_manager.get_messages_for_llm(
+            session_id,
+            max_messages=None,
+            max_tokens=None
+        )
+        
+        # 构建系统提示
+        system_prompt = "你是一个智能助手，能够帮助用户解决各种问题。"
+        
+        # 构建用户提示
+        if history:
+            history_text = "\n".join([
+                f"{msg['role'].upper()}: {msg['content']}" 
+                for msg in history[-5:]
+            ])
+            user_prompt = f"{history_text}\n\n新任务：{task}"
+        else:
+            user_prompt = task
+        
+        # 使用LLM生成回复
+        response = await self.llm_service.chat(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt
+        )
+        
+        # 保存消息到历史
+        self.context_manager.add_message(session_id, MessageRole.USER, task)
+        self.context_manager.add_message(session_id, MessageRole.ASSISTANT, response)
+        
+        # 流式返回响应
+        for char in response:
+            yield char
+    
+    def _extract_skill_parameters(self, task: str, skill) -> Dict[str, Any]:
+        """提取技能参数"""
+        # 简单的参数提取逻辑，实际实现可能更复杂
+        return {"input": task}
+    
+    def _format_skill_result(self, skill, result) -> str:
+        """格式化技能执行结果"""
+        if isinstance(result.output, dict):
+            import json
+            return json.dumps(result.output, ensure_ascii=False, indent=2)
+        else:
+            return str(result.output)
     
     def _register_tools(self):
         """注册所有可用工具
@@ -390,105 +830,45 @@ class Orchestrator:
             error_msg = f"Failed to register weather tool: {str(e)}. Weather tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
-        
-        # 注册 Gvim 工具（编辑器工具）
-        try:
-            from backend.core.agent.tools.builtin.gvim_tool import GvimTool
-            gvim_tool = GvimTool()
-            self.tool_registry.register(gvim_tool)
-            self.debug.log_orchestrator_step("注册工具", {"gvim_tool": "registered"})
-            logger.info("Gvim tool registered successfully")
-        except Exception as e:
-            error_msg = f"Failed to register Gvim tool: {str(e)}. Gvim tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册视频下载工具
-        try:
-            from backend.core.agent.tools.builtin.video_downloader_tool import VideoDownloaderTool
-            video_downloader_tool = VideoDownloaderTool()
-            self.tool_registry.register(video_downloader_tool)
-            self.debug.log_orchestrator_step("注册工具", {"video_downloader_tool": "registered"})
-            logger.info("Video downloader tool registered successfully")
-        except Exception as e:
-            error_msg = f"Failed to register video downloader tool: {str(e)}. Video downloader tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册 FFmpeg 工具
-        try:
-            from backend.core.agent.tools.builtin.ffmpeg_tool import FFmpegTool
-            ffmpeg_tool = FFmpegTool()
-            self.tool_registry.register(ffmpeg_tool)
-            self.debug.log_orchestrator_step("注册工具", {"ffmpeg_tool": "registered"})
-            logger.info("FFmpeg tool registered successfully")
-        except Exception as e:
-            error_msg = f"Failed to register FFmpeg tool: {str(e)}. FFmpeg tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册 Whisper 工具（语音转文字）
-        try:
-            from backend.core.agent.tools.builtin.whisper_tool import WhisperTool
-            whisper_tool = WhisperTool()
-            self.tool_registry.register(whisper_tool)
-            self.debug.log_orchestrator_step("注册工具", {"whisper_tool": "registered"})
-            logger.info("Whisper tool registered successfully")
-        except Exception as e:
-            error_msg = f"Failed to register Whisper tool: {str(e)}. Whisper tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-    
+
     def _register_skills(self):
         """注册所有可用技能
         
-        技能优先于工具，当用户请求匹配到技能时，优先使用技能执行
-        从目录自动加载所有技能配置并注册
+        技能注册顺序优化原则：
+        1. 通用技能放在前面
+        2. 专业技能放在后面
+        3. 按照技能的重要性和使用频率排序
         """
         try:
-            from pathlib import Path
-            skills_dir = Path(__file__).parent.parent.parent / "core" / "agent" / "skills"
+            # 导入所有技能类
+            from backend.core.agent.skills.video_downloader.skill import VideoDownloaderSkill
+            from backend.core.agent.skills.video_cut.skill import VideoCutSkill
+            from backend.core.agent.skills.video_extract_srt.skill import VideoExtractSRTSkill
+            from backend.core.agent.skills.blog_writing.skill import BlogWritingSkill
             
-            # 从目录加载所有技能配置
-            self.skill_registry.load_from_directory(skills_dir)
+            # 创建技能实例
+            skills_to_register = [
+                (VideoDownloaderSkill(), "video_downloader"),
+                (VideoCutSkill(), "video_cut"),
+                (VideoExtractSRTSkill(), "video_extract_srt"),
+                (BlogWritingSkill(), "blog_writing"),
+            ]
             
-            # 注册技能实例
-            for skill_name in self.skill_registry._skill_configs.keys():
+            # 注册所有技能
+            for skill, skill_name in skills_to_register:
                 try:
-                    config = self.skill_registry.get_config(skill_name)
-                    if config:
-                        # 根据技能名称动态导入对应的技能类
-                        if skill_name == 'video_downloader':
-                            from backend.core.agent.skills.video_downloader.video_downloader_skill import VideoDownloaderSkill
-                            skill = VideoDownloaderSkill(self.skill_executor)
-                            self.skill_registry.register(skill)
-                            logger.info(f"技能已注册: {skill_name}")
-                        elif skill_name == 'video_extract_srt':
-                            from backend.core.agent.skills.video_extract_srt import VideoExtractSrtSkill
-                            skill = VideoExtractSrtSkill(self.skill_executor)
-                            self.skill_registry.register(skill)
-                            logger.info(f"技能已注册: {skill_name}")
-                        elif skill_name == 'video_cut':
-                            from backend.core.agent.skills.video_editing.video_cut_skill import VideoCutSkill
-                            skill = VideoCutSkill(self.skill_executor)
-                            self.skill_registry.register(skill)
-                            logger.info(f"技能已注册: {skill_name}")
-                        elif skill_name == 'video_merge':
-                            from backend.core.agent.skills.video_merge.video_merge_skill import VideoMergeSkill
-                            skill = VideoMergeSkill(self.skill_executor)
-                            self.skill_registry.register(skill)
-                            logger.info(f"技能已注册: {skill_name}")
-                        elif skill_name == 'video_subtitle_overlay':
-                            from backend.core.agent.skills.video_subtitle_overlay.video_subtitle_overlay_skill import VideoSubtitleOverlaySkill
-                            skill = VideoSubtitleOverlaySkill(self.skill_executor)
-                            self.skill_registry.register(skill)
-                            logger.info(f"技能已注册: {skill_name}")
-                        else:
-                            logger.warning(f"未知的技能名称: {skill_name}")
+                    self.skill_registry.register(skill)
+                    logger.info(f"技能注册成功: {skill_name}")
+                    self.debug.log_orchestrator_step("技能注册", {"skill": skill_name, "status": "success"})
                 except Exception as e:
-                    logger.warning(f"注册技能 {skill_name} 失败: {str(e)}", exc_info=True)
+                    logger.error(f"技能注册失败: {skill_name}, 错误: {str(e)}")
+                    self.debug.log_orchestrator_step("技能注册", {"skill": skill_name, "status": "failed", "error": str(e)})
+        
+        except ImportError as e:
+            logger.warning(f"某些技能模块未安装，部分技能不可用: {str(e)}")
         except Exception as e:
-            logger.warning(f"加载技能失败: {str(e)}", exc_info=True)
+            logger.error(f"注册技能时发生错误: {str(e)}")
+            self.debug.log_orchestrator_step("技能注册", {"status": "failed", "error": str(e)})
     
     def _init_auto_code_executor(self):
         """初始化自动代码执行器"""
@@ -499,6 +879,80 @@ class Orchestrator:
         except Exception as e:
             logger.warning(f"Failed to initialize auto code executor: {str(e)}")
             self.auto_code_executor = None
+
+
+class SkillMatcher:
+    """统一的技能匹配服务"""
+    
+    def __init__(self, skill_registry):
+        self.skill_registry = skill_registry
+        
+    async def match(self, task: str) -> Optional[SkillResult]:
+        """
+        Use LLM to intelligently match the most suitable skill
+        
+        Args:
+            task: User task description
+            
+        Returns:
+            Matched skill or None
+        """
+        # 获取所有可用技能列表
+        available_skills = list(self.skill_registry._skills.keys())
+        
+        if not available_skills:
+            return None
+        
+        # 构建技能描述
+        skills_description = "\n".join([
+            f"- {skill_name}: {self.skill_registry._skills[skill_name].description}" 
+            for skill_name in available_skills
+        ])
+        
+        system_prompt = f"""You are an intelligent skill matching assistant. Based on the user's request, select the most suitable skill from the following available skills.
+
+Available skills list:
+{skills_description}
+
+Selection principles:
+1. Match based on semantic understanding of user needs, not just keyword matching
+2. Select the skill that best fits the user's intent
+3. Avoid selecting related skills if the user explicitly indicates they don't want a specific skill
+4. Return the most relevant skill name, or return 'none' if no skill is appropriate
+
+Please return strictly in the following JSON format:
+{{
+    "skill_name": "matched skill name or 'none'",
+    "reason": "matching reason"
+}}
+"""
+        
+        user_prompt = f"用户需求：{task}"
+        
+        try:
+            from backend.services.llm.llm_service import LLMService
+            llm_service = LLMService()
+            response = await llm_service.chat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            )
+            
+            import json
+            result = json.loads(response)
+            
+            skill_name = result.get("skill_name", "none")
+            if skill_name != "none" and skill_name in self.skill_registry._skills:
+                return self.skill_registry._skills[skill_name]
+            else:
+                return None
+        except Exception as e:
+            logger.warning(f"技能匹配失败，回退到传统匹配: {e}")
+            # 回退到传统技能匹配
+            return await self.skill_registry.match(task)
+
+
+        
+    
     
     def _build_execution_feedback(self, execution_results: list) -> str:
         """构建执行结果反馈消息"""
@@ -541,7 +995,7 @@ class Orchestrator:
         # 优先检查是否有匹配的技能
         matched_skill = None
         if self.skill_registry is not None:
-            matched_skill = self.skill_registry.match(task)
+            matched_skill = await self.skill_registry.match(task)
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
@@ -1239,7 +1693,7 @@ class Orchestrator:
         
         matched_skill = None
         if self.skill_registry is not None:
-            matched_skill = self.skill_registry.match(task)
+            matched_skill = await self.skill_registry.match(task)
         
         # #region agent log
         try:
@@ -3312,3 +3766,9 @@ class Orchestrator:
         """获取推理模型配置"""
         from backend.services.llm.model_config import get_model_config_manager
         return get_model_config_manager().get_reasoning_model()
+
+
+
+
+# 为了向后兼容，提供 Orchestrator 类别名
+Orchestrator = UnifiedOrchestrator

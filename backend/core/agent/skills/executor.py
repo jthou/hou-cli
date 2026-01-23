@@ -1606,7 +1606,7 @@ class SkillExecutor:
         if matches:
             code = matches[0].strip()
             if code:
-                return code
+                return self._clean_code(code)
         
         # 方法2: 如果没有 code block，尝试提取代码行（以 import 或 def 开头）
         lines = response.split('\n')
@@ -1630,10 +1630,44 @@ class SkillExecutor:
         if code_lines:
             code = '\n'.join(code_lines).strip()
             if code:
-                return code
+                return self._clean_code(code)
         
         # 方法3: 如果都没有，返回整个响应（可能是纯代码）
-        return response.strip()
+        return self._clean_code(response.strip())
+    
+    def _clean_code(self, code: str) -> str:
+        """
+        清理代码，移除非法字符
+        
+        Args:
+            code: 原始代码字符串
+        
+        Returns:
+            清理后的代码字符串
+        """
+        import re
+        
+        # 移除非法字符（如中文标点符号，但保留必要的中文字符如中文注释）
+        # 只保留字母、数字、常见符号、空白符和基本中文字符
+        cleaned_lines = []
+        for line in code.split('\n'):
+            # 移除非法字符，但保留基本的中文字符用于注释
+            # 保留 ASCII 字符和基本中文字符范围
+            cleaned_line = ''.join(c for c in line if 
+                ord(c) < 128 or  # ASCII 字符
+                (0x4e00 <= ord(c) <= 0x9fff) or  # 基本中文汉字范围
+                (0x3400 <= ord(c) <= 0x4dbf) or  # 扩展A区
+                ord(c) in [0x3002, 0xff1f, 0xff01, 0xff0c, 0x3001]  # 允许的中文标点：。？！，、
+            )
+            cleaned_lines.append(cleaned_line)
+        
+        cleaned_code = '\n'.join(cleaned_lines)
+        
+        # 移除连续的非法字符序列
+        # 移除可能的非法字符组合
+        cleaned_code = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]+', '', cleaned_code)
+        
+        return cleaned_code
     
     def _prepare_execution_environment(self, context: Dict[str, Any], code: str) -> str:
         """准备代码执行环境（注入变量）"""

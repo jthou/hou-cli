@@ -2,9 +2,11 @@
 import os
 import asyncio
 import logging
+from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, TYPE_CHECKING
 from openai import AsyncOpenAI, PermissionDeniedError
 import httpx
+from dotenv import load_dotenv
 from shared.debug_utils import DebugOutput
 
 if TYPE_CHECKING:
@@ -50,6 +52,9 @@ class LLMService:
         # 调试输出
         self.debug = DebugOutput()
         
+        # 确保环境变量已加载（统一管理配置）
+        self._ensure_env_loaded()
+        
         # 确定初始模型和提供商
         if model:
             # 如果提供了模型名称，优先根据模型名称检测提供商（支持 "平台-模型" 格式）
@@ -79,6 +84,21 @@ class LLMService:
         # 获取模型配置并初始化客户端
         config = self._get_model_config(self.model)
         self._init_client(config)
+    
+    def _ensure_env_loaded(self):
+        """确保环境变量已加载（统一配置管理）"""
+        # 检查是否已存在关键环境变量
+        if not os.environ.get('DEEPSEEK_API_KEY'):
+            # 尝试从项目根目录加载 .env 文件
+            project_root = Path(__file__).parent.parent.parent.parent
+            env_path = project_root / '.env'
+            if env_path.exists():
+                load_dotenv(env_path)
+                logger.info("从项目根目录加载 .env 文件")
+            else:
+                # 尝试从当前工作目录加载
+                load_dotenv()
+                logger.info("从当前工作目录加载 .env 文件")
     
     def _get_model_config(self, model_name: str) -> Dict[str, str]:
         """
@@ -306,6 +326,11 @@ class LLMService:
             messages.append({"role": "user", "content": user_prompt})
         
         # 调试输出：请求信息
+        # 为了满足调试需求，记录完整的请求信息
+        logger.debug(f"LLM Request Details - Model: {self.model}")
+        if system_prompt:
+            logger.debug(f"LLM System Prompt: {system_prompt}")
+        logger.debug(f"LLM User Prompt: {user_prompt}")
         self.debug.log_llm_request(system_prompt or "", user_prompt or "", self.model)
         
         # 构建请求参数
@@ -349,6 +374,8 @@ class LLMService:
                         self.debug.log_llm_thinking(thinking)
                 
                 # 调试输出：响应信息
+                logger.debug(f"LLM Response Details - Model: {self.model}")
+                logger.debug(f"LLM Response Content: {content}")
                 self.debug.log_llm_response(content, self.model)
                 
                 return content
@@ -655,6 +682,9 @@ class LLMService:
                 "max_retries": 5
             }
             
+            # 记录browser-use LLM创建信息
+            logger.debug(f"准备创建browser-use LLM实例，模型: {config['model']}, 提供商: {config['provider']}")
+            
             # 根据兼容性决定是否添加额外参数
             if disable_response_schema or not supports_response_format:
                 # 某些 LLM 不支持 response_format，避免使用可能导致错误的参数
@@ -701,17 +731,28 @@ class LLMService:
                         return self.llm.bind_tools(tools, **safe_kwargs)
                     
                     def with_structured_output(self, schema, **kwargs):
-                        # 对于不支持 response_format 的模型，使用工具绑定作为替代
-                        # 这是一种简化处理方式，避免调用可能导致错误的方法
-                        from langchain_core.utils.function_calling import convert_to_openai_tool
-                        tool = convert_to_openai_tool(schema)
-                        return self.llm.bind_tools([tool])
+                        # 对于不支持 response_format 的模型，返回原始 LLM 的方法
+                        # 避免可能导致 'items' 错误的复杂处理
+                        try:
+                            # 尝试调用原始 LLM 的方法，但过滤掉不支持的参数
+                            safe_kwargs = {k: v for k, v in kwargs.items() 
+                                         if k != "response_format"}
+                            return self.llm.with_structured_output(schema, **safe_kwargs)
+                        except Exception:
+                            # 如果仍然失败，返回一个模拟的结构化输出处理器
+                            # 这样可以避免 'items' 错误
+                            # 返回原始 LLM 的方法，但确保不包含问题参数
+                            def passthrough_method(*args, **kwargs):
+                                # 简单的透传方法，返回输入不变
+                                if args:
+                                    return args[0]
+                                return None
+                            return passthrough_method
                 
                 browser_llm = ResponseFormatSafeLLM(browser_llm, config)
             else:
                 # 创建 ChatOpenAI 实例（browser-use 兼容）
                 browser_llm = ChatOpenAI(**llm_kwargs)
-            
             
             
             logger.info(
@@ -720,6 +761,20 @@ class LLMService:
                 f"supports_response_format={supports_response_format}, "
                 f"disable_response_schema={disable_response_schema}"
             )
+            
+            # 特别处理 DeepSeek 模型用于 browser-use
+            # 为 DeepSeek 模型设置额外参数以提高兼容性
+            if config['provider'] == 'deepseek':
+                # 设置更长的超时时间以应对 DeepSeek 模型响应较慢的情况
+                if hasattr(browser_llm, 'timeout'):
+                    browser_llm.timeout = 120  # 2分钟超时
+                elif hasattr(browser_llm, '_client') and hasattr(browser_llm._client, 'timeout'):
+                    browser_llm._client.timeout = 120
+                elif hasattr(browser_llm, '_timeout'):
+                    browser_llm._timeout = 120
+                
+                # 记录 DeepSeek 特殊处理
+                logger.info(f"为 DeepSeek 模型 {config['model']} 设置了特殊兼容性参数")
             
             return browser_llm
         finally:

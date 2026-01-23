@@ -1,0 +1,30 @@
+name: blog_writing
+description: 基于用户提供的主题和草稿，自动生成结构化博客文章的技能。能够梳理大纲、实现细节并生成适合发布到MediaWiki的文章。
+version: 1.0.0
+category: writing
+priority: P1
+parameters:
+  - name: topic
+    type: string
+    description: "文章主题或标题"
+    required: true
+  - name: draft
+    type: string
+    description: "文章草稿或要点，可以为空"
+    required: false
+    default: ""
+  - name: target_audience
+    type: string
+    description: "目标读者群体，如：'Python开发者', '初学者', '专家'"
+    required: false
+    default: "general"
+  - name: article_type
+    type: string
+    description: "文章类型，如：'技术教程', '分析评论', '指南'"
+    required: false
+    default: "tutorial"
+  - name: desired_length
+    type: string
+    description: "期望文章长度，如：'short', 'medium', 'long'"
+    required: false
+    default: "medium"

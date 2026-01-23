@@ -100,13 +100,48 @@ async def global_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
-    # 检查配置
-    api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
-    if not api_key or len(api_key) < 10:
-        console.print("[bold yellow]⚠️  警告: DEEPSEEK_API_KEY 未配置或格式无效[/bold yellow]")
-        console.print("[dim]服务已启动，但无法处理 LLM 请求。请配置 ~/.config/hou-cli/.env[/dim]")
+    # 检查必需的配置
+    errors = []
+    
+    # 检查 DeepSeek API Key
+    deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
+    if not deepseek_api_key or len(deepseek_api_key) < 10:
+        errors.append("DEEPSEEK_API_KEY 未配置或格式无效")
+    
+    # 检查百炼平台 API Key
+    api_key_bailian = os.getenv('BAILIAN_API_KEY', '').strip()
+    api_key_dashscope = os.getenv('DASHSCOPE_API_KEY', '').strip()
+    bailian_api_key = api_key_bailian or api_key_dashscope
+    if not bailian_api_key or len(bailian_api_key) < 10:
+        errors.append("BAILIAN_API_KEY 或 DASHSCOPE_API_KEY 未配置")
+    
+    # 检查 TheTurbo.ai 网关 API Key
+    turbogateway_api_key = os.getenv('TURBOGATEWAY_API_KEY', '').strip()
+    if not turbogateway_api_key or len(turbogateway_api_key) < 10:
+        errors.append("TURBOGATEWAY_API_KEY 未配置或格式无效")
+    
+    # 检查 Google 搜索 API Key
+    google_search_api_key = os.getenv('GOOGLE_SEARCH_API_KEY', '').strip()
+    google_search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID', '').strip()
+    if google_search_api_key and len(google_search_api_key) < 10:
+        errors.append("GOOGLE_SEARCH_API_KEY 长度不足")
+    elif not google_search_api_key:
+        errors.append("GOOGLE_SEARCH_API_KEY 未配置")
+    if google_search_engine_id and len(google_search_engine_id) < 10:
+        errors.append("GOOGLE_SEARCH_ENGINE_ID 长度不足")
+    elif not google_search_engine_id:
+        errors.append("GOOGLE_SEARCH_ENGINE_ID 未配置")
+    
+    # 如果有错误，显示警告但继续启动
+    if errors:
+        console.print("[bold yellow]⚠️  警告: 发现以下配置问题:[/bold yellow]")
+        for error in errors:
+            console.print(f"  - {error}")
+        console.print("[dim]服务已启动，但部分功能可能不可用。请配置 ~/.config/hou-cli/.env[/dim]")
         console.print("[dim]配置示例: /usr/share/hou-cli/env.example[/dim]\n")
-        return
+    else:
+        console.print("[green]✓[/green] 所有必需的 API 密钥配置有效")
+        console.print()
     
     try:
         # 在启动时尝试初始化 Orchestrator，验证配置
