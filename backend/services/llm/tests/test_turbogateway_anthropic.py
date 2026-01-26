@@ -11,10 +11,10 @@ class TestTurbogatewayAnthropic:
     @pytest.fixture
     def llm_service(self):
         """创建 TheTurbo.ai 网关 Anthropic LLM 服务实例"""
-        # 检查是否有 API Key
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        # 检查是否有 API Key（TheTurbo.ai 网关使用统一的 API Key）
+        api_key = os.getenv("TURBOGATEWAY_API_KEY")
         if not api_key:
-            pytest.skip("ANTHROPIC_API_KEY 未设置，跳过测试")
+            pytest.skip("TURBOGATEWAY_API_KEY 未设置，跳过测试")
         
         return LLMService(provider="theturbogateway", model="claude-3-5-haiku-20241022")
     

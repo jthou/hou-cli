@@ -1281,11 +1281,9 @@ class SkillExecutor:
         elif hasattr(tool, 'execute'):
             # 同步方法，需要在线程池中执行
             import asyncio
-            import concurrent.futures
             loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(tool.execute, **inputs)
-                tool_result = await loop.run_in_executor(None, future.result)
+            # 直接在线程池中执行同步方法
+            tool_result = await loop.run_in_executor(None, tool.execute, **inputs)
         else:
             raise ValueError(f"工具 {tool_name} 没有 execute 方法")
         

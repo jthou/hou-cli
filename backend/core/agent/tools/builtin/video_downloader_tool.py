@@ -774,13 +774,78 @@ class YtDlpDownloader(DownloaderAdapter):
                 
                 # 提供更详细的错误信息和解决建议
                 if '412' in error_msg or 'Precondition Failed' in error_msg:
+                    # 如果是 Bilibili 且没有使用 cookies，尝试自动从浏览器提取
+                    is_bilibili = 'bilibili.com' in url.lower() or 'b23.tv' in url.lower()
+                    auto_cookies_tried = False
+                    auto_cookies_path = None
+                    
+                    if is_bilibili and not cookies_file and not cookies_from_browser:
+                        # 自动尝试从常见浏览器提取 cookies
+                        logger.info("检测到 HTTP 412 错误，尝试自动从浏览器提取 cookies...")
+                        for browser in ['chrome', 'firefox', 'safari', 'edge']:
+                            try:
+                                cookies_path = _extract_cookies_from_browser(browser, 'bilibili.com')
+                                if cookies_path:
+                                    auto_cookies_path = cookies_path
+                                    auto_cookies_tried = True
+                                    logger.info(f"成功从 {browser} 提取 cookies，重试下载...")
+                                    
+                                    # 使用提取的 cookies 重试（使用完整的 ydl_opts 配置）
+                                    retry_opts = ydl_opts.copy()
+                                    retry_opts['cookiefile'] = cookies_path
+                                    
+                                    try:
+                                        with yt_dlp.YoutubeDL(retry_opts) as ydl:
+                                            info = ydl.extract_info(url, download=True)
+                                            
+                                            # 提取详细信息
+                                            result_data = {
+                                                'tool': 'yt-dlp',
+                                                'output_dir': str(output_dir),
+                                                'title': info.get('title', ''),
+                                                'duration': info.get('duration'),
+                                                'uploader': info.get('uploader', ''),
+                                                'cookies_auto_extracted': True,
+                                                'cookies_source': browser
+                                            }
+                                            
+                                            logger.info("使用自动提取的 cookies 下载成功")
+                                            return DownloadResult(
+                                                success=True,
+                                                data=result_data
+                                            )
+                                    except Exception as retry_error:
+                                        logger.warning(f"使用自动提取的 cookies 重试失败: {retry_error}")
+                                        # 继续尝试下一个浏览器
+                                        continue
+                            except Exception as e:
+                                logger.debug(f"从 {browser} 提取 cookies 失败: {e}")
+                                continue
+                    
+                    # 构建错误信息
                     detailed_error = (
                         f"HTTP 412 错误（Precondition Failed）\n"
                         f"这通常是由于哔哩哔哩的反爬虫机制导致的。\n\n"
+                    )
+                    
+                    if auto_cookies_tried:
+                        if auto_cookies_path:
+                            detailed_error += (
+                                f"已尝试自动从浏览器提取 cookies，但下载仍然失败。\n\n"
+                            )
+                        else:
+                            detailed_error += (
+                                f"已尝试自动从浏览器提取 cookies，但未找到有效的 cookies。\n\n"
+                            )
+                    
+                    detailed_error += (
                         f"建议解决方案：\n"
-                        f"1. 使用 cookies：通过 cookies_file 或 cookies_from_browser 参数提供 cookies\n"
-                        f"2. 更新 yt-dlp：确保使用最新版本（当前版本可能过旧）\n"
-                        f"3. 尝试其他工具：设置 preferred_tool='you-get' 使用 you-get 工具\n"
+                        f"1. 使用 cookies（推荐）：\n"
+                        f"   - 使用 cookies_from_browser 参数从浏览器提取 cookies\n"
+                        f"   - 示例：cookies_from_browser='chrome'\n"
+                        f"   - 或使用 cookies_file 参数提供 cookies 文件\n\n"
+                        f"2. 更新 yt-dlp：确保使用最新版本（当前版本: {yt_dlp.version.__version__ if hasattr(yt_dlp, 'version') else 'unknown'}）\n\n"
+                        f"3. 尝试其他工具：设置 preferred_tool='you-get' 使用 you-get 工具\n\n"
                         f"4. 检查网络：确保网络连接正常，没有被防火墙拦截\n\n"
                         f"原始错误: {error_msg}"
                     )

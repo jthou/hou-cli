@@ -40,3 +40,4 @@ echo "查看后端完整日志："
 echo "  tail -100 /tmp/hou-cli-backend.log"
 echo ""
 
+

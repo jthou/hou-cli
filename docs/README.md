@@ -29,6 +29,7 @@
 - **[开发笔记](dev-notes.md)** - 项目开发日志和重要进展
 - **[Google Search API 设置](google-search-api-setup.md)** - Google Search API 配置指南
 - **[Browser-Use 集成调试指南](BROWSER_USE_DEBUGGING_GUIDE.md)** - 如何在 browser-use 源码中设置断点和调试
+- **[推理模型切换为 Claude 配置指南](REASONING_MODEL_CLAUDE_SETUP.md)** - 如何将推理模型切换为 Claude
 
 ### 📁 其他目录
 

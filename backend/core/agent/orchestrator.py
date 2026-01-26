@@ -816,6 +816,54 @@ class UnifiedOrchestrator:
         
         # ===== 3. 特定功能工具 =====
         
+        # 注册视频下载工具（媒体处理）
+        try:
+            from backend.core.agent.tools.builtin.video_downloader_tool import VideoDownloaderTool
+            video_downloader_tool = VideoDownloaderTool()
+            self.tool_registry.register(video_downloader_tool)
+            self.debug.log_orchestrator_step("注册工具", {"video_downloader_tool": "registered"})
+            logger.info("Video downloader tool registered successfully")
+        except ImportError as e:
+            error_msg = f"Video downloader dependencies not installed: {str(e)}. Video downloader tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register video downloader tool: {str(e)}. Video downloader tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 Whisper 语音转文字工具（音频处理）
+        try:
+            from backend.core.agent.tools.builtin.whisper_tool import WhisperTool
+            whisper_tool = WhisperTool()
+            self.tool_registry.register(whisper_tool)
+            self.debug.log_orchestrator_step("注册工具", {"whisper_tool": "registered"})
+            logger.info("Whisper tool registered successfully")
+        except ImportError as e:
+            error_msg = f"Whisper dependencies not installed: {str(e)}. Whisper tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register Whisper tool: {str(e)}. Whisper tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
+        # 注册 FFmpeg 工具（音视频处理）
+        try:
+            from backend.core.agent.tools.builtin.ffmpeg_tool import FFmpegTool
+            ffmpeg_tool = FFmpegTool()
+            self.tool_registry.register(ffmpeg_tool)
+            self.debug.log_orchestrator_step("注册工具", {"ffmpeg_tool": "registered"})
+            logger.info("FFmpeg tool registered successfully")
+        except ImportError as e:
+            error_msg = f"FFmpeg dependencies not installed: {str(e)}. FFmpeg tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to register FFmpeg tool: {str(e)}. FFmpeg tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+        
         # 注册天气工具
         try:
             jwt_auth = JWTAuth.from_env()
@@ -1050,24 +1098,61 @@ Please return strictly in the following JSON format:
         # 构建消息列表
         system_prompt = """你是一个智能助手，能够帮助用户解决各种问题。当用户提供历史对话记录时，请基于历史对话内容来理解和回答当前问题。
 
+【核心执行原则】：
+1. **必须使用工具执行任务**：当用户要求执行操作（如下载、搜索、执行命令等）时，必须使用相应的工具来执行，不要只提供文字指导或操作步骤
+2. **不要只提供指导**：如果任务可以通过工具完成，必须直接调用工具执行，而不是告诉用户如何操作
+3. **工具调用优先级**：优先使用工具执行，只有在工具不可用时才提供替代方案
+4. **禁止行为**：
+   - ❌ 不要只提供操作步骤或指导（如"你可以使用 xxx 工具"）
+   - ❌ 不要只列出命令而不执行
+   - ❌ 不要告诉用户"使用 you-get 下载"而不实际调用工具
+   - ✅ 必须直接调用工具执行任务
+   - ✅ 基于工具执行结果给出回复
+
 重要原则：
 - 对于简单的命令执行任务（如显示文件、查看目录、执行脚本等），严格按照用户指令执行，不要添加额外的探索、检查或推理
 - 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作
 - 例如：用户要求"显示 /home 下的所有文件"，直接执行 "ls /home"，不要去找 /dev、/Users 等其他路径
 - 不要过度思考，不要添加用户没有要求的额外功能
 
-【重要】工具选择规则：
+【重要】工具选择规则（必须使用工具执行，不要只提供指导）：
 1. **浏览器工具（browser）**：当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
-   - 例如："打开 www.google.com" → 使用 browser
-   - 例如："访问 www.example.com 并查看网页" → 使用 browser
-   - 例如："打开网站" → 使用 browser
+   - 例如："打开 www.google.com" → 必须调用 browser 工具
+   - 例如："访问 www.example.com 并查看网页" → 必须调用 browser 工具
+   - 例如："打开网站" → 必须调用 browser 工具
    - 如果用户提到具体的网站地址（如 www.google.com、example.com），优先使用 browser
 
-2. **Google 搜索工具（google_search）**：当用户要求"搜索"、"查找"网络信息时，使用 google_search
-   - 例如："搜索 Python 教程" → 使用 google_search
-   - 例如："查找关于 AI 的最新信息" → 使用 google_search
+2. **Google 搜索工具（google_search）**：当用户要求"搜索"、"查找"网络信息时，必须使用 google_search 工具
+   - 例如："搜索 Python 教程" → 必须调用 google_search 工具
+   - 例如："查找关于 AI 的最新信息" → 必须调用 google_search 工具
+   - 不要只提供搜索建议，必须直接执行搜索
 
-3. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
+3. **视频下载工具（video_downloader）**：当用户要求下载视频时，必须使用 video_downloader 工具
+   - 例如："下载这个视频 https://..." → 必须调用 video_downloader 工具
+   - 例如："用 you-get 下载视频" → 必须调用 video_downloader 工具（工具会自动选择 you-get）
+   - 例如："下载视频并提取音频" → 必须调用 video_downloader 工具，设置 extract_audio_only=true
+   - 例如："下载视频并提取字幕" → 必须调用 video_downloader 工具，设置 subtitle_languages
+   - **重要**：不要只告诉用户如何使用 you-get 或 yt-dlp，必须直接调用工具执行下载
+
+4. **代码执行工具（execute_code）**：当用户要求执行命令或代码时，必须使用 execute_code 工具
+   - 例如："执行 ls /home" → 必须调用 execute_code 工具
+   - 例如："运行 Python 脚本" → 必须调用 execute_code 工具
+   - 不要只提供命令，必须直接执行
+
+5. **Whisper 语音转文字工具（whisper）**：当用户要求语音转文字、音频转字幕、生成字幕时，必须使用 whisper 工具
+   - 例如："将这个音频文件转成字幕" → 必须调用 whisper 工具，设置 output_format='srt'
+   - 例如："提取这个音频的文字" → 必须调用 whisper 工具
+   - 例如："为这个视频生成字幕" → 必须调用 whisper 工具（需要先提取音频）
+   - 例如："声音转文字"、"语音转字幕"、"音频转字幕" → 必须调用 whisper 工具
+   - **重要**：不要只告诉用户如何使用 Whisper，必须直接调用工具执行
+
+6. **FFmpeg 工具（ffmpeg）**：当用户要求处理音视频文件（提取音频、转换格式、剪切等）时，必须使用 ffmpeg 工具
+   - 例如："从视频中提取音频" → 必须调用 ffmpeg 工具
+   - 例如："转换视频格式" → 必须调用 ffmpeg 工具
+   - 例如："剪切视频" → 必须调用 ffmpeg 工具
+   - **重要**：不要只提供 FFmpeg 命令，必须直接调用工具执行
+
+7. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
 当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
 

@@ -1,23 +1,10 @@
-.PHONY: help install install-dev test lint format clean clean-deps run-backend run-frontend run start stop-backend
+.PHONY: help install install-prod install-dev test lint format clean clean-deps run-backend run-frontend run start stop-backend
 
 help: ## 显示帮助信息
 	@echo "可用命令："
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-install: ## 安装生产依赖
-	@echo "🔄 更新外部依赖（git submodules）..."
-	@bash scripts/update_externals.sh
-	@bash -c "source venv/bin/activate && pip install -r requirements.txt"
-	@bash -c "source venv/bin/activate && pip install -e ."
-	@bash scripts/install_ffmpeg.sh
-	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh true"
-	@bash -c "source venv/bin/activate && bash scripts/install_whisper.sh"
-	@bash -c "source venv/bin/activate && bash scripts/install_jupyter.sh"
-	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
-	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
-	@bash -c "source venv/bin/activate && PDF_PARSERS=mineru bash scripts/install_pdf_parsers.sh"
-
-install-dev: ## 安装开发依赖
+install: ## 安装开发依赖（默认，包含所有工具和测试框架）
 	@echo "🔄 更新外部依赖（git submodules）..."
 	@bash scripts/update_externals.sh
 	@bash -c "source venv/bin/activate && pip install -r requirements-dev.txt"
@@ -30,6 +17,21 @@ install-dev: ## 安装开发依赖
 	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
 	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
 	@bash -c "source venv/bin/activate && PDF_PARSERS=all bash scripts/install_pdf_parsers.sh"
+
+install-prod: ## 安装生产依赖（仅核心功能，用于生产部署）
+	@echo "🔄 更新外部依赖（git submodules）..."
+	@bash scripts/update_externals.sh
+	@bash -c "source venv/bin/activate && pip install -r requirements.txt"
+	@bash -c "source venv/bin/activate && pip install -e ."
+	@bash scripts/install_ffmpeg.sh
+	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh true"
+	@bash -c "source venv/bin/activate && bash scripts/install_whisper.sh"
+	@bash -c "source venv/bin/activate && bash scripts/install_jupyter.sh"
+	@bash -c "source venv/bin/activate && bash scripts/install_video_downloaders.sh"
+	@bash -c "source venv/bin/activate && bash scripts/install_browser_use.sh"
+	@bash -c "source venv/bin/activate && PDF_PARSERS=mineru bash scripts/install_pdf_parsers.sh"
+
+install-dev: install ## 安装开发依赖（install 的别名，向后兼容）
 
 test: ## 运行测试
 	@bash -c "source venv/bin/activate && pytest"
