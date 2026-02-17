@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI
 from backend.api.routes import router
-from backend.api.task_routes import router as task_router
 from shared.platform_utils import save_port, load_port, get_port_file
 from shared.config import Config
 from rich.console import Console
@@ -158,16 +157,48 @@ async def startup_event():
         console.print(f"[yellow]⚠[/yellow] Orchestrator 初始化失败（服务仍可启动）: {str(e)}")
         import logging
         logging.error(f"Orchestrator initialization failed: {str(e)}", exc_info=True)
+    
+    # 启动心跳监控
+    try:
+        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
+        heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "30"))
+        heartbeat_monitor = get_heartbeat_monitor(interval=heartbeat_interval)
+        await heartbeat_monitor.start()
+        console.print(f"[green]✓[/green] 心跳监控已启动（间隔: {heartbeat_interval} 秒）")
+    except Exception as e:
+        console.print(f"[yellow]⚠[/yellow] 心跳监控启动失败: {str(e)}")
+        import logging
+        logging.error(f"Heartbeat monitor startup failed: {str(e)}", exc_info=True)
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭事件"""
+    # 停止心跳监控
+    try:
+        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
+        heartbeat_monitor = get_heartbeat_monitor()
+        await heartbeat_monitor.stop()
+        logging.info("心跳监控已停止")
+    except Exception as e:
+        logging.error(f"停止心跳监控失败: {e}", exc_info=True)
+
+# 主路由已经包含了所有子路由（chat, session, search, mediawiki, tool, heartbeat, storage, task）
 app.include_router(router, prefix="/api")
-app.include_router(task_router, prefix="/api")
 
 @app.get("/health")
 async def health():
     """健康检查"""
     try:
         # 简单检查，不依赖任何服务
-        return {"status": "ok", "service": "hou-cli-backend"}
+        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
+        heartbeat_monitor = get_heartbeat_monitor()
+        heartbeat_status = heartbeat_monitor.get_status()
+        
+        return {
+            "status": "ok",
+            "service": "hou-cli-backend",
+            "heartbeat": heartbeat_status
+        }
     except Exception as e:
         # 即使出错也返回，避免健康检查本身导致服务不可用
         return {"status": "error", "error": str(e)}

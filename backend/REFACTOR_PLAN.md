@@ -1,82 +1,51 @@
-# 后端模块重构计划
+# 后端代码结构整理计划
 
-## 当前问题
+## 当前问题分析
 
-1. **api 和 agent 在同一层级** - 接口层和业务逻辑层混在一起
-2. **services 中的 tool_service 和其他工具分散** - 工具相关代码不统一
-3. **缺乏清晰的分层架构** - 各模块职责不明确
+### 1. API 路由层问题
+- `routes.py` 文件过大（1019行），包含多个功能模块的路由
+- 路由按功能分类不清晰
+- 应该按功能模块拆分
 
-## 目标结构
+### 2. Services 目录问题
+- 存在重复目录：
+  - `google_search/` 和 `google_search_service/`
+  - `mediawiki/` 和 `mediawiki_client_service/`
+  - `wikipedia/` 和 `wikipedia_service/`
+- 存在空目录或只有 `__pycache__` 的目录：
+  - `editor/`
+  - `search/`
+  - `google_search/`
+  - `mediawiki/`
+  - `wikipedia/`
 
-```
-backend/
-├── api/                    # 接口层（只负责 HTTP 接口）
-│   ├── routes.py           # 路由定义
-│   └── handlers.py         # 请求处理
-│
-├── core/                    # 核心业务逻辑层
-│   ├── agent/              # Agent 相关
-│   │   ├── orchestrator.py
-│   │   ├── coordinator.py
-│   │   ├── base_agent.py
-│   │   └── agents/         # 具体 Agent 实现
-│   └── workflow/           # 工作流
-│       ├── workflow_engine.py
-│       └── workflow_identifier.py
-│
-├── services/                # 服务层
-│   ├── llm/                # LLM 服务
-│   │   └── llm_service.py
-│   └── tools/              # 工具服务
-│       └── tool_service.py
-│
-└── infrastructure/          # 基础设施层
-    ├── execution/          # 代码执行
-    ├── knowledge/          # 知识库
-    ├── memory/            # 记忆管理
-    └── security/           # 安全
-```
+### 3. 结构组织问题
+- API 路由应该按功能模块组织
+- 服务层应该统一命名规范（使用 `_service` 后缀）
 
-## 分层说明
+## 整理方案
 
-### 1. API 层（api/）
-- **职责**：处理 HTTP 请求，参数验证，响应格式化
-- **依赖**：只依赖 core 层
-- **不包含**：业务逻辑
+### 阶段 1: API 路由模块化
+将 `routes.py` 拆分为：
+- `chat_routes.py` - 聊天相关路由（/chat, /chat/stream）
+- `session_routes.py` - 会话管理路由（/sessions/*）
+- `search_routes.py` - 搜索相关路由（/search/*）
+- `mediawiki_routes.py` - MediaWiki 相关路由（/mediawiki/*）
+- `tool_routes.py` - 工具相关路由（/tools/*）
+- `routes.py` - 保留作为主路由文件，导入所有子路由
 
-### 2. Core 层（core/）
-- **职责**：核心业务逻辑，Agent 编排，工作流执行
-- **依赖**：services 层和 infrastructure 层
-- **包含**：agent/, workflow/
+### 阶段 2: 清理 Services 目录
+- 删除空的或重复的目录
+- 统一服务命名规范
 
-### 3. Services 层（services/）
-- **职责**：外部服务封装（LLM、工具等）
-- **依赖**：infrastructure 层
-- **包含**：llm/, tools/
+### 阶段 3: 统一导入和注册
+- 在 `main.py` 中统一注册所有路由
+- 确保向后兼容
 
-### 4. Infrastructure 层（infrastructure/）
-- **职责**：基础设施功能（执行、存储、安全等）
-- **依赖**：无（最底层）
-- **包含**：execution/, knowledge/, memory/, security/
+## 实施步骤
 
-## 迁移步骤
-
-1. 创建新目录结构
-2. 移动文件到对应目录
-3. 更新所有导入路径
-4. 更新文档
-5. 运行测试确保功能正常
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+1. 创建新的路由模块文件
+2. 将路由代码迁移到对应模块
+3. 更新 `routes.py` 导入新模块
+4. 清理重复和空目录
+5. 测试确保功能正常

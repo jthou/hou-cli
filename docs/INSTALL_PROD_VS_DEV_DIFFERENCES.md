@@ -11,7 +11,7 @@
 
 | 项目 | install (dev) | install-prod |
 |------|---------------|--------------|
-| **依赖文件** | `requirements-dev.txt` | `requirements.txt` |
+| **依赖文件** | `requirements.txt` | `requirements.txt` |
 | **包含内容** | 生产依赖 + 开发依赖 | 仅生产依赖 |
 
 #### install (dev) 额外包含的开发依赖：
@@ -66,7 +66,7 @@
 
 | 项目 | install (dev) | install-prod |
 |------|---------------|--------------|
-| **requirements** | `pip install -r requirements-dev.txt` | `pip install -r requirements.txt` |
+| **requirements** | `pip install -r requirements.txt` | `pip install -r requirements.txt` |
 | **项目安装** | `pip install -e ".[dev]"` | `pip install -e .` |
 
 **区别**:
@@ -196,4 +196,6 @@ bash scripts/install_jupyter.sh
 
 **最后更新**: 2026-01-26  
 **维护者**: 项目团队
+
+
 

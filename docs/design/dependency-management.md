@@ -21,13 +21,13 @@
 pip install -r requirements.txt
 ```
 
-### 2. requirements-dev.txt
+### 2. requirements.txt
 
 开发环境依赖，包含测试、代码质量检查、打包等工具。
 
 **安装方式**：
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 ```
 
 ### 3. pyproject.toml
@@ -65,7 +65,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # 4. 开发时安装开发依赖
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 ```
 
 ### 方案 2：使用 pyenv + pyproject.toml
@@ -266,10 +266,12 @@ pip list --tree
 ## 总结
 
 - ✅ 使用 `requirements.txt` 管理生产依赖
-- ✅ 使用 `requirements-dev.txt` 管理开发依赖
+- ✅ 使用 `requirements.txt` 管理开发依赖
 - ✅ 使用 `pyproject.toml` 提供现代项目配置
 - ✅ 使用虚拟环境隔离依赖
 - ✅ 定期更新和维护依赖
+
+
 
 
 

@@ -18,7 +18,7 @@
 
 ### 3. 依赖管理
 - ✅ `pyproject.toml` 配置完成
-- ✅ `requirements.txt` 和 `requirements-dev.txt`
+- ✅ `requirements.txt` 和 `requirements.txt`
 - ✅ 虚拟环境创建和依赖安装
 - ✅ 项目以可编辑模式安装
 

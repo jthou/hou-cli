@@ -68,9 +68,10 @@ class FileOrganizerTool(Tool):
         super().__init__(
             name="file_organizer",
             description=(
-                "自动整理本地文件系统中的文件。"
+                "自动整理本地文件系统中的文件（会移动/复制文件，修改文件系统结构）。"
                 "使用 AI 模型智能扫描、分类和重命名文件，"
                 "将文件按照类型、日期、内容等规则组织到不同文件夹中。"
+                "注意：此工具会修改文件系统，与 file_search（只读搜索）不同。"
                 "\n参数说明："
                 "- source_path: 需要整理的源文件夹路径（必需）"
                 "- target_path: 整理后文件的存放路径（可选，默认在源路径下创建 organized 文件夹）"

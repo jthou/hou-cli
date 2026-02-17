@@ -31,7 +31,7 @@ make run
    - `playwright`
    - `langchain-openai`
 
-2. **自动安装**：如果依赖未安装，会自动从 `requirements-dev.txt` 安装
+2. **自动安装**：如果依赖未安装，会自动从 `requirements.txt` 安装
 
 3. **检查浏览器**：检查 Playwright 浏览器驱动是否已安装
 
@@ -63,7 +63,7 @@ bash scripts/check_browser_deps.sh true
 ```
 📦 检测到 browser-use 相关依赖未安装，正在自动安装...
 
-📥 从 requirements-dev.txt 安装依赖...
+📥 从 requirements.txt 安装依赖...
 ✅ 依赖安装完成
 
 🌐 检测到 playwright 浏览器未安装，正在安装...
@@ -90,7 +90,7 @@ bash scripts/check_browser_deps.sh true
 make install-browser-deps
 
 # 或强制重新安装
-pip install -r requirements-dev.txt --force-reinstall
+pip install -r requirements.txt --force-reinstall
 playwright install --force chromium
 ```
 
@@ -140,7 +140,7 @@ python3 -c "from playwright.sync_api import sync_playwright; p = sync_playwright
 
 - `scripts/check_browser_deps.sh` - 自动安装脚本
 - `Makefile` - Makefile 配置
-- `requirements-dev.txt` - 开发依赖配置
+- `requirements.txt` - 开发依赖配置
 - `docs/browser-tool-setup.md` - 详细设置指南
 
 

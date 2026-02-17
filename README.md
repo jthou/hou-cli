@@ -48,11 +48,6 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
-4. **安装开发依赖（可选）**
-```bash
-pip install -r requirements-dev.txt
-```
-
 ### 运行
 
 **🎯 最简单的方式（推荐）**：

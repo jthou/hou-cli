@@ -2,7 +2,7 @@
 import pytest
 import uuid
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 
 from backend.core.agent.task_manager import task_manager, TaskInfo, TaskStatus

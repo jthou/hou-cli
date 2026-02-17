@@ -16,13 +16,13 @@ playwright install chromium
 
 ```bash
 # 安装开发依赖（包含 browser-use）
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 
 # 安装浏览器驱动（必需）
 playwright install chromium
 ```
 
-**注意**：`browser-use` 需要较新的 LangChain 版本（>=0.3.25），这些依赖在 `requirements-dev.txt` 中已配置。
+**注意**：`browser-use` 需要较新的 LangChain 版本（>=0.3.25），这些依赖在 `requirements.txt` 中已配置。
 
 ### 2. 配置环境变量
 

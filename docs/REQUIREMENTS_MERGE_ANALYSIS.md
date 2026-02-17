@@ -6,7 +6,7 @@
 - 生产依赖（核心功能）
 - 约 20 个包
 
-### requirements-dev.txt
+### requirements.txt
 - 包含所有生产依赖（通过 `-r requirements.txt`）
 - 额外添加开发依赖（测试、代码质量、调试工具等）
 - 约 30+ 个包
@@ -20,7 +20,7 @@
 - 不注册 Jupyter kernel
 
 **`make install-dev`**:
-- 安装 `requirements-dev.txt`（包含所有生产依赖 + 开发依赖）
+- 安装 `requirements.txt`（包含所有生产依赖 + 开发依赖）
 - 安装所有 PDF 解析器（mineru[all], camelot-py[cv]）
 - 下载 Whisper 模型
 - 注册 Jupyter kernel
@@ -64,7 +64,7 @@
 
 ### 实施步骤
 
-1. **保持 requirements.txt 和 requirements-dev.txt 分离**（标准做法）
+1. **保持 requirements.txt 和 requirements.txt 分离**（标准做法）
 2. **修改 Makefile**：
    - `make install` → 安装开发依赖（当前 install-dev 的行为）
    - `make install-prod` → 安装生产依赖（当前 install 的行为）
@@ -82,7 +82,7 @@
 install: ## 安装开发依赖（默认，包含所有工具和测试框架）
 	@echo "🔄 更新外部依赖（git submodules）..."
 	@bash scripts/update_externals.sh
-	@bash -c "source venv/bin/activate && pip install -r requirements-dev.txt"
+	@bash -c "source venv/bin/activate && pip install -r requirements.txt"
 	@bash -c "source venv/bin/activate && pip install -e \".[dev]\""
 	@bash scripts/install_ffmpeg.sh
 	@bash -c "source venv/bin/activate && bash scripts/check_browser_deps.sh true"
@@ -113,4 +113,6 @@ install-dev: install ## 安装开发依赖（install 的别名，向后兼容）
 - **requirements 文件**：保持分离（标准做法）
 - **Makefile 命令**：可以简化，让 `install` 默认安装开发依赖
 - **向后兼容**：保留 `install-dev` 作为别名
+
+
 

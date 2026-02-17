@@ -1,4 +1,4 @@
-# LLM Agent CLI - 生产依赖
+# LLM Agent CLI - 依赖（合并了生产和开发依赖）
 
 # ===== 核心框架 =====
 # 后端 API 框架
@@ -8,6 +8,8 @@ uvicorn[standard]>=0.24.0
 # 前端 UI 框架
 rich>=13.7.0
 click>=8.1.0
+# Web 前端模板引擎
+jinja2>=3.1.0
 
 # HTTP 客户端
 httpx>=0.25.0
@@ -20,13 +22,15 @@ pydantic>=2.0.0
 # OpenAI 兼容 API（用于 DeepSeek）
 openai>=1.0.0
 
-# LangChain 生态
-langchain>=0.1.0
+# LangChain 生态（使用更高版本以支持 browser-use）
+langchain>=0.3.25
 langchain-community>=0.0.20
-langchain-core>=0.1.0
+langchain-core>=0.3.64
+# LangChain OpenAI（用于 Browser-use）
+langchain-openai>=0.3.21
 
-# Ollama 支持（本地 LLM）
-langchain-ollama>=0.1.0
+# Ollama 支持（本地 LLM，使用更高版本以支持 browser-use）
+langchain-ollama>=0.3.3
 
 # ===== 向量数据库 =====
 # Chroma 向量数据库
@@ -38,8 +42,14 @@ pypdf>=3.17.0
 pdfplumber>=0.10.0
 
 # PDF 解析后端（至少安装一个）
-# MinerU：完全本地化，推荐用于生产环境
-mineru>=2.7.0
+# MinerU：完全本地化，推荐用于生产环境（包含所有功能）
+mineru[all]>=2.7.0
+
+# Camelot（表格提取，免费，带 OpenCV 支持）
+camelot-py[cv]>=1.0.0
+#    适合：金融年报等复杂表格提取
+#    注意：可能需要系统级安装 ghostscript（如：brew install ghostscript）
+#    参考：https://github.com/camelot-dev/camelot
 
 # ===== 代码执行和安全 =====
 # 进程和资源管理
@@ -68,9 +78,81 @@ wikipedia>=1.4.0
 # 浏览器 cookies 提取（用于视频下载工具，支持从浏览器提取 cookies）
 browser-cookie3>=0.19.0
 
+# ===== 浏览器自动化 =====
+# 注意：browser-use 已从源码集成到 backend/externals/browser-use
+# 不再需要安装 browser-use 包，但需要安装其依赖：
+# Playwright（浏览器驱动，browser-use 的依赖）
+playwright>=1.40.0
+# anyio（browser-use 需要）
+anyio>=4.9.0
+# 注意：安装后需要运行 playwright install chromium 安装浏览器
+
+# ===== Jupyter 工具 =====
+# Jupyter 客户端（用于在 Jupyter kernel 中执行代码）
+jupyter-client>=8.6.0
+# IPython kernel（Python kernel 支持）
+ipykernel>=6.25.0
+# 注意：安装后可能需要运行 python -m ipykernel install --user 注册 kernel
+
+# ===== 测试框架 =====
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# ===== 代码质量 =====
+# 代码格式化
+black>=23.11.0
+isort>=5.12.0
+
+# 代码检查
+flake8>=6.1.0
+pylint>=3.0.0
+mypy>=1.7.0
+
+# 类型检查
+types-pyyaml>=6.0.12
+types-requests>=2.31.0
+
+# ===== 打包工具 =====
+# PyInstaller（跨平台打包）
+pyinstaller>=6.0.0
+
+# ===== 开发工具 =====
+# 调试工具
+ipdb>=0.13.13
+ipython>=8.17.0
+
+# 文档生成
+sphinx>=7.2.0
+sphinx-rtd-theme>=1.3.0
+
+# ===== 其他工具 =====
+# 预提交钩子
+pre-commit>=3.5.0
+
 # ===== 可选依赖 =====
 # 如果需要使用其他向量数据库，可以取消注释
 # faiss-cpu>=1.7.4  # Facebook AI Similarity Search
 # qdrant-client>=1.7.0  # Qdrant 向量数据库
 
+# ===== 文件整理工具（可选功能） =====
+# Local-File-Organizer：AI 驱动的本地文件整理工具
+# 安装方式（任选其一）：
+# 1. 从 GitHub 安装（如果仓库有 setup.py）：
+#    pip install git+https://github.com/QiuYannnn/Local-File-Organizer.git
+# 2. 作为子模块添加：
+#    git submodule add https://github.com/QiuYannnn/Local-File-Organizer.git backend/externals/local-file-organizer
+# 3. 直接克隆：
+#    git clone https://github.com/QiuYannnn/Local-File-Organizer.git backend/externals/local-file-organizer
+# 注意：Local-File-Organizer 需要 Nexa SDK，可能需要额外的安装步骤
+# 参考：https://github.com/QiuYannnn/Local-File-Organizer
 
+# ===== PDF 解析工具（可选） =====
+# Logics-Parsing（阿里API，需密钥，可选）
+# logics-parsing>=0.1.0
+#    需要设置环境变量：DASHSCOPE_API_KEY 或 ALIBABA_CLOUD_API_KEY
+#    适合：高质量解析，有免费额度（30天内100万Tokens）
+#    注意：如果未在 PyPI 发布，可能需要从 GitHub 安装：
+#    pip install git+https://github.com/alibaba/Logics-Parsing.git
+#    参考：https://github.com/alibaba/Logics-Parsing

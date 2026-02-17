@@ -960,3 +960,5 @@ ffmpeg -i video.mp4 -vf "subtitles=subtitle.srt:force_style='FontSize=24'" \
 
 
 
+
+

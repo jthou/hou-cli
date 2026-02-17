@@ -18,7 +18,7 @@ class TestChatRoutes:
         """测试聊天接口成功"""
         # [MOCK] 使用 Mock 数据模拟 orchestrator.process 方法
         print("[MOCK] 测试使用 Mock 数据: orchestrator.process 返回 '测试响应'")
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             mock_orch.process = AsyncMock(return_value="测试响应")
             mock_get_orch.return_value = mock_orch
@@ -38,7 +38,7 @@ class TestChatRoutes:
         """测试聊天接口错误处理"""
         # [MOCK] 使用 Mock 数据模拟 orchestrator.process 抛出异常
         print("[MOCK] 测试使用 Mock 数据: orchestrator.process 抛出异常 '测试错误'")
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             mock_orch.process = AsyncMock(side_effect=Exception("测试错误"))
             mock_get_orch.return_value = mock_orch
@@ -58,7 +58,7 @@ class TestChatRoutes:
         # [MOCK] 使用 Mock 数据模拟 orchestrator.process 方法，带 session_id
         print("[MOCK] 测试使用 Mock 数据: orchestrator.process 返回 '带会话ID的响应'")
         test_session_id = "test_session_123"
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             mock_orch.process = AsyncMock(return_value="带会话ID的响应")
             mock_get_orch.return_value = mock_orch
@@ -83,7 +83,7 @@ class TestChatRoutes:
             yield "chunk1"
             yield "chunk2"
         
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             mock_orch.stream_process = mock_stream
             mock_get_orch.return_value = mock_orch
@@ -107,7 +107,7 @@ class TestChatRoutes:
         """测试流式聊天接口错误处理"""
         # [MOCK] 使用 Mock 数据模拟 orchestrator.stream_process 抛出异常
         print("[MOCK] 测试使用 Mock 数据: orchestrator.stream_process 抛出异常 '测试错误'")
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             mock_orch.stream_process = AsyncMock(side_effect=Exception("测试错误"))
             mock_get_orch.return_value = mock_orch
@@ -135,7 +135,7 @@ class TestChatRoutes:
             yield "stream_chunk_A"
             yield "stream_chunk_B"
 
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             mock_orch.stream_process = mock_stream_with_context
             mock_get_orch.return_value = mock_orch
@@ -162,4 +162,5 @@ class TestHealthCheck:
         response = client.get("/health")
         
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        data = response.json()
+        assert data.get("status") == "ok"  # 健康检查可能包含其他字段（如 heartbeat）

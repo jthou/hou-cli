@@ -12,7 +12,7 @@
 
 ```bash
 # 安装所有开发依赖（包含 browser-use 和所需的新版本 LangChain）
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 
 # 安装浏览器驱动
 playwright install chromium
@@ -55,7 +55,7 @@ playwright install chromium
 
 **A:** 尝试强制重新安装：
 ```bash
-pip install -r requirements-dev.txt --force-reinstall --no-cache-dir
+pip install -r requirements.txt --force-reinstall --no-cache-dir
 ```
 
 ### Q: 浏览器启动失败？

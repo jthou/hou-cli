@@ -669,7 +669,7 @@ langchain-community>=0.0.20
 pyinstaller>=6.0.0
 ```
 
-**requirements-dev.txt**：
+**requirements.txt**：
 
 ```txt
 -r requirements.txt

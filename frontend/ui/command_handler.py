@@ -797,8 +797,8 @@ class CommandHandler:
         """处理 /gvim 命令
         
         用法:
-        /gvim <file_path> [line_number] [--read-only]
-        /gvim --mediawiki <page_title> [line_number] [--read-only]
+        /gvim <file_path> [line_number]
+        /gvim --mediawiki <page_title> [line_number]
         """
         try:
             from backend.services.gvim_service import GvimService, GvimServiceError
@@ -806,12 +806,12 @@ class CommandHandler:
             if not args:
                 return (
                     "[yellow]用法:[/yellow]\n"
-                    "  /gvim <file_path> [line_number] [--read-only]\n"
-                    "  /gvim --mediawiki <page_title> [line_number] [--read-only]\n"
+                    "  /gvim <file_path> [line_number]\n"
+                    "  /gvim --mediawiki <page_title> [line_number]\n"
                     "\n示例:\n"
                     "  /gvim /path/to/file.py 10\n"
                     "  /gvim --mediawiki Test\n"
-                    "  /gvim --mediawiki Test 5 --read-only"
+                    "  /gvim --mediawiki Test 5"
                 )
             
             service = GvimService()
@@ -823,7 +823,6 @@ class CommandHandler:
             file_path = None
             mediawiki_page = None
             line_number = None
-            read_only = False
             
             i = 0
             while i < len(args):
@@ -834,9 +833,6 @@ class CommandHandler:
                         i += 2
                     else:
                         return "[red]错误: --mediawiki 需要指定页面标题[/red]"
-                elif arg == '--read-only':
-                    read_only = True
-                    i += 1
                 elif arg.isdigit():
                     line_number = int(arg)
                     i += 1
@@ -850,15 +846,13 @@ class CommandHandler:
             if mediawiki_page:
                 result = service.open_mediawiki_page(
                     page_title=mediawiki_page,
-                    line_number=line_number,
-                    read_only=read_only
+                    line_number=line_number
                 )
                 return f"[green]✓ {result['message']}[/green]\n文件路径: {result['file_path']}"
             elif file_path:
                 result = service.open_file(
                     file_path=file_path,
-                    line_number=line_number,
-                    read_only=read_only
+                    line_number=line_number
                 )
                 return f"[green]✓ {result['message']}[/green]"
             else:
@@ -874,36 +868,374 @@ class CommandHandler:
         返回类型：str 或 Panel 对象
         """
         if args:
-            command = args[0].lower()
+            # 处理完整命令路径（如 "context list"）
+            if len(args) >= 2 and args[0].lower() == 'context':
+                subcommand = args[1].lower()
+                if subcommand in self.context_commands:
+                    return self._get_command_help(f"context {subcommand}")
+                else:
+                    return Panel(
+                        Text.assemble(
+                            (f"❌ 未知的上下文子命令: ", "bold red"),
+                            (f"/context {subcommand}", "bold yellow"),
+                            "\n\n",
+                            ("💡 提示: ", "bold cyan"),
+                            "输入 ",
+                            ("/context help", "bold"),
+                            " 查看所有上下文管理命令"
+                        ),
+                        border_style="red",
+                        title="[bold red]⚠️  错误[/bold red]",
+                        padding=(1, 2),
+                        box=rich.box.ROUNDED
+                    )
             
-            if command == 'context':
-                # 返回 Panel 对象，不要转换
-                return self._show_context_help()
+            command = args[0].lower()
             
             # 检查是否是上下文子命令
             if command in self.context_commands:
-                desc, args_help = self.context_commands[command]
-                return f"/context {command} {args_help}\n{desc}"
+                return self._get_command_help(f"context {command}")
             
             # 检查是否是顶级命令
             if command in self.top_level_commands:
-                desc, _ = self.top_level_commands[command]
-                help_text = f"/{command}\n{desc}\n"
-                
-                # 如果是 context 命令，显示子命令
-                if command == 'context':
-                    help_text += "\n子命令:\n"
-                    for sub_cmd, (sub_desc, sub_args) in self.context_commands.items():
-                        sub_cmd_line = f"  /context {sub_cmd}"
-                        if sub_args:
-                            sub_cmd_line += f" {sub_args}"
-                        sub_cmd_line += f" - {sub_desc}\n"
-                        help_text += sub_cmd_line
-                
-                return help_text
+                return self._get_command_help(command)
             
-            return f"未知命令: {command}\n输入 /help 查看帮助"
+            # 检查是否是 context 命令
+            if command == 'context':
+                return self._show_context_help()
+            
+            return Panel(
+                Text.assemble(
+                    (f"❌ 未知命令: ", "bold red"),
+                    (f"/{command}", "bold yellow"),
+                    "\n\n",
+                    ("💡 提示: ", "bold cyan"),
+                    "输入 ",
+                    ("/help", "bold"),
+                    " 查看所有可用命令"
+                ),
+                border_style="red",
+                title="[bold red]⚠️  错误[/bold red]",
+                padding=(1, 2),
+                box=rich.box.ROUNDED
+            )
         else:
             # 返回 Panel 对象，不要转换
             return self._show_command_hint()
+    
+    def _get_command_help(self, command: str) -> Panel:
+        """获取指定命令的详细帮助
+        
+        Args:
+            command: 命令名称（如 'gvim', 'context list' 等）
+        """
+        help_data = self._get_all_command_help()
+        
+        if command not in help_data:
+            return Panel(
+                Text.assemble(
+                    (f"❌ 未找到命令帮助: ", "bold red"),
+                    (f"/{command}", "bold yellow")
+                ),
+                border_style="red",
+                title="[bold red]⚠️  错误[/bold red]",
+                padding=(1, 2)
+            )
+        
+        data = help_data[command]
+        content = Text()
+        
+        # 命令名称和描述
+        content.append(f"命令: ", style="bold cyan")
+        content.append(f"/{command}\n", style="bold yellow")
+        content.append(f"\n{data['description']}\n\n", style="white")
+        
+        # 用法
+        if 'usage' in data:
+            content.append("用法:\n", style="bold green")
+            for usage in data['usage']:
+                content.append(f"  {usage}\n", style="green")
+            content.append("\n")
+        
+        # 参数说明
+        if 'parameters' in data and data['parameters']:
+            content.append("参数说明:\n", style="bold green")
+            for param, desc in data['parameters'].items():
+                content.append(f"  • {param}: ", style="cyan")
+                content.append(f"{desc}\n", style="white")
+            content.append("\n")
+        
+        # 使用示例
+        if 'examples' in data and data['examples']:
+            content.append("使用示例:\n", style="bold green")
+            for example in data['examples']:
+                content.append(f"  {example}\n", style="dim")
+            content.append("\n")
+        
+        # 注意事项
+        if 'notes' in data and data['notes']:
+            content.append("注意事项:\n", style="bold yellow")
+            for note in data['notes']:
+                content.append(f"  • {note}\n", style="yellow")
+            content.append("\n")
+        
+        # 相关命令
+        if 'related' in data and data['related']:
+            content.append("相关命令:\n", style="bold dim")
+            for related in data['related']:
+                content.append(f"  /{related}\n", style="dim")
+        
+        return Panel(
+            content,
+            border_style="cyan",
+            title=f"[bold cyan]📖 命令帮助: /{command}[/bold cyan]",
+            padding=(1, 2),
+            box=rich.box.ROUNDED
+        )
+    
+    def _get_all_command_help(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有命令的详细帮助数据"""
+        return {
+            'gvim': {
+                'description': '在 gvim 编辑器中打开文件或 MediaWiki 页面',
+                'usage': [
+                    '/gvim <file_path> [line_number]',
+                    '/gvim --mediawiki <page_title> [line_number]'
+                ],
+                'parameters': {
+                    'file_path': '要打开的文件路径（绝对路径或相对路径）',
+                    'line_number': '可选，跳转到指定行号',
+                    '--mediawiki': '指定要打开 MediaWiki 页面',
+                    'page_title': 'MediaWiki 页面标题（使用 --mediawiki 时必需）'
+                },
+                'examples': [
+                    '/gvim /path/to/file.py',
+                    '/gvim /path/to/file.py 10',
+                    '/gvim --mediawiki Test',
+                    '/gvim --mediawiki Test 5'
+                ],
+                'notes': [
+                    '需要系统已安装 gvim 编辑器',
+                    '如果文件不存在，会自动创建空文件',
+                    'MediaWiki 页面会先下载到临时文件，然后用 gvim 打开'
+                ],
+                'related': ['help']
+            },
+            'context list': {
+                'description': '列出最近的会话列表，显示会话 ID、时间、预览和消息数量',
+                'usage': [
+                    '/context list',
+                    '/context list [limit]'
+                ],
+                'parameters': {
+                    'limit': '可选，限制显示的会话数量（默认 10）'
+                },
+                'examples': [
+                    '/context list',
+                    '/context list 20'
+                ],
+                'notes': [
+                    '会话按更新时间倒序排列',
+                    '可以使用显示的序号配合其他命令（如 /context restore 1）',
+                    '序号从 1 开始'
+                ],
+                'related': ['context restore', 'context switch', 'context show']
+            },
+            'context search': {
+                'description': '搜索包含指定关键词的会话',
+                'usage': [
+                    '/context search <keyword> [limit]'
+                ],
+                'parameters': {
+                    'keyword': '必需，搜索关键词（会在会话预览中搜索）',
+                    'limit': '可选，限制显示的搜索结果数量（默认 10）'
+                },
+                'examples': [
+                    '/context search python',
+                    '/context search 视频 20'
+                ],
+                'notes': [
+                    '搜索会在会话预览内容中进行',
+                    '不区分大小写',
+                    '可以使用显示的序号配合其他命令'
+                ],
+                'related': ['context list', 'context restore']
+            },
+            'context restore': {
+                'description': '恢复指定会话，继续之前的对话',
+                'usage': [
+                    '/context restore',
+                    '/context restore <序号|session_id>'
+                ],
+                'parameters': {
+                    '序号': '从 /context list 显示的序号（1 开始）',
+                    'session_id': '会话 ID（完整或部分，支持前缀匹配）'
+                },
+                'examples': [
+                    '/context restore',
+                    '/context restore 1',
+                    '/context restore abc123'
+                ],
+                'notes': [
+                    '无参数时恢复当前会话（如果存在）',
+                    '可以使用序号或会话 ID',
+                    '会话 ID 支持前缀匹配（如果唯一）',
+                    '恢复后可以继续之前的对话'
+                ],
+                'related': ['context list', 'context switch']
+            },
+            'context show': {
+                'description': '显示指定会话的详细信息，包括会话信息和所有消息',
+                'usage': [
+                    '/context show',
+                    '/context show <序号|session_id>'
+                ],
+                'parameters': {
+                    '序号': '从 /context list 显示的序号（1 开始）',
+                    'session_id': '会话 ID（完整或部分，支持前缀匹配）'
+                },
+                'examples': [
+                    '/context show',
+                    '/context show 1',
+                    '/context show abc123'
+                ],
+                'notes': [
+                    '无参数时显示当前会话（如果存在）',
+                    '显示会话的创建时间、更新时间和消息列表',
+                    '消息列表显示角色、时间和内容预览'
+                ],
+                'related': ['context list', 'context restore']
+            },
+            'context delete': {
+                'description': '删除指定的会话',
+                'usage': [
+                    '/context delete <序号|session_id>'
+                ],
+                'parameters': {
+                    '序号': '从 /context list 显示的序号（1 开始）',
+                    'session_id': '会话 ID（完整或部分，支持前缀匹配）'
+                },
+                'examples': [
+                    '/context delete 1',
+                    '/context delete abc123'
+                ],
+                'notes': [
+                    '删除操作不可恢复，请谨慎操作',
+                    '如果删除的是当前会话，下次对话将创建新会话',
+                    '可以使用序号或会话 ID'
+                ],
+                'related': ['context list']
+            },
+            'context summary': {
+                'description': '为指定会话生成并显示 AI 摘要',
+                'usage': [
+                    '/context summary <序号|session_id>'
+                ],
+                'parameters': {
+                    '序号': '从 /context list 显示的序号（1 开始）',
+                    'session_id': '会话 ID（完整或部分，支持前缀匹配）'
+                },
+                'examples': [
+                    '/context summary 1',
+                    '/context summary abc123'
+                ],
+                'notes': [
+                    '摘要由 AI 生成，总结会话的主要内容',
+                    '生成摘要可能需要一些时间',
+                    '显示消息数量和会话摘要'
+                ],
+                'related': ['context list', 'context show']
+            },
+            'context clear': {
+                'description': '清除当前会话的所有消息，但保留会话',
+                'usage': [
+                    '/context clear'
+                ],
+                'parameters': {},
+                'examples': [
+                    '/context clear'
+                ],
+                'notes': [
+                    '只清除当前活动会话的消息',
+                    '会话本身不会被删除',
+                    '清除后可以继续在新会话中对话'
+                ],
+                'related': ['context switch']
+            },
+            'context switch': {
+                'description': '切换到指定的会话，使其成为当前活动会话',
+                'usage': [
+                    '/context switch <序号|session_id>'
+                ],
+                'parameters': {
+                    '序号': '从 /context list 显示的序号（1 开始）',
+                    'session_id': '会话 ID（完整或部分，支持前缀匹配）'
+                },
+                'examples': [
+                    '/context switch 1',
+                    '/context switch abc123'
+                ],
+                'notes': [
+                    '切换后，后续对话将在该会话中进行',
+                    '可以使用序号或会话 ID',
+                    '切换后可以继续该会话的对话'
+                ],
+                'related': ['context list', 'context restore']
+            },
+            'help': {
+                'description': '显示帮助信息，可以查看所有命令或特定命令的详细帮助',
+                'usage': [
+                    '/help',
+                    '/help <command>'
+                ],
+                'parameters': {
+                    'command': '可选，要查看详细帮助的命令名称'
+                },
+                'examples': [
+                    '/help',
+                    '/help gvim',
+                    '/help context list'
+                ],
+                'notes': [
+                    '无参数时显示所有可用命令',
+                    '可以查看特定命令的详细帮助',
+                    '支持查看上下文子命令的帮助（如 /help context list）'
+                ],
+                'related': []
+            },
+            'exit': {
+                'description': '退出程序',
+                'usage': [
+                    '/exit',
+                    '/quit'
+                ],
+                'parameters': {},
+                'examples': [
+                    '/exit',
+                    '/quit'
+                ],
+                'notes': [
+                    '/exit 和 /quit 功能相同',
+                    '退出前会保存当前会话'
+                ],
+                'related': []
+            },
+            'quit': {
+                'description': '退出程序（与 /exit 相同）',
+                'usage': [
+                    '/exit',
+                    '/quit'
+                ],
+                'parameters': {},
+                'examples': [
+                    '/exit',
+                    '/quit'
+                ],
+                'notes': [
+                    '/exit 和 /quit 功能相同',
+                    '退出前会保存当前会话'
+                ],
+                'related': []
+            }
+        }
 

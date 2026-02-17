@@ -169,3 +169,5 @@ python -m frontend.main chat "你的任务"
 4. **测试脚本应该是独立的，不依赖交互式终端**
 
 
+
+

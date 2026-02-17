@@ -30,11 +30,11 @@ install_deps() {
     echo "📦 检测到 browser-use 相关依赖未安装，正在自动安装..."
     echo ""
     
-    # 检查是否有 requirements-dev.txt
-    if [ -f "requirements-dev.txt" ]; then
-        echo "📥 从 requirements-dev.txt 安装依赖..."
+    # 检查是否有 requirements.txt
+    if [ -f "requirements.txt" ]; then
+        echo "📥 从 requirements.txt 安装依赖..."
         # 忽略依赖冲突警告（这些通常不会影响功能）
-        pip install -q -r requirements-dev.txt 2>&1 | grep -v "dependency conflicts" || true
+        pip install -q -r requirements.txt 2>&1 | grep -v "dependency conflicts" || true
     else
         echo "📥 安装 browser-use 和相关依赖..."
         pip install -q browser-use>=0.2.7 langchain-openai>=0.3.21 playwright>=1.40.0 2>&1 | grep -v "dependency conflicts" || true

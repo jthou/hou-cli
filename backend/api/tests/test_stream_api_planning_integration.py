@@ -33,7 +33,7 @@ class TestStreamAPIPlanningIntegration:
         monkeypatch.setenv("DEEPSEEK_API_KEY", "test_key")
         
         # Mock Orchestrator
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             
             # Mock stream_process 方法
@@ -112,7 +112,7 @@ class TestStreamAPIPlanningIntegration:
         monkeypatch.setenv("PLANNING_WORK_DIR", str(temp_dir))
         
         # Mock Orchestrator 以返回状态消息
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             
             async def mock_stream_process_with_status(task, context=None):
@@ -150,7 +150,7 @@ class TestStreamAPIPlanningIntegration:
         monkeypatch.setenv("PLANNING_WORK_DIR", str(temp_dir))
         
         # Mock Orchestrator 以返回工具消息
-        with patch('backend.api.routes.get_orchestrator') as mock_get_orch:
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
             mock_orch = MagicMock()
             
             async def mock_stream_process_with_tool(task, context=None):

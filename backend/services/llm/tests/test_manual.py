@@ -71,7 +71,7 @@ async def test_llm(provider: str, model: str, api_key_env: str, service_name: st
             
     except ImportError as e:
         print(f"  ❌ 导入错误: {e}")
-        print(f"  提示: 请安装依赖: pip install -r requirements-dev.txt")
+        print(f"  提示: 请安装依赖: pip install -r requirements.txt")
         return False
     except Exception as e:
         print(f"  ❌ 测试失败: {e}")
@@ -156,7 +156,7 @@ async def main():
     
     if passed == 0:
         print("\n提示: 如果所有测试都失败，请检查:")
-        print("  1. 是否安装了依赖: pip install -r requirements-dev.txt")
+        print("  1. 是否安装了依赖: pip install -r requirements.txt")
         print("  2. .env 文件中的 API Key 是否正确配置")
         print("  3. API Key 是否有效")
 

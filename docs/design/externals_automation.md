@@ -31,7 +31,7 @@
 ### `make install-dev` 流程
 
 与 `make install` 相同，但额外包括：
-- 安装开发依赖 (`requirements-dev.txt`)
+- 安装开发依赖 (`requirements.txt`)
 - 预下载 Whisper 模型
 - 注册 Jupyter kernel
 
@@ -257,6 +257,8 @@ bash scripts/update_externals.sh
 - [外部依赖环境准备指南](../externals/SETUP.md)
 - [FFmpeg 编译说明](../externals/SETUP.md#ffmpeg-编译)
 - [Whisper 安装说明](../externals/SETUP.md#whisper-安装)
+
+
 
 
 

@@ -56,7 +56,7 @@ REASONING_MODEL=deepseek-reasoner
 确保已安装所有依赖：
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 ```
 
 ## 运行测试

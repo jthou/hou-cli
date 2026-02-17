@@ -200,3 +200,5 @@ INFO [backend.core.agent.skills.registry] 技能匹配: '用户输入' -> skill_
 5. **多技能组合**: 支持匹配多个相关技能
 
 
+
+
