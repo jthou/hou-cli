@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hou CLI - LLM Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -17,15 +20,9 @@
             <nav class="sidebar-nav">
                 <ul class="nav-list">
                     <li>
-                        <a href="#" class="nav-item active" data-page="chat">
-                            <span class="nav-icon">💬</span>
-                            <span class="nav-text">聊天</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="nav-item" data-page="sessions">
-                            <span class="nav-icon">📋</span>
-                            <span class="nav-text">会话管理</span>
+                        <a href="#" class="nav-item active" data-page="tasks">
+                            <span class="nav-icon">📦</span>
+                            <span class="nav-text">任务管理</span>
                         </a>
                     </li>
                     <li class="nav-group">
@@ -80,44 +77,91 @@
         <!-- 主内容区 -->
         <div class="main-content">
             <header class="main-header">
-                <h1 id="pageTitle">聊天</h1>
-                <div class="header-actions">
-                    <span class="session-info">会话: <code id="sessionId">-</code></span>
-                </div>
+                <h1 id="pageTitle">任务管理</h1>
+                <div class="header-actions"></div>
             </header>
 
             <!-- 页面内容 -->
             <main class="page-content">
-                <!-- 聊天页面 -->
-                <div class="page" id="page-chat">
-                    <div class="chat-container">
-                        <div class="messages" id="messages"></div>
-                        <div class="input-area">
-                            <div class="input-container">
-                                <textarea 
-                                    id="messageInput" 
-                                    placeholder="输入消息... (Shift+Enter 换行, Enter 发送)"
-                                    rows="3"
-                                ></textarea>
-                                <button id="sendButton" class="send-button">发送</button>
+                <!-- 任务管理页面 -->
+                <div class="page" id="page-tasks">
+                    <div class="task-management-container">
+                        <!-- 心跳状态 - 顶部紧凑条 -->
+                        <div class="heartbeat-bar" id="heartbeatStatusBar">
+                            <div class="heartbeat-dot" id="heartbeatDot"></div>
+                            <span class="heartbeat-text" id="heartbeatRunning">-</span>
+                            <span class="heartbeat-divider">·</span>
+                            <span class="heartbeat-meta" id="heartbeatLast">-</span>
+                            <span class="heartbeat-divider">·</span>
+                            <span class="heartbeat-meta" id="heartbeatUptime">-</span>
+                            <span class="heartbeat-divider">·</span>
+                            <span class="heartbeat-meta" id="heartbeatMetrics">-</span>
+                        </div>
+                        <!-- 标题行 -->
+                        <div class="task-page-header">
+                            <div class="task-tabs-wrapper">
+                                <div class="task-tabs" role="tablist">
+                                    <button class="tab-btn active" data-tab="tasks">普通任务</button>
+                                    <button class="tab-btn" data-tab="scheduled">定时任务</button>
+                                </div>
                             </div>
-                            <div class="input-hint">
-                                <span>💡 提示: 支持多行输入，使用 Shift+Enter 换行</span>
+                            <div class="task-header-actions">
+                                <button class="btn-primary btn-create" id="createTaskBtn">+ 创建普通任务</button>
+                                <button class="btn-primary btn-create" id="createScheduledTaskBtn" style="display: none;">+ 创建定时任务</button>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- 会话管理页面 -->
-                <div class="page" id="page-sessions" style="display: none;">
-                    <div class="sessions-container">
-                        <div class="sessions-header">
-                            <h2>会话列表</h2>
-                            <button class="btn-primary" id="newSessionBtn">新建会话</button>
-                        </div>
-                        <div class="sessions-list" id="sessionsList">
-                            <div class="empty-state">
-                                <p>暂无会话记录</p>
+                        
+                        <!-- 共用布局：统计 + 工具栏 + 列表 -->
+                        <div class="tab-content" id="tab-tasks">
+                            <div class="task-stats-grid" id="taskStats">
+                                <div class="stat-card"><span class="stat-number" id="totalTasksCount">0</span><span class="stat-label">总任务</span></div>
+                                <div class="stat-card stat-wait"><span class="stat-number" id="pendingTasksCount">0</span><span class="stat-label">待处理</span></div>
+                                <div class="stat-card stat-run"><span class="stat-number" id="runningTasksCount">0</span><span class="stat-label">运行中</span></div>
+                                <div class="stat-card stat-done"><span class="stat-number" id="completedTasksCount">0</span><span class="stat-label">已完成</span></div>
+                                <div class="stat-card stat-fail"><span class="stat-number" id="failedTasksCount">0</span><span class="stat-label">失败</span></div>
+                            </div>
+                            <div class="task-stats-grid" id="taskStatsScheduled" style="display: none;">
+                                <div class="stat-card"><span class="stat-number" id="totalScheduledTasksCount">0</span><span class="stat-label">总定时任务</span></div>
+                                <div class="stat-card stat-done"><span class="stat-number" id="activeScheduledTasksCount">0</span><span class="stat-label">激活中</span></div>
+                                <div class="stat-card stat-wait"><span class="stat-number" id="inactiveScheduledTasksCount">0</span><span class="stat-label">已禁用</span></div>
+                            </div>
+                            <div class="task-toolbar" id="taskToolbar">
+                                <div class="task-search-wrap">
+                                    <input type="text" id="taskSearchInput" placeholder="搜索任务..." class="task-search-input">
+                                    <select id="taskStatusFilter" class="task-filter-select">
+                                        <option value="">全部状态</option>
+                                        <option value="pending">待处理</option>
+                                        <option value="queued">已入队</option>
+                                        <option value="running">运行中</option>
+                                        <option value="completed">已完成</option>
+                                        <option value="failed">失败</option>
+                                        <option value="cancelled">已取消</option>
+                                    </select>
+                                </div>
+                                <div class="task-toolbar-btns">
+                                    <button class="btn-icon" id="refreshTasksBtn" title="刷新">↻</button>
+                                    <button class="btn-ghost" id="cleanupStaleTasksBtn">清理超时</button>
+                                </div>
+                            </div>
+                            <div class="task-toolbar" id="taskToolbarScheduled" style="display: none;">
+                                <div class="task-search-wrap">
+                                    <input type="text" id="scheduledTaskSearchInput" placeholder="搜索定时任务..." class="task-search-input">
+                                    <select id="scheduledTaskFilter" class="task-filter-select">
+                                        <option value="">全部</option>
+                                        <option value="active">激活中</option>
+                                        <option value="inactive">已禁用</option>
+                                    </select>
+                                </div>
+                                <div class="task-toolbar-btns">
+                                    <span class="toolbar-spacer" aria-hidden="true"></span>
+                                    <button class="btn-icon" id="refreshScheduledTasksBtn" title="刷新">↻</button>
+                                </div>
+                            </div>
+                            <div class="task-list" id="taskList">
+                                <div class="empty-state">加载中...</div>
+                            </div>
+                            <div class="task-list" id="scheduledTaskList" style="display: none;">
+                                <div class="empty-state">加载中...</div>
                             </div>
                         </div>
                     </div>
@@ -350,6 +394,6 @@
             </main>
         </div>
     </div>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
 </body>
 </html>
