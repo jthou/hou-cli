@@ -1,4 +1,4 @@
-.PHONY: help install install-prod install-dev test test-cov lint lint-fix format format-check clean clean-deps clean-all build-react run-backend stop-backend run-web start start-web run status check-env setup-venv
+.PHONY: help install install-prod install-dev test test-cov lint lint-fix format format-check clean clean-deps clean-all build-react run-backend stop-backend run-web start start-web run dev status check-env setup-venv diagnose
 
 # 默认目标
 .DEFAULT_GOAL := help
@@ -138,6 +138,15 @@ start: check-env build-react ## 一键启动（后端+React Web，后台）
 start-web: start ## 一键启动（同 start）
 
 run: start ## 启动后端+Web（同 start）
+
+dev: check-env ## 开发模式：后台起后端，前台起 Vite（热更新）
+	@$(MAKE) stop-backend
+	@echo "$(COLOR_GREEN)🚀 启动后端（后台）...$(COLOR_RESET)"
+	@bash -c "source $(VENV_ACTIVATE) && nohup $(PYTHON) -m backend.main > /dev/null 2>&1 &"
+	@sleep 2
+	@echo "$(COLOR_GREEN)🌐 启动前端开发服务器（Vite，热更新）...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)   后端: http://127.0.0.1:$(WEB_PORT)  前端: 见下方 Vite 输出$(COLOR_RESET)"
+	@cd frontend/react-app && npm run dev
 
 diagnose: ## 诊断后端服务状态
 	@echo "$(COLOR_GREEN)🔍 诊断后端服务...$(COLOR_RESET)"
