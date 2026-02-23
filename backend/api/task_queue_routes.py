@@ -7,6 +7,7 @@ from backend.infrastructure.storage.task_queue_db import (
     TaskStatus,
     TaskPriority
 )
+from backend.infrastructure.execution.task_handlers import validate_task_creation
 from shared.debug_utils import debug_log
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,11 @@ async def create_task(request: TaskCreateRequest):
     try:
         task_queue_db = get_task_queue_db()
         
+        # 验证任务类型与 metadata（通用任务管理验证规范）
+        ok, err = validate_task_creation(request.task_type, request.metadata)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
         # 验证优先级
         if request.priority is None:
             priority = TaskPriority.NORMAL
@@ -184,6 +190,51 @@ async def list_tasks(
             status_code=500,
             detail=f"列出任务失败: {str(e)}"
         )
+
+
+@router.post("/task-queue/tasks/{task_id}/restart")
+async def restart_task(task_id: str):
+    """基于原任务重新开始：按原 task_type、metadata、priority 创建一条新任务并入队"""
+    try:
+        task_queue_db = get_task_queue_db()
+        task = task_queue_db.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+        task_type = task.get("task_type")
+        metadata = task.get("metadata") or {}
+        priority = task.get("priority")
+        if priority is None:
+            priority = TaskPriority.NORMAL
+        else:
+            try:
+                priority = TaskPriority(priority)
+            except ValueError:
+                priority = TaskPriority.NORMAL
+
+        ok, err = validate_task_creation(task_type, metadata)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+
+        task_name = _generate_task_name(task_type, metadata)
+        new_task_id = task_queue_db.create_task(
+            task_type=task_type,
+            task_name=task_name,
+            priority=priority,
+            max_retries=3,
+            metadata=metadata,
+        )
+
+        return {
+            "success": True,
+            "task_id": new_task_id,
+            "message": "已基于原任务创建新任务",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"重新开始任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"重新开始失败: {str(e)}")
 
 
 @router.post("/task-queue/tasks/{task_id}/cancel")

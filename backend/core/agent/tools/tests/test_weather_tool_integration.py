@@ -1,14 +1,25 @@
 """天气工具集成测试（Tool 注册和 Function Calling）"""
-import pytest
 import os
+import pytest
+from pathlib import Path
 from dotenv import load_dotenv
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.core.agent.tools.registry import ToolRegistry
-from backend.core.agent.tools.auth.jwt_auth import JWTAuth
-from backend.core.agent.tools.builtin.weather_tool import WeatherTool
+from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
+from backend.core.agent.tools.builtin.weather_tool import WeatherTool, WeatherToolError
 
-# 加载 .env 文件
-load_dotenv()
+# 加载 .env：与 backend/main.py 一致——用户配置目录、项目根、当前目录
+_env_paths = [
+    Path.home() / ".config" / "hou-cli" / ".env",
+    Path(__file__).resolve().parents[5] / ".env",
+    Path.cwd() / ".env",
+]
+for _env in _env_paths:
+    if _env.exists():
+        load_dotenv(_env, override=True)
+        break
+else:
+    load_dotenv()
 
 
 class TestWeatherToolIntegration:
@@ -156,4 +167,48 @@ class TestWeatherToolIntegration:
         assert "properties" in llm_tool["function"]["parameters"]
         assert "location" in llm_tool["function"]["parameters"]["properties"]
         assert "days" in llm_tool["function"]["parameters"]["properties"]
+
+
+class TestWeatherToolLiveEnv:
+    """使用 .env 配置的真实和风 API 请求（未配置时跳过）"""
+
+    def _skip_if_no_env(self):
+        if not os.getenv("WEATHER_JWT_PRIVATE_KEY") or not os.getenv("QWEATHER_API_HOST"):
+            pytest.skip("需要 .env 中配置 WEATHER_JWT_PRIVATE_KEY、QWEATHER_CREDENTIAL_ID、QWEATHER_PROJECT_ID、QWEATHER_API_HOST")
+        try:
+            JWTAuth.from_env()
+        except JWTAuthError as e:
+            pytest.skip(f"和风 JWT 未配置完整: {e}")
+
+    def test_get_current_weather_live(self):
+        """使用 .env 调用和风实时天气 API，校验返回结构"""
+        self._skip_if_no_env()
+        auth = JWTAuth.from_env()
+        tool = WeatherTool(jwt_auth=auth)
+        try:
+            data = tool.get_current_weather("北京")
+        except WeatherToolError as e:
+            if "401" in str(e):
+                pytest.skip(f"和风 API 返回 401，请检查 .env 中 JWT 配置: {e}")
+            raise
+        assert data.get("code") == "200", data
+        assert "now" in data, data
+        now = data["now"]
+        assert "temp" in now
+        assert "text" in now
+
+    def test_get_forecast_live(self):
+        """使用 .env 调用和风预报 API，校验返回结构"""
+        self._skip_if_no_env()
+        auth = JWTAuth.from_env()
+        tool = WeatherTool(jwt_auth=auth)
+        try:
+            data = tool.get_forecast("上海", days=3)
+        except WeatherToolError as e:
+            if "401" in str(e):
+                pytest.skip(f"和风 API 返回 401，请检查 .env 中 JWT 配置: {e}")
+            raise
+        assert data.get("code") == "200", data
+        assert "daily" in data, data
+        assert len(data["daily"]) >= 1
 

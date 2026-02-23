@@ -11,6 +11,8 @@ const TASK_API = {
   list: (params) => fetch(`/api/task-queue/tasks?limit=100&offset=0${params?.status ? `&status=${params.status}` : ''}`).then(r => r.json()),
   get: (taskId) => fetch(`/api/task-queue/tasks/${taskId}`).then(r => r.json()),
   cancel: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/cancel`, { method: 'POST' }).then(r => r.json()),
+  restart: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/restart`, { method: 'POST' }).then(r => r.json()),
+  create: (payload) => fetch('/api/task-queue/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => r.json()),
 }
 
 const STATUS_MAP = {
@@ -282,16 +284,21 @@ export default function TaskManagement() {
         />
       )}
       {detailTaskId && (
-        <TaskDetailModal taskId={detailTaskId} onClose={() => setDetailTaskId(null)} />
+        <TaskDetailModal
+          taskId={detailTaskId}
+          onClose={() => setDetailTaskId(null)}
+          onRefresh={() => { loadTasks(); setDetailTaskId(null) }}
+        />
       )}
     </div>
   )
 }
 
-function TaskDetailModal({ taskId, onClose }) {
+function TaskDetailModal({ taskId, onClose, onRefresh }) {
   const [task, setTask] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
+  const [restarting, setRestarting] = useState(false)
 
   useEffect(() => {
     if (!taskId) return
@@ -364,6 +371,31 @@ function TaskDetailModal({ taskId, onClose }) {
             </div>
           )}
         </div>
+        {!loading && task && ['failed', 'completed'].includes(task.status) && (
+          <div className="shrink-0 px-6 py-4 border-t border-border flex justify-end">
+            <button
+              disabled={restarting}
+              onClick={async () => {
+                setRestarting(true)
+                try {
+                  const res = await TASK_API.restart(task.task_id)
+                  if (res.success) {
+                    if (onRefresh) onRefresh()
+                    else onClose()
+                  } else {
+                    alert(res.detail || res.message || '重新开始失败')
+                  }
+                } catch (e) {
+                  alert('重新开始失败: ' + e.message)
+                }
+                setRestarting(false)
+              }}
+              className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
+            >
+              {restarting ? '创建中...' : '重新开始'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -460,21 +492,65 @@ function TaskCard({ task, onRefresh, onShowDetail }) {
           {task.result_summary}
         </div>
       )}
-      <button
-        onClick={() => onShowDetail(task.task_id)}
-        className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/5"
-      >
-        查看详情
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onShowDetail(task.task_id)}
+          className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/5"
+        >
+          查看详情
+        </button>
+        {['failed', 'completed'].includes(task.status) && (
+          <button
+            onClick={async () => {
+              try {
+                const res = await TASK_API.restart(task.task_id)
+                if (res.success) {
+                  onRefresh()
+                } else {
+                  alert(res.detail || res.message || '重新开始失败')
+                }
+              } catch (e) {
+                alert('重新开始失败: ' + e.message)
+              }
+            }}
+            className="px-3 py-1.5 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
+          >
+            重新开始
+          </button>
+        )}
+      </div>
     </div>
   )
+}
+
+function getDefaultMetadata(schema) {
+  if (!schema || typeof schema !== 'object') return {}
+  const meta = {}
+  for (const [key, spec] of Object.entries(schema)) {
+    if (spec && typeof spec === 'object') {
+      if (spec.default !== undefined) meta[key] = spec.default
+      else if (Array.isArray(spec.enum) && spec.enum.length) meta[key] = spec.enum[0].value
+      else if (spec.type === 'boolean') meta[key] = false
+      else meta[key] = ''
+    }
+  }
+  return meta
 }
 
 function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
   const [type, setType] = useState('')
   const [name, setName] = useState('')
   const [priority, setPriority] = useState(2)
+  const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
+  const typeInfo = taskTypes.find(t => t.type === type) || null
+  const schema = typeInfo?.metadata_schema || {}
+
+  const setTypeAndResetMetadata = (newType) => {
+    setType(newType)
+    const info = taskTypes.find(t => t.type === newType)
+    setMetadata(getDefaultMetadata(info?.metadata_schema))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -482,29 +558,40 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
       alert('请选择任务类型')
       return
     }
+    for (const [key, spec] of Object.entries(schema)) {
+      if (spec?.required) {
+        const v = metadata[key]
+        if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
+          alert(`请填写必填项: ${spec.description || key}`)
+          return
+        }
+      }
+    }
     setSubmitting(true)
     try {
+      const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata }
       const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_type: type, task_name: name || undefined, priority, max_retries: 3 }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (data.success) {
         alert('任务创建成功: ' + data.task_id)
         onSuccess()
+        onClose()
       } else {
         throw new Error(data.detail || data.message || '创建失败')
       }
     } catch (err) {
-      alert('创建失败: ' + err.message)
+      alert('创建失败: ' + (err.message || String(err)))
     }
     setSubmitting(false)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-white">创建新任务</h3>
           <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
@@ -514,7 +601,7 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
             <label className="block text-sm text-[#94a3b8] mb-1">任务类型 *</label>
             <select
               value={type}
-              onChange={e => setType(e.target.value)}
+              onChange={e => setTypeAndResetMetadata(e.target.value)}
               className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
               required
             >
@@ -524,6 +611,56 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
               ))}
             </select>
           </div>
+          {Object.entries(schema).map(([fieldKey, spec]) => {
+            if (!spec || typeof spec !== 'object') return null
+            const label = spec.description || fieldKey
+            const required = spec.required
+            const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
+            if (spec.enum && Array.isArray(spec.enum)) {
+              return (
+                <div key={fieldKey}>
+                  <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
+                  <select
+                    value={value}
+                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
+                    required={required}
+                  >
+                    {spec.enum.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label ?? opt.value}</option>
+                    ))}
+                  </select>
+                </div>
+              )
+            }
+            if (spec.type === 'boolean') {
+              return (
+                <div key={fieldKey} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`meta-${fieldKey}`}
+                    checked={!!value}
+                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
+                    className="rounded border-border bg-white/5 text-accent focus:ring-accent"
+                  />
+                  <label htmlFor={`meta-${fieldKey}`} className="text-sm text-[#94a3b8]">{label}{required ? ' *' : ''}</label>
+                </div>
+              )
+            }
+            return (
+              <div key={fieldKey}>
+                <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
+                <input
+                  type="text"
+                  value={value}
+                  onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
+                  placeholder={spec.placeholder || ''}
+                  className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                  required={required}
+                />
+              </div>
+            )
+          })}
           <div>
             <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
             <input
@@ -552,7 +689,7 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
               取消
             </button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">
-              {submitting ? '创建中...' : '创建普通任务'}
+              {submitting ? '创建中...' : '创建'}
             </button>
           </div>
         </form>

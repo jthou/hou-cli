@@ -206,9 +206,17 @@ class WeatherTool:
             try:
                 if e.response:
                     error_detail = e.response.text[:200]  # 获取错误详情的前200个字符
-            except:
+            except Exception:
                 pass
-            raise WeatherToolError(f"API request failed with status {status_code}. {error_detail}")
+            msg = f"API request failed with status {status_code}. {error_detail}"
+            if status_code == 401:
+                msg += (
+                    " 和风 401 请检查：1) QWEATHER_API_HOST 是否与控制台项目分配的 Host 一致；"
+                    "2) QWEATHER_CREDENTIAL_ID（凭据ID）、QWEATHER_PROJECT_ID（项目ID）是否正确；"
+                    "3) WEATHER_JWT_PRIVATE_KEY 是否为 Ed25519 私钥 PEM（与控制台上传的公钥成对）。"
+                    "详见和风开发文档：https://dev.qweather.com/docs/configuration/authentication"
+                )
+            raise WeatherToolError(msg)
         except httpx.RequestError as e:
             raise WeatherToolError(f"Network error: {str(e)}")
         except Exception as e:

@@ -94,50 +94,58 @@ class JWTAuth:
         except KeyLoaderError as e:
             raise JWTAuthError(f"Failed to load private key: {str(e)}")
     
+    def _get_ed25519_key(self):
+        """将 PEM 字符串加载为 Ed25519 私钥对象，供 PyJWT EdDSA 使用"""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+        from cryptography.hazmat.backends import default_backend
+
+        try:
+            key_bytes = self.private_key.encode("utf-8") if isinstance(self.private_key, str) else self.private_key
+            key = serialization.load_pem_private_key(key_bytes, password=None, backend=default_backend())
+        except Exception as e:
+            raise JWTAuthError(f"私钥格式无效: {e}")
+
+        if not isinstance(key, ed25519.Ed25519PrivateKey):
+            raise JWTAuthError(
+                "和风天气 API 要求 Ed25519 私钥（EdDSA），当前不是。"
+                "请在和风控制台生成 Ed25519 凭据，或本地执行："
+                " openssl genpkey -algorithm Ed25519 -out key.pem ，"
+                "将 PEM 填入 WEATHER_JWT_PRIVATE_KEY。"
+            )
+        return key
+
     def generate_token(self) -> str:
         """
-        生成 JWT Token（符合和风天气 API 规范）
-        
-        Returns:
-            JWT Token 字符串
-            
-        Raises:
-            JWTAuthError: 如果 token 生成失败
+        生成 JWT Token（符合和风天气 API 规范）。
+        与官方文档一致：payload 含 iat/exp/sub，header 含 kid，算法 EdDSA。
+        见 https://dev.qweather.com/docs/configuration/authentication
         """
         try:
             import jwt
-            
-            # 构建 Payload（只包含 sub, iat, exp）
-            # iat 设置为当前时间前30秒，防止时间误差
+
+            # 文档示例传 PEM 字符串；PyJWT EdDSA 需密钥对象，故用 cryptography 加载
+            key = self._get_ed25519_key()
+
             now = int(time.time())
-            iat = now - 30
+            iat = now - 30  # 文档建议 iat 设为当前时间前 30 秒
             exp = iat + self.expires_in
-            
-            payload = {
-                "sub": self.sub,  # 项目ID
-                "iat": iat,       # 签发时间（当前时间-30秒）
-                "exp": exp        # 过期时间
-            }
-            
-            # 构建 Header（包含 alg 和 kid）
-            headers = {
-                "alg": "EdDSA",
-                "kid": self.kid   # 凭据ID
-            }
-            
-            # 使用 Ed25519 (EdDSA) 算法签名
+
+            payload = {"sub": self.sub, "iat": iat, "exp": exp}
+            headers = {"alg": "EdDSA", "kid": self.kid}
+
             token = jwt.encode(
                 payload,
-                self.private_key,
+                key,
                 algorithm="EdDSA",
-                headers=headers
+                headers=headers,
             )
-            
-            # jwt.encode 在 PyJWT 2.0+ 返回字符串，旧版本返回 bytes
+
             if isinstance(token, bytes):
-                token = token.decode('utf-8')
-            
+                token = token.decode("utf-8")
             return token
+        except JWTAuthError:
+            raise
         except Exception as e:
             raise JWTAuthError(f"Failed to generate JWT token: {str(e)}")
     

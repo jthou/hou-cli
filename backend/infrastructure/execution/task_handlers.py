@@ -1,7 +1,7 @@
 """任务处理器注册和定义"""
 import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 from backend.infrastructure.execution.task_worker import get_task_worker
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
     metadata = task_info.get("metadata", {})
     worker = get_task_worker()
 
-    location = metadata.get("location", "")
+    location = (metadata.get("location") or "").strip()
     query_type = metadata.get("query_type", "current")
 
     if not location:
@@ -78,11 +78,11 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
 
     try:
         from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
-        from backend.core.agent.tools.builtin.weather_tool import get_weather_tool
+        from backend.core.agent.tools.builtin.weather_tool import WeatherTool
 
         try:
-            jwt_auth = JWTAuth()
-            weather_tool = get_weather_tool(jwt_auth)
+            jwt_auth = JWTAuth.from_env()
+            weather_tool = WeatherTool(jwt_auth=jwt_auth)
         except JWTAuthError as e:
             raise ValueError(f"天气工具初始化失败: {str(e)}")
         except Exception as e:
@@ -106,10 +106,13 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
                 "forecast": weather_data
             }
         else:
+            cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
+            if not isinstance(cur, dict):
+                cur = weather_data
             formatted_result = {
                 "location": location,
                 "query_type": "current",
-                "current_weather": weather_data
+                "current_weather": cur
             }
 
         worker.update_task_progress(100, f"{location} 天气查询完成")
@@ -118,7 +121,9 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
         if query_type == "forecast":
             summary = f"{location} 天气预报"
         else:
-            cur = weather_data if isinstance(weather_data, dict) else {}
+            cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
+            if not isinstance(cur, dict):
+                cur = {}
             summary = f"{location} {cur.get('text', '')} {cur.get('temp', '')}°C".strip() or f"{location} 天气查询完成"
         return {
             "status": "success",
@@ -139,7 +144,7 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
     metadata = task_info.get("metadata", {})
     worker = get_task_worker()
 
-    url = metadata.get("url", "").strip()
+    url = (metadata.get("url") or "").strip()
     if not url:
         raise ValueError("url 参数是必需的")
 
@@ -225,3 +230,33 @@ def get_task_type_info(task_type: str) -> Dict[str, Any]:
         "description": info["description"],
         "metadata_schema": info["metadata_schema"]
     }
+
+
+def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optional[str]]:
+    """
+    校验任务创建参数：task_type 白名单 + metadata 按 metadata_schema 校验。
+    供 API 创建任务时调用，与「任务管理验证规范」一致。
+
+    Returns:
+        (True, None) 校验通过；(False, "错误描述") 校验失败。
+    """
+    metadata = metadata if isinstance(metadata, dict) else {}
+    if task_type not in TASK_TYPES:
+        return False, f"无效的任务类型: {task_type}，可选: {', '.join(TASK_TYPES.keys())}"
+
+    schema = TASK_TYPES[task_type].get("metadata_schema") or {}
+    for field_name, field_spec in schema.items():
+        if not isinstance(field_spec, dict):
+            continue
+        required = field_spec.get("required", False)
+        value = metadata.get(field_name)
+        if required:
+            if value is None:
+                return False, f"缺少必填参数: {field_name}"
+            if isinstance(value, str) and not value.strip():
+                return False, f"必填参数不能为空: {field_name}"
+        if value is not None and field_spec.get("enum"):
+            allowed = [e.get("value") for e in field_spec["enum"] if isinstance(e, dict) and "value" in e]
+            if allowed and value not in allowed:
+                return False, f"参数 {field_name} 取值无效，可选: {allowed}"
+    return True, None
