@@ -45,9 +45,9 @@ pdfplumber>=0.10.0
 # MinerU：完全本地化，推荐用于生产环境（包含所有功能）
 mineru[all]>=2.7.0
 
-# Camelot（表格提取，免费，带 OpenCV 支持）
-camelot-py[cv]>=1.0.0
-#    适合：金融年报等复杂表格提取
+# Camelot（表格提取，免费）
+camelot-py>=1.0.0
+#    适合：金融年报等复杂表格提取；需 OpenCV 时可单独安装 opencv-python
 #    注意：可能需要系统级安装 ghostscript（如：brew install ghostscript）
 #    参考：https://github.com/camelot-dev/camelot
 
