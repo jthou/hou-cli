@@ -174,4 +174,3 @@ def mock_heartbeat_monitor():
         "last_heartbeat": "2024-01-01T12:00:00"
     })
     return mock
-

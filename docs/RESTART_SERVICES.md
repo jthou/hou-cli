@@ -29,10 +29,10 @@ python -m backend.main
 
 ```bash
 # 停止所有前端进程
-pkill -f "frontend/web/main.py"
+pkill -f "backend.main"
 
 # 重新启动前端
-python -m frontend.web.main
+python -m backend.main
 
 # 或者使用 Makefile
 make start-web
@@ -103,7 +103,7 @@ A:
 
 echo "停止所有服务..."
 pkill -f "backend/main.py"
-pkill -f "frontend/web/main.py"
+pkill -f "backend.main"
 
 echo "等待服务停止..."
 sleep 2
@@ -116,11 +116,10 @@ echo "等待后端启动..."
 sleep 3
 
 echo "启动前端服务..."
-python -m frontend.web.main &
+python -m backend.main &
 FRONTEND_PID=$!
 
 echo "后端 PID: $BACKEND_PID"
 echo "前端 PID: $FRONTEND_PID"
 echo "服务已启动"
 ```
-

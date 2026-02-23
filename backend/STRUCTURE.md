@@ -83,4 +83,3 @@ backend/
 2. **模块化**: 按功能拆分，便于维护和扩展
 3. **统一命名**: 服务层统一使用 `_service` 后缀
 4. **清晰分层**: API -> Core -> Services -> Infrastructure
-

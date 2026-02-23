@@ -39,7 +39,7 @@ curl http://127.0.0.1:8000/api/tests/list
 
 ### 4. 检查前端代理
 
-确认 `frontend/web/main.py` 中已添加测试 API 代理：
+确认 `backend` 已注册测试相关 API 路由：
 
 - `POST /api/tests/run`
 - `GET /api/tests/status`
@@ -79,4 +79,3 @@ A: 测试默认超时时间为 5 分钟，可以在 `test_routes.py` 中调整
 
 ### Q: 测试结果不显示
 A: 检查浏览器控制台是否有错误，确认后端服务正常运行
-

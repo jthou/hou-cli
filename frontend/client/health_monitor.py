@@ -153,4 +153,3 @@ class HealthMonitor:
     def is_healthy(self) -> bool:
         """检查当前是否健康"""
         return self.consecutive_failures < self.max_failures
-

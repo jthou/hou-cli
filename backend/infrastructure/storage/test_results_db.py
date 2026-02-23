@@ -370,4 +370,3 @@ def get_test_results_db(db_name: str = "test_results.db") -> TestResultsDB:
     if _test_results_db is None:
         _test_results_db = TestResultsDB(db_name)
     return _test_results_db
-

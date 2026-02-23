@@ -69,4 +69,3 @@ async def list_tools():
             "success": False,
             "error": str(e)
         }
-

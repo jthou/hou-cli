@@ -21,4 +21,3 @@ async def get_heartbeat_status():
             "success": False,
             "error": str(e)
         }
-

@@ -107,4 +107,3 @@ pytest backend/api/tests/ --cov=backend.api --cov-report=html
 4. **错误处理**：确保错误情况被正确处理
 5. **状态码验证**：验证正确的 HTTP 状态码
 6. **响应格式验证**：验证响应 JSON 结构
-

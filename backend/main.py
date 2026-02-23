@@ -1,11 +1,14 @@
-"""后端服务入口（IPC 服务器）"""
+"""后端服务入口 - API + Web UI 统一服务"""
 import os
 import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from backend.api.routes import router
+from backend.api.web_routes import router as web_router
 from shared.platform_utils import save_port, load_port, get_port_file
 from shared.config import Config
 from rich.console import Console
@@ -74,7 +77,97 @@ logging.info(f"日志文件: {log_file}")
 
 console = Console()
 
-app = FastAPI(title="LLM Agent API")
+
+@asynccontextmanager
+async def _lifespan(app):
+    """应用生命周期管理（替代已弃用的 on_event）"""
+    # === startup ===
+    try:
+        worker_enabled = os.getenv("TASK_WORKER_ENABLED", "true").lower() == "true"
+        if worker_enabled:
+            from backend.infrastructure.execution.task_worker import get_task_worker
+            from backend.infrastructure.execution.task_handlers import register_default_handlers
+            worker = get_task_worker(
+                worker_name="backend-worker",
+                poll_interval=int(os.getenv("TASK_WORKER_POLL_INTERVAL", "5")),
+                heartbeat_interval=int(os.getenv("TASK_WORKER_HEARTBEAT_INTERVAL", "30"))
+            )
+            register_default_handlers()
+            await worker.start()
+            logger.info("任务 Worker 已启动")
+    except Exception as e:
+        logger.warning(f"启动任务 Worker 失败: {e}，任务队列功能可能不可用")
+
+    errors = []
+    deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
+    if not deepseek_api_key or len(deepseek_api_key) < 10:
+        errors.append("DEEPSEEK_API_KEY 未配置或格式无效")
+    bailian = (os.getenv('BAILIAN_API_KEY') or os.getenv('DASHSCOPE_API_KEY') or '').strip()
+    if not bailian or len(bailian) < 10:
+        errors.append("BAILIAN_API_KEY 或 DASHSCOPE_API_KEY 未配置")
+    turbo = os.getenv('TURBOGATEWAY_API_KEY', '').strip()
+    if not turbo or len(turbo) < 10:
+        errors.append("TURBOGATEWAY_API_KEY 未配置或格式无效")
+    gkey = os.getenv('GOOGLE_SEARCH_API_KEY', '').strip()
+    gid = os.getenv('GOOGLE_SEARCH_ENGINE_ID', '').strip()
+    if gkey and len(gkey) < 10:
+        errors.append("GOOGLE_SEARCH_API_KEY 长度不足")
+    elif not gkey:
+        errors.append("GOOGLE_SEARCH_API_KEY 未配置")
+    if gid and len(gid) < 10:
+        errors.append("GOOGLE_SEARCH_ENGINE_ID 长度不足")
+    elif not gid:
+        errors.append("GOOGLE_SEARCH_ENGINE_ID 未配置")
+
+    if errors:
+        console.print("[bold yellow]⚠️  警告: 发现以下配置问题:[/bold yellow]")
+        for err in errors:
+            console.print(f"  - {err}")
+        console.print("[dim]服务已启动，但部分功能可能不可用。请配置 ~/.config/hou-cli/.env[/dim]\n")
+    else:
+        console.print("[green]✓[/green] 所有必需的 API 密钥配置有效")
+        console.print()
+
+    try:
+        from backend.core.agent.orchestrator import Orchestrator
+        Orchestrator()
+        console.print("[green]✓[/green] Orchestrator 初始化成功")
+    except ValueError as e:
+        console.print(f"[bold red]✗[/bold red] 配置错误: {str(e)}")
+        logging.error(f"Configuration error: {str(e)}", exc_info=True)
+    except Exception as e:
+        console.print(f"[yellow]⚠[/yellow] Orchestrator 初始化失败（服务仍可启动）: {str(e)}")
+        logging.error(f"Orchestrator initialization failed: {str(e)}", exc_info=True)
+
+    try:
+        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
+        hb = get_heartbeat_monitor(interval=int(os.getenv("HEARTBEAT_INTERVAL", "30")))
+        await hb.start()
+        console.print(f"[green]✓[/green] 心跳监控已启动")
+    except Exception as e:
+        console.print(f"[yellow]⚠[/yellow] 心跳监控启动失败: {str(e)}")
+        logging.error(f"Heartbeat monitor startup failed: {str(e)}", exc_info=True)
+
+    yield
+
+    # === shutdown ===
+    try:
+        from backend.infrastructure.execution.task_worker import get_task_worker
+        w = get_task_worker()
+        if w.is_running:
+            await w.stop()
+            logger.info("任务 Worker 已停止")
+    except Exception as e:
+        logger.warning(f"停止任务 Worker 失败: {e}")
+    try:
+        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
+        await get_heartbeat_monitor().stop()
+        logging.info("心跳监控已停止")
+    except Exception as e:
+        logging.error(f"停止心跳监控失败: {e}", exc_info=True)
+
+
+app = FastAPI(title="LLM Agent API", lifespan=_lifespan)
 
 # 添加全局异常处理器
 @app.exception_handler(Exception)
@@ -96,94 +189,18 @@ async def global_exception_handler(request, exc):
     )
 
 # 延迟加载路由，避免启动时初始化 Orchestrator 失败导致服务无法启动
-@app.on_event("startup")
-async def startup_event():
-    """应用启动事件"""
-    # 检查必需的配置
-    errors = []
-    
-    # 检查 DeepSeek API Key
-    deepseek_api_key = os.getenv('DEEPSEEK_API_KEY', '').strip()
-    if not deepseek_api_key or len(deepseek_api_key) < 10:
-        errors.append("DEEPSEEK_API_KEY 未配置或格式无效")
-    
-    # 检查百炼平台 API Key
-    api_key_bailian = os.getenv('BAILIAN_API_KEY', '').strip()
-    api_key_dashscope = os.getenv('DASHSCOPE_API_KEY', '').strip()
-    bailian_api_key = api_key_bailian or api_key_dashscope
-    if not bailian_api_key or len(bailian_api_key) < 10:
-        errors.append("BAILIAN_API_KEY 或 DASHSCOPE_API_KEY 未配置")
-    
-    # 检查 TheTurbo.ai 网关 API Key
-    turbogateway_api_key = os.getenv('TURBOGATEWAY_API_KEY', '').strip()
-    if not turbogateway_api_key or len(turbogateway_api_key) < 10:
-        errors.append("TURBOGATEWAY_API_KEY 未配置或格式无效")
-    
-    # 检查 Google 搜索 API Key
-    google_search_api_key = os.getenv('GOOGLE_SEARCH_API_KEY', '').strip()
-    google_search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID', '').strip()
-    if google_search_api_key and len(google_search_api_key) < 10:
-        errors.append("GOOGLE_SEARCH_API_KEY 长度不足")
-    elif not google_search_api_key:
-        errors.append("GOOGLE_SEARCH_API_KEY 未配置")
-    if google_search_engine_id and len(google_search_engine_id) < 10:
-        errors.append("GOOGLE_SEARCH_ENGINE_ID 长度不足")
-    elif not google_search_engine_id:
-        errors.append("GOOGLE_SEARCH_ENGINE_ID 未配置")
-    
-    # 如果有错误，显示警告但继续启动
-    if errors:
-        console.print("[bold yellow]⚠️  警告: 发现以下配置问题:[/bold yellow]")
-        for error in errors:
-            console.print(f"  - {error}")
-        console.print("[dim]服务已启动，但部分功能可能不可用。请配置 ~/.config/hou-cli/.env[/dim]")
-        console.print("[dim]配置示例: /usr/share/hou-cli/env.example[/dim]\n")
-    else:
-        console.print("[green]✓[/green] 所有必需的 API 密钥配置有效")
-        console.print()
-    
-    try:
-        # 在启动时尝试初始化 Orchestrator，验证配置
-        from backend.core.agent.orchestrator import Orchestrator
-        orchestrator = Orchestrator()
-        console.print("[green]✓[/green] Orchestrator 初始化成功")
-    except ValueError as e:
-        # API Key 配置错误
-        console.print(f"[bold red]✗[/bold red] 配置错误: {str(e)}")
-        console.print("[dim]请检查 ~/.config/hou-cli/.env 文件中的 DEEPSEEK_API_KEY[/dim]\n")
-        import logging
-        logging.error(f"Configuration error: {str(e)}", exc_info=True)
-    except Exception as e:
-        console.print(f"[yellow]⚠[/yellow] Orchestrator 初始化失败（服务仍可启动）: {str(e)}")
-        import logging
-        logging.error(f"Orchestrator initialization failed: {str(e)}", exc_info=True)
-    
-    # 启动心跳监控
-    try:
-        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
-        heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "30"))
-        heartbeat_monitor = get_heartbeat_monitor(interval=heartbeat_interval)
-        await heartbeat_monitor.start()
-        console.print(f"[green]✓[/green] 心跳监控已启动（间隔: {heartbeat_interval} 秒）")
-    except Exception as e:
-        console.print(f"[yellow]⚠[/yellow] 心跳监控启动失败: {str(e)}")
-        import logging
-        logging.error(f"Heartbeat monitor startup failed: {str(e)}", exc_info=True)
+logger = logging.getLogger(__name__)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """应用关闭事件"""
-    # 停止心跳监控
-    try:
-        from backend.infrastructure.monitoring.heartbeat import get_heartbeat_monitor
-        heartbeat_monitor = get_heartbeat_monitor()
-        await heartbeat_monitor.stop()
-        logging.info("心跳监控已停止")
-    except Exception as e:
-        logging.error(f"停止心跳监控失败: {e}", exc_info=True)
-
-# 主路由已经包含了所有子路由（chat, session, search, mediawiki, tool, heartbeat, storage, task）
+# API 路由
 app.include_router(router, prefix="/api")
+
+# Web UI 路由（静态、首页、WebSocket）
+app.include_router(web_router)
+
+# React SPA 静态资源
+_react_dist = Path(__file__).parent.parent / "frontend" / "web" / "dist"
+if _react_dist.exists() and (_react_dist / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_react_dist / "assets")), name="assets")
 
 @app.get("/health")
 async def health():
@@ -232,48 +249,36 @@ def is_backend_running_on_port(port: int) -> bool:
         return False
 
 def main():
-    """启动 IPC 服务器"""
-    # 优先从环境变量读取端口配置
+    """启动服务（API + Web UI，单进程单端口）"""
     port = None
+    # 优先使用 WEB_PORT（默认 8081），兼容 BACKEND_PORT
+    port_str = os.getenv("WEB_PORT") or os.getenv("BACKEND_PORT")
     
-    # 1. 尝试从环境变量读取
-    backend_port_str = os.getenv("BACKEND_PORT")
-    if backend_port_str:
+    if port_str:
         try:
-            port = int(backend_port_str)
+            port = int(port_str)
             if not is_port_available(port):
-                console.print(f"[yellow]⚠[/yellow] 环境变量中的端口 {port} 不可用，将查找新端口")
+                console.print(f"[yellow]⚠[/yellow] 端口 {port} 不可用")
                 port = None
             else:
-                console.print(f"[dim]使用环境变量配置的端口: {port}[/dim]")
+                console.print(f"[dim]使用端口: {port}[/dim]")
         except ValueError:
-            console.print(f"[yellow]⚠[/yellow] 环境变量 BACKEND_PORT 值无效: {backend_port_str}")
+            console.print(f"[yellow]⚠[/yellow] 端口配置无效: {port_str}")
             port = None
     
-    # 2. 如果环境变量未设置或端口不可用，尝试使用之前保存的端口
+    # 2. 默认 8081，占用时检查是否已为本服务
     if port is None:
-        port_file = get_port_file()
-        if port_file.exists():
-            try:
-                saved_port = load_port()
-                # 先检查端口是否可用（可以绑定）
-                if is_port_available(saved_port):
-                    port = saved_port
-                    console.print(f"[dim]使用之前保存的端口: {port}[/dim]")
-                # 如果端口不可绑定，检查是否是后端服务已经在运行
-                elif is_backend_running_on_port(saved_port):
-                    # 后端已经在运行，不启动新实例
-                    console.print(f"[green]✓[/green] 后端服务已在端口 {saved_port} 上运行")
-                    console.print(f"[dim]如需重启，请先运行: python cli.py stop[/dim]")
-                    return  # 直接返回，不启动新实例
-            except (ValueError, OSError):
-                # 端口文件损坏或端口不可用，忽略
-                pass
-    
-    # 3. 如果都没有，查找新端口
-    if port is None:
-        port = find_free_port()
-        console.print(f"[dim]分配新端口: {port}[/dim]")
+        default_port = int(os.getenv("WEB_PORT", "8081"))
+        if is_port_available(default_port):
+            port = default_port
+        elif is_backend_running_on_port(default_port):
+            console.print(f"[green]✓[/green] 服务已在 http://127.0.0.1:{default_port} 运行")
+            console.print(f"[dim]如需重启，请先运行: python cli.py stop[/dim]")
+            return
+        else:
+            console.print(f"[red]端口 {default_port} 已被占用，请先停止旧进程[/red]")
+            console.print(f"[dim]提示: lsof -i :{default_port} 查看占用进程[/dim]")
+            raise SystemExit(1)
     
     # 输出环境信息（开发环境）
     if config.is_development:
@@ -281,7 +286,9 @@ def main():
         console.print(f"[dim]调试输出: 已启用[/dim]")
         console.print(f"[dim]日志级别: DEBUG[/dim]\n")
     
-    print(f"后端服务启动在 http://127.0.0.1:{port}")
+    print(f"服务启动在 http://127.0.0.1:{port}")
+    print(f"   API: http://127.0.0.1:{port}/api")
+    print(f"   Web: http://127.0.0.1:{port}/")
     
     # 保存端口号（供前端读取，在启动前保存，确保前端能立即读取）
     save_port(port)

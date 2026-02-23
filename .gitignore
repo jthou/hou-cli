@@ -46,6 +46,11 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Node / React
+node_modules/
+frontend/react-app/node_modules/
+frontend/web/dist/
+
 # Project specific
 .backend.pid
 *.pid

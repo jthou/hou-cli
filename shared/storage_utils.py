@@ -122,4 +122,3 @@ def get_storage_manager(data_dir: Optional[Path] = None) -> StorageManager:
     if _storage_manager is None:
         _storage_manager = StorageManager(data_dir)
     return _storage_manager
-

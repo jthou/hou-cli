@@ -8,4 +8,3 @@ __all__ = [
     "HeartbeatMonitor",
     "get_heartbeat_monitor",
 ]
-

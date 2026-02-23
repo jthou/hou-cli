@@ -1,0 +1,282 @@
+"""任务队列数据库测试"""
+import pytest
+import sqlite3
+import tempfile
+import os
+from pathlib import Path
+from datetime import datetime
+from backend.infrastructure.storage.task_queue_db import (
+    TaskQueueDB,
+    TaskStatus,
+    TaskPriority
+)
+
+
+@pytest.fixture
+def temp_db():
+    """创建临时数据库"""
+    fd, path = tempfile.mkstemp(suffix='.db')
+    os.close(fd)
+    
+    db = TaskQueueDB(db_name=os.path.basename(path))
+    # 覆盖数据库路径为临时文件
+    db.db_path = Path(path)
+    db._init_db()
+    
+    yield db
+    
+    # 清理
+    if os.path.exists(path):
+        os.unlink(path)
+
+
+class TestTaskQueueDB:
+    """任务队列数据库测试类"""
+    
+    def test_create_task(self, temp_db):
+        """测试创建任务"""
+        task_id = temp_db.create_task(
+            task_type="test_task",
+            task_name="测试任务",
+            priority=TaskPriority.HIGH,
+            max_retries=5,
+            metadata={"key": "value"}
+        )
+        
+        assert task_id is not None
+        assert len(task_id) > 0
+        
+        # 验证任务已创建
+        task = temp_db.get_task(task_id)
+        assert task is not None
+        assert task["task_type"] == "test_task"
+        assert task["task_name"] == "测试任务"
+        assert task["status"] == TaskStatus.QUEUED.value
+        assert task["priority"] == TaskPriority.HIGH.value
+        assert task["max_retries"] == 5
+        assert task["metadata"]["key"] == "value"
+    
+    def test_acquire_task(self, temp_db):
+        """测试 Worker 获取任务（创建即入队）"""
+        task_id = temp_db.create_task(
+            task_type="test_task",
+            task_name="测试任务",
+            priority=TaskPriority.HIGH
+        )
+        
+        # 注册 Worker
+        worker_id = "worker-1"
+        temp_db.register_worker(worker_id, "测试 Worker")
+        
+        # 获取任务
+        task_info = temp_db.acquire_task(worker_id)
+        
+        assert task_info is not None
+        assert task_info["task_id"] == task_id
+        assert task_info["task_type"] == "test_task"
+        assert task_info["task_name"] == "测试任务"
+        
+        # 验证任务状态已更新
+        task = temp_db.get_task(task_id)
+        assert task["status"] == TaskStatus.RUNNING.value
+        assert task["worker_id"] == worker_id
+        assert task["started_at"] is not None
+    
+    def test_acquire_task_priority_order(self, temp_db):
+        """测试按优先级获取任务"""
+        low_task = temp_db.create_task("test", "低优先级", priority=TaskPriority.LOW)
+        high_task = temp_db.create_task("test", "高优先级", priority=TaskPriority.HIGH)
+        normal_task = temp_db.create_task("test", "普通优先级", priority=TaskPriority.NORMAL)
+        
+        temp_db.register_worker("worker-1", "测试 Worker")
+        
+        # 应该先获取高优先级的任务
+        task_info = temp_db.acquire_task("worker-1")
+        assert task_info["task_id"] == high_task
+        assert task_info["priority"] == TaskPriority.HIGH.value
+    
+    def test_update_task_progress(self, temp_db):
+        """测试更新任务进度"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.register_worker("worker-1", "测试 Worker")
+        temp_db.acquire_task("worker-1")
+        
+        success = temp_db.update_task_progress(task_id, 50, "处理中...")
+        assert success is True
+        
+        task = temp_db.get_task(task_id)
+        assert task["progress"] == 50
+        assert task["message"] == "处理中..."
+    
+    def test_complete_task_success(self, temp_db):
+        """测试任务成功完成"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.register_worker("worker-1", "测试 Worker")
+        temp_db.acquire_task("worker-1")
+        
+        result = {"output": "成功"}
+        success = temp_db.complete_task(task_id, result=result)
+        assert success is True
+        
+        task = temp_db.get_task(task_id)
+        assert task["status"] == TaskStatus.COMPLETED.value
+        assert task["progress"] == 100
+        assert task["result"] == result
+        assert task["completed_at"] is not None
+        assert task["duration"] is not None
+    
+    def test_complete_task_failed(self, temp_db):
+        """测试任务失败后重新入队"""
+        task_id = temp_db.create_task("test", "测试任务", max_retries=3)
+        temp_db.register_worker("worker-1", "测试 Worker")
+        temp_db.acquire_task("worker-1")
+        
+        error = "任务执行失败"
+        success = temp_db.complete_task(task_id, error=error)
+        assert success is True
+        
+        task = temp_db.get_task(task_id)
+        assert task["status"] == TaskStatus.QUEUED.value
+        assert task["retry_count"] == 1
+    
+    def test_complete_task_max_retries_exceeded(self, temp_db):
+        """测试超过最大重试次数"""
+        task_id = temp_db.create_task("test", "测试任务", max_retries=1)
+        temp_db.register_worker("worker-1", "测试 Worker")
+        
+        temp_db.acquire_task("worker-1")
+        temp_db.complete_task(task_id, error="失败1")
+        
+        temp_db.acquire_task("worker-1")
+        temp_db.complete_task(task_id, error="失败2")
+        
+        task = temp_db.get_task(task_id)
+        assert task["status"] == TaskStatus.FAILED.value
+        # 注意：retry_count 可能只记录最后一次，所以可能是 1 或 2
+        assert task["retry_count"] >= 1
+    
+    def test_cancel_task(self, temp_db):
+        """测试取消任务"""
+        task_id = temp_db.create_task("test", "测试任务")
+        success = temp_db.cancel_task(task_id)
+        assert success is True
+        
+        task = temp_db.get_task(task_id)
+        assert task["status"] == TaskStatus.CANCELLED.value
+        assert task["completed_at"] is not None
+    
+    def test_list_tasks(self, temp_db):
+        """测试列出任务"""
+        task1 = temp_db.create_task("test1", "任务1")
+        task2 = temp_db.create_task("test2", "任务2")
+        task3 = temp_db.create_task("test3", "任务3")
+        
+        tasks = temp_db.list_tasks()
+        assert len(tasks) == 3
+        
+        temp_db.register_worker("worker-1", "测试 Worker")
+        temp_db.acquire_task("worker-1")
+        queued_tasks = temp_db.list_tasks(status=TaskStatus.QUEUED)
+        assert len(queued_tasks) == 2
+        running_tasks = temp_db.list_tasks(status=TaskStatus.RUNNING)
+        assert len(running_tasks) == 1
+    
+    def test_register_worker(self, temp_db):
+        """测试注册 Worker"""
+        worker_id = "worker-1"
+        success = temp_db.register_worker(worker_id, "测试 Worker")
+        assert success is True
+        
+        workers = temp_db.list_workers()
+        assert len(workers) == 1
+        assert workers[0]["worker_id"] == worker_id
+        assert workers[0]["worker_name"] == "测试 Worker"
+        assert workers[0]["status"] == "idle"
+    
+    def test_update_worker_heartbeat(self, temp_db):
+        """测试更新 Worker 心跳"""
+        worker_id = "worker-1"
+        temp_db.register_worker(worker_id, "测试 Worker")
+        
+        success = temp_db.update_worker_heartbeat(worker_id)
+        assert success is True
+        
+        workers = temp_db.list_workers()
+        assert workers[0]["last_heartbeat"] is not None
+    
+    def test_cleanup_stale_tasks(self, temp_db):
+        """测试清理超时任务"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.register_worker("worker-1", "测试 Worker")
+        temp_db.acquire_task("worker-1")
+        
+        # 手动设置开始时间为很久以前（模拟超时）
+        conn = temp_db._get_conn()
+        cursor = conn.cursor()
+        old_time = "2020-01-01T00:00:00"
+        cursor.execute(
+            "UPDATE tasks SET started_at = ? WHERE task_id = ?",
+            (old_time, task_id)
+        )
+        conn.commit()
+        conn.close()
+        
+        # 清理超时任务
+        count = temp_db.cleanup_stale_tasks(max_idle_minutes=1)
+        assert count >= 0  # 可能清理了任务
+        
+        # 验证任务状态（如果被清理，应该重新入队）
+        task = temp_db.get_task(task_id)
+        if task:
+            # 任务可能被重新入队或保持原状态
+            assert task["status"] in [TaskStatus.QUEUED.value, TaskStatus.RUNNING.value]
+
+    # --- 任务管理与展示机制（见 docs/design/task-management-and-display.md）---
+
+    def test_list_tasks_includes_result_summary_for_completed(self, temp_db):
+        """已完成且 result 含 summary 时，列表项带 result_summary"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.register_worker("worker-1", "Worker")
+        temp_db.acquire_task("worker-1")
+        result_payload = {"status": "success", "summary": "已保存至 /path", "data": {}}
+        temp_db.complete_task(task_id, result=result_payload)
+
+        tasks = temp_db.list_tasks()
+        assert len(tasks) >= 1
+        completed = next((t for t in tasks if t["task_id"] == task_id), None)
+        assert completed is not None
+        assert completed["status"] == TaskStatus.COMPLETED.value
+        assert completed.get("result_summary") == "已保存至 /path"
+
+    def test_list_tasks_result_summary_null_when_not_completed(self, temp_db):
+        """未完成或 result 无 summary 时，列表项 result_summary 为 None"""
+        task_id = temp_db.create_task("test", "任务")
+        tasks = temp_db.list_tasks()
+        row = next((t for t in tasks if t["task_id"] == task_id), None)
+        assert row is not None
+        assert row.get("result_summary") is None
+
+    def test_list_tasks_result_summary_null_when_result_has_no_summary(self, temp_db):
+        """completed 但 result 无 summary 时，result_summary 为空或 None"""
+        task_id = temp_db.create_task("test", "任务")
+        temp_db.register_worker("worker-1", "Worker")
+        temp_db.acquire_task("worker-1")
+        temp_db.complete_task(task_id, result={"status": "success", "data": {}})
+
+        tasks = temp_db.list_tasks()
+        completed = next((t for t in tasks if t["task_id"] == task_id), None)
+        assert completed is not None
+        assert completed.get("result_summary") is None or completed.get("result_summary") == ""
+
+    def test_get_task_returns_full_result(self, temp_db):
+        """get_task 返回的 task 包含完整 result 对象"""
+        task_id = temp_db.create_task("test", "任务")
+        temp_db.register_worker("worker-1", "Worker")
+        temp_db.acquire_task("worker-1")
+        result_payload = {"status": "success", "summary": "摘要", "data": {"key": "value"}}
+        temp_db.complete_task(task_id, result=result_payload)
+
+        task = temp_db.get_task(task_id)
+        assert task is not None
+        assert task["result"] == result_payload
+

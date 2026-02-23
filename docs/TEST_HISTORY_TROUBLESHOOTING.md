@@ -104,4 +104,3 @@ sqlite3 ~/.local/share/hou-cli/databases/test_results.db
 .tables
 SELECT * FROM test_runs ORDER BY started_at DESC LIMIT 10;
 ```
-

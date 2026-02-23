@@ -5,6 +5,7 @@ import time
 import psutil
 from typing import Dict, Optional
 from datetime import datetime, timedelta
+from backend.infrastructure.storage.task_queue_db import TaskPriority
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +59,28 @@ class HeartbeatMonitor:
     
     async def _heartbeat_loop(self):
         """心跳循环"""
+        # 延迟导入，避免循环依赖
+        task_queue_db = None
+        
         while self.is_running:
             try:
                 await self._collect_metrics()
                 self.last_heartbeat = datetime.now()
                 self.heartbeat_count += 1
                 
-                # 每 10 次心跳记录一次日志（避免日志过多）
+                # 每 10 次心跳监控一次 Worker 健康状态和定时任务
                 if self.heartbeat_count % 10 == 0:
+                    if task_queue_db is None:
+                        try:
+                            from backend.infrastructure.storage.task_queue_db import get_task_queue_db
+                            task_queue_db = get_task_queue_db()
+                        except Exception:
+                            pass
+                    
+                    if task_queue_db:
+                        await self.monitor_workers(task_queue_db, max_silence_seconds=120)
+                        await self.check_scheduled_tasks(task_queue_db)
+                    
                     logger.debug(
                         f"心跳 #{self.heartbeat_count} - "
                         f"CPU: {self.metrics['cpu_percent']:.1f}%, "
@@ -125,6 +140,88 @@ class HeartbeatMonitor:
         
         silence = (datetime.now() - self.last_heartbeat).total_seconds()
         return silence < max_silence_seconds
+    
+    async def monitor_workers(self, task_queue_db, max_silence_seconds: int = 120):
+        """
+        监控 Worker 健康状态（在心跳循环中调用）
+        
+        Args:
+            task_queue_db: 任务队列数据库实例
+            max_silence_seconds: Worker 最大静默时间（秒）
+        """
+        try:
+            workers = task_queue_db.list_workers()
+            now = datetime.now()
+            
+            for worker in workers:
+                last_heartbeat_str = worker.get("last_heartbeat")
+                if not last_heartbeat_str:
+                    continue
+                
+                try:
+                    last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
+                    silence = (now - last_heartbeat).total_seconds()
+                    
+                    # 如果 Worker 超过最大静默时间，清理其任务
+                    if silence > max_silence_seconds:
+                        worker_id = worker.get("worker_id")
+                        current_task_id = worker.get("current_task_id")
+                        
+                        if current_task_id:
+                            logger.warning(
+                                f"Worker {worker_id} 心跳超时 ({silence:.0f}秒)，"
+                                f"清理任务 {current_task_id}"
+                            )
+                            # 清理超时任务（重新入队）
+                            task_queue_db.cleanup_stale_tasks(max_idle_minutes=int(silence / 60))
+                except Exception as e:
+                    logger.error(f"监控 Worker {worker.get('worker_id')} 失败: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"监控 Worker 健康状态失败: {e}", exc_info=True)
+    
+    async def check_scheduled_tasks(self, task_queue_db):
+        """
+        检查并执行到期的定时任务（在心跳循环中调用）
+        
+        Args:
+            task_queue_db: 任务队列数据库实例
+        """
+        try:
+            due_tasks = task_queue_db.get_due_scheduled_tasks()
+            
+            if not due_tasks:
+                return
+            
+            logger.info(f"发现 {len(due_tasks)} 个到期的定时任务")
+            
+            for scheduled_task in due_tasks:
+                try:
+                    # 创建任务（创建即入队）
+                    task_id = task_queue_db.create_task(
+                        task_type=scheduled_task["task_type"],
+                        task_name=scheduled_task["task_name"],
+                        priority=TaskPriority.NORMAL,
+                        metadata=scheduled_task.get("metadata", {})
+                    )
+                    
+                    # 更新定时任务的下次执行时间
+                    task_queue_db.update_scheduled_task_next_run(
+                        schedule_id=scheduled_task["schedule_id"],
+                        schedule_type=scheduled_task["schedule_type"],
+                        schedule_config=scheduled_task["schedule_config"]
+                    )
+                    
+                    logger.info(
+                        f"定时任务 {scheduled_task['schedule_id']} 已创建任务 "
+                        f"{task_id} ({scheduled_task['task_name']})"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"执行定时任务 {scheduled_task.get('schedule_id')} 失败: {e}",
+                        exc_info=True
+                    )
+        except Exception as e:
+            logger.error(f"检查定时任务失败: {e}", exc_info=True)
 
 
 # 全局心跳监控器实例

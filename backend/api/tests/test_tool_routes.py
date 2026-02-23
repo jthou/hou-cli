@@ -114,4 +114,3 @@ class TestToolRoutes:
             data = response.json()
             assert data["success"] is False
             assert "获取工具失败" in data["error"]
-

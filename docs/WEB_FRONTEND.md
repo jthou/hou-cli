@@ -34,7 +34,7 @@ make run-web        # 启动 Web 前端
 python cli.py start
 
 # 2. 启动 Web 前端
-python -m frontend.web.main
+python -m backend.main
 ```
 
 #### 方式 3: 使用 Python 模块
@@ -42,7 +42,7 @@ python -m frontend.web.main
 ```bash
 # 在虚拟环境中
 source venv/bin/activate
-python -m frontend.web.main
+python -m backend.main
 ```
 
 ### 访问 Web 界面
@@ -226,4 +226,3 @@ Web 前端服务提供了：
 - ✅ 易于扩展和定制
 
 现在你可以选择使用 CLI 或 Web 界面来使用 Hou CLI！
-

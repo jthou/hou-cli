@@ -1,4 +1,4 @@
-.PHONY: help install install-prod install-dev test test-cov lint lint-fix format format-check clean clean-deps clean-all run-backend stop-backend run-frontend run-web start start-cli start-web run run-cli run-web status check-env setup-venv
+.PHONY: help install install-prod install-dev test test-cov lint lint-fix format format-check clean clean-deps clean-all build-react run-backend stop-backend run-web start start-web run status check-env setup-venv
 
 # 默认目标
 .DEFAULT_GOAL := help
@@ -16,6 +16,8 @@ VENV_BIN := $(VENV)/bin
 VENV_ACTIVATE := $(VENV_BIN)/activate
 PYTHON := $(VENV_BIN)/python
 PIP := $(VENV_BIN)/pip
+# 后端端口（与 backend 默认一致）
+WEB_PORT ?= 8081
 
 help: ## 显示帮助信息
 	@echo "$(COLOR_BOLD)可用命令：$(COLOR_RESET)"
@@ -104,39 +106,39 @@ clean-deps: ## 清理所有安装的依赖（虚拟环境、FFmpeg、Whisper 模
 
 clean-all: clean clean-deps ## 清理所有文件（构建文件 + 依赖）
 
-run-backend: check-env ## 启动后端服务（绝对重启：先停止并清除环境，再启动）
+build-react: ## 构建 React + Tailwind 前端
+	@echo "$(COLOR_GREEN)⚛️  构建 React 前端...$(COLOR_RESET)"
+	@cd frontend/react-app && npm install && npm run build
+
+run-backend: check-env ## 启动后端服务（前台）
 	@echo "$(COLOR_GREEN)🚀 启动后端服务...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) cli.py restart --foreground"
+	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) -m backend.main"
 
-stop-backend: check-env ## 停止后端服务并清除运行环境
+stop-backend: ## 停止占用 WEB_PORT 的后端进程
 	@echo "$(COLOR_GREEN)🛑 停止后端服务...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) cli.py stop --cleanup"
+	@-lsof -ti :$(WEB_PORT) | xargs kill -TERM 2>/dev/null || true
+	@echo "$(COLOR_GREEN)✅ 已停止$(COLOR_RESET)"
 
-status: check-env ## 查看后端服务状态
-	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) cli.py status"
+status: ## 查看后端服务状态（健康检查）
+	@curl -sf http://127.0.0.1:$(WEB_PORT)/health >/dev/null && echo "$(COLOR_GREEN)✅ 后端运行中 http://127.0.0.1:$(WEB_PORT)$(COLOR_RESET)" || echo "$(COLOR_YELLOW)后端未响应$(COLOR_RESET)"
 
-run-frontend: check-env ## 启动前端 CLI
-	@echo "$(COLOR_GREEN)🖥️  启动前端 CLI...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) -m frontend.main chat"
+run-web: check-env ## 启动服务（API + Web UI，前台）
+	@echo "$(COLOR_GREEN)🌐 启动服务...$(COLOR_RESET)"
+	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) -m backend.main"
 
-run-web: check-env ## 启动 Web 前端服务
-	@echo "$(COLOR_GREEN)🌐 启动 Web 前端服务...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && $(PYTHON) -m frontend.web.main"
+start: check-env build-react ## 一键启动（后端+React Web，后台）
+	@echo "$(COLOR_GREEN)🚀 一键启动（后端+Web）...$(COLOR_RESET)"
+	@bash scripts/check_browser_deps.sh
+	@$(MAKE) stop-backend
+	@echo "$(COLOR_GREEN)🚀 启动后端（后台）...$(COLOR_RESET)"
+	@bash -c "source $(VENV_ACTIVATE) && nohup $(PYTHON) -m backend.main > /dev/null 2>&1 &"
+	@sleep 3
+	@curl -sf http://127.0.0.1:$(WEB_PORT)/health >/dev/null && echo "$(COLOR_GREEN)✅ 后端已就绪 http://127.0.0.1:$(WEB_PORT)$(COLOR_RESET)" || echo "$(COLOR_YELLOW)⚠️  后端可能仍在启动，请稍后访问 http://127.0.0.1:$(WEB_PORT)$(COLOR_RESET)"
 
-start: check-env ## 一键启动（后端+CLI前端+Web前端，推荐）
-	@echo "$(COLOR_GREEN)🚀 一键启动（后端+CLI前端+Web前端）...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && bash scripts/check_browser_deps.sh && $(PYTHON) cli.py restart --wait && $(PYTHON) -m frontend.start_all"
+start-web: start ## 一键启动（同 start）
 
-start-cli: check-env ## 一键启动（后端+CLI前端）
-	@echo "$(COLOR_GREEN)🚀 一键启动（后端+CLI前端）...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && bash scripts/check_browser_deps.sh && $(PYTHON) cli.py restart --wait && $(PYTHON) -m frontend.main chat"
+run: start ## 启动后端+Web（同 start）
 
-start-web: check-env ## 一键启动（后端+Web前端）
-	@echo "$(COLOR_GREEN)🚀 一键启动（后端+Web前端）...$(COLOR_RESET)"
-	@bash -c "source $(VENV_ACTIVATE) && bash scripts/check_browser_deps.sh && $(PYTHON) cli.py restart --wait && $(PYTHON) -m frontend.web.main"
-
-run: start ## 启动后端（后台）+ CLI前端（交互式）+ Web前端（后台，推荐）
-
-run-cli: start-cli ## 启动后端（后台）+ CLI前端（交互式）
-
-run-web: start-web ## 启动后端（后台）+ Web前端
+diagnose: ## 诊断后端服务状态
+	@echo "$(COLOR_GREEN)🔍 诊断后端服务...$(COLOR_RESET)"
+	@bash scripts/diagnose_backend.sh

@@ -48,7 +48,7 @@ curl http://127.0.0.1:8000/api/tests/status
    app.include_router(router, prefix="/api")
    ```
 
-3. **frontend/web/main.py** - 应该包含测试 API 的代理路由
+3. **backend/main.py** - 后端统一提供 API 与 Web UI
 
 ### 常见错误
 
@@ -63,4 +63,3 @@ curl http://127.0.0.1:8000/api/tests/status
 - `GET /api/tests/list` - 列出测试文件
 
 所有端点都需要通过 `/api` 前缀访问。
-

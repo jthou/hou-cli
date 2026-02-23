@@ -60,10 +60,9 @@ def is_backend_running():
         return False
 
 def find_process_by_port(port: int) -> Optional[int]:
-    """根据端口号查找进程 PID（跨平台）"""
+    """根据端口号查找进程 PID（优先 LISTEN 进程）"""
     try:
         if sys.platform == "win32":
-            # Windows: 使用 netstat 和 findstr
             result = subprocess.run(
                 ["netstat", "-ano"],
                 capture_output=True,
@@ -73,7 +72,6 @@ def find_process_by_port(port: int) -> Optional[int]:
             if result.returncode == 0:
                 for line in result.stdout.split('\n'):
                     if f":{port}" in line and "LISTENING" in line:
-                        # 提取 PID（最后一列）
                         parts = line.split()
                         if parts:
                             try:
@@ -81,7 +79,23 @@ def find_process_by_port(port: int) -> Optional[int]:
                             except ValueError:
                                 continue
         else:
-            # macOS/Linux: 使用 lsof
+            # 优先查找 LISTEN 进程（服务端），避免误杀客户端
+            result = subprocess.run(
+                ["lsof", "-i", f":{port}", "-P", "-n"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.strip().split('\n')[1:]:
+                    if "LISTEN" in line:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            try:
+                                return int(parts[1])
+                            except ValueError:
+                                pass
+            # 无 LISTEN 时退回用 -ti 取第一个
             result = subprocess.run(
                 ["lsof", "-ti", f":{port}"],
                 capture_output=True,
@@ -165,8 +179,8 @@ def cleanup_environment():
     #     port_file.unlink(missing_ok=True)
     #     print("   ✅ 已清理端口文件")
     
-    # 5. 等待一小段时间确保进程完全退出
-    time.sleep(0.5)
+    # 5. 等待端口完全释放（OS 需要时间回收）
+    time.sleep(2)
     print("✅ 环境清理完成")
 
 def start_backend(background=True):
@@ -191,24 +205,52 @@ def start_backend(background=True):
             )
         else:
             # Unix/Linux/macOS
-            # 暂时保留 stderr 以便调试，生产环境可以改为 DEVNULL
+            # 将 stderr 重定向到日志文件，以便调试
+            log_dir = get_app_data_dir() / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "backend_startup.log"
+            
+            # 写入启动标记
+            with open(log_file, 'a') as f:
+                f.write(f"\n{'='*60}\n")
+                f.write(f"后端启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"{'='*60}\n")
+            
+            # 打开日志文件用于 stderr 重定向
+            stderr_file = open(log_file, 'a')
             process = subprocess.Popen(
                 [sys.executable, "-m", "backend.main"],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,  # 保留 stderr 以便调试
+                stderr=stderr_file,  # 将 stderr 写入日志文件
                 start_new_session=True
             )
+            # 不关闭文件，让进程继续使用
         
         save_pid(process.pid)
         
         # 检查进程是否立即退出（启动失败）
-        time.sleep(0.5)
+        # 增加等待时间，因为后端启动需要初始化任务处理器等
+        time.sleep(2)
         if process.poll() is not None:
             # 进程已退出，说明启动失败
-            stderr = process.stderr.read().decode('utf-8', errors='ignore') if process.stderr else ""
             error_msg = f"后端启动失败 (退出码: {process.returncode})"
-            if stderr:
-                error_msg += f"\n错误信息: {stderr[:200]}"
+            # 读取日志文件的最后几行
+            log_file = get_app_data_dir() / "logs" / "backend_startup.log"
+            if log_file.exists():
+                try:
+                    with open(log_file, 'r') as f:
+                        lines = f.readlines()
+                        if lines:
+                            last_lines = ''.join(lines[-20:])  # 最后20行
+                            error_msg += f"\n错误信息（最后20行）:\n{last_lines}"
+                except Exception:
+                    pass
+            # 关闭 stderr 文件（如果存在）
+            if 'stderr_file' in locals():
+                try:
+                    stderr_file.close()
+                except Exception:
+                    pass
             raise RuntimeError(error_msg)
         
         if not background:  # 只在非后台模式下显示详细信息
@@ -331,35 +373,54 @@ def main():
                 # 等待后端启动完成
                 print("⏳ 等待后端服务启动...")
                 # 先等待一下，让后端有时间启动
-                time.sleep(2)
+                time.sleep(3)
                 
-                max_retries = 20  # 增加重试次数
+                max_retries = 40  # 增加重试次数到40次（总共约20秒）
                 retry_count = 0
+                port_file_found = False
                 
                 while retry_count < max_retries:
                     try:
                         # 先检查端口文件是否存在
-                        port_file = get_app_data_dir() / "port.txt"
+                        port_file = get_port_file()
                         if not port_file.exists():
                             time.sleep(0.5)
                             retry_count += 1
                             continue
                         
+                        port_file_found = True
                         port = load_port()
-                        # 检查端口是否为有效值（不是默认值8000，且大于1024）
-                        if port and port != 8000 and port > 1024:
+                        # 检查端口是否为有效值（大于1024，允许8000）
+                        if port and port > 1024:
                             # 使用 httpx 进行健康检查，配置 trust_env=False 跳过代理
                             try:
                                 response = httpx.get(
                                     f"http://127.0.0.1:{port}/health", 
-                                    timeout=2.0,
+                                    timeout=3.0,  # 增加超时时间
                                     trust_env=False  # 跳过代理，避免 502 错误
                                 )
                                 if response.status_code == 200:
-                                    print("✅ 后端服务已就绪")
-                                    break
-                            except httpx.RequestError:
+                                    # 验证响应内容
+                                    try:
+                                        data = response.json()
+                                        if data.get("status") == "ok":
+                                            print("✅ 后端服务已就绪")
+                                            break
+                                    except Exception:
+                                        # JSON解析失败，但HTTP状态码是200，也算成功
+                                        print("✅ 后端服务已就绪")
+                                        break
+                            except httpx.ConnectError:
                                 # 连接错误，继续重试
+                                pass
+                            except httpx.TimeoutException:
+                                # 超时，继续重试
+                                pass
+                            except httpx.RequestError:
+                                # 其他请求错误，继续重试
+                                pass
+                            except Exception as e:
+                                # 其他错误，继续重试
                                 pass
                     except Exception:
                         # 其他错误，继续重试
@@ -369,7 +430,14 @@ def main():
                     retry_count += 1
                 
                 if retry_count >= max_retries:
-                    print("⚠️  后端服务启动超时，但继续启动前端...")
+                    if not port_file_found:
+                        print("⚠️  后端服务启动超时：未找到端口文件")
+                        print("   请检查后端服务是否正常启动")
+                    else:
+                        port = load_port()
+                        print(f"⚠️  后端服务启动超时：端口文件存在（端口: {port}），但健康检查失败")
+                        print("   请检查后端服务是否正常启动，或手动检查后端日志")
+                    print("   继续启动前端...")
                     print("   如果前端无法连接，请手动检查后端状态")
             else:
                 print("✅ 后端服务已在运行")
