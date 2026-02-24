@@ -1,4 +1,5 @@
 """天气工具实现"""
+import time
 import httpx
 import os
 from typing import Dict, Any, Optional
@@ -192,8 +193,9 @@ class WeatherTool:
                 # 其他 JWT 相关错误
                 raise WeatherToolError(f"JWT token generation failed: {str(jwt_error)}. Please check your JWT configuration.")
             
-            # 发送请求（不需要在参数中添加 key，JWT token 已包含在 Authorization header 中）
-            response = httpx.get(full_url, params=params, headers=headers, timeout=10.0)
+            # 发送请求（连接/读取超时放宽；部分 httpx 版本需提供 default 或全部四参数）
+            timeout = httpx.Timeout(35.0, connect=25.0, read=35.0)
+            response = httpx.get(full_url, params=params, headers=headers, timeout=timeout)
             response.raise_for_status()
             
             return response.json()

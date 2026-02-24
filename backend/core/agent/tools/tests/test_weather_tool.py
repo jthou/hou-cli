@@ -246,3 +246,22 @@ class TestWeatherTool:
             with pytest.raises(WeatherToolError, match="Network error"):
                 weather_tool._make_request("/test", {})
 
+    def test_make_request_read_timeout(self, weather_tool):
+        """复现并验证 read timeout 被正确包装为 WeatherToolError（用户报错：The read operation timed out）"""
+        import httpx
+        with patch('httpx.get') as mock_get:
+            mock_get.side_effect = httpx.ReadTimeout("The read operation timed out")
+            with pytest.raises(WeatherToolError) as exc_info:
+                weather_tool._make_request("/test", {})
+            assert "read" in exc_info.value.args[0].lower() or "timed out" in exc_info.value.args[0].lower()
+            assert "Network error" in exc_info.value.args[0]
+
+    def test_make_request_connect_timeout(self, weather_tool):
+        """复现并验证 connect/SSL handshake timeout 被正确包装"""
+        import httpx
+        with patch('httpx.get') as mock_get:
+            mock_get.side_effect = httpx.ConnectTimeout("The handshake operation timed out")
+            with pytest.raises(WeatherToolError) as exc_info:
+                weather_tool._make_request("/test", {})
+            assert "Network error" in exc_info.value.args[0]
+

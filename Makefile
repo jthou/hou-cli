@@ -1,13 +1,19 @@
-.PHONY: stop test restart start test-task-weather help
+.PHONY: stop test restart start start-web build-web test-task-weather help
 
 # 默认目标：在项目根执行 make 时显示可用命令
+# 前端说明：源码在 frontend/react-app，构建产物在 frontend/web/dist。
+#   make start = 先构建前端再启动后端，8081 提供最新 UI。
+#   make build-web = 仅构建前端（供单独使用或 CI）。
+#   make start-web = 起 Vite 开发服务器（热更新），API 走代理到 8081，需后端已起。
 help:
 	@echo "用法: make <目标>"
-	@echo "目标: stop | test | restart | start | test-task-weather"
+	@echo "目标: stop | test | restart | start | start-web | build-web | test-task-weather"
 	@echo "  make stop             - 停止后端 (端口 $(WEB_PORT))"
 	@echo "  make test             - 运行全部测试"
 	@echo "  make restart          - 停止并重新启动后端"
-	@echo "  make start            - 启动后端"
+	@echo "  make start            - 构建前端并启动后端（8081 提供最新 UI）"
+	@echo "  make build-web        - 仅构建前端到 frontend/web/dist"
+	@echo "  make start-web        - 启动前端开发服务器 Vite（热更新，API 代理到 8081）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
 	@echo "请在项目根目录执行 make。"
 
@@ -33,8 +39,18 @@ restart: stop
 	@for i in 1 2 3 4 5 6 7 8 9 10; do lsof -ti :$(WEB_PORT) >/dev/null 2>&1 || break; sleep 1; done
 	@$(MAKE) start
 
-start:
+start: build-web
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
 	@echo "启动后端..."
 	@bash -c "source $(VENV_ACTIVATE) && (nohup $(PYTHON) -m backend.main >> backend.log 2>&1 &) && sleep 1"
 	@PORT=$(WEB_PORT); for i in 1 2 3 4 5 6 7 8 9 10; do sleep 2; if curl -sf --connect-timeout 2 --max-time 3 "http://127.0.0.1:$$PORT/health" >/dev/null; then echo "后端已就绪 http://127.0.0.1:$$PORT"; exit 0; fi; done; echo "连接失败，请查看 backend.log"; exit 1
+
+build-web:
+	@test -d "frontend/react-app" || (echo "frontend/react-app 不存在"; exit 1)
+	@echo "构建前端 -> frontend/web/dist ..."
+	@cd frontend/react-app && npm run build
+
+start-web:
+	@test -d "frontend/react-app" || (echo "frontend/react-app 不存在"; exit 1)
+	@echo "启动前端 (Vite)..."
+	@cd frontend/react-app && npm run dev

@@ -245,7 +245,7 @@ class TestTaskQueueRoutes:
                 "result": {
                     "location": "上海",
                     "query_type": "forecast",
-                    "forecast": {"daily": [{"fxDate": "2024-01-02", "tempMax": "10", "tempMin": "2", "textDay": "晴"}]},
+                    "daily": [{"date": "2024-01-02", "temp_max": "10", "temp_min": "2", "text_day": "晴"}],
                 },
             },
             "error": None,
@@ -262,8 +262,8 @@ class TestTaskQueueRoutes:
         result = task["result"]
         assert result["status"] == "success"
         assert result["summary"] == "上海 天气预报"
-        assert "forecast" in result.get("result", {})
-        assert "daily" in result["result"]["forecast"]
+        assert "daily" in result.get("result", {})
+        assert len(result["result"]["daily"]) >= 1
 
     def test_frontend_flow_weather_query_create_and_list(self, client, mock_task_queue_db):
         """模拟前端：拉取 task-types，用 weather_query 的 metadata_schema 构建 payload 创建任务，再拉列表验证"""

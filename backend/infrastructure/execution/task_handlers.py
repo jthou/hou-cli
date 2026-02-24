@@ -53,9 +53,34 @@ TASK_TYPES = {
                 "description": "查询类型",
                 "enum": [
                     {"value": "current", "label": "实时天气"},
-                    {"value": "forecast", "label": "天气预报"}
+                    {"value": "forecast", "label": "天气预报"},
+                    {"value": "warning", "label": "仅查预警"},
+                    {"value": "air_quality", "label": "仅查空气质量"}
                 ],
                 "default": "current"
+            },
+            "include_warning": {
+                "type": "boolean",
+                "required": False,
+                "description": "实时/预报时是否同时拉取预警",
+                "default": False
+            },
+            "include_air_quality": {
+                "type": "boolean",
+                "required": False,
+                "description": "实时/预报时是否同时拉取空气质量",
+                "default": False
+            },
+            "days": {
+                "type": "number",
+                "required": False,
+                "description": "预报天数（仅预报时有效）",
+                "enum": [
+                    {"value": 3, "label": "3 天"},
+                    {"value": 7, "label": "7 天"},
+                    {"value": 15, "label": "15 天"}
+                ],
+                "default": 7
             }
         }
     }
@@ -70,6 +95,16 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
 
     location = (metadata.get("location") or "").strip()
     query_type = metadata.get("query_type", "current")
+    days = metadata.get("days")
+    if days is not None:
+        try:
+            days = int(days)
+            if days not in (3, 7, 15):
+                days = 7
+        except (TypeError, ValueError):
+            days = 7
+    else:
+        days = 7
 
     if not location:
         raise ValueError("location 参数是必需的")
@@ -90,8 +125,39 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
 
         worker.update_task_progress(30, "正在获取天气数据...")
 
+        include_warning = metadata.get("include_warning") in (True, "true", "1", 1)
+        include_air_quality = metadata.get("include_air_quality") in (True, "true", "1", 1)
+
+        if query_type == "warning":
+            warning_data = weather_tool.get_warning(location)
+            warning_list = (warning_data.get("warning") or []) if isinstance(warning_data, dict) else []
+            formatted_result = {
+                "location": location,
+                "query_type": "warning",
+                "update_time": warning_data.get("updateTime") if isinstance(warning_data, dict) else None,
+                "warning": warning_list,
+            }
+            summary = f"{location} {len(warning_list)} 条预警" if warning_list else f"{location} 暂无预警"
+            worker.update_task_progress(100, f"{location} 预警查询完成")
+            return {"status": "success", "summary": summary, "location": location, "query_type": query_type, "result": formatted_result}
+
+        if query_type == "air_quality":
+            air_data = weather_tool.get_air_quality(location)
+            now_air = (air_data.get("now") or {}) if isinstance(air_data, dict) else {}
+            formatted_result = {
+                "location": location,
+                "query_type": "air_quality",
+                "update_time": air_data.get("updateTime") if isinstance(air_data, dict) else None,
+                "air_quality": now_air,
+            }
+            aqi = now_air.get("aqi") or ""
+            category = now_air.get("category", "")
+            summary = f"{location} AQI {aqi} {category}".strip() or f"{location} 空气质量查询完成"
+            worker.update_task_progress(100, f"{location} 空气质量查询完成")
+            return {"status": "success", "summary": summary, "location": location, "query_type": query_type, "result": formatted_result}
+
         if query_type == "forecast":
-            result = weather_tool.get_forecast(location)
+            result = weather_tool.get_forecast(location, days=days)
             weather_data = result
         else:
             result = weather_tool.get_current_weather(location)
@@ -100,10 +166,31 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
         worker.update_task_progress(80, "天气数据获取成功")
 
         if query_type == "forecast":
+            daily_raw = (weather_data.get("daily") or []) if isinstance(weather_data, dict) else []
+            daily = [
+                {
+                    "date": d.get("fxDate"),
+                    "temp_max": d.get("tempMax"),
+                    "temp_min": d.get("tempMin"),
+                    "text_day": d.get("textDay"),
+                    "text_night": d.get("textNight"),
+                    "icon_day": d.get("iconDay"),
+                    "icon_night": d.get("iconNight"),
+                    "wind_dir_day": d.get("windDirDay"),
+                    "wind_scale_day": d.get("windScaleDay"),
+                    "humidity": d.get("humidity"),
+                    "uv_index": d.get("uvIndex"),
+                    "sunrise": d.get("sunrise"),
+                    "sunset": d.get("sunset"),
+                }
+                for d in daily_raw
+            ]
             formatted_result = {
                 "location": location,
                 "query_type": "forecast",
-                "forecast": weather_data
+                "update_time": weather_data.get("updateTime") if isinstance(weather_data, dict) else None,
+                "daily": daily,
+                "raw": weather_data,
             }
         else:
             cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
@@ -112,14 +199,31 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
             formatted_result = {
                 "location": location,
                 "query_type": "current",
-                "current_weather": cur
+                "current_weather": cur,
             }
+
+        if include_warning:
+            try:
+                warning_data = weather_tool.get_warning(location)
+                formatted_result["warning"] = (warning_data.get("warning") or []) if isinstance(warning_data, dict) else []
+            except Exception:
+                formatted_result["warning"] = []
+        if include_air_quality:
+            try:
+                air_data = weather_tool.get_air_quality(location)
+                now_air = (air_data.get("now") or {}) if isinstance(air_data, dict) else {}
+                formatted_result["air_quality"] = now_air
+            except Exception:
+                formatted_result["air_quality"] = {}
 
         worker.update_task_progress(100, f"{location} 天气查询完成")
 
-        # 统一结果格式：summary 供列表/摘要展示，result 供详情展示
         if query_type == "forecast":
-            summary = f"{location} 天气预报"
+            daily_raw = (weather_data.get("daily") or []) if isinstance(weather_data, dict) else []
+            first = daily_raw[0] if daily_raw else {}
+            summary = f"{location} 预报 {len(daily_raw)} 天"
+            if first:
+                summary = f"{location} {first.get('textDay', '')} {first.get('tempMin', '')}~{first.get('tempMax', '')}°C 等"
         else:
             cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
             if not isinstance(cur, dict):
@@ -257,6 +361,13 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
                 return False, f"必填参数不能为空: {field_name}"
         if value is not None and field_spec.get("enum"):
             allowed = [e.get("value") for e in field_spec["enum"] if isinstance(e, dict) and "value" in e]
-            if allowed and value not in allowed:
-                return False, f"参数 {field_name} 取值无效，可选: {allowed}"
+            if allowed:
+                compare = value
+                if field_name == "days" and compare is not None:
+                    try:
+                        compare = int(compare)
+                    except (TypeError, ValueError):
+                        pass
+                if compare not in allowed:
+                    return False, f"参数 {field_name} 取值无效，可选: {allowed}"
     return True, None

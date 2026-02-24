@@ -148,6 +148,20 @@ class TestValidateTaskCreation:
         assert ok is True
         assert err is None
 
+    def test_valid_weather_query_warning(self):
+        ok, err = validate_task_creation(
+            "weather_query", {"location": "北京", "query_type": "warning"}
+        )
+        assert ok is True
+        assert err is None
+
+    def test_valid_weather_query_air_quality(self):
+        ok, err = validate_task_creation(
+            "weather_query", {"location": "深圳", "query_type": "air_quality"}
+        )
+        assert ok is True
+        assert err is None
+
     def test_invalid_task_type(self):
         ok, err = validate_task_creation("unknown_type", {})
         assert ok is False
@@ -240,4 +254,4 @@ class TestWeatherQueryLiveEnv:
                 raise
         assert out["status"] == "success"
         assert "result" in out
-        assert "forecast" in out["result"] or "daily" in str(out["result"])
+        assert "daily" in out["result"] and isinstance(out["result"].get("daily"), list)

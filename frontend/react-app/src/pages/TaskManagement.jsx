@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import WeatherResultDisplay from '../components/WeatherResultDisplay'
 
 /**
  * 任务管理与展示机制
@@ -328,33 +329,11 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
           {err && <p className="text-red-400">{err}</p>}
           {!loading && !err && task && (
             <div className="space-y-4">
-              <div>
-                <span className="text-[#64748b]">任务名称 </span>
-                <span className="text-white">{task.task_name || '未命名'}</span>
-              </div>
-              <div>
-                <span className="text-[#64748b]">类型 </span>
-                <span className="text-white">{task.task_type}</span>
-              </div>
-              <div>
-                <span className="text-[#64748b]">状态 </span>
-                <span className={status?.cls}>{status?.text}</span>
-              </div>
-              <div>
-                <span className="text-[#64748b]">创建 </span>
-                <span className="text-white">{formatDateTime(task.created_at)}</span>
-              </div>
-              {task.started_at && (
+              {/* 执行结果优先展示 */}
+              {task.result != null && task.status === 'completed' && (
                 <div>
-                  <span className="text-[#64748b]">开始 </span>
-                  <span className="text-white">{formatDateTime(task.started_at)}</span>
-                </div>
-              )}
-              {task.completed_at && (
-                <div>
-                  <span className="text-[#64748b]">完成 </span>
-                  <span className="text-white">{formatDateTime(task.completed_at)}</span>
-                  {task.duration != null && <span className="text-[#64748b] ml-2">耗时 {Number(task.duration).toFixed(1)}s</span>}
+                  <div className="text-[#64748b] text-xs mb-2">执行结果</div>
+                  <TaskResultDisplay taskType={task.task_type} result={task.result} />
                 </div>
               )}
               {(task.error || task.error_message) && (
@@ -362,12 +341,20 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                   <strong>错误：</strong> {task.error || task.error_message}
                 </div>
               )}
-              {task.result && task.status === 'completed' && (
-                <div className="pt-3 border-t border-border">
-                  <div className="text-[#64748b] mb-2">执行结果</div>
-                  <TaskResultDisplay taskType={task.task_type} result={task.result} />
+              {/* 任务信息仅供参考 */}
+              <div className="pt-4 border-t border-border">
+                <div className="text-[#64748b] text-xs mb-2">任务信息（仅供参考）</div>
+                <div className="space-y-1.5 text-[#94a3b8] text-xs">
+                  <div><span className="text-[#64748b]">名称 </span>{task.task_name || '未命名'}</div>
+                  <div><span className="text-[#64748b]">类型 </span>{task.task_type}</div>
+                  <div><span className="text-[#64748b]">状态 </span><span className={status?.cls}>{status?.text}</span></div>
+                  <div><span className="text-[#64748b]">创建 </span>{formatDateTime(task.created_at)}</div>
+                  {task.started_at && <div><span className="text-[#64748b]">开始 </span>{formatDateTime(task.started_at)}</div>}
+                  {task.completed_at && (
+                    <div><span className="text-[#64748b]">完成 </span>{formatDateTime(task.completed_at)}{task.duration != null && <span className="ml-2">耗时 {Number(task.duration).toFixed(1)}s</span>}</div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           )}
         </div>
@@ -402,7 +389,10 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
 }
 
 function TaskResultDisplay({ taskType, result }) {
-  if (!result || result.status !== 'success') {
+  const isSuccess = result?.status === 'success'
+  const hasDaily = Array.isArray(result?.daily) || (result?.result && Array.isArray(result?.result?.daily))
+  const isRawWeatherForecast = hasDaily && (String(result?.code) === '200' || result?.result?.code == null)
+  if (!result || (!isSuccess && !isRawWeatherForecast)) {
     return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
   }
   if (taskType === 'video_download' && result.data) {
@@ -415,22 +405,8 @@ function TaskResultDisplay({ taskType, result }) {
       </div>
     )
   }
-  if (taskType === 'weather_query' && result.result) {
-    const r = result.result
-    const cur = r.current_weather
-    const forecast = r.forecast
-    return (
-      <div className="space-y-2 text-[#94a3b8]">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {cur && (
-          <div>
-            <span className="text-[#64748b]">当前 </span>
-            {typeof cur === 'object' ? `${cur.temp ?? ''}°C ${cur.text ?? ''}` : String(cur)}
-          </div>
-        )}
-        {forecast && <pre className="text-xs whitespace-pre-wrap mt-2">{JSON.stringify(forecast, null, 2)}</pre>}
-      </div>
-    )
+  if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
+    return <WeatherResultDisplay result={result} />
   }
   return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
 }

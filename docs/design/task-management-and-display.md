@@ -97,9 +97,19 @@
   "summary": "北京 晴 25°C",
   "location": "北京",
   "query_type": "current",
-  "result": { "current_weather": { ... } }
+  "result": {
+    "location": "北京",
+    "query_type": "current",
+    "current_weather": { "temp", "text", "feelsLike", "windDir", "windScale", "humidity", "precip", "obsTime", ... }
+  }
 }
 ```
+
+- **预报**（`query_type: "forecast"`）：`result.result` 含 `daily` 数组（每项：`date`, `temp_max`, `temp_min`, `text_day`, `text_night`, `icon_day`, `icon_night`, `sunrise`, `sunset`, 以及风向/湿度/紫外线等）、`update_time`、`raw`。列表摘要示例：`北京 晴 -4~6°C 等`。
+- **仅查预警**（`query_type: "warning"`）：`result.result` 含 `warning` 数组（和风预警列表，项含 `title`, `text`, `pubTime`, `typeName` 等）、`update_time`。摘要示例：`北京 2 条预警` 或 `北京 暂无预警`。
+- **仅查空气质量**（`query_type: "air_quality"`）：`result.result` 含 `air_quality`（和风 `now` 对象：`aqi`, `category`, `pm2p5`, `pm10`, `primary` 等）、`update_time`。摘要示例：`北京 AQI 45 良`。
+- **实时/预报附加**：创建时 metadata 可设 `include_warning`、`include_air_quality` 为 true，结果中会合并 `warning` 数组与 `air_quality` 对象，详情页单独块展示。
+- **天气 metadata**：`query_type` 可选 `current` | `forecast` | `warning` | `air_quality`；`days`（3/7/15，仅预报有效）；`include_warning`、`include_air_quality`（布尔，仅实时/预报时有效）。前端按 schema 动态表单，图标用和风 icon 映射为 emoji 展示。
 
 失败不写 `result`，只写 `tasks.error`（字符串）。
 
