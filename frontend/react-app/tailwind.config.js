@@ -8,11 +8,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#1e1e1e',
-        surface: '#252526',
+        bg: 'var(--color-bg)',
+        surface: 'var(--color-surface)',
         accent: '#007acc',
         'accent-hover': '#005a9e',
-        border: '#3e3e42',
+        border: 'var(--color-border)',
+        fg: 'var(--color-fg)',
+        muted: 'var(--color-muted)',
       },
       fontFamily: {
         sans: ['DM Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],

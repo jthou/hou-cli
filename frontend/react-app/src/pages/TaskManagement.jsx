@@ -341,11 +341,11 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                   <strong>错误：</strong> {task.error || task.error_message}
                 </div>
               )}
-              {/* 任务信息仅供参考 */}
+              {/* 任务信息仅供参考，放在执行结果后 */}
               <div className="pt-4 border-t border-border">
                 <div className="text-[#64748b] text-xs mb-2">任务信息（仅供参考）</div>
                 <div className="space-y-1.5 text-[#94a3b8] text-xs">
-                  <div><span className="text-[#64748b]">名称 </span>{task.task_name || '未命名'}</div>
+                  <div><span className="text-[#64748b]">任务名称 </span>{task.task_name || '未命名'}</div>
                   <div><span className="text-[#64748b]">类型 </span>{task.task_type}</div>
                   <div><span className="text-[#64748b]">状态 </span><span className={status?.cls}>{status?.text}</span></div>
                   <div><span className="text-[#64748b]">创建 </span>{formatDateTime(task.created_at)}</div>

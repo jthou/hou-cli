@@ -2,11 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 浅色模式（默认变量，无 .dark 时） */
+:root {
+  --color-bg: #f0f0f0;
+  --color-surface: #ffffff;
+  --color-border: #e0e0e0;
+  --color-fg: #1a1a1a;
+  --color-muted: #64748b;
+}
+
+/* 深色模式 */
+html.dark {
+  --color-bg: #1e1e1e;
+  --color-surface: #252526;
+  --color-border: #3e3e42;
+  --color-fg: #cccccc;
+  --color-muted: #94a3b8;
+}
+
+/* 浅色模式下将原 text-white 显示为深色字，保证可读 */
+html:not(.dark) .text-white {
+  color: var(--color-fg);
+}
+
 @layer base {
   * {
     @apply m-0 p-0 box-border;
   }
   body {
-    @apply font-sans text-[#cccccc] leading-relaxed bg-bg min-h-screen overflow-hidden;
+    @apply font-sans leading-relaxed min-h-screen overflow-hidden;
+    background-color: var(--color-bg);
+    color: var(--color-fg);
   }
 }
