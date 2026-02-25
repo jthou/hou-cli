@@ -275,7 +275,7 @@ pip install -e backend/externals/whisper
 
 ## 其他依赖
 
-### Python 依赖（you-get, yt-dlp, bili23-downloader）
+### Python 依赖（you-get, yt-dlp）
 
 这些工具是纯 Python 实现，通常不需要额外编译。它们会在首次使用时自动安装依赖，或可以通过以下方式安装：
 
@@ -285,10 +285,6 @@ pip install -e backend/externals/you-get
 
 # yt-dlp
 pip install -e backend/externals/yt-dlp
-
-# bili23-downloader（如果有 requirements.txt）
-cd backend/externals/bili23-downloader
-pip install -r requirements.txt
 ```
 
 ### browser-use

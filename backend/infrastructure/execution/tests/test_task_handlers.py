@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from dotenv import load_dotenv
 
 from backend.infrastructure.execution.task_handlers import (
+    _validate_video_download_url,
     process_video_download_task,
     process_weather_query_task,
     validate_task_creation,
@@ -131,6 +132,61 @@ class TestTaskHandlerValidation:
         }
         with pytest.raises(ValueError, match="url 参数是必需的"):
             await process_video_download_task(task_info)
+
+    @pytest.mark.asyncio
+    async def test_video_download_invalid_url_raises(self):
+        """video_download 使用禁止的 URL（内网/非 http(s)）时应抛出 ValueError"""
+        task_info = {
+            "task_id": "t1",
+            "task_type": "video_download",
+            "metadata": {"url": "http://127.0.0.1/video"},
+        }
+        with pytest.raises(ValueError, match="不允许"):
+            await process_video_download_task(task_info)
+
+
+class TestVideoDownloadUrlValidation:
+    """视频下载 URL 校验（SSRF 防护）"""
+
+    def test_valid_https(self):
+        ok, err = _validate_video_download_url("https://www.bilibili.com/video/BV123")
+        assert ok is True
+        assert err is None
+
+    def test_valid_http(self):
+        ok, err = _validate_video_download_url("http://example.com/path")
+        assert ok is True
+        assert err is None
+
+    def test_empty_fails(self):
+        ok, err = _validate_video_download_url("")
+        assert ok is False
+        assert "不能为空" in err
+
+    def test_no_scheme_fails(self):
+        ok, err = _validate_video_download_url("b23.tv/xxx")
+        assert ok is False
+        assert "http" in err or "https" in err
+
+    def test_file_scheme_fails(self):
+        ok, err = _validate_video_download_url("file:///etc/passwd")
+        assert ok is False
+        assert "http" in err or "https" in err
+
+    def test_localhost_fails(self):
+        ok, err = _validate_video_download_url("http://localhost/v")
+        assert ok is False
+        assert "本地" in err or "不允许" in err
+
+    def test_127_loopback_fails(self):
+        ok, err = _validate_video_download_url("http://127.0.0.1/v")
+        assert ok is False
+        assert "内网" in err or "保留" in err or "不允许" in err
+
+    def test_private_ip_fails(self):
+        ok, err = _validate_video_download_url("http://192.168.1.1/v")
+        assert ok is False
+        assert "内网" in err or "保留" in err or "不允许" in err
 
 
 class TestValidateTaskCreation:

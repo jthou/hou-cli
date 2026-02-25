@@ -74,7 +74,7 @@ class TestVideoDownloaderToolIntegration:
         if 'enum' in props.get('quality', {}):
             assert props['quality']['enum'] == ["best", "worst", "1080p", "720p", "480p", "360p", "240p"]
         if 'enum' in props.get('preferred_tool', {}):
-            assert props['preferred_tool']['enum'] == ["auto", "yt-dlp", "you-get", "bili23"]
+            assert props['preferred_tool']['enum'] == ["auto", "yt-dlp", "you-get"]
     
     @patch('backend.core.agent.tools.builtin.video_downloader_tool._select_downloader')
     @patch('backend.core.agent.tools.builtin.video_downloader_tool.normalize_output_dir')
@@ -186,7 +186,7 @@ class TestVideoDownloaderToolIntegration:
         mock_downloader.download.return_value = MagicMock(
             success=True,
             data={
-                'tool': 'bili23',
+                'tool': 'you-get',
                 'output_dir': '/tmp/output',
                 'platform': 'bilibili'
             }

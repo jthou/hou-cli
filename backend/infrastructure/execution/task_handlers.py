@@ -2,9 +2,43 @@
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional, Tuple
+from urllib.parse import urlparse
+import ipaddress
+
 from backend.infrastructure.execution.task_worker import get_task_worker
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_video_download_url(url: str) -> Tuple[bool, Optional[str]]:
+    """校验视频下载 URL：仅允许 http(s)，禁止内网/本地地址以降低 SSRF 风险。
+
+    Returns:
+        (True, None) 通过；(False, "错误说明") 不通过。
+    """
+    url = (url or "").strip()
+    if not url:
+        return False, "URL 不能为空"
+    if not url.startswith(("http://", "https://")):
+        return False, "仅支持 http 或 https 链接，请填写完整链接（如 https://...）"
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        return False, f"URL 格式无效: {e}"
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False, "URL 缺少主机名"
+    # 禁止本地/内网主机名
+    if host in ("localhost", "localhost.", "0.0.0.0") or host.endswith(".localhost"):
+        return False, "不允许使用本地地址"
+    # 若为 IP，禁止环回与私网
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.is_loopback or addr.is_private or addr.is_reserved or addr.is_link_local:
+            return False, "不允许使用内网或保留地址"
+    except ValueError:
+        pass  # 非 IP 则仅做主机名检查
+    return True, None
 
 
 # 任务类型定义（仅保留有实际实现的类型）
@@ -29,12 +63,81 @@ TASK_TYPES = {
                     {"value": "best", "label": "最佳"},
                     {"value": "1080p", "label": "1080p"},
                     {"value": "720p", "label": "720p"},
-                    {"value": "480p", "label": "480p"}
+                    {"value": "480p", "label": "480p"},
+                    {"value": "360p", "label": "360p"}
                 ],
                 "default": "best"
             },
             "download_subtitle": {"type": "boolean", "required": False, "description": "下载字幕", "default": False},
             "extract_audio_only": {"type": "boolean", "required": False, "description": "仅提取音频", "default": False},
+            "output_dir": {
+                "type": "string",
+                "required": False,
+                "description": "保存目录（须在用户主目录下，否则使用默认下载目录）",
+                "placeholder": "留空使用默认"
+            },
+            "preferred_tool": {
+                "type": "string",
+                "required": False,
+                "description": "优先使用的下载工具",
+                "default": "auto",
+                "enum": [
+                    {"value": "auto", "label": "自动"},
+                    {"value": "yt-dlp", "label": "yt-dlp"},
+                    {"value": "you-get", "label": "you-get"}
+                ]
+            },
+            "download_thumbnail": {"type": "boolean", "required": False, "description": "下载封面", "default": False},
+            "cookies_file": {
+                "type": "string",
+                "required": False,
+                "description": "Cookies 文件路径（Netscape 或 JSON）",
+                "placeholder": "用于需登录的视频"
+            },
+            "cookies_from_browser": {
+                "type": "string",
+                "required": False,
+                "description": "从浏览器提取 Cookies",
+                "enum": [
+                    {"value": "chrome", "label": "Chrome"},
+                    {"value": "firefox", "label": "Firefox"},
+                    {"value": "safari", "label": "Safari"},
+                    {"value": "edge", "label": "Edge"}
+                ]
+            },
+            "subtitle_languages": {
+                "type": "string",
+                "required": False,
+                "description": "字幕语言代码，逗号分隔",
+                "placeholder": "如：zh,en"
+            },
+            "download_subtitle_only": {"type": "boolean", "required": False, "description": "仅下载字幕不下载视频", "default": False},
+            "audio_format": {
+                "type": "string",
+                "required": False,
+                "description": "仅提取音频时的格式（extract_audio_only 为 true 时有效）",
+                "default": "mp3",
+                "enum": [
+                    {"value": "mp3", "label": "MP3"},
+                    {"value": "m4a", "label": "M4A"},
+                    {"value": "opus", "label": "Opus"},
+                    {"value": "wav", "label": "WAV"},
+                    {"value": "aac", "label": "AAC"}
+                ]
+            },
+            "audio_quality": {
+                "type": "string",
+                "required": False,
+                "description": "仅提取音频时的码率",
+                "default": "192k",
+                "enum": [
+                    {"value": "128k", "label": "128k"},
+                    {"value": "192k", "label": "192k"},
+                    {"value": "256k", "label": "256k"},
+                    {"value": "320k", "label": "320k"}
+                ]
+            },
+            "download_danmaku": {"type": "boolean", "required": False, "description": "下载 B 站弹幕（ASS）", "default": False},
         }
     },
     "weather_query": {
@@ -251,6 +354,9 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
     url = (metadata.get("url") or "").strip()
     if not url:
         raise ValueError("url 参数是必需的")
+    ok, err = _validate_video_download_url(url)
+    if not ok:
+        raise ValueError(err)
 
     worker.update_task_progress(5, "准备下载...")
 
@@ -260,15 +366,26 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
             normalize_output_dir,
         )
         tool = VideoDownloaderTool()
-        output_dir = normalize_output_dir(metadata.get("output_dir"))
+        output_dir = normalize_output_dir(metadata.get("output_dir"), restrict_to_home=True)
         opts = {
             "quality": metadata.get("quality", "best"),
             "download_subtitle": metadata.get("download_subtitle", False),
             "download_thumbnail": metadata.get("download_thumbnail", False),
             "extract_audio_only": metadata.get("extract_audio_only", False),
+            "download_subtitle_only": metadata.get("download_subtitle_only", False),
+            "download_danmaku": metadata.get("download_danmaku", False),
+            "audio_format": metadata.get("audio_format", "mp3"),
+            "audio_quality": metadata.get("audio_quality", "192k"),
         }
         if metadata.get("preferred_tool"):
             opts["preferred_tool"] = metadata["preferred_tool"]
+        if metadata.get("cookies_file"):
+            opts["cookies_file"] = (metadata.get("cookies_file") or "").strip()
+        if metadata.get("cookies_from_browser"):
+            opts["cookies_from_browser"] = metadata["cookies_from_browser"]
+        raw_subs = (metadata.get("subtitle_languages") or "").strip()
+        if raw_subs:
+            opts["subtitle_languages"] = [s.strip() for s in raw_subs.split(",") if s.strip()]
 
         def on_progress(pct, msg):
             try:

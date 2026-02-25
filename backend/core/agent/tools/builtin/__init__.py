@@ -39,7 +39,7 @@ except ImportError:
     _zhihu_zhida_available = False
     ZhihuZhidaTool = None
 
-# 视频下载工具（需要 you-get、bili23-downloader 或 yt-dlp）
+# 视频下载工具（需要 you-get 或 yt-dlp）
 try:
     from .video_downloader_tool import VideoDownloaderTool
     _video_downloader_available = True

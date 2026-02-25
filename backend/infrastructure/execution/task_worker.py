@@ -14,6 +14,9 @@ from shared.debug_utils import debug_log
 
 logger = logging.getLogger(__name__)
 
+# 视频下载任务最大执行时间（秒），超时则标记失败
+VIDEO_DOWNLOAD_TASK_TIMEOUT = 30 * 60  # 30 分钟
+
 
 class TaskWorker:
     """任务 Worker - 从数据库队列中获取并执行任务"""
@@ -178,8 +181,20 @@ class TaskWorker:
                 self.current_task_id = None
                 return
             
-            # 执行任务
-            result = await handler(task_info)
+            # 执行任务（视频下载设超时，避免长时间占用 Worker）
+            if task_type == "video_download":
+                try:
+                    result = await asyncio.wait_for(
+                        handler(task_info),
+                        timeout=VIDEO_DOWNLOAD_TASK_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    error_msg = f"任务执行超时（超过 {VIDEO_DOWNLOAD_TASK_TIMEOUT // 60} 分钟）"
+                    logger.error(f"任务 {task_id} {error_msg}")
+                    self.task_queue_db.complete_task(task_id, error=error_msg)
+                    return
+            else:
+                result = await handler(task_info)
             
             # 任务完成
             self.task_queue_db.complete_task(task_id, result=result)

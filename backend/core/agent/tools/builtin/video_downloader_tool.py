@@ -1,4 +1,4 @@
-"""视频下载工具 - 整合 you-get、bili23-downloader 和 yt-dlp"""
+"""视频下载工具 - 整合 you-get 和 yt-dlp"""
 import logging
 import sys
 import json
@@ -407,72 +407,6 @@ class YouGetDownloader(DownloaderAdapter):
 
 
 # ============================================================================
-# Bili23Downloader 适配器
-# ============================================================================
-
-def _get_bili23_path() -> Path:
-    """获取 bili23-downloader 路径"""
-    current_file = Path(__file__).resolve()
-    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
-    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        # 如果找不到，使用向上5级的方式（向后兼容）
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "bili23-downloader"
-
-
-class Bili23Downloader(DownloaderAdapter):
-    """bili23-downloader 适配器"""
-    
-    def is_available(self) -> bool:
-        """检查 bili23-downloader 是否可用"""
-        try:
-            bili23_path = _get_bili23_path()
-            return bili23_path.exists()
-        except Exception:
-            return False
-    
-    def supports_platform(self, url: str) -> bool:
-        """bili23-downloader 只支持 Bilibili"""
-        return _detect_platform(url) == 'bilibili'
-    
-    def download(self, url: str, output_dir: Path, **options) -> DownloadResult:
-        """使用 bili23-downloader 下载"""
-        try:
-            bili23_path = _get_bili23_path()
-            if not bili23_path.exists():
-                return DownloadResult(success=False, error="bili23-downloader not found")
-            
-            # bili23-downloader 是 GUI 应用，没有简单的 CLI 接口
-            # 暂时降级到使用 yt-dlp 或 you-get
-            # TODO: 未来可以实现通过 Python API 直接调用 bili23-downloader 的核心模块
-            
-            # 尝试使用 yt-dlp 作为降级方案
-            yt_dlp = YtDlpDownloader()
-            if yt_dlp.is_available():
-                logger.info("bili23-downloader not available, falling back to yt-dlp")
-                return yt_dlp.download(url, output_dir, **options)
-            
-            # 降级到 you-get
-            you_get = YouGetDownloader()
-            if you_get.is_available():
-                logger.info("bili23-downloader not available, falling back to you-get")
-                return you_get.download(url, output_dir, **options)
-            
-            return DownloadResult(
-                success=False,
-                error="bili23-downloader integration not yet implemented, and no fallback available"
-            )
-        except Exception as e:
-            return DownloadResult(success=False, error=f"bili23-downloader error: {str(e)}")
-
-
-# ============================================================================
 # YtDlpDownloader 适配器
 # ============================================================================
 
@@ -562,6 +496,7 @@ class YtDlpDownloader(DownloaderAdapter):
     
     def download(self, url: str, output_dir: Path, **options) -> DownloadResult:
         """使用 yt-dlp 下载"""
+        cookie_files_to_cleanup: List[str] = []
         try:
             yt_dlp_path = _get_yt_dlp_path()
             if not yt_dlp_path.exists():
@@ -582,7 +517,7 @@ class YtDlpDownloader(DownloaderAdapter):
                 'outtmpl': str(output_dir / '%(title)s.%(ext)s'),
             }
             
-            # 处理 cookies
+            # 处理 cookies（从浏览器提取的临时文件用后需清理）
             cookies_file = options.get('cookies_file')
             cookies_from_browser = options.get('cookies_from_browser')
             
@@ -593,11 +528,12 @@ class YtDlpDownloader(DownloaderAdapter):
                     ydl_opts['cookiefile'] = cookies_path
                     logger.info(f"使用 cookies 文件: {cookies_path}")
             elif cookies_from_browser:
-                # 从浏览器提取 cookies
+                # 从浏览器提取 cookies（临时文件，用后清理）
                 domain = 'bilibili.com' if 'bilibili.com' in url.lower() or 'b23.tv' in url.lower() else None
                 cookies_path = _extract_cookies_from_browser(cookies_from_browser, domain or '')
                 if cookies_path:
                     ydl_opts['cookiefile'] = cookies_path
+                    cookie_files_to_cleanup.append(cookies_path)
                     logger.info(f"从 {cookies_from_browser} 提取 cookies: {cookies_path}")
             
             # 对于哔哩哔哩，添加必要的 headers 以避免 412 错误
@@ -787,6 +723,7 @@ class YtDlpDownloader(DownloaderAdapter):
                                 cookies_path = _extract_cookies_from_browser(browser, 'bilibili.com')
                                 if cookies_path:
                                     auto_cookies_path = cookies_path
+                                    cookie_files_to_cleanup.append(cookies_path)
                                     auto_cookies_tried = True
                                     logger.info(f"成功从 {browser} 提取 cookies，重试下载...")
                                     
@@ -909,6 +846,15 @@ class YtDlpDownloader(DownloaderAdapter):
             error_msg = str(e)
             logger.error(f"yt-dlp download 方法执行异常: {error_msg}", exc_info=True)
             return DownloadResult(success=False, error=f"yt-dlp 执行异常: {error_msg}")
+        finally:
+            # 清理从浏览器提取的临时 cookie 文件
+            for p in cookie_files_to_cleanup:
+                try:
+                    if os.path.exists(p):
+                        os.unlink(p)
+                        logger.debug(f"已删除临时 cookie 文件: {p}")
+                except Exception as cleanup_err:
+                    logger.debug(f"清理临时 cookie 文件失败 {p}: {cleanup_err}")
     
     def _convert_quality_to_yt_dlp_format(self, quality: str) -> str:
         """转换质量参数到 yt-dlp 格式"""
@@ -939,14 +885,7 @@ def _select_downloader(url: str, preferred: str = 'auto', **options) -> Download
             return yt_dlp
     
     # 用户指定了首选工具
-    if preferred == 'bili23' and platform == 'bilibili':
-        bili23 = Bili23Downloader()
-        if bili23.is_available():
-            return bili23
-        # 如果不可用，返回它（让错误信息更清晰）
-        logger.warning(f"Preferred tool 'bili23' is not available")
-        return bili23
-    elif preferred == 'yt-dlp':
+    if preferred == 'yt-dlp':
         yt_dlp = YtDlpDownloader()
         if yt_dlp.is_available():
             return yt_dlp
@@ -963,11 +902,7 @@ def _select_downloader(url: str, preferred: str = 'auto', **options) -> Download
     
     # 自动选择
     if platform == 'bilibili':
-        # B 站优先使用 bili23-downloader
-        bili23 = Bili23Downloader()
-        if bili23.is_available():
-            return bili23
-        # 对于哔哩哔哩，优先使用 you-get（通常对 B 站支持更好）
+        # 对于哔哩哔哩，优先 you-get 再 yt-dlp
         you_get = YouGetDownloader()
         if you_get.is_available():
             return you_get
@@ -1096,10 +1031,10 @@ class VideoDownloaderTool(Tool):
             ToolParameter(
                 name="preferred_tool",
                 type="string",
-                description="指定优先使用的下载工具。'auto'（自动选择）、'yt-dlp'、'you-get'、'bili23'。",
+                description="指定优先使用的下载工具。'auto'（自动选择）、'yt-dlp'、'you-get'。",
                 required=False,
                 default="auto",
-                enum=["auto", "yt-dlp", "you-get", "bili23"]
+                enum=["auto", "yt-dlp", "you-get"]
             ),
             ToolParameter(
                 name="cookies_file",

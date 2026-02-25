@@ -1,4 +1,5 @@
 """视频下载工具测试"""
+import builtins
 import pytest
 from unittest.mock import patch, MagicMock, Mock
 from pathlib import Path
@@ -7,12 +8,10 @@ from backend.core.agent.tools.builtin.video_downloader_tool import (
     DownloaderAdapter,
     DownloadResult,
     YouGetDownloader,
-    Bili23Downloader,
     YtDlpDownloader,
     _detect_platform,
     _select_downloader,
     _get_you_get_path,
-    _get_bili23_path,
     _get_yt_dlp_path,
 )
 
@@ -195,24 +194,6 @@ class TestYtDlpDownloader:
         assert downloader._convert_quality_to_yt_dlp_format("unknown") == "best"
 
 
-class TestBili23Downloader:
-    """测试 Bili23Downloader 适配器"""
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_bili23_path')
-    def test_is_available_true(self, mock_path):
-        """测试 is_available 返回 True"""
-        mock_path.return_value = Path("/fake/path")
-        with patch('pathlib.Path.exists', return_value=True):
-            downloader = Bili23Downloader()
-            assert downloader.is_available() is True
-    
-    def test_supports_platform(self):
-        """测试 supports_platform"""
-        downloader = Bili23Downloader()
-        assert downloader.supports_platform("https://www.bilibili.com/video/BV123") is True
-        assert downloader.supports_platform("https://www.youtube.com/watch?v=xxx") is False
-
-
 class TestDownloaderSelection:
     """测试下载器选择逻辑"""
     
@@ -246,19 +227,19 @@ class TestDownloaderSelection:
         
         assert downloader == mock_yt_dlp
     
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool.Bili23Downloader')
-    def test_select_bilibili_auto(self, mock_bili23_class):
-        """测试 Bilibili 平台自动选择"""
-        mock_bili23 = MagicMock()
-        mock_bili23.is_available.return_value = True
-        mock_bili23_class.return_value = mock_bili23
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool.YouGetDownloader')
+    def test_select_bilibili_auto(self, mock_you_get_class):
+        """测试 Bilibili 平台自动选择（优先 you-get）"""
+        mock_you_get = MagicMock()
+        mock_you_get.is_available.return_value = True
+        mock_you_get_class.return_value = mock_you_get
         
         downloader = _select_downloader(
             "https://www.bilibili.com/video/BV123",
             preferred="auto"
         )
         
-        assert downloader == mock_bili23
+        assert downloader == mock_you_get
     
     @patch('backend.core.agent.tools.builtin.video_downloader_tool.YtDlpDownloader')
     def test_select_youtube_auto(self, mock_yt_dlp_class):
@@ -393,4 +374,183 @@ class TestVideoDownloaderTool:
         assert 'parameters' in tool_dict['function']
         assert 'properties' in tool_dict['function']['parameters']
         assert 'url' in tool_dict['function']['parameters']['properties']
+
+
+# =============================================================================
+# 能力测试：反爬虫（headers、cookies、412 重试、登录错误文案）
+# =============================================================================
+
+def _make_ydl_cm(extract_info_return=None):
+    """构造 YtDlpDownloader 用的 YoutubeDL 上下文管理器 mock"""
+    if extract_info_return is None:
+        extract_info_return = {
+            'title': 'Test', 'uploader': '', 'upload_date': '',
+            'view_count': None, 'description': ''
+        }
+    mock_ydl = MagicMock()
+    mock_ydl.extract_info.return_value = extract_info_return
+    cm = MagicMock()
+    cm.__enter__.return_value = mock_ydl
+    cm.__exit__.return_value = None
+    return cm
+
+
+def _patch_import_yt_dlp(mock_yt_dlp):
+    """仅 mock 对 yt_dlp 的 import，其余用真实 import"""
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == 'yt_dlp':
+            return mock_yt_dlp
+        return real_import(name, *args, **kwargs)
+
+    return patch('builtins.__import__', side_effect=fake_import)
+
+
+@patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
+@patch('backend.core.agent.tools.builtin.video_downloader_tool._get_yt_dlp_path')
+class TestYtDlpAntiScrapingCapability:
+    """能力测试：YtDlp 反爬虫能力（headers、cookies、412、错误文案）"""
+
+    def test_bilibili_url_receives_http_headers(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+        """B 站 URL 时传入 yt-dlp 的 opts 含 http_headers（User-Agent、Referer）"""
+        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
+        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        captured_opts = []
+
+        def capture_opts(ydl_opts):
+            captured_opts.append(ydl_opts)
+            return _make_ydl_cm()
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = capture_opts
+        mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
+
+        with patch('pathlib.Path.exists', return_value=True):
+            with patch('sys.path'):
+                with _patch_import_yt_dlp(mock_yt_dlp):
+                    downloader = YtDlpDownloader()
+                    downloader.download(
+                        "https://www.bilibili.com/video/BV123",
+                        Path("/tmp/out"),
+                    )
+        assert len(captured_opts) >= 1
+        opts = captured_opts[0]
+        assert 'http_headers' in opts
+        assert opts['http_headers'].get('User-Agent', '').startswith('Mozilla/')
+        assert 'bilibili.com' in opts['http_headers'].get('Referer', '')
+
+    def test_cookies_file_sets_cookiefile_in_opts(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+        """cookies_file 有效时 ydl_opts 含 cookiefile"""
+        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
+        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        captured_opts = []
+
+        def capture_opts(ydl_opts):
+            captured_opts.append(ydl_opts)
+            return _make_ydl_cm()
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = capture_opts
+        mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
+
+        with patch('backend.core.agent.tools.builtin.video_downloader_tool._load_cookies_from_file') as m_load:
+            m_load.return_value = "/tmp/cookies.txt"
+            with patch('pathlib.Path.exists', return_value=True):
+                with patch('sys.path'):
+                    with _patch_import_yt_dlp(mock_yt_dlp):
+                        downloader = YtDlpDownloader()
+                        downloader.download(
+                            "https://www.youtube.com/watch?v=xxx",
+                            Path("/tmp/out"),
+                            cookies_file="/tmp/cookies.txt",
+                        )
+        assert len(captured_opts) >= 1
+        assert captured_opts[0].get('cookiefile') == "/tmp/cookies.txt"
+
+    def test_cookies_from_browser_sets_cookiefile_in_opts(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+        """cookies_from_browser 指定时尝试提取并设置 cookiefile"""
+        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
+        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        captured_opts = []
+
+        def capture_opts(ydl_opts):
+            captured_opts.append(ydl_opts)
+            return _make_ydl_cm()
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = capture_opts
+        mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
+
+        with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
+            m_extract.return_value = "/tmp/browser_cookies.txt"
+            with patch('pathlib.Path.exists', return_value=True):
+                with patch('sys.path'):
+                    with _patch_import_yt_dlp(mock_yt_dlp):
+                        downloader = YtDlpDownloader()
+                        downloader.download(
+                            "https://www.bilibili.com/video/BV123",
+                            Path("/tmp/out"),
+                            cookies_from_browser="chrome",
+                        )
+        assert len(captured_opts) >= 1
+        assert captured_opts[0].get('cookiefile') == "/tmp/browser_cookies.txt"
+
+    def test_412_tries_browser_cookies_and_retry_succeeds(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+        """412 错误时尝试从浏览器提取 cookie 并重试，第二次成功则返回 success"""
+        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
+        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        DownloadError = type('DownloadError', (Exception,), {})
+
+        cm_first = MagicMock()
+        cm_first.__enter__.return_value.extract_info.side_effect = DownloadError("HTTP Error 412: Precondition Failed")
+        cm_first.__exit__.return_value = None
+        cm_retry = _make_ydl_cm({'title': 'B站视频', 'uploader': '', 'upload_date': '', 'view_count': None, 'description': ''})
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = [cm_first, cm_retry]
+        mock_yt_dlp.utils.DownloadError = DownloadError
+
+        with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
+            m_extract.return_value = "/tmp/auto_cookies.txt"
+            with patch('pathlib.Path.exists', return_value=True):
+                with patch('sys.path'):
+                    with _patch_import_yt_dlp(mock_yt_dlp):
+                        downloader = YtDlpDownloader()
+                        result = downloader.download(
+                            "https://www.bilibili.com/video/BV123",
+                            Path("/tmp/out"),
+                        )
+        assert result.success is True
+        assert result.data.get('title') == 'B站视频'
+        assert result.data.get('cookies_auto_extracted') is True
+        assert result.data.get('cookies_source') in ('chrome', 'firefox', 'safari', 'edge')
+
+    def test_login_required_error_includes_cookie_suggestion(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+        """登录/机器人错误时返回文案含 cookie 使用建议"""
+        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
+        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        DownloadError = type('DownloadError', (Exception,), {})
+
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info.side_effect = DownloadError("LOGIN_REQUIRED: 请登录后重试")
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
+        mock_yt_dlp.YoutubeDL.return_value.__exit__.return_value = None
+        mock_yt_dlp.utils.DownloadError = DownloadError
+
+        with patch('pathlib.Path.exists', return_value=True):
+            with patch('sys.path'):
+                with _patch_import_yt_dlp(mock_yt_dlp):
+                    downloader = YtDlpDownloader()
+                    result = downloader.download(
+                        "https://www.bilibili.com/video/BV123",
+                        Path("/tmp/out"),
+                    )
+        assert result.success is False
+        assert result.error
+        err_lower = result.error.lower()
+        assert 'cookie' in err_lower or 'cookies' in err_lower
+        assert 'cookies_from_browser' in result.error or 'cookies_file' in result.error
 

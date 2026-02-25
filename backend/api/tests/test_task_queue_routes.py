@@ -1,4 +1,7 @@
 """任务队列 API 路由测试"""
+import os
+import tempfile
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
 from backend.main import app
@@ -7,6 +10,7 @@ from backend.infrastructure.storage.task_queue_db import (
     TaskStatus,
     TaskPriority
 )
+from backend.infrastructure.execution.task_handlers import TASK_TYPES
 from unittest.mock import patch, MagicMock
 
 
@@ -116,6 +120,51 @@ class TestTaskQueueRoutes:
         assert response.status_code == 400
         assert "缺少必填参数" in response.json()["detail"]
         assert "url" in response.json()["detail"]
+
+    def test_task_types_video_download_metadata_schema_matches_tasks(self, client):
+        """功能测试：GET task-types 返回的 video_download metadata_schema 与 TASK_TYPES 一致"""
+        response = client.get("/api/task-queue/task-types")
+        assert response.status_code == 200
+        data = response.json()
+        task_types = data.get("task_types") or []
+        video_download = next((t for t in task_types if t.get("type") == "video_download"), None)
+        assert video_download is not None
+        expected_schema = TASK_TYPES["video_download"]["metadata_schema"]
+        api_schema = video_download.get("metadata_schema") or {}
+        assert set(api_schema.keys()) == set(expected_schema.keys())
+        for key in expected_schema:
+            assert api_schema[key].get("type") == expected_schema[key].get("type")
+            assert api_schema[key].get("required") == expected_schema[key].get("required")
+        assert api_schema.get("url", {}).get("required") is True
+        assert "quality" in api_schema and "enum" in api_schema["quality"]
+
+    def test_create_task_video_download_optional_metadata_passthrough(self, client, mock_task_queue_db):
+        """功能测试：video_download 创建时 metadata 可选字段透传到 DB"""
+        mock_task_queue_db.create_task.return_value = "vd-task-1"
+        metadata = {
+            "url": "https://www.bilibili.com/video/BV123",
+            "output_dir": "/home/user/Videos",
+            "preferred_tool": "yt-dlp",
+            "cookies_from_browser": "chrome",
+            "quality": "1080p",
+            "download_subtitle": True,
+            "extract_audio_only": False,
+        }
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "video_download", "metadata": metadata},
+            )
+        assert response.status_code == 200
+        assert response.json()["task_id"] == "vd-task-1"
+        mock_task_queue_db.create_task.assert_called_once()
+        call_metadata = mock_task_queue_db.create_task.call_args[1]["metadata"]
+        assert call_metadata.get("url") == metadata["url"]
+        assert call_metadata.get("output_dir") == metadata["output_dir"]
+        assert call_metadata.get("preferred_tool") == metadata["preferred_tool"]
+        assert call_metadata.get("cookies_from_browser") == metadata["cookies_from_browser"]
+        assert call_metadata.get("quality") == metadata["quality"]
+        assert call_metadata.get("download_subtitle") is True
 
     def test_create_task_weather_query_valid_metadata_passes(self, client, mock_task_queue_db):
         """测试 weather_query 带合法 location 与 query_type 时创建成功"""
@@ -553,3 +602,105 @@ class TestTaskQueueRoutes:
         assert "清理了" in data["message"]
         mock_task_queue_db.cleanup_stale_tasks.assert_called_once_with(max_idle_minutes=30)
 
+
+class TestTaskQueueIntegration:
+    """集成测试：真实 TaskQueueDB（SQLite）"""
+
+    def test_api_create_list_get_with_real_db(self, client):
+        """集成：使用真实 SQLite DB，通过 API 创建任务、列表、详情"""
+        import backend.infrastructure.storage.task_queue_db as db_module
+        tmpdir = tempfile.mkdtemp()
+        db_path = os.path.join(tmpdir, "task_queue.db")
+        mock_storage = MagicMock()
+        mock_storage.get_sqlite_path.return_value = db_path
+        with patch('backend.infrastructure.storage.task_queue_db.get_storage_manager', return_value=mock_storage):
+            db_module._task_queue_db = None
+            create_resp = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "weather_query",
+                    "metadata": {"location": "北京", "query_type": "current"},
+                },
+            )
+        assert create_resp.status_code == 200
+        data = create_resp.json()
+        assert data["success"] is True
+        task_id = data["task_id"]
+        assert task_id
+
+        with patch('backend.infrastructure.storage.task_queue_db.get_storage_manager', return_value=mock_storage):
+            list_resp = client.get("/api/task-queue/tasks")
+        assert list_resp.status_code == 200
+        list_data = list_resp.json()
+        assert list_data["success"] is True
+        tasks = list_data.get("tasks") or []
+        found = next((t for t in tasks if t["task_id"] == task_id), None)
+        assert found is not None
+        assert found["task_type"] == "weather_query"
+        assert found["status"] == "queued"
+
+        with patch('backend.infrastructure.storage.task_queue_db.get_storage_manager', return_value=mock_storage):
+            get_resp = client.get(f"/api/task-queue/tasks/{task_id}")
+        assert get_resp.status_code == 200
+        get_data = get_resp.json()
+        assert get_data["success"] is True
+        task = get_data["task"]
+        assert task["task_id"] == task_id
+        assert task["metadata"].get("location") == "北京"
+        assert task["metadata"].get("query_type") == "current"
+
+    @pytest.mark.asyncio
+    async def test_video_download_e2e_worker_mock_tool(self, client):
+        """集成：POST 创建 video_download → 真实 Worker 拉取 → mock 工具执行 → 完成写回"""
+        import backend.infrastructure.storage.task_queue_db as db_module
+        import backend.infrastructure.execution.task_worker as worker_module
+        tmpdir = tempfile.mkdtemp()
+        db_path = os.path.join(tmpdir, "task_queue.db")
+        mock_storage = MagicMock()
+        mock_storage.get_sqlite_path.return_value = db_path
+
+        with patch('backend.infrastructure.storage.task_queue_db.get_storage_manager', return_value=mock_storage):
+            db_module._task_queue_db = None
+            worker_module._global_worker = None
+            create_resp = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "video_download",
+                    "metadata": {"url": "https://www.bilibili.com/video/BV1xx", "quality": "best"},
+                },
+            )
+        assert create_resp.status_code == 200
+        task_id = create_resp.json()["task_id"]
+
+        mock_tool_result = MagicMock()
+        mock_tool_result.success = True
+        mock_tool_result.data = {"title": "E2E Test", "output_dir": "/tmp/video_out"}
+        mock_tool_result.error = None
+        mock_tool_class = MagicMock()
+        mock_tool_class.return_value.execute.return_value = mock_tool_result
+
+        async def run_worker_until_done():
+            from backend.infrastructure.execution.task_worker import get_task_worker
+            from backend.infrastructure.execution.task_handlers import register_default_handlers
+            worker = get_task_worker(poll_interval=1)
+            register_default_handlers()
+            await worker.start()
+            try:
+                for _ in range(20):
+                    await asyncio.sleep(0.3)
+                    task = worker.task_queue_db.get_task(task_id)
+                    if task and task.get("status") in ("completed", "failed"):
+                        break
+            finally:
+                await worker.stop()
+
+        with patch('backend.core.agent.tools.builtin.video_downloader_tool.VideoDownloaderTool', mock_tool_class):
+            await run_worker_until_done()
+
+        with patch('backend.infrastructure.storage.task_queue_db.get_storage_manager', return_value=mock_storage):
+            get_resp = client.get(f"/api/task-queue/tasks/{task_id}")
+        assert get_resp.status_code == 200
+        task = get_resp.json()["task"]
+        assert task["status"] == "completed"
+        assert task.get("result", {}).get("status") == "success"
+        assert "E2E Test" in (task.get("result") or {}).get("summary", "") or "output_dir" in str(task.get("result"))

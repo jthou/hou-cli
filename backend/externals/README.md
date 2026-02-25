@@ -17,25 +17,19 @@ This directory contains external libraries that are integrated directly from sou
 - **Usage**: Primary video download tool for YouTube, Bilibili, Youku, etc.
 - **Priority**: **Primary** - Use this for most video download needs
 
-### 3. bili23-downloader
-- **Purpose**: Bilibili-specific video downloader
-- **Repository**: https://github.com/ScottSloan/Bili23-Downloader
-- **Usage**: Use only when you-get doesn't meet specific Bilibili requirements
-- **Priority**: **Secondary** - Use only for special Bilibili features
-
-### 4. yt-dlp
+### 3. yt-dlp
 - **Purpose**: Powerful video downloader with advanced subtitle and audio extraction
 - **Repository**: https://github.com/yt-dlp/yt-dlp
 - **Usage**: Primary tool for YouTube and other platforms, especially for subtitle-only and audio-only downloads
 - **Priority**: **Primary** - Use for YouTube and when subtitle/audio extraction is needed
 
-### 5. ffmpeg
+### 4. ffmpeg
 - **Purpose**: Complete, cross-platform solution to record, convert and stream audio and video
 - **Repository**: https://github.com/FFmpeg/FFmpeg
-- **Usage**: Required for audio extraction and video format conversion (used by yt-dlp and bili23-downloader)
+- **Usage**: Required for audio extraction and video format conversion (used by yt-dlp)
 - **Priority**: **Required** - System dependency for video/audio processing
 
-### 6. whisper
+### 5. whisper
 - **Purpose**: Speech recognition and transcription tool
 - **Repository**: https://github.com/openai/whisper
 - **Usage**: Speech-to-text transcription, subtitle generation, audio transcription
@@ -90,8 +84,7 @@ git commit -m "Update you-get submodule"
 
 ## Integration Guidelines
 
-1. **Prefer you-get** for most video download tasks (more universal)
-2. **Use bili23-downloader** only when you-get doesn't support specific Bilibili features
-3. **Modify submodule code** if needed, but document changes clearly
-4. **Keep submodules updated** to get bug fixes and new features
+1. **Prefer you-get or yt-dlp** for video download (B 站可优先 you-get 或指定 yt-dlp)
+2. **Modify submodule code** if needed, but document changes clearly
+3. **Keep submodules updated** to get bug fixes and new features
 
