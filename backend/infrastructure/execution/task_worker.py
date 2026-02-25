@@ -14,8 +14,12 @@ from shared.debug_utils import debug_log
 
 logger = logging.getLogger(__name__)
 
-# 视频下载任务最大执行时间（秒），超时则标记失败
-VIDEO_DOWNLOAD_TASK_TIMEOUT = 30 * 60  # 30 分钟
+# 任务类型超时（秒），超时则标记失败
+TASK_TIMEOUT_SECONDS = {
+    "video_download": 30 * 60,       # 30 分钟
+    "speech_to_text": 60 * 60,       # 1 小时
+    "video_extract_audio": 30 * 60,  # 30 分钟
+}
 
 
 class TaskWorker:
@@ -181,17 +185,18 @@ class TaskWorker:
                 self.current_task_id = None
                 return
             
-            # 执行任务（视频下载设超时，避免长时间占用 Worker）
-            if task_type == "video_download":
+            # 执行任务（部分类型设超时，避免长时间占用 Worker）
+            timeout = TASK_TIMEOUT_SECONDS.get(task_type)
+            if timeout is not None:
                 try:
-                    result = await asyncio.wait_for(
-                        handler(task_info),
-                        timeout=VIDEO_DOWNLOAD_TASK_TIMEOUT
-                    )
+                    result = await asyncio.wait_for(handler(task_info), timeout=timeout)
                 except asyncio.TimeoutError:
-                    error_msg = f"任务执行超时（超过 {VIDEO_DOWNLOAD_TASK_TIMEOUT // 60} 分钟）"
+                    error_msg = f"任务执行超时（超过 {timeout // 60} 分钟）"
                     logger.error(f"任务 {task_id} {error_msg}")
-                    self.task_queue_db.complete_task(task_id, error=error_msg)
+                    self.task_queue_db.complete_task(
+                        task_id,
+                        result={"status": "error", "summary": "执行超时", "error": {"code": "TIMEOUT", "message": error_msg, "details": ""}},
+                    )
                     return
             else:
                 result = await handler(task_info)

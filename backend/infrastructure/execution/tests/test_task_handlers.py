@@ -11,9 +11,12 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from dotenv import load_dotenv
 
 from backend.infrastructure.execution.task_handlers import (
+    _validate_input_path_in_home,
     _validate_video_download_url,
     process_video_download_task,
+    process_video_extract_audio_task,
     process_weather_query_task,
+    process_speech_to_text_task,
     validate_task_creation,
 )
 
@@ -255,6 +258,185 @@ class TestValidateTaskCreation:
         ok, err = validate_task_creation("weather_query", None)
         assert ok is False
         assert "location" in err
+
+    def test_speech_to_text_missing_input_file(self):
+        ok, err = validate_task_creation("speech_to_text", {})
+        assert ok is False
+        assert "input_file" in err
+
+    def test_speech_to_text_valid_metadata(self):
+        ok, err = validate_task_creation("speech_to_text", {"input_file": "/tmp/audio.mp3"})
+        assert ok is True
+        assert err is None
+
+    def test_video_extract_audio_missing_input_file(self):
+        ok, err = validate_task_creation("video_extract_audio", {})
+        assert ok is False
+        assert "input_file" in err
+
+    def test_video_extract_audio_valid_metadata(self):
+        ok, err = validate_task_creation("video_extract_audio", {"input_file": "/tmp/video.mp4"})
+        assert ok is True
+        assert err is None
+
+    def test_speech_to_text_invalid_model_enum(self):
+        ok, err = validate_task_creation(
+            "speech_to_text", {"input_file": "/tmp/a.mp3", "model": "invalid"}
+        )
+        assert ok is False
+        assert "model" in err and "取值无效" in err
+
+    def test_video_extract_audio_invalid_audio_format_enum(self):
+        ok, err = validate_task_creation(
+            "video_extract_audio", {"input_file": "/tmp/v.mp4", "audio_format": "invalid"}
+        )
+        assert ok is False
+        assert "audio_format" in err and "取值无效" in err
+
+
+class TestValidateInputPathInHome:
+    """路径校验 _validate_input_path_in_home 允许/禁止路径"""
+
+    def test_nonexistent_path_fails(self):
+        ok, msg = _validate_input_path_in_home(Path("/nonexistent_file_12345_abc"))
+        assert ok is False
+        assert "不存在" in (msg or "")
+
+    def test_path_under_home_and_exists_succeeds(self):
+        under_home = Path.home() / ".cache" / "hou-cli-test-path-ok"
+        under_home.parent.mkdir(parents=True, exist_ok=True)
+        under_home.write_text("x")
+        try:
+            ok, msg = _validate_input_path_in_home(under_home.resolve())
+            assert ok is True
+            assert msg is None
+        finally:
+            if under_home.exists():
+                under_home.unlink()
+
+    def test_path_outside_home_fails(self):
+        # /etc/hosts 存在且为文件，但不在主目录下（在 Linux/macOS 上）
+        outside = Path("/etc/hosts")
+        if not outside.exists() or not outside.is_file():
+            pytest.skip("需要 /etc/hosts 存在")
+        ok, msg = _validate_input_path_in_home(outside.resolve())
+        assert ok is False
+        assert "主目录" in (msg or "")
+
+
+class TestSpeechToTextAndVideoExtractAudioHandlers:
+    """语音转文字、视频提音频 handler 返回结构与错误码"""
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_missing_input_returns_error_struct(self):
+        """缺 input_file 时返回统一错误结构，不抛异常"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_speech_to_text_task({
+                "task_id": "t1", "task_type": "speech_to_text", "metadata": {},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "INPUT_FILE_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_success_return_shape(self):
+        """mock WhisperTool 成功时返回 status/summary/data（使用用户主目录下临时文件）"""
+        tmp = Path.home() / ".cache" / "hou-cli-test"
+        tmp.mkdir(parents=True, exist_ok=True)
+        audio_file = tmp / "test_speech_input.mp3"
+        audio_file.write_bytes(b"fake")
+        try:
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.data = {"output_file": str(audio_file.with_suffix(".srt")), "segments_count": 10, "text": "hello"}
+            mock_result.error = None
+            with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+                m_worker.return_value.update_task_progress = MagicMock()
+                with patch("backend.infrastructure.execution.task_handlers.asyncio.to_thread", new_callable=AsyncMock, return_value=mock_result):
+                    out = await process_speech_to_text_task({
+                        "task_id": "t1", "task_type": "speech_to_text",
+                        "metadata": {"input_file": str(audio_file)},
+                    })
+            assert out["status"] == "success"
+            assert "summary" in out and "data" in out
+        finally:
+            if audio_file.exists():
+                audio_file.unlink()
+
+    @pytest.mark.asyncio
+    async def test_video_extract_audio_missing_input_returns_error_struct(self):
+        """缺 input_file 时返回统一错误结构"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_video_extract_audio_task({
+                "task_id": "t1", "task_type": "video_extract_audio", "metadata": {},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "INPUT_FILE_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_video_extract_audio_success_return_shape(self):
+        """mock FFmpegTool 成功时返回 status/summary/data（使用用户主目录下临时文件）"""
+        tmp = Path.home() / ".cache" / "hou-cli-test"
+        tmp.mkdir(parents=True, exist_ok=True)
+        video_file = tmp / "test_video_input.mp4"
+        video_file.write_bytes(b"fake")
+        try:
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.data = {"output_file": str(video_file.with_suffix(".mp3")), "format": "mp3"}
+            mock_result.error = None
+            with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+                m_worker.return_value.update_task_progress = MagicMock()
+                with patch("backend.infrastructure.execution.task_handlers.asyncio.to_thread", new_callable=AsyncMock, return_value=mock_result):
+                    out = await process_video_extract_audio_task({
+                        "task_id": "t1", "task_type": "video_extract_audio",
+                        "metadata": {"input_file": str(video_file)},
+                    })
+            assert out["status"] == "success"
+            assert "summary" in out and "data" in out
+        finally:
+            if video_file.exists():
+                video_file.unlink()
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_input_file_not_found_returns_error_struct(self):
+        """input_file 指向不存在路径时返回 INPUT_FILE_NOT_FOUND"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_speech_to_text_task({
+                "task_id": "t1", "task_type": "speech_to_text",
+                "metadata": {"input_file": str(Path.home() / "nonexistent_audio_xyz_123.mp3")},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "INPUT_FILE_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_speech_to_text_input_path_outside_home_returns_error_struct(self):
+        """input_file 为主目录外路径时返回 INPUT_PATH_OUTSIDE_HOME"""
+        outside = Path("/etc/hosts")
+        if not outside.exists() or not outside.is_file():
+            pytest.skip("需要 /etc/hosts 存在")
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_speech_to_text_task({
+                "task_id": "t1", "task_type": "speech_to_text",
+                "metadata": {"input_file": str(outside)},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "INPUT_PATH_OUTSIDE_HOME"
+
+    @pytest.mark.asyncio
+    async def test_video_extract_audio_input_file_not_found_returns_error_struct(self):
+        """input_file 指向不存在路径时返回 INPUT_FILE_NOT_FOUND"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_video_extract_audio_task({
+                "task_id": "t1", "task_type": "video_extract_audio",
+                "metadata": {"input_file": str(Path.home() / "nonexistent_video_xyz_123.mp4")},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "INPUT_FILE_NOT_FOUND"
 
 
 class TestWeatherQueryLiveEnv:

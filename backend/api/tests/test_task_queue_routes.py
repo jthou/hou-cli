@@ -121,6 +121,28 @@ class TestTaskQueueRoutes:
         assert "缺少必填参数" in response.json()["detail"]
         assert "url" in response.json()["detail"]
 
+    def test_create_task_speech_to_text_missing_input_file(self, client, mock_task_queue_db):
+        """测试 speech_to_text 缺少必填 input_file 时返回 400"""
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "speech_to_text", "metadata": {}},
+            )
+        assert response.status_code == 400
+        assert "缺少必填参数" in response.json()["detail"]
+        assert "input_file" in response.json()["detail"]
+
+    def test_create_task_video_extract_audio_missing_input_file(self, client, mock_task_queue_db):
+        """测试 video_extract_audio 缺少必填 input_file 时返回 400"""
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "video_extract_audio", "metadata": {}},
+            )
+        assert response.status_code == 400
+        assert "缺少必填参数" in response.json()["detail"]
+        assert "input_file" in response.json()["detail"]
+
     def test_task_types_video_download_metadata_schema_matches_tasks(self, client):
         """功能测试：GET task-types 返回的 video_download metadata_schema 与 TASK_TYPES 一致"""
         response = client.get("/api/task-queue/task-types")
@@ -165,6 +187,57 @@ class TestTaskQueueRoutes:
         assert call_metadata.get("cookies_from_browser") == metadata["cookies_from_browser"]
         assert call_metadata.get("quality") == metadata["quality"]
         assert call_metadata.get("download_subtitle") is True
+
+    def test_task_types_include_speech_to_text_and_video_extract_audio(self, client):
+        """GET task-types 包含 speech_to_text、video_extract_audio 及其 metadata_schema"""
+        response = client.get("/api/task-queue/task-types")
+        assert response.status_code == 200
+        types_list = response.json().get("task_types") or []
+        type_keys = {t.get("type") for t in types_list}
+        assert "speech_to_text" in type_keys
+        assert "video_extract_audio" in type_keys
+        st = next(t for t in types_list if t.get("type") == "speech_to_text")
+        assert st.get("name") == "语音转文字"
+        schema = st.get("metadata_schema") or {}
+        assert schema.get("input_file", {}).get("required") is True
+        assert "model" in schema and "output_format" in schema
+        vea = next(t for t in types_list if t.get("type") == "video_extract_audio")
+        assert vea.get("name") == "视频提取音频"
+        assert vea.get("metadata_schema", {}).get("input_file", {}).get("required") is True
+
+    def test_create_task_speech_to_text_valid_metadata_passes(self, client, mock_task_queue_db):
+        """speech_to_text 带合法 input_file 时创建成功，metadata 透传"""
+        mock_task_queue_db.create_task.return_value = "st-task-1"
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "speech_to_text",
+                    "metadata": {"input_file": "/Users/me/audio.mp3", "output_format": "srt"},
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["task_id"] == "st-task-1"
+        call_metadata = mock_task_queue_db.create_task.call_args[1]["metadata"]
+        assert call_metadata.get("input_file") == "/Users/me/audio.mp3"
+        assert call_metadata.get("output_format") == "srt"
+
+    def test_create_task_video_extract_audio_valid_metadata_passes(self, client, mock_task_queue_db):
+        """video_extract_audio 带合法 input_file 时创建成功，metadata 透传"""
+        mock_task_queue_db.create_task.return_value = "vea-task-1"
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "video_extract_audio",
+                    "metadata": {"input_file": "/Users/me/video.mp4", "audio_format": "mp3"},
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["task_id"] == "vea-task-1"
+        call_metadata = mock_task_queue_db.create_task.call_args[1]["metadata"]
+        assert call_metadata.get("input_file") == "/Users/me/video.mp4"
+        assert call_metadata.get("audio_format") == "mp3"
 
     def test_create_task_weather_query_valid_metadata_passes(self, client, mock_task_queue_db):
         """测试 weather_query 带合法 location 与 query_type 时创建成功"""

@@ -1,6 +1,8 @@
 """任务处理器注册和定义"""
 import asyncio
 import logging
+import traceback
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import urlparse
 import ipaddress
@@ -8,6 +10,37 @@ import ipaddress
 from backend.infrastructure.execution.task_worker import get_task_worker
 
 logger = logging.getLogger(__name__)
+
+
+def _err(code: str, summary: str, message: str, details: Optional[str] = None) -> Dict[str, Any]:
+    """统一错误返回结构（设计 doc 2.5 节）。"""
+    return {
+        "status": "error",
+        "summary": summary,
+        "error": {"code": code, "message": message, "details": details or ""},
+    }
+
+
+def _validate_input_path_in_home(input_path: Path) -> Tuple[bool, Optional[str]]:
+    """校验输入路径存在且位于用户主目录下。Returns: (True, None) 通过；(False, "错误说明") 不通过。"""
+    if not input_path.exists():
+        return False, f"指定的文件不存在: {input_path}"
+    if not input_path.is_file():
+        return False, "路径必须是文件"
+    try:
+        input_path.resolve().relative_to(Path.home().resolve())
+    except ValueError:
+        return False, "输入路径必须在用户主目录下"
+    return True, None
+
+
+def _validate_output_path_in_home(output_path: Path) -> Tuple[bool, Optional[str]]:
+    """校验输出路径（或父目录）在用户主目录下。"""
+    try:
+        output_path.resolve().relative_to(Path.home().resolve())
+    except ValueError:
+        return False, "输出路径必须在用户主目录下"
+    return True, None
 
 
 def _validate_video_download_url(url: str) -> Tuple[bool, Optional[str]]:
@@ -186,7 +219,111 @@ TASK_TYPES = {
                 "default": 7
             }
         }
-    }
+    },
+    "speech_to_text": {
+        "name": "语音转文字",
+        "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
+        "metadata_schema": {
+            "input_file": {
+                "type": "string",
+                "required": True,
+                "description": "音频文件路径（支持 mp3, wav, m4a, flac 等）",
+                "placeholder": "如：/Users/xx/audio.mp3"
+            },
+            "language": {
+                "type": "string",
+                "required": False,
+                "description": "语言代码，auto 为自动检测",
+                "default": "auto",
+                "placeholder": "zh, en, ja"
+            },
+            "model": {
+                "type": "string",
+                "required": False,
+                "description": "Whisper 模型大小",
+                "default": "base",
+                "enum": [
+                    {"value": "tiny", "label": "Tiny"},
+                    {"value": "base", "label": "Base"},
+                    {"value": "small", "label": "Small"},
+                    {"value": "medium", "label": "Medium"},
+                    {"value": "large", "label": "Large"}
+                ]
+            },
+            "output_format": {
+                "type": "string",
+                "required": False,
+                "description": "输出格式",
+                "default": "srt",
+                "enum": [
+                    {"value": "json", "label": "JSON"},
+                    {"value": "text", "label": "纯文本"},
+                    {"value": "srt", "label": "字幕 SRT"}
+                ]
+            },
+            "output_file": {
+                "type": "string",
+                "required": False,
+                "description": "输出文件路径；不填则自动生成",
+                "placeholder": "如：/Users/xx/out.srt"
+            },
+            "output_dir": {
+                "type": "string",
+                "required": False,
+                "description": "输出目录（仅当未指定 output_file 时生效），须在用户主目录下",
+                "placeholder": "留空则与输入同目录"
+            },
+        }
+    },
+    "video_extract_audio": {
+        "name": "视频提取音频",
+        "description": "从本地视频文件中提取音频轨并保存为音频文件",
+        "metadata_schema": {
+            "input_file": {
+                "type": "string",
+                "required": True,
+                "description": "本地视频文件路径",
+                "placeholder": "如：/Users/xx/video.mp4"
+            },
+            "output_file": {
+                "type": "string",
+                "required": False,
+                "description": "输出音频文件路径；不填则自动生成",
+                "placeholder": "如：/Users/xx/audio.mp3"
+            },
+            "output_dir": {
+                "type": "string",
+                "required": False,
+                "description": "输出目录（仅当未指定 output_file 时生效），须在用户主目录下",
+                "placeholder": "留空则与输入同目录"
+            },
+            "audio_format": {
+                "type": "string",
+                "required": False,
+                "description": "音频格式",
+                "default": "mp3",
+                "enum": [
+                    {"value": "mp3", "label": "MP3"},
+                    {"value": "wav", "label": "WAV"},
+                    {"value": "aac", "label": "AAC"},
+                    {"value": "flac", "label": "FLAC"},
+                    {"value": "ogg", "label": "OGG"}
+                ]
+            },
+            "audio_quality": {
+                "type": "string",
+                "required": False,
+                "description": "音频码率",
+                "default": "192k",
+                "enum": [
+                    {"value": "128k", "label": "128k"},
+                    {"value": "192k", "label": "192k"},
+                    {"value": "256k", "label": "256k"},
+                    {"value": "320k", "label": "320k"}
+                ]
+            },
+        }
+    },
 }
 
 
@@ -418,11 +555,144 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
         raise
 
 
+async def process_speech_to_text_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理语音转文字任务。失败时返回统一错误结构（不抛异常）。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+
+    input_file = (metadata.get("input_file") or "").strip()
+    if not input_file:
+        return _err("INPUT_FILE_NOT_FOUND", "缺少输入文件", "input_file 参数是必需的")
+
+    input_path = Path(input_file).expanduser().resolve()
+    ok, err_msg = _validate_input_path_in_home(input_path)
+    if not ok:
+        return _err("INPUT_FILE_NOT_FOUND" if "不存在" in (err_msg or "") else "INPUT_PATH_OUTSIDE_HOME", "输入无效", err_msg or "路径校验失败")
+
+    output_file = (metadata.get("output_file") or "").strip()
+    output_dir = (metadata.get("output_dir") or "").strip()
+    if output_file:
+        out_path = Path(output_file).expanduser().resolve()
+        ok_out, err_out = _validate_output_path_in_home(out_path)
+        if not ok_out:
+            return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_out or "输出路径须在用户主目录下")
+    elif output_dir:
+        from shared.platform_utils import normalize_output_dir
+        try:
+            out_dir = normalize_output_dir(output_dir, restrict_to_home=True)
+        except Exception as e:
+            return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
+        ext = {"json": ".json", "text": ".txt", "srt": ".srt"}.get(metadata.get("output_format", "srt"), ".srt")
+        output_file = str(out_dir / f"{input_path.stem}_transcription{ext}")
+
+    worker.update_task_progress(0, "准备转写...")
+
+    def _run_transcribe():
+        from backend.core.agent.tools.builtin.whisper_tool import WhisperTool
+        tool = WhisperTool()
+        if hasattr(tool, "report_progress"):
+            def on_progress(message: str) -> None:
+                try:
+                    worker.update_task_progress(0, message or "转写中...")
+                except Exception:
+                    pass
+            tool.report_progress = on_progress
+        language = metadata.get("language") or "auto"
+        model = metadata.get("model") or "base"
+        output_format = metadata.get("output_format") or "srt"
+        kwargs = {"audio_file": str(input_path), "language": language, "model": model, "output_format": output_format}
+        if output_file:
+            kwargs["output_file"] = output_file
+        return tool.execute(**kwargs)
+
+    try:
+        result = await asyncio.to_thread(_run_transcribe)
+    except ImportError as e:
+        return _err("WHISPER_NOT_AVAILABLE", "Whisper 未安装或路径错误", str(e))
+    except Exception as e:
+        return _err("TRANSCRIPTION_FAILED", "转写失败", str(e), details=traceback.format_exc())
+
+    if not result.success:
+        return _err("TRANSCRIPTION_FAILED", "转写失败", result.error or "未知错误")
+
+    worker.update_task_progress(100, "转写完成")
+    data = result.data or {}
+    summary = data.get("summary") or f"已转写至 {data.get('output_file', '')}"
+    return {"status": "success", "summary": summary, "data": data}
+
+
+async def process_video_extract_audio_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理视频提取音频任务。失败时返回统一错误结构（不抛异常）。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+
+    input_file = (metadata.get("input_file") or "").strip()
+    if not input_file:
+        return _err("INPUT_FILE_NOT_FOUND", "缺少输入文件", "input_file 参数是必需的")
+
+    input_path = Path(input_file).expanduser().resolve()
+    ok, err_msg = _validate_input_path_in_home(input_path)
+    if not ok:
+        return _err("INPUT_FILE_NOT_FOUND" if "不存在" in (err_msg or "") else "INPUT_PATH_OUTSIDE_HOME", "输入无效", err_msg or "路径校验失败")
+
+    output_file = (metadata.get("output_file") or "").strip()
+    output_dir = (metadata.get("output_dir") or "").strip()
+    audio_format = metadata.get("audio_format") or "mp3"
+    audio_quality = metadata.get("audio_quality") or "192k"
+    ext = {"mp3": ".mp3", "wav": ".wav", "aac": ".aac", "flac": ".flac", "ogg": ".ogg"}.get(audio_format, ".mp3")
+
+    if output_file:
+        out_path = Path(output_file).expanduser().resolve()
+        ok_out, err_out = _validate_output_path_in_home(out_path)
+        if not ok_out:
+            return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_out or "输出路径须在用户主目录下")
+    else:
+        if output_dir:
+            from shared.platform_utils import normalize_output_dir
+            try:
+                out_dir = normalize_output_dir(output_dir, restrict_to_home=True)
+            except Exception as e:
+                return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
+        else:
+            out_dir = input_path.parent
+        output_file = str(out_dir / f"{input_path.stem}{ext}")
+
+    worker.update_task_progress(5, "正在提取音频...")
+
+    def _run_extract():
+        from backend.core.agent.tools.builtin.ffmpeg_tool import FFmpegTool
+        tool = FFmpegTool()
+        return tool.execute(
+            operation="extract_audio",
+            input_file=str(input_path),
+            output_file=output_file,
+            audio_format=audio_format,
+            audio_quality=audio_quality,
+        )
+
+    try:
+        result = await asyncio.to_thread(_run_extract)
+    except Exception as e:
+        return _err("EXTRACT_AUDIO_FAILED", "提取音频失败", str(e), details=traceback.format_exc())
+
+    if not result.success:
+        if "未找到" in (result.error or "") or "not found" in (result.error or "").lower():
+            return _err("FFMPEG_NOT_FOUND", "FFmpeg 未找到", result.error or "请安装 FFmpeg")
+        return _err("EXTRACT_AUDIO_FAILED", "提取音频失败", result.error or "未知错误")
+
+    worker.update_task_progress(100, "提取完成")
+    data = result.data or {}
+    summary = f"已提取至 {data.get('output_file', output_file)}"
+    return {"status": "success", "summary": summary, "data": data}
+
+
 def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
     worker.register_handler("video_download", process_video_download_task)
     worker.register_handler("weather_query", process_weather_query_task)
+    worker.register_handler("speech_to_text", process_speech_to_text_task)
+    worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 
 

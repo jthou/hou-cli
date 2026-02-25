@@ -1,5 +1,6 @@
 """任务队列 API 路由"""
 import logging
+from pathlib import Path
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from backend.infrastructure.storage.task_queue_db import (
@@ -43,7 +44,22 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         short = u[:40] + "..." if len(u) > 40 else u
         return f"视频下载 {short} {ts}"
 
-    type_names = {"weather_query": "天气查询", "video_download": "视频下载"}
+    if task_type == "speech_to_text":
+        inp = meta.get("input_file", "")
+        short = (Path(inp).name[:30] + "..." if len(Path(inp).name) > 30 else Path(inp).name) if inp else "语音"
+        return f"语音转文字 {short} {ts}"
+
+    if task_type == "video_extract_audio":
+        inp = meta.get("input_file", "")
+        short = (Path(inp).name[:30] + "..." if len(Path(inp).name) > 30 else Path(inp).name) if inp else "视频"
+        return f"视频提音频 {short} {ts}"
+
+    type_names = {
+        "weather_query": "天气查询",
+        "video_download": "视频下载",
+        "speech_to_text": "语音转文字",
+        "video_extract_audio": "视频提取音频",
+    }
     name = type_names.get(task_type, task_type)
     return f"{name} {ts}"
 

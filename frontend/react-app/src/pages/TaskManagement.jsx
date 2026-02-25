@@ -586,6 +586,11 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
                 <option key={t.type} value={t.type}>{t.name} - {t.description}</option>
               ))}
             </select>
+            {(type === 'speech_to_text' || type === 'video_extract_audio') && (
+              <p className="mt-1 text-xs text-amber-400/90">
+                输入文件须为用户主目录下的本地路径（如 /Users/xxx/audio.mp3）
+              </p>
+            )}
           </div>
           {Object.entries(schema).map(([fieldKey, spec]) => {
             if (!spec || typeof spec !== 'object') return null
