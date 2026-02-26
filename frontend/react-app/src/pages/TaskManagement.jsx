@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import WeatherResultDisplay from '../components/WeatherResultDisplay'
 
 /**
@@ -39,6 +39,7 @@ export default function TaskManagement() {
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showPipelineModal, setShowPipelineModal] = useState(false)
   const [detailTaskId, setDetailTaskId] = useState(null)
   const [taskTypes, setTaskTypes] = useState([])
 
@@ -84,13 +85,13 @@ export default function TaskManagement() {
   }, [tab, loadTasks, loadScheduledTasks])
 
   useEffect(() => {
-    if (showCreateModal && taskTypes.length === 0) {
+    if (showCreateModal) {
       fetch('/api/task-queue/task-types')
         .then(r => r.json())
         .then(d => setTaskTypes(d.task_types || []))
         .catch(() => setTaskTypes([]))
     }
-  }, [showCreateModal, taskTypes.length])
+  }, [showCreateModal])
 
   const stats = {
     total: tasks.length,
@@ -155,12 +156,22 @@ export default function TaskManagement() {
               定时任务
             </button>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
-          </button>
+          <div className="flex gap-2">
+            {tab === 'tasks' && (
+              <button
+                onClick={() => setShowPipelineModal(true)}
+                className="px-4 py-2 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 rounded-lg text-sm font-medium transition-colors"
+              >
+                管道：视频提音频 → 语音转文字
+              </button>
+            )}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
+            </button>
+          </div>
         </div>
 
         {tab === 'tasks' ? (
@@ -284,6 +295,15 @@ export default function TaskManagement() {
           }}
         />
       )}
+      {showPipelineModal && (
+        <PipelineTemplateModal
+          onClose={() => setShowPipelineModal(false)}
+          onSuccess={() => {
+            setShowPipelineModal(false)
+            loadTasks()
+          }}
+        />
+      )}
       {detailTaskId && (
         <TaskDetailModal
           taskId={detailTaskId}
@@ -345,6 +365,29 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
               <div className="pt-4 border-t border-border">
                 <div className="text-[#64748b] text-xs mb-2">任务信息（仅供参考）</div>
                 <div className="space-y-1.5 text-[#94a3b8] text-xs">
+                  {(task.depends_on_task_id || (task.input_bindings && Object.keys(task.input_bindings).length > 0)) && (
+                    <>
+                      {task.depends_on_task_id && (
+                        <div><span className="text-[#64748b]">依赖任务 </span><code className="text-cyan-400">{task.depends_on_task_id}</code></div>
+                      )}
+                      {task.input_bindings && Object.keys(task.input_bindings).length > 0 && (
+                        <div>
+                          <span className="text-[#64748b]">输入绑定 </span>
+                          {Object.entries(task.input_bindings).map(([k, v]) => (
+                            <span key={k} className="block ml-2">{k} ← {v}</span>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {task.resolved_metadata && Object.keys(task.resolved_metadata).length > 0 && (
+                    <div>
+                      <span className="text-[#64748b]">解析后 metadata </span>
+                      {Object.entries(task.resolved_metadata).map(([k, v]) => (
+                        <span key={k} className="block ml-2">{k} = {typeof v === 'string' ? v : JSON.stringify(v)}</span>
+                      ))}
+                    </div>
+                  )}
                   <div><span className="text-[#64748b]">任务名称 </span>{task.task_name || '未命名'}</div>
                   <div><span className="text-[#64748b]">类型 </span>{task.task_type}</div>
                   <div><span className="text-[#64748b]">状态 </span><span className={status?.cls}>{status?.text}</span></div>
@@ -390,11 +433,32 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
 
 function TaskResultDisplay({ taskType, result }) {
   const isSuccess = result?.status === 'success'
+  const isError = result?.status === 'error'
   const hasDaily = Array.isArray(result?.daily) || (result?.result && Array.isArray(result?.result?.daily))
   const isRawWeatherForecast = hasDaily && (String(result?.code) === '200' || result?.result?.code == null)
-  if (!result || (!isSuccess && !isRawWeatherForecast)) {
+
+  if (!result) {
     return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
   }
+
+  // 统一错误结构：status === 'error' 时友好展示
+  if (isError) {
+    const err = result.error || {}
+    return (
+      <div className="space-y-2">
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm">
+          <p className="text-red-400 font-medium">{result.summary || '执行失败'}</p>
+          {err.code && <p className="text-[#94a3b8] mt-1">错误码: {err.code}</p>}
+          {err.message && <p className="text-[#94a3b8] mt-1 whitespace-pre-wrap">{err.message}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  if (!isSuccess && !isRawWeatherForecast) {
+    return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
+  }
+
   if (taskType === 'video_download' && result.data) {
     const d = result.data
     return (
@@ -405,6 +469,41 @@ function TaskResultDisplay({ taskType, result }) {
       </div>
     )
   }
+
+  if (taskType === 'speech_to_text' && result.data) {
+    const d = result.data
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.output_file && <p><span className="text-[#64748b]">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
+        {d.language && <p><span className="text-[#64748b]">语言 </span>{d.language}</p>}
+        {d.text != null && <p className="mt-2 text-[#64748b] text-xs">正文摘要: {String(d.text).slice(0, 200)}{String(d.text).length > 200 ? '…' : ''}</p>}
+      </div>
+    )
+  }
+
+  if (taskType === 'video_extract_audio' && result.data) {
+    const d = result.data
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.output_file && <p><span className="text-[#64748b]">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
+        {d.format && <p><span className="text-[#64748b]">格式 </span>{d.format}</p>}
+      </div>
+    )
+  }
+
+  if (taskType === 'mediawiki_write' && result.data) {
+    const d = result.data
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.title && <p><span className="text-[#64748b]">页面 </span>{d.title}</p>}
+        {d.message && <p className="text-[#94a3b8]">{d.message}</p>}
+      </div>
+    )
+  }
+
   if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
     return <WeatherResultDisplay result={result} />
   }
@@ -444,6 +543,16 @@ function TaskCard({ task, onRefresh, onShowDetail }) {
           )}
         </div>
       </div>
+      {(task.depends_on_task_id || (task.input_bindings && Object.keys(task.input_bindings).length)) ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-cyan-400/90 mb-2">
+          {task.depends_on_task_id && (
+            <span>依赖: #{task.depends_on_task_id.slice(0, 8)}</span>
+          )}
+          {task.input_bindings && Object.keys(task.input_bindings).length > 0 && (
+            <span>绑定: {Object.entries(task.input_bindings).map(([k, v]) => `${k} ← ${v}`).join(', ')}</span>
+          )}
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-[#94a3b8] mb-3">
         <span>类型: {task.task_type}</span>
         <span>创建: {formatDateTime(task.created_at)}</span>
@@ -513,19 +622,225 @@ function getDefaultMetadata(schema) {
   return meta
 }
 
+/** 管道模板：一键创建「视频提音频 → 语音转文字」两个任务，第二个依赖第一个的 result.data.output_file */
+function PipelineTemplateModal({ onClose, onSuccess }) {
+  const [inputFile, setInputFile] = useState('')
+  const [name1, setName1] = useState('')
+  const [name2, setName2] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.success && data.path) setInputFile(data.path)
+      else throw new Error(data.detail || '上传失败')
+    } catch (err) {
+      alert('上传失败: ' + (err?.message || String(err)))
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    const path = (inputFile || '').trim()
+    if (!path) {
+      alert('请填写或上传视频文件路径')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res1 = await TASK_API.create({
+        task_type: 'video_extract_audio',
+        task_name: name1.trim() || undefined,
+        priority: 2,
+        max_retries: 3,
+        metadata: { input_file: path },
+      })
+      if (!res1.success) throw new Error(res1.detail || res1.message || '创建第一步任务失败')
+      const task1Id = res1.task_id
+
+      const res2 = await TASK_API.create({
+        task_type: 'speech_to_text',
+        task_name: name2.trim() || undefined,
+        priority: 2,
+        max_retries: 3,
+        metadata: {},
+        depends_on_task_id: task1Id,
+        input_bindings: { input_file: 'result.data.output_file' },
+      })
+      if (!res2.success) throw new Error(res2.detail || res2.message || '创建第二步任务失败')
+      alert(`管道已创建：\n1. 视频提音频 ${task1Id?.slice(0, 8)}\n2. 语音转文字（依赖上一步） ${res2.task_id?.slice(0, 8)}`)
+      onSuccess()
+      onClose()
+    } catch (err) {
+      alert('创建失败: ' + (err?.message || String(err)))
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-white">管道：视频提音频 → 语音转文字</h3>
+          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+        </div>
+        <p className="text-sm text-[#94a3b8] mb-4">将依次创建两个任务，第二步自动使用第一步的输出音频作为输入。</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">视频文件路径（第一步输入）*</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inputFile}
+                onChange={e => setInputFile(e.target.value)}
+                placeholder="本地路径或上传"
+                className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+              />
+              <input type="file" accept=".mp4,.mkv,.avi,.mov,.webm,video/*" className="hidden" ref={fileInputRef} onChange={handleUpload} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white whitespace-nowrap disabled:opacity-50"
+              >
+                {uploading ? '上传中…' : '上传'}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">第一步任务名称（可选）</label>
+            <input
+              type="text"
+              value={name1}
+              onChange={e => setName1(e.target.value)}
+              placeholder="留空自动生成"
+              className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">第二步任务名称（可选）</label>
+            <input
+              type="text"
+              value={name2}
+              onChange={e => setName2(e.target.value)}
+              placeholder="留空自动生成"
+              className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+              取消
+            </button>
+            <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">
+              {submitting ? '创建中...' : '创建管道'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
   const [type, setType] = useState('')
   const [name, setName] = useState('')
   const [priority, setPriority] = useState(2)
   const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [inputSource, setInputSource] = useState('manual') // 'manual' | 'from_task'
+  const [completedTasks, setCompletedTasks] = useState([])
+  const [linkableUpstreams, setLinkableUpstreams] = useState({ linkable_task_types: [], suggested_bindings: {} })
+  const [dependsOnTaskId, setDependsOnTaskId] = useState('')
+  const [inputBindings, setInputBindings] = useState({}) // { fieldKey: 'result.data.output_file' }
+  const fileInputRef = useRef(null)
+  const contentFileInputRef = useRef(null)
   const typeInfo = taskTypes.find(t => t.type === type) || null
   const schema = typeInfo?.metadata_schema || {}
+
+  const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
+  const inputFileAccept = type === 'speech_to_text'
+    ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
+    : type === 'video_extract_audio'
+      ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
+      : ''
+  const contentFileAccept = '.txt,.md,.markdown,.wiki,text/*'
+
+  const uploadFileAndSet = (fieldKey) => async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.success && data.path) {
+        setMetadata(m => ({ ...m, [fieldKey]: data.path }))
+      } else {
+        throw new Error(data.detail || '上传失败')
+      }
+    } catch (err) {
+      alert('上传失败: ' + (err.message || String(err)))
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+  const handleInputFileChoose = () => { fileInputRef.current?.click() }
+  const handleContentFileChoose = () => { contentFileInputRef.current?.click() }
 
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
     const info = taskTypes.find(t => t.type === newType)
     setMetadata(getDefaultMetadata(info?.metadata_schema))
+    setInputBindings({})
+    setDependsOnTaskId('')
+    setLinkableUpstreams({ linkable_task_types: [], suggested_bindings: {} })
+  }
+
+  useEffect(() => {
+    if (!type) return
+    fetch(`/api/task-queue/task-types/${encodeURIComponent(type)}/linkable-upstreams`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.linkable_task_types) setLinkableUpstreams({ linkable_task_types: d.linkable_task_types || [], suggested_bindings: d.suggested_bindings || {} })
+        else setLinkableUpstreams({ linkable_task_types: [], suggested_bindings: {} })
+      })
+      .catch(() => setLinkableUpstreams({ linkable_task_types: [], suggested_bindings: {} }))
+  }, [type])
+
+  useEffect(() => {
+    if (inputSource !== 'from_task') return
+    TASK_API.list({ status: 'completed' })
+      .then(d => { if (d.success && d.tasks) setCompletedTasks(d.tasks); else setCompletedTasks([]) })
+      .catch(() => setCompletedTasks([]))
+  }, [inputSource])
+
+  const tasksForUpstream = linkableUpstreams.linkable_task_types?.length > 0
+    ? completedTasks.filter(t => linkableUpstreams.linkable_task_types.includes(t.task_type))
+    : completedTasks
+
+  const onDependsOnTaskChange = (taskId) => {
+    setDependsOnTaskId(taskId)
+    if (!taskId) { setInputBindings({}); return }
+    const selected = completedTasks.find(t => t.task_id === taskId)
+    if (!selected?.task_type) return
+    const suggested = linkableUpstreams.suggested_bindings?.[selected.task_type]
+    if (Array.isArray(suggested) && suggested.length) {
+      const next = {}
+      suggested.forEach(({ downstream_field, upstream_path }) => { if (downstream_field && upstream_path) next[downstream_field] = upstream_path })
+      setInputBindings(next)
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -543,9 +858,29 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
         }
       }
     }
+    if (type === 'mediawiki_write') {
+      const hasContent = metadata.content != null && String(metadata.content).trim()
+      const hasContentFile = metadata.content_file != null && String(metadata.content_file).trim()
+      if (!hasContent && !hasContentFile) {
+        alert('请填写页面内容或内容文件路径（二选一）')
+        return
+      }
+    }
+    if (inputSource === 'from_task') {
+      if (!dependsOnTaskId || !dependsOnTaskId.trim()) {
+        alert('请选择要依赖的已完成任务')
+        return
+      }
+    }
     setSubmitting(true)
     try {
       const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata }
+      if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
+        payload.depends_on_task_id = dependsOnTaskId.trim()
+        const bindings = {}
+        Object.entries(inputBindings || {}).forEach(([k, v]) => { if (v && String(v).trim()) bindings[k] = String(v).trim() })
+        if (Object.keys(bindings).length) payload.input_bindings = bindings
+      }
       const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -588,10 +923,81 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
             </select>
             {(type === 'speech_to_text' || type === 'video_extract_audio') && (
               <p className="mt-1 text-xs text-amber-400/90">
-                输入文件须为用户主目录下的本地路径（如 /Users/xxx/audio.mp3）
+                可点击「选择文件」上传，或填写用户主目录下的本地路径
+              </p>
+            )}
+            {type === 'mediawiki_write' && (
+              <p className="mt-1 text-xs text-amber-400/90">
+                页面内容与内容文件二选一：可直接填写下方内容，或填写/选择本地文本文件路径
               </p>
             )}
           </div>
+          {type && (
+            <div>
+              <label className="block text-sm text-[#94a3b8] mb-2">输入来源</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="inputSource"
+                    checked={inputSource === 'manual'}
+                    onChange={() => { setInputSource('manual'); setDependsOnTaskId(''); setInputBindings({}) }}
+                    className="text-accent focus:ring-accent"
+                  />
+                  <span className="text-white">手动填写</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="inputSource"
+                    checked={inputSource === 'from_task'}
+                    onChange={() => setInputSource('from_task')}
+                    className="text-accent focus:ring-accent"
+                  />
+                  <span className="text-white">来自已有任务</span>
+                </label>
+              </div>
+              {inputSource === 'from_task' && (
+                <div className="mt-3 p-3 bg-white/5 border border-border rounded-lg space-y-3">
+                  <div>
+                    <label className="block text-xs text-[#64748b] mb-1">
+                      选择已完成任务
+                      {linkableUpstreams.linkable_task_types?.length > 0 && (
+                        <span className="ml-2 text-cyan-400/90">（仅显示可链接类型）</span>
+                      )}
+                    </label>
+                    <select
+                      value={dependsOnTaskId}
+                      onChange={e => onDependsOnTaskChange(e.target.value)}
+                      className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none text-sm"
+                    >
+                      <option value="">请选择</option>
+                      {tasksForUpstream.map(t => (
+                        <option key={t.task_id} value={t.task_id}>
+                          {t.task_name || t.task_id?.slice(0, 8)} · {t.task_type} · {t.result_summary ? t.result_summary.slice(0, 30) + '…' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="text-xs text-[#64748b] mb-2">字段映射（本任务字段 ← 上游 result 路径）</div>
+                    {Object.keys(schema).map(fieldKey => (
+                      <div key={fieldKey} className="flex items-center gap-2 mb-2">
+                        <span className="text-[#94a3b8] text-sm w-28 shrink-0">{schema[fieldKey]?.description || fieldKey}</span>
+                        <input
+                          type="text"
+                          value={inputBindings[fieldKey] ?? ''}
+                          onChange={e => setInputBindings(b => ({ ...b, [fieldKey]: e.target.value }))}
+                          placeholder="如 result.data.output_file"
+                          className="flex-1 px-2 py-1.5 bg-white/5 border border-border rounded text-white placeholder-[#64748b] text-sm focus:border-accent focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {Object.entries(schema).map(([fieldKey, spec]) => {
             if (!spec || typeof spec !== 'object') return null
             const label = spec.description || fieldKey
@@ -628,17 +1034,71 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
                 </div>
               )
             }
+            const isInputFileField = fieldKey === 'input_file' && isInputFileTask
+            const isContentFileField = type === 'mediawiki_write' && fieldKey === 'content_file'
+            const isMediaWikiContent = type === 'mediawiki_write' && fieldKey === 'content'
             return (
               <div key={fieldKey}>
                 <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                <input
-                  type="text"
-                  value={value}
-                  onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
-                  placeholder={spec.placeholder || ''}
-                  className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
-                  required={required}
-                />
+                <div className="flex gap-2">
+                  {isMediaWikiContent ? (
+                    <textarea
+                      value={value}
+                      onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
+                      placeholder={spec.placeholder || ''}
+                      rows={8}
+                      className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none resize-y min-h-[120px]"
+                      required={required}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={value}
+                      onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
+                      placeholder={spec.placeholder || ''}
+                      className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                      required={required}
+                    />
+                  )}
+                  {isInputFileField && (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={inputFileAccept}
+                        className="hidden"
+                        onChange={uploadFileAndSet('input_file')}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleInputFileChoose}
+                        disabled={uploading}
+                        className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50"
+                      >
+                        {uploading ? '上传中…' : '选择文件'}
+                      </button>
+                    </>
+                  )}
+                  {isContentFileField && (
+                    <>
+                      <input
+                        ref={contentFileInputRef}
+                        type="file"
+                        accept={contentFileAccept}
+                        className="hidden"
+                        onChange={uploadFileAndSet('content_file')}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleContentFileChoose}
+                        disabled={uploading}
+                        className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50"
+                      >
+                        {uploading ? '上传中…' : '选择文件'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             )
           })}

@@ -18,6 +18,8 @@ from backend.infrastructure.execution.task_handlers import (
     process_weather_query_task,
     process_speech_to_text_task,
     validate_task_creation,
+    get_available_task_types,
+    get_linkable_upstream_types,
 )
 
 # 加载 .env：与 backend/main.py 一致——用户配置目录、项目根、当前目录
@@ -292,6 +294,48 @@ class TestValidateTaskCreation:
         )
         assert ok is False
         assert "audio_format" in err and "取值无效" in err
+
+
+class TestPipelineLinkableUpstreams:
+    """管道可链接性：pipeline_outputs / pipeline_accept 与 get_linkable_upstream_types"""
+
+    def test_get_available_task_types_includes_pipeline_outputs(self):
+        types = get_available_task_types()
+        st = next((t for t in types if t["type"] == "speech_to_text"), None)
+        assert st is not None
+        assert "pipeline_outputs" in st
+        assert isinstance(st.get("pipeline_outputs"), list)
+        vea = next((t for t in types if t["type"] == "video_extract_audio"), None)
+        assert vea is not None
+        assert "pipeline_outputs" in vea
+        assert any(o.get("path") == "result.data.output_file" and o.get("format") == "audio" for o in (vea.get("pipeline_outputs") or []))
+
+    def test_speech_to_text_input_file_has_pipeline_accept(self):
+        types = get_available_task_types()
+        st = next((t for t in types if t["type"] == "speech_to_text"), None)
+        assert st is not None
+        input_file = (st.get("metadata_schema") or {}).get("input_file")
+        assert isinstance(input_file, dict)
+        assert input_file.get("pipeline_accept", {}).get("type") == "file"
+        assert "audio" in (input_file.get("pipeline_accept") or {}).get("formats") or []
+
+    def test_get_linkable_upstream_types_speech_to_text(self):
+        out = get_linkable_upstream_types("speech_to_text")
+        assert "video_extract_audio" in out["linkable_task_types"]
+        assert "video_extract_audio" in out["suggested_bindings"]
+        bindings = out["suggested_bindings"]["video_extract_audio"]
+        assert any(b.get("downstream_field") == "input_file" and b.get("upstream_path") == "result.data.output_file" for b in bindings)
+
+    def test_get_linkable_upstream_types_video_extract_audio_empty(self):
+        out = get_linkable_upstream_types("video_extract_audio")
+        assert isinstance(out["linkable_task_types"], list)
+        assert isinstance(out["suggested_bindings"], dict)
+        assert out["linkable_task_types"] == [] or "video_extract_audio" not in out["linkable_task_types"]
+
+    def test_get_linkable_upstream_types_unknown_returns_empty(self):
+        out = get_linkable_upstream_types("unknown_type")
+        assert out["linkable_task_types"] == []
+        assert out["suggested_bindings"] == {}
 
 
 class TestValidateInputPathInHome:

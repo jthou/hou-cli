@@ -205,6 +205,26 @@ class TestTaskQueueRoutes:
         assert vea.get("name") == "视频提取音频"
         assert vea.get("metadata_schema", {}).get("input_file", {}).get("required") is True
 
+    def test_linkable_upstreams_speech_to_text(self, client):
+        """GET task-types/speech_to_text/linkable-upstreams 返回可链接类型与推荐绑定"""
+        response = client.get("/api/task-queue/task-types/speech_to_text/linkable-upstreams")
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("success") is True
+        assert "video_extract_audio" in (data.get("linkable_task_types") or [])
+        bindings = data.get("suggested_bindings") or {}
+        assert "video_extract_audio" in bindings
+        items = bindings["video_extract_audio"]
+        assert any(
+            b.get("downstream_field") == "input_file" and b.get("upstream_path") == "result.data.output_file"
+            for b in items
+        )
+
+    def test_linkable_upstreams_nonexistent_type_404(self, client):
+        """GET task-types/nonexistent_type/linkable-upstreams 返回 404"""
+        response = client.get("/api/task-queue/task-types/nonexistent_type/linkable-upstreams")
+        assert response.status_code == 404
+
     def test_create_task_speech_to_text_valid_metadata_passes(self, client, mock_task_queue_db):
         """speech_to_text 带合法 input_file 时创建成功，metadata 透传"""
         mock_task_queue_db.create_task.return_value = "st-task-1"
@@ -443,6 +463,61 @@ class TestTaskQueueRoutes:
         assert found is not None
         assert found["task_type"] == "weather_query"
         assert found.get("metadata", {}).get("location") == "北京"
+
+    def test_create_task_depends_on_nonexistent_upstream_returns_400(self, client, mock_task_queue_db):
+        """管道：depends_on_task_id 指向不存在任务时返回 400"""
+        mock_task_queue_db.get_task.return_value = None
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "speech_to_text",
+                    "metadata": {},
+                    "depends_on_task_id": "non-existent-task-id",
+                    "input_bindings": {"input_file": "result.data.output_file"},
+                },
+            )
+        assert response.status_code == 400
+        assert "上游任务不存在" in response.json()["detail"]
+        mock_task_queue_db.create_task.assert_not_called()
+
+    def test_create_task_depends_on_cancelled_upstream_returns_400(self, client, mock_task_queue_db):
+        """管道：depends_on_task_id 指向已取消任务时返回 400（验收用例 4）"""
+        mock_task_queue_db.get_task.return_value = {
+            "task_id": "cancelled-task-id",
+            "status": TaskStatus.CANCELLED.value,
+        }
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "speech_to_text",
+                    "metadata": {},
+                    "depends_on_task_id": "cancelled-task-id",
+                    "input_bindings": {"input_file": "result.data.output_file"},
+                },
+            )
+        assert response.status_code == 400
+        assert "上游任务已取消" in response.json()["detail"]
+        mock_task_queue_db.create_task.assert_not_called()
+
+    def test_create_task_cycle_dependency_returns_400(self, client, mock_task_queue_db):
+        """管道：存在循环依赖时返回 400（验收用例 5）"""
+        mock_task_queue_db.get_task.return_value = {"task_id": "existing-id", "status": "completed"}
+        mock_task_queue_db.check_dependency_cycle.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "speech_to_text",
+                    "metadata": {},
+                    "depends_on_task_id": "existing-id",
+                    "input_bindings": {"input_file": "result.data.output_file"},
+                },
+            )
+        assert response.status_code == 400
+        assert "循环依赖" in response.json()["detail"]
+        mock_task_queue_db.create_task.assert_not_called()
 
     def test_create_task_invalid_priority(self, client, mock_task_queue_db):
         """测试创建任务时无效的优先级"""

@@ -147,6 +147,15 @@ class TaskQueueDB:
             
             conn.commit()
             debug_log("任务队列数据库初始化完成")
+
+            # 任务管道：为 tasks 表增加依赖与输入绑定列（兼容已有库）
+            cursor.execute("PRAGMA table_info(tasks)")
+            cols = [row[1] for row in cursor.fetchall()]
+            if "depends_on_task_id" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN depends_on_task_id TEXT")
+            if "input_bindings" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN input_bindings TEXT")
+            conn.commit()
         except Exception as e:
             debug_log(f"初始化任务队列数据库失败: {e}", level="error")
             conn.rollback()
@@ -157,40 +166,63 @@ class TaskQueueDB:
     def _get_conn(self):
         """获取数据库连接"""
         return sqlite3.connect(str(self.db_path))
-    
+
+    def check_dependency_cycle(self, start_task_id: str) -> bool:
+        """
+        从 start_task_id 沿 depends_on_task_id 遍历，若再次遇到已访问的任务则存在循环。
+        Returns True 表示存在循环。
+        """
+        visited = set()
+        current = start_task_id
+        while current:
+            if current in visited:
+                return True
+            visited.add(current)
+            task = self.get_task(current)
+            if not task:
+                break
+            current = (task.get("depends_on_task_id") or "").strip() or None
+        return False
+
     def create_task(
         self,
         task_type: str,
         task_name: str,
         priority: TaskPriority = TaskPriority.NORMAL,
         max_retries: int = 3,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        depends_on_task_id: Optional[str] = None,
+        input_bindings: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         创建新任务
         
         Args:
-            task_type: 任务类型（如 'video_process', 'file_upload' 等）
+            task_type: 任务类型
             task_name: 任务名称
             priority: 任务优先级
             max_retries: 最大重试次数
             metadata: 任务元数据
+            depends_on_task_id: 依赖的上游任务 ID（可选）
+            input_bindings: 从上游 result 解析到本任务 metadata 的映射（可选）
             
         Returns:
             任务 ID
         """
         task_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
-        
+        dep_id = (depends_on_task_id or "").strip() or None
+        bindings_json = json.dumps(input_bindings) if input_bindings else None
+
         conn = self._get_conn()
         cursor = conn.cursor()
-        
         try:
             cursor.execute("""
                 INSERT INTO tasks (
                     task_id, task_type, task_name, status, priority,
-                    max_retries, metadata, created_at, queued_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    max_retries, metadata, created_at, queued_at, updated_at,
+                    depends_on_task_id, input_bindings
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task_id,
                 task_type,
@@ -201,9 +233,10 @@ class TaskQueueDB:
                 json.dumps(metadata or {}),
                 now,
                 now,
-                now
+                now,
+                dep_id,
+                bindings_json,
             ))
-            
             conn.commit()
             debug_log(f"创建任务: {task_id} ({task_name})")
             return task_id
@@ -231,14 +264,17 @@ class TaskQueueDB:
             # 使用事务锁定，确保只有一个 worker 能获取任务
             cursor.execute("BEGIN IMMEDIATE")
             
-            # 查找一个待处理的任务（按优先级和创建时间排序）
+            # 查找一个可执行的任务：无依赖，或依赖任务已完成且 result 非空
             cursor.execute("""
-                SELECT task_id, task_type, task_name, priority, metadata
-                FROM tasks
-                WHERE status = ?
-                ORDER BY priority DESC, created_at ASC
+                SELECT t.task_id, t.task_type, t.task_name, t.priority, t.metadata,
+                       t.depends_on_task_id, t.input_bindings
+                FROM tasks t
+                LEFT JOIN tasks dep ON t.depends_on_task_id = dep.task_id
+                WHERE t.status = ?
+                  AND (t.depends_on_task_id IS NULL OR (dep.status = ? AND dep.result IS NOT NULL))
+                ORDER BY t.priority DESC, t.created_at ASC
                 LIMIT 1
-            """, (TaskStatus.QUEUED.value,))
+            """, (TaskStatus.QUEUED.value, TaskStatus.COMPLETED.value))
             
             row = cursor.fetchone()
             
@@ -246,7 +282,9 @@ class TaskQueueDB:
                 conn.commit()
                 return None
             
-            task_id, task_type, task_name, priority, metadata_json = row
+            task_id, task_type, task_name, priority, metadata_json = row[0], row[1], row[2], row[3], row[4]
+            depends_on_task_id = row[5] if len(row) > 5 else None
+            input_bindings_json = row[6] if len(row) > 6 else None
             
             # 更新任务状态为运行中
             now = datetime.now().isoformat()
@@ -272,16 +310,22 @@ class TaskQueueDB:
             conn.commit()
             
             metadata = json.loads(metadata_json) if metadata_json else {}
+            input_bindings = json.loads(input_bindings_json) if input_bindings_json else None
             
             debug_log(f"Worker {worker_id} 获取任务: {task_id} ({task_name})")
             
-            return {
+            out = {
                 "task_id": task_id,
                 "task_type": task_type,
                 "task_name": task_name,
                 "priority": priority,
-                "metadata": metadata
+                "metadata": metadata,
             }
+            if depends_on_task_id:
+                out["depends_on_task_id"] = depends_on_task_id
+            if input_bindings:
+                out["input_bindings"] = input_bindings
+            return out
         except Exception as e:
             debug_log(f"获取任务失败: {e}", level="error")
             conn.rollback()
@@ -413,6 +457,11 @@ class TaskQueueDB:
                         """, (worker_id,))
                     
                     debug_log(f"任务 {task_id} 最终失败: {error}")
+                    # 管道：级联标记依赖本任务的下游为失败
+                    cursor.execute("""
+                        UPDATE tasks SET status = ?, error = ?, updated_at = ?
+                        WHERE depends_on_task_id = ? AND status = ?
+                    """, (TaskStatus.FAILED.value, "上游任务失败，管道终止", now, task_id, TaskStatus.QUEUED.value))
             else:
                 # 成功完成
                 cursor.execute("""
@@ -481,9 +530,15 @@ class TaskQueueDB:
                 TaskStatus.QUEUED.value,
                 TaskStatus.RUNNING.value
             ))
+            main_cancelled = cursor.rowcount
+            # 管道：级联取消依赖本任务的下游（仅 queued）
+            cursor.execute("""
+                UPDATE tasks SET status = ?, error = ?, updated_at = ?
+                WHERE depends_on_task_id = ? AND status = ?
+            """, (TaskStatus.CANCELLED.value, "上游任务已取消，管道终止", now, task_id, TaskStatus.QUEUED.value))
             
             # 若已取消，更新 worker 状态
-            if cursor.rowcount > 0:
+            if main_cancelled > 0:
                 if worker_id:
                     cursor.execute("""
                         UPDATE workers
@@ -492,7 +547,7 @@ class TaskQueueDB:
                     """, (worker_id,))
             
             conn.commit()
-            return cursor.rowcount > 0
+            return main_cancelled > 0
         except Exception as e:
             debug_log(f"取消任务失败: {e}", level="error")
             conn.rollback()
@@ -518,7 +573,8 @@ class TaskQueueDB:
                 SELECT task_id, task_type, task_name, status, priority,
                        worker_id, created_at, queued_at, started_at, completed_at,
                        duration, progress, message, result, error,
-                       retry_count, max_retries, metadata
+                       retry_count, max_retries, metadata,
+                       depends_on_task_id, input_bindings
                 FROM tasks
                 WHERE task_id = ?
             """, (task_id,))
@@ -527,7 +583,7 @@ class TaskQueueDB:
             if not row:
                 return None
             
-            return {
+            d = {
                 "task_id": row[0],
                 "task_type": row[1],
                 "task_name": row[2],
@@ -545,8 +601,12 @@ class TaskQueueDB:
                 "error": row[14],
                 "retry_count": row[15],
                 "max_retries": row[16],
-                "metadata": json.loads(row[17]) if row[17] else {}
+                "metadata": json.loads(row[17]) if row[17] else {},
             }
+            if len(row) > 18:
+                d["depends_on_task_id"] = row[18]
+                d["input_bindings"] = json.loads(row[19]) if row[19] else None
+            return d
         except Exception as e:
             debug_log(f"获取任务失败: {e}", level="error")
             return None
@@ -577,7 +637,8 @@ class TaskQueueDB:
             query = """
                 SELECT task_id, task_type, task_name, status, priority,
                        worker_id, created_at, started_at, completed_at,
-                       duration, progress, message, error, retry_count, result
+                       duration, progress, message, error, retry_count, result,
+                       depends_on_task_id, input_bindings
                 FROM tasks
             """
             params = []
@@ -603,7 +664,7 @@ class TaskQueueDB:
                             result_summary = obj.get("summary") or ""
                     except Exception:
                         pass
-                tasks.append({
+                t = {
                     "task_id": row[0],
                     "task_type": row[1],
                     "task_name": row[2],
@@ -619,7 +680,11 @@ class TaskQueueDB:
                     "error": row[12],
                     "retry_count": row[13],
                     "result_summary": result_summary or None,
-                })
+                }
+                if len(row) > 16:
+                    t["depends_on_task_id"] = row[15]
+                    t["input_bindings"] = json.loads(row[16]) if row[16] else None
+                tasks.append(t)
             
             return tasks
         except Exception as e:

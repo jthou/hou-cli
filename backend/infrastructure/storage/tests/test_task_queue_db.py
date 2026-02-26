@@ -280,3 +280,56 @@ class TestTaskQueueDB:
         assert task is not None
         assert task["result"] == result_payload
 
+    # --- 任务管道（depends_on_task_id / input_bindings）---
+
+    def test_create_task_with_dependency_and_bindings(self, temp_db):
+        """创建带依赖与 input_bindings 的任务，get_task/list_tasks 均返回两字段"""
+        up_id = temp_db.create_task("test", "上游")
+        temp_db.register_worker("w", "Worker")
+        temp_db.acquire_task("w")
+        temp_db.complete_task(up_id, result={"status": "success", "data": {"output_file": "/out.mp3"}})
+
+        down_id = temp_db.create_task(
+            "test", "下游",
+            depends_on_task_id=up_id,
+            input_bindings={"input_file": "result.data.output_file"},
+        )
+        task = temp_db.get_task(down_id)
+        assert task["depends_on_task_id"] == up_id
+        assert task["input_bindings"] == {"input_file": "result.data.output_file"}
+
+        tasks = temp_db.list_tasks()
+        down = next((t for t in tasks if t["task_id"] == down_id), None)
+        assert down is not None
+        assert down.get("depends_on_task_id") == up_id
+        assert down.get("input_bindings") == {"input_file": "result.data.output_file"}
+
+    def test_acquire_task_skips_dependent_until_upstream_completes(self, temp_db):
+        """有依赖的任务仅在上游完成后才可被 acquire"""
+        up_id = temp_db.create_task("test", "上游")
+        down_id = temp_db.create_task("test", "下游", depends_on_task_id=up_id, input_bindings={})
+        temp_db.register_worker("w", "Worker")
+
+        t = temp_db.acquire_task("w")
+        assert t is not None
+        assert t["task_id"] == up_id  # 先拿到上游
+        temp_db.complete_task(up_id, result={"ok": True})
+
+        t2 = temp_db.acquire_task("w")
+        assert t2 is not None
+        assert t2["task_id"] == down_id  # 上游完成后才拿到下游
+
+    def test_cascade_fail_when_upstream_fails(self, temp_db):
+        """上游最终失败时，queued 下游被级联标记为 failed"""
+        up_id = temp_db.create_task("test", "上游", max_retries=1)
+        down_id = temp_db.create_task("test", "下游", depends_on_task_id=up_id)
+        temp_db.register_worker("w", "Worker")
+        temp_db.acquire_task("w")
+        temp_db.complete_task(up_id, error="失败1")
+        temp_db.acquire_task("w")
+        temp_db.complete_task(up_id, error="失败2")  # 用尽重试，最终失败
+
+        down = temp_db.get_task(down_id)
+        assert down["status"] == TaskStatus.FAILED.value
+        assert "上游任务失败" in (down.get("error") or "")
+

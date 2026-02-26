@@ -106,8 +106,8 @@ TASK_TYPES = {
             "output_dir": {
                 "type": "string",
                 "required": False,
-                "description": "保存目录（须在用户主目录下，否则使用默认下载目录）",
-                "placeholder": "留空使用默认"
+                "description": "保存目录（须在用户主目录下，不填则使用 ~/hou-cli/outputs）",
+                "placeholder": "留空使用 ~/hou-cli/outputs"
             },
             "preferred_tool": {
                 "type": "string",
@@ -223,12 +223,16 @@ TASK_TYPES = {
     "speech_to_text": {
         "name": "语音转文字",
         "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
+        "pipeline_outputs": [
+            {"path": "result.data.output_file", "type": "file", "format": "text", "description": "输出字幕/文本文件路径"}
+        ],
         "metadata_schema": {
             "input_file": {
                 "type": "string",
                 "required": True,
                 "description": "音频文件路径（支持 mp3, wav, m4a, flac 等）",
-                "placeholder": "如：/Users/xx/audio.mp3"
+                "placeholder": "如：/Users/xx/audio.mp3",
+                "pipeline_accept": {"type": "file", "formats": ["audio"]}
             },
             "language": {
                 "type": "string",
@@ -264,38 +268,42 @@ TASK_TYPES = {
             "output_file": {
                 "type": "string",
                 "required": False,
-                "description": "输出文件路径；不填则自动生成",
+                "description": "输出文件路径；不填则自动生成到 ~/hou-cli/outputs",
                 "placeholder": "如：/Users/xx/out.srt"
             },
             "output_dir": {
                 "type": "string",
                 "required": False,
-                "description": "输出目录（仅当未指定 output_file 时生效），须在用户主目录下",
-                "placeholder": "留空则与输入同目录"
+                "description": "输出目录（仅当未指定 output_file 时生效），不填则使用 ~/hou-cli/outputs",
+                "placeholder": "留空使用 ~/hou-cli/outputs"
             },
         }
     },
     "video_extract_audio": {
         "name": "视频提取音频",
         "description": "从本地视频文件中提取音频轨并保存为音频文件",
+        "pipeline_outputs": [
+            {"path": "result.data.output_file", "type": "file", "format": "audio", "description": "输出音频文件路径"}
+        ],
         "metadata_schema": {
             "input_file": {
                 "type": "string",
                 "required": True,
                 "description": "本地视频文件路径",
-                "placeholder": "如：/Users/xx/video.mp4"
+                "placeholder": "如：/Users/xx/video.mp4",
+                "pipeline_accept": {"type": "file", "formats": ["video"]}
             },
             "output_file": {
                 "type": "string",
                 "required": False,
-                "description": "输出音频文件路径；不填则自动生成",
+                "description": "输出音频文件路径；不填则自动生成到 ~/hou-cli/outputs",
                 "placeholder": "如：/Users/xx/audio.mp3"
             },
             "output_dir": {
                 "type": "string",
                 "required": False,
-                "description": "输出目录（仅当未指定 output_file 时生效），须在用户主目录下",
-                "placeholder": "留空则与输入同目录"
+                "description": "输出目录（仅当未指定 output_file 时生效），不填则使用 ~/hou-cli/outputs",
+                "placeholder": "留空使用 ~/hou-cli/outputs"
             },
             "audio_format": {
                 "type": "string",
@@ -320,6 +328,46 @@ TASK_TYPES = {
                     {"value": "192k", "label": "192k"},
                     {"value": "256k", "label": "256k"},
                     {"value": "320k", "label": "320k"}
+                ]
+            },
+        }
+    },
+    "mediawiki_write": {
+        "name": "MediaWiki 写入",
+        "description": "向 MediaWiki 编辑或创建页面（wikitext 格式）",
+        "metadata_schema": {
+            "title": {
+                "type": "string",
+                "required": True,
+                "description": "页面标题",
+                "placeholder": "如：我的笔记/2025-02"
+            },
+            "content": {
+                "type": "string",
+                "required": False,
+                "description": "页面内容（wikitext）；与 content_file 二选一",
+                "placeholder": "支持 Wiki 语法、链接、分类等"
+            },
+            "content_file": {
+                "type": "string",
+                "required": False,
+                "description": "本地文本文件路径（与 content 二选一，填写则从该文件读取内容）",
+                "placeholder": "如：/Users/xx/note.txt"
+            },
+            "summary": {
+                "type": "string",
+                "required": False,
+                "description": "编辑摘要",
+                "placeholder": "留空则使用默认摘要"
+            },
+            "operation": {
+                "type": "string",
+                "required": False,
+                "description": "操作类型",
+                "default": "edit",
+                "enum": [
+                    {"value": "edit", "label": "编辑（存在则覆盖）"},
+                    {"value": "create", "label": "创建（仅当页面不存在时）"}
                 ]
             },
         }
@@ -576,10 +624,10 @@ async def process_speech_to_text_task(task_info: Dict[str, Any]) -> Dict[str, An
         ok_out, err_out = _validate_output_path_in_home(out_path)
         if not ok_out:
             return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_out or "输出路径须在用户主目录下")
-    elif output_dir:
+    else:
         from shared.platform_utils import normalize_output_dir
         try:
-            out_dir = normalize_output_dir(output_dir, restrict_to_home=True)
+            out_dir = normalize_output_dir(output_dir or None, restrict_to_home=True)
         except Exception as e:
             return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
         ext = {"json": ".json", "text": ".txt", "srt": ".srt"}.get(metadata.get("output_format", "srt"), ".srt")
@@ -647,14 +695,11 @@ async def process_video_extract_audio_task(task_info: Dict[str, Any]) -> Dict[st
         if not ok_out:
             return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_out or "输出路径须在用户主目录下")
     else:
-        if output_dir:
-            from shared.platform_utils import normalize_output_dir
-            try:
-                out_dir = normalize_output_dir(output_dir, restrict_to_home=True)
-            except Exception as e:
-                return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
-        else:
-            out_dir = input_path.parent
+        from shared.platform_utils import normalize_output_dir
+        try:
+            out_dir = normalize_output_dir(output_dir or None, restrict_to_home=True)
+        except Exception as e:
+            return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
         output_file = str(out_dir / f"{input_path.stem}{ext}")
 
     worker.update_task_progress(5, "正在提取音频...")
@@ -686,6 +731,67 @@ async def process_video_extract_audio_task(task_info: Dict[str, Any]) -> Dict[st
     return {"status": "success", "summary": summary, "data": data}
 
 
+async def process_mediawiki_write_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理 MediaWiki 写入任务（编辑或创建页面）。失败时返回统一错误结构。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+
+    title = (metadata.get("title") or "").strip()
+    if not title:
+        return _err("MISSING_TITLE", "缺少页面标题", "title 参数是必需的")
+
+    content_file = (metadata.get("content_file") or "").strip()
+    if content_file:
+        # 从本地文件读取内容：路径须在主目录下且为已存在文件
+        file_path = Path(content_file).expanduser().resolve()
+        ok, err_msg = _validate_input_path_in_home(file_path)
+        if not ok:
+            return _err("CONTENT_FILE_NOT_FOUND" if "不存在" in (err_msg or "") else "CONTENT_FILE_OUTSIDE_HOME", "内容文件无效", err_msg or "路径须在用户主目录下且为已存在文件")
+        try:
+            raw = file_path.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            return _err("CONTENT_FILE_READ_FAILED", "读取文件失败", str(e))
+        content = raw.strip()
+    else:
+        content = metadata.get("content")
+        content = str(content).strip() if content is not None else ""
+    if not content:
+        return _err("MISSING_CONTENT", "缺少页面内容", "请填写 content 或 content_file（本地文本文件路径）")
+
+    summary = (metadata.get("summary") or "").strip() or None
+    operation = (metadata.get("operation") or "edit").strip().lower()
+    if operation not in ("edit", "create"):
+        operation = "edit"
+
+    worker.update_task_progress(5, "正在写入 MediaWiki...")
+
+    def _run_write():
+        from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
+        tool = MediaWikiTool()
+        return tool.execute(
+            operation=operation,
+            title=title,
+            content=content,
+            summary=summary or ("由 AI 助手创建" if operation == "create" else "由 AI 助手编辑"),
+        )
+
+    try:
+        result = await asyncio.to_thread(_run_write)
+    except Exception as e:
+        err_msg = str(e)
+        if "MEDIAWIKI" in err_msg.upper() or "连接" in err_msg or "Login" in err_msg:
+            return _err("MEDIAWIKI_UNAVAILABLE", "MediaWiki 不可用", err_msg, details=traceback.format_exc())
+        return _err("MEDIAWIKI_WRITE_FAILED", "写入失败", err_msg, details=traceback.format_exc())
+
+    if not result.success:
+        return _err("MEDIAWIKI_WRITE_FAILED", "写入失败", result.error or "未知错误")
+
+    worker.update_task_progress(100, "写入完成")
+    data = result.data or {}
+    summary_text = data.get("message") or f"已{'创建' if operation == 'create' else '编辑'}页面「{title}」"
+    return {"status": "success", "summary": summary_text, "data": data}
+
+
 def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
@@ -693,24 +799,26 @@ def register_default_handlers():
     worker.register_handler("weather_query", process_weather_query_task)
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
+    worker.register_handler("mediawiki_write", process_mediawiki_write_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 
 
 def get_available_task_types() -> List[Dict[str, Any]]:
-    """获取可用的任务类型列表"""
+    """获取可用的任务类型列表（含 pipeline_outputs / metadata_schema 中的 pipeline_accept，供管道编排判断可链接性）"""
     return [
         {
             "type": task_type,
             "name": info["name"],
             "description": info["description"],
-            "metadata_schema": info["metadata_schema"]
+            "metadata_schema": info["metadata_schema"],
+            "pipeline_outputs": info.get("pipeline_outputs"),
         }
         for task_type, info in TASK_TYPES.items()
     ]
 
 
 def get_task_type_info(task_type: str) -> Dict[str, Any]:
-    """获取特定任务类型的信息"""
+    """获取特定任务类型的信息（含 pipeline_outputs，供管道编排判断可链接性）"""
     if task_type not in TASK_TYPES:
         return None
 
@@ -719,8 +827,63 @@ def get_task_type_info(task_type: str) -> Dict[str, Any]:
         "type": task_type,
         "name": info["name"],
         "description": info["description"],
-        "metadata_schema": info["metadata_schema"]
+        "metadata_schema": info["metadata_schema"],
+        "pipeline_outputs": info.get("pipeline_outputs"),
     }
+
+
+def get_linkable_upstream_types(downstream_task_type: str) -> Dict[str, Any]:
+    """
+    根据任务类型的输入/输出 metadata，返回可作为管道上游的任务类型及推荐绑定。
+    用于编排时筛选「可链接的上游任务类型」与默认绑定关系。
+    """
+    if downstream_task_type not in TASK_TYPES:
+        return {"linkable_task_types": [], "suggested_bindings": {}}
+    downstream = TASK_TYPES[downstream_task_type]
+    schema = downstream.get("metadata_schema") or {}
+    # 下游可被绑定的字段：(field_name, accept_type, accept_formats)
+    accept_fields = []
+    for field_name, field_spec in schema.items():
+        if not isinstance(field_spec, dict):
+            continue
+        accept = field_spec.get("pipeline_accept")
+        if not accept or not isinstance(accept, dict):
+            continue
+        accept_type = accept.get("type")
+        formats = accept.get("formats")
+        if isinstance(formats, list):
+            accept_fields.append((field_name, accept_type, formats))
+        elif accept_type:
+            accept_fields.append((field_name, accept_type, []))
+    if not accept_fields:
+        return {"linkable_task_types": [], "suggested_bindings": {}}
+    linkable = []
+    suggested = {}
+    for up_type, up_info in TASK_TYPES.items():
+        if up_type == downstream_task_type:
+            continue
+        outputs = up_info.get("pipeline_outputs") or []
+        for out in outputs:
+            if not isinstance(out, dict):
+                continue
+            path = out.get("path")
+            o_type = out.get("type")
+            o_format = out.get("format")
+            if not path:
+                continue
+            for field_name, accept_type, accept_formats in accept_fields:
+                if o_type != accept_type:
+                    continue
+                if accept_formats and o_format and o_format not in accept_formats:
+                    continue
+                if up_type not in linkable:
+                    linkable.append(up_type)
+                suggested.setdefault(up_type, []).append({
+                    "downstream_field": field_name,
+                    "upstream_path": path,
+                    "upstream_format": o_format,
+                })
+    return {"linkable_task_types": linkable, "suggested_bindings": suggested}
 
 
 def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optional[str]]:

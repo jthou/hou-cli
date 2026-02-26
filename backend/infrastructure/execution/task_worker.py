@@ -4,6 +4,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
+from backend.infrastructure.pipeline_resolve import resolve_input_bindings_from_result
 from backend.infrastructure.storage.task_queue_db import (
     get_task_queue_db,
     TaskStatus,
@@ -19,6 +20,7 @@ TASK_TIMEOUT_SECONDS = {
     "video_download": 30 * 60,       # 30 分钟
     "speech_to_text": 60 * 60,       # 1 小时
     "video_extract_audio": 30 * 60,  # 30 分钟
+    "mediawiki_write": 5 * 60,       # 5 分钟
 }
 
 
@@ -161,6 +163,47 @@ class TaskWorker:
                 logger.error(f"Worker 循环错误: {e}", exc_info=True)
                 await asyncio.sleep(self.poll_interval)
     
+    def _resolve_input_bindings(self, task_info: Dict[str, Any]) -> None:
+        """
+        若有 depends_on_task_id 与 input_bindings，从上游任务 result 按点号路径解析并合并进 task_info["metadata"]。
+        """
+        dep_id = (task_info.get("depends_on_task_id") or "").strip() or None
+        bindings = task_info.get("input_bindings")
+        if not dep_id or not bindings or not isinstance(bindings, dict):
+            return
+        upstream = self.task_queue_db.get_task(dep_id)
+        if not upstream or not upstream.get("result"):
+            return
+        metadata = dict(task_info.get("metadata") or {})
+        resolved = resolve_input_bindings_from_result(upstream.get("result"), bindings)
+        metadata.update(resolved)
+        task_info["metadata"] = metadata
+
+    def _check_pipeline_input_match(self, task_info: Dict[str, Any]) -> Optional[str]:
+        """
+        若有 input_bindings，检查其中在 metadata_schema 里为 required 的字段是否都有非空值。
+        Returns: 若匹配则 None；若不匹配返回错误描述（用于 complete_task(error=...)）。
+        """
+        bindings = task_info.get("input_bindings")
+        if not bindings or not isinstance(bindings, dict):
+            return None
+        task_type = task_info.get("task_type")
+        from backend.infrastructure.execution.task_handlers import TASK_TYPES
+        schema = (TASK_TYPES.get(task_type) or {}).get("metadata_schema") or {}
+        metadata = task_info.get("metadata") or {}
+        for key in bindings:
+            if key not in schema:
+                continue
+            field_spec = schema[key] if isinstance(schema.get(key), dict) else {}
+            if not field_spec.get("required"):
+                continue
+            val = metadata.get(key)
+            if val is None:
+                return f"管道输入不匹配：上游 result 未解析到必填字段 '{key}'（path: {bindings.get(key)}）"
+            if isinstance(val, str) and not val.strip():
+                return f"管道输入不匹配：必填字段 '{key}' 解析结果为空（path: {bindings.get(key)}）"
+        return None
+
     async def _execute_task(self, task_info: Dict[str, Any]):
         """
         执行任务
@@ -175,6 +218,16 @@ class TaskWorker:
         logger.info(f"Worker {self.worker_id} 开始执行任务: {task_id} ({task_name})")
         
         try:
+            # 管道：从上游 result 解析 input_bindings 并合并进 metadata
+            self._resolve_input_bindings(task_info)
+            # 管道：检查由 input_bindings 提供的必填字段是否都有值，缺失则直接失败
+            match_err = self._check_pipeline_input_match(task_info)
+            if match_err:
+                logger.error(f"任务 {task_id} {match_err}")
+                self.task_queue_db.complete_task(task_id, error=match_err)
+                self.current_task_id = None
+                return
+
             # 查找任务处理器
             handler = self.task_handlers.get(task_type)
             
