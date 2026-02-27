@@ -1,13 +1,14 @@
-"""任务队列数据库存储"""
+"""任务队列数据库存储（时间统一 UTC）"""
 import sqlite3
 import json
 import uuid
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from enum import Enum
 from shared.storage_utils import get_storage_manager
 from shared.debug_utils import debug_log
+from shared.time_utils import utc_now, utc_now_iso
 
 
 class TaskStatus(str, Enum):
@@ -159,6 +160,19 @@ class TaskQueueDB:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN pipeline_id TEXT")
             if "deleted_at" not in cols:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN deleted_at TEXT")
+            if "created_by_schedule_id" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN created_by_schedule_id TEXT")
+            conn.commit()
+
+            # 定时任务表补列
+            cursor.execute("PRAGMA table_info(scheduled_tasks)")
+            sched_cols = [row[1] for row in cursor.fetchall()]
+            if "consecutive_errors" not in sched_cols:
+                cursor.execute(
+                    "ALTER TABLE scheduled_tasks ADD COLUMN consecutive_errors INTEGER DEFAULT 0"
+                )
+            if "last_error" not in sched_cols:
+                cursor.execute("ALTER TABLE scheduled_tasks ADD COLUMN last_error TEXT")
             conn.commit()
         except Exception as e:
             debug_log(f"初始化任务队列数据库失败: {e}", level="error")
@@ -198,18 +212,21 @@ class TaskQueueDB:
         depends_on_task_id: Optional[str] = None,
         input_bindings: Optional[Dict[str, str]] = None,
         pipeline_id: Optional[str] = None,
+        created_by_schedule_id: Optional[str] = None,
     ) -> str:
         """
         创建新任务
 
         Args:
             pipeline_id: 同一管道编排的组号（可选），前端用于分组展示。
+            created_by_schedule_id: 由哪个定时任务创建（可选），用于溯源。
         """
         task_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         dep_id = (depends_on_task_id or "").strip() or None
         bindings_json = json.dumps(input_bindings) if input_bindings else None
         pipe_id = (pipeline_id or "").strip() or None
+        sched_id = (created_by_schedule_id or "").strip() or None
 
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -218,8 +235,8 @@ class TaskQueueDB:
                 INSERT INTO tasks (
                     task_id, task_type, task_name, status, priority,
                     max_retries, metadata, created_at, queued_at, updated_at,
-                    depends_on_task_id, input_bindings, pipeline_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    depends_on_task_id, input_bindings, pipeline_id, created_by_schedule_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task_id,
                 task_type,
@@ -234,6 +251,7 @@ class TaskQueueDB:
                 dep_id,
                 bindings_json,
                 pipe_id,
+                sched_id,
             ))
             conn.commit()
             debug_log(f"创建任务: {task_id} ({task_name})")
@@ -286,7 +304,7 @@ class TaskQueueDB:
             input_bindings_json = row[6] if len(row) > 6 else None
             
             # 更新任务状态为运行中
-            now = datetime.now().isoformat()
+            now = utc_now_iso()
             cursor.execute("""
                 UPDATE tasks
                 SET status = ?, worker_id = ?, started_at = ?, updated_at = ?
@@ -349,7 +367,7 @@ class TaskQueueDB:
         Returns:
             是否成功
         """
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         conn = self._get_conn()
         cursor = conn.cursor()
         
@@ -412,9 +430,11 @@ class TaskQueueDB:
             
             worker_id, started_at_str, retry_count, max_retries = row
             
-            now = datetime.now().isoformat()
-            started_at = datetime.fromisoformat(started_at_str) if started_at_str else datetime.now()
-            duration = (datetime.now() - started_at).total_seconds()
+            now = utc_now_iso()
+            started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00")) if started_at_str else utc_now()
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            duration = (utc_now() - started_at).total_seconds()
             
             if error:
                 # 失败且还有重试次数：直接重新入队
@@ -506,7 +526,7 @@ class TaskQueueDB:
         Returns:
             是否成功
         """
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         conn = self._get_conn()
         cursor = conn.cursor()
         
@@ -573,7 +593,8 @@ class TaskQueueDB:
                        worker_id, created_at, queued_at, started_at, completed_at,
                        duration, progress, message, result, error,
                        retry_count, max_retries, metadata,
-                       depends_on_task_id, input_bindings, pipeline_id, deleted_at
+                       depends_on_task_id, input_bindings, pipeline_id, deleted_at,
+                       created_by_schedule_id
                 FROM tasks
                 WHERE task_id = ?
             """, (task_id,))
@@ -609,6 +630,8 @@ class TaskQueueDB:
                 d["pipeline_id"] = row[20]
             if len(row) > 21:
                 d["deleted_at"] = row[21]
+            if len(row) > 22:
+                d["created_by_schedule_id"] = row[22]
             return d
         except Exception as e:
             debug_log(f"获取任务失败: {e}", level="error")
@@ -639,7 +662,7 @@ class TaskQueueDB:
         try:
             cursor.execute(
                 "UPDATE tasks SET result = ?, updated_at = ? WHERE task_id = ?",
-                (json.dumps(result), datetime.now().isoformat(), task_id),
+                (json.dumps(result), utc_now_iso(), task_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -652,7 +675,7 @@ class TaskQueueDB:
 
     def requeue_failed_task(self, task_id: str) -> bool:
         """将已失败的任务重置为待执行（清空 error），便于上游补全 result 后再次被拉取执行。"""
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
@@ -672,7 +695,7 @@ class TaskQueueDB:
 
     def reset_task_to_queued(self, task_id: str) -> bool:
         """将已完成或已失败的任务原地重置为待执行：只改状态与执行结果，不新开任务。清空 result、error、时间与进度等，retry_count 置 0，任务可再次被拉取执行。"""
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
@@ -716,7 +739,7 @@ class TaskQueueDB:
             )
             if status not in allowed and not deleted_at:
                 return False
-            now = datetime.now().isoformat()
+            now = utc_now_iso()
             # 级联：将依赖本任务且为 queued 的下游标记为取消
             cursor.execute("""
                 UPDATE tasks SET status = ?, error = ?, updated_at = ?
@@ -740,7 +763,7 @@ class TaskQueueDB:
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
-            now = datetime.now().isoformat()
+            now = utc_now_iso()
             cursor.execute("""
                 UPDATE tasks SET deleted_at = ?, updated_at = ?
                 WHERE task_id = ? AND deleted_at IS NULL AND status != ?
@@ -762,7 +785,7 @@ class TaskQueueDB:
         conn = self._get_conn()
         cursor = conn.cursor()
         try:
-            now = datetime.now().isoformat()
+            now = utc_now_iso()
             cursor.execute("""
                 UPDATE tasks SET deleted_at = NULL, updated_at = ?
                 WHERE task_id = ? AND deleted_at IS NOT NULL
@@ -785,10 +808,14 @@ class TaskQueueDB:
         limit: int = 100,
         offset: int = 0,
         include_deleted: Optional[str] = None,
+        created_by_schedule_id: Optional[str] = None,
+        include_result: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         列出任务。
         include_deleted: None 或 'exclude' 仅未删除；'only' 仅已软删除。
+        created_by_schedule_id: 仅返回该定时任务创建的任务（支持前缀匹配）。
+        include_result: 为 True 时，已完成任务的 result 列解析为 JSON 并放入 task["result"]，供执行记录等场景统一展示。
         """
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -798,7 +825,8 @@ class TaskQueueDB:
                 SELECT task_id, task_type, task_name, status, priority,
                        worker_id, created_at, started_at, completed_at,
                        duration, progress, message, error, retry_count, result,
-                       depends_on_task_id, input_bindings, pipeline_id, deleted_at
+                       depends_on_task_id, input_bindings, pipeline_id, deleted_at,
+                       created_by_schedule_id
                 FROM tasks
             """
             params = []
@@ -810,6 +838,14 @@ class TaskQueueDB:
                 conditions.append("deleted_at IS NOT NULL")
             elif include_deleted is None or include_deleted == "exclude":
                 conditions.append("deleted_at IS NULL")
+            if created_by_schedule_id:
+                sid = created_by_schedule_id.strip()
+                if len(sid) == 8:
+                    conditions.append("created_by_schedule_id LIKE ?")
+                    params.append(sid + "%")
+                else:
+                    conditions.append("created_by_schedule_id = ?")
+                    params.append(sid)
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
             query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -822,11 +858,14 @@ class TaskQueueDB:
             for row in rows:
                 result_json = row[14] if len(row) > 14 else None
                 result_summary = ""
+                result_obj = None
                 if row[3] == TaskStatus.COMPLETED.value and result_json:
                     try:
                         obj = json.loads(result_json)
                         if isinstance(obj, dict):
                             result_summary = obj.get("summary") or ""
+                            if include_result:
+                                result_obj = obj
                     except Exception:
                         pass
                 t = {
@@ -846,6 +885,8 @@ class TaskQueueDB:
                     "retry_count": row[13],
                     "result_summary": result_summary or None,
                 }
+                if result_obj is not None:
+                    t["result"] = result_obj
                 if len(row) > 16:
                     t["depends_on_task_id"] = row[15]
                     t["input_bindings"] = json.loads(row[16]) if row[16] else None
@@ -853,6 +894,8 @@ class TaskQueueDB:
                     t["pipeline_id"] = row[17]
                 if len(row) > 18:
                     t["deleted_at"] = row[18]
+                if len(row) > 19:
+                    t["created_by_schedule_id"] = row[19]
                 tasks.append(t)
             
             return tasks
@@ -873,7 +916,7 @@ class TaskQueueDB:
         Returns:
             是否成功
         """
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         conn = self._get_conn()
         cursor = conn.cursor()
         
@@ -904,7 +947,7 @@ class TaskQueueDB:
         Returns:
             是否成功
         """
-        now = datetime.now().isoformat()
+        now = utc_now_iso()
         conn = self._get_conn()
         cursor = conn.cursor()
         
@@ -979,7 +1022,7 @@ class TaskQueueDB:
         
         try:
             # 查找超时的运行中任务
-            cutoff_time = datetime.now().isoformat()
+            cutoff_time = utc_now_iso()
             cursor.execute("""
                 SELECT task_id, worker_id
                 FROM tasks
@@ -992,7 +1035,7 @@ class TaskQueueDB:
                 return 0
             
             # 将这些任务重新入队
-            now = datetime.now().isoformat()
+            now = utc_now_iso()
             task_ids = [task[0] for task in stale_tasks]
             worker_ids = set([task[1] for task in stale_tasks if task[1]])
             
@@ -1020,6 +1063,258 @@ class TaskQueueDB:
             debug_log(f"清理超时任务失败: {e}", level="error")
             conn.rollback()
             return 0
+        finally:
+            conn.close()
+
+    # ========== 定时任务 ==========
+
+    def create_scheduled_task(
+        self,
+        task_type: str,
+        task_name: str,
+        schedule_type: str,
+        schedule_config: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """创建定时任务，返回 schedule_id"""
+        from backend.infrastructure.schedule import compute_next_run_time
+
+        if schedule_type not in ("interval", "cron"):
+            raise ValueError("schedule_type 必须是 'interval' 或 'cron'")
+        if schedule_type == "interval":
+            if "interval_seconds" not in schedule_config:
+                raise ValueError("interval 类型需要 schedule_config.interval_seconds")
+            sec = schedule_config.get("interval_seconds")
+            if not isinstance(sec, (int, float)) or sec < 60:
+                raise ValueError("interval_seconds 必须 >= 60")
+        if schedule_type == "cron":
+            if not (schedule_config.get("cron") or "").strip():
+                raise ValueError("cron 类型需要 schedule_config.cron 非空")
+
+        schedule_id = str(uuid.uuid4())
+        now = utc_now_iso()
+        next_run = compute_next_run_time(
+            schedule_type=schedule_type,
+            schedule_config=schedule_config,
+            last_run_time=None,
+            created_at=now,
+        )
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO scheduled_tasks (
+                    schedule_id, task_type, task_name, schedule_type, schedule_config,
+                    next_run_time, is_active, metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """, (
+                schedule_id,
+                task_type,
+                task_name,
+                schedule_type,
+                json.dumps(schedule_config),
+                next_run,
+                json.dumps(metadata or {}),
+                now,
+                now,
+            ))
+            conn.commit()
+            debug_log(f"创建定时任务: {schedule_id} ({task_name})")
+            return schedule_id
+        except Exception as e:
+            debug_log(f"创建定时任务失败: {e}", level="error")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_due_scheduled_tasks(self) -> List[Dict[str, Any]]:
+        """获取到期的定时任务（is_active=1 且 next_run_time <= now）"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT schedule_id, task_type, task_name, schedule_type, schedule_config,
+                       next_run_time, last_run_time, is_active, metadata,
+                       consecutive_errors, last_error, created_at, updated_at
+                FROM scheduled_tasks
+                WHERE is_active = 1 AND datetime(next_run_time) <= datetime('now')
+                ORDER BY next_run_time ASC
+            """)
+            rows = cursor.fetchall()
+            out = []
+            for row in rows:
+                cfg = json.loads(row[4]) if row[4] else {}
+                meta = json.loads(row[8]) if row[8] else {}
+                out.append({
+                    "schedule_id": row[0],
+                    "task_type": row[1],
+                    "task_name": row[2],
+                    "schedule_type": row[3],
+                    "schedule_config": cfg,
+                    "next_run_time": row[5],
+                    "last_run_time": row[6],
+                    "is_active": row[7],
+                    "metadata": meta,
+                    "consecutive_errors": row[9] if len(row) > 9 else 0,
+                    "last_error": row[10] if len(row) > 10 else None,
+                })
+            return out
+        except Exception as e:
+            debug_log(f"获取到期定时任务失败: {e}", level="error")
+            return []
+        finally:
+            conn.close()
+
+    def update_scheduled_task_after_success(
+        self,
+        schedule_id: str,
+        schedule_type: str,
+        schedule_config: Dict[str, Any],
+        last_run_time: str,
+    ) -> bool:
+        """定时任务成功创建任务后更新状态"""
+        from backend.infrastructure.schedule import compute_next_run_time
+
+        next_run = compute_next_run_time(
+            schedule_type=schedule_type,
+            schedule_config=schedule_config,
+            last_run_time=last_run_time,
+            created_at=last_run_time,
+        )
+        now = utc_now_iso()
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE scheduled_tasks
+                SET next_run_time = ?, last_run_time = ?, consecutive_errors = 0,
+                    last_error = NULL, updated_at = ?
+                WHERE schedule_id = ?
+            """, (next_run, last_run_time, now, schedule_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            debug_log(f"更新定时任务成功状态失败: {e}", level="error")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def update_scheduled_task_on_failure(self, schedule_id: str, error: str) -> bool:
+        """定时任务失败后应用错误退避"""
+        from backend.infrastructure.schedule import error_backoff_seconds
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT consecutive_errors FROM scheduled_tasks WHERE schedule_id = ?",
+                (schedule_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+            consecutive = (row[0] or 0) + 1
+            backoff_sec = error_backoff_seconds(consecutive)
+            next_run = (utc_now() + timedelta(seconds=backoff_sec)).isoformat()
+            now = utc_now_iso()
+
+            cursor.execute("""
+                UPDATE scheduled_tasks
+                SET next_run_time = ?, consecutive_errors = ?, last_error = ?, updated_at = ?
+                WHERE schedule_id = ?
+            """, (next_run, consecutive, error[:500] if error else None, now, schedule_id))
+            conn.commit()
+            debug_log(f"定时任务 {schedule_id} 失败，退避 {backoff_sec}s，连续失败 {consecutive} 次")
+            return True
+        except Exception as e:
+            debug_log(f"更新定时任务失败状态失败: {e}", level="error")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def list_scheduled_tasks(self, active_only: bool = False) -> List[Dict[str, Any]]:
+        """列出定时任务"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            if active_only:
+                cursor.execute("""
+                    SELECT schedule_id, task_type, task_name, schedule_type, schedule_config,
+                           next_run_time, last_run_time, is_active, metadata,
+                           consecutive_errors, last_error, created_at, updated_at
+                    FROM scheduled_tasks WHERE is_active = 1
+                    ORDER BY next_run_time ASC
+                """)
+            else:
+                cursor.execute("""
+                    SELECT schedule_id, task_type, task_name, schedule_type, schedule_config,
+                           next_run_time, last_run_time, is_active, metadata,
+                           consecutive_errors, last_error, created_at, updated_at
+                    FROM scheduled_tasks
+                    ORDER BY next_run_time ASC
+                """)
+            rows = cursor.fetchall()
+            out = []
+            for row in rows:
+                cfg = json.loads(row[4]) if row[4] else {}
+                meta = json.loads(row[8]) if row[8] else {}
+                out.append({
+                    "schedule_id": row[0],
+                    "task_type": row[1],
+                    "task_name": row[2],
+                    "schedule_type": row[3],
+                    "schedule_config": cfg,
+                    "next_run_time": row[5],
+                    "last_run_time": row[6],
+                    "is_active": bool(row[7]),
+                    "metadata": meta,
+                    "consecutive_errors": row[9] if len(row) > 9 else 0,
+                    "last_error": row[10] if len(row) > 10 else None,
+                    "created_at": row[11],
+                    "updated_at": row[12],
+                })
+            return out
+        except Exception as e:
+            debug_log(f"列出定时任务失败: {e}", level="error")
+            return []
+        finally:
+            conn.close()
+
+    def toggle_scheduled_task(self, schedule_id: str, is_active: bool) -> bool:
+        """启用/禁用定时任务"""
+        now = utc_now_iso()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE scheduled_tasks SET is_active = ?, updated_at = ? WHERE schedule_id = ?
+            """, (1 if is_active else 0, now, schedule_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            debug_log(f"切换定时任务状态失败: {e}", level="error")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def delete_scheduled_task(self, schedule_id: str) -> bool:
+        """删除定时任务"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM scheduled_tasks WHERE schedule_id = ?", (schedule_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            debug_log(f"删除定时任务失败: {e}", level="error")
+            conn.rollback()
+            return False
         finally:
             conn.close()
 

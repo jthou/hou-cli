@@ -1,5 +1,7 @@
 # 定时任务设计文档
 
+> **实现设计**：详见 [scheduled-tasks-implementation.md](./scheduled-tasks-implementation.md)，包含错误退避、心跳集成、API 校验等完整实现方案。
+
 ## 方案对比
 
 ### 方案1：独立定时器（Timer-based Scheduler）

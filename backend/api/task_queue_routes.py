@@ -81,7 +81,7 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
 
 class ScheduledTaskCreateRequest(BaseModel):
     task_type: str
-    task_name: str
+    task_name: Optional[str] = ""  # 留空则自动生成
     schedule_type: str  # 'interval' 或 'cron'
     schedule_config: Dict[str, Any]  # {"interval_seconds": 3600} 或 cron 表达式
     metadata: Optional[Dict[str, Any]] = None
@@ -345,8 +345,9 @@ async def list_tasks(
     limit: int = 100,
     offset: int = 0,
     deleted: Optional[str] = None,
+    created_by_schedule_id: Optional[str] = None,
 ):
-    """列出任务。deleted=only 时仅返回已软删除任务；不传或 exclude 时仅返回未删除。"""
+    """列出任务。deleted=only 时仅返回已软删除任务；不传或 exclude 时仅返回未删除。created_by_schedule_id 可筛选某定时任务创建的任务。"""
     try:
         task_queue_db = get_task_queue_db()
         
@@ -371,6 +372,8 @@ async def list_tasks(
             limit=limit,
             offset=offset,
             include_deleted=include_deleted,
+            created_by_schedule_id=created_by_schedule_id or None,
+            include_result=bool(created_by_schedule_id),
         )
         
         return {
@@ -727,15 +730,34 @@ async def create_scheduled_task(request: ScheduledTaskCreateRequest):
                     detail="interval 类型需要 interval_seconds 配置"
                 )
             interval = request.schedule_config.get("interval_seconds")
-            if not isinstance(interval, int) or interval < 60:
+            if not isinstance(interval, (int, float)) or interval < 60:
                 raise HTTPException(
                     status_code=400,
-                    detail="interval_seconds 必须是大于等于 60 的整数"
+                    detail="interval_seconds 必须是大于等于 60 的数字"
                 )
-        
+        elif request.schedule_type == "cron":
+            if not (request.schedule_config.get("cron") or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="cron 类型需要 schedule_config.cron 非空"
+                )
+
+        # 校验 task_type 与 metadata（与普通任务创建共用）
+        ok, err = validate_task_creation(
+            request.task_type,
+            request.metadata or {},
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=err or "任务参数校验失败")
+
+        task_name = (request.task_name or "").strip()
+        if not task_name:
+            type_names = {"weather_query": "天气查询", "video_download": "视频下载", "speech_to_text": "语音转文字", "video_extract_audio": "视频提取音频"}
+            task_name = f"{type_names.get(request.task_type, request.task_type)}_定时"
+
         schedule_id = task_queue_db.create_scheduled_task(
             task_type=request.task_type,
-            task_name=request.task_name,
+            task_name=task_name,
             schedule_type=request.schedule_type,
             schedule_config=request.schedule_config,
             metadata=request.metadata
@@ -802,6 +824,53 @@ async def get_scheduled_task(schedule_id: str):
             status_code=500,
             detail=f"获取定时任务详情失败: {str(e)}"
         )
+
+
+@router.post("/task-queue/scheduled-tasks/{schedule_id}/run-now")
+async def run_scheduled_task_now(schedule_id: str):
+    """立即执行定时任务：创建任务入队，并重新计算下次运行时间"""
+    try:
+        task_queue_db = get_task_queue_db()
+        tasks = task_queue_db.list_scheduled_tasks(active_only=False)
+        scheduled_task = next((t for t in tasks if t["schedule_id"] == schedule_id), None)
+        if not scheduled_task:
+            raise HTTPException(status_code=404, detail=f"定时任务 {schedule_id} 不存在")
+
+        from shared.time_utils import utc_now_iso
+
+        ok, err = validate_task_creation(
+            scheduled_task["task_type"],
+            scheduled_task.get("metadata", {}),
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail=err or "任务参数校验失败")
+
+        task_id = task_queue_db.create_task(
+            task_type=scheduled_task["task_type"],
+            task_name=scheduled_task["task_name"],
+            priority=TaskPriority.NORMAL,
+            metadata=scheduled_task.get("metadata", {}),
+            created_by_schedule_id=schedule_id,
+        )
+
+        now = utc_now_iso()
+        task_queue_db.update_scheduled_task_after_success(
+            schedule_id=schedule_id,
+            schedule_type=scheduled_task["schedule_type"],
+            schedule_config=scheduled_task["schedule_config"],
+            last_run_time=now,
+        )
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "message": "已立即创建任务，下次运行时间已更新",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"立即执行定时任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"立即执行失败: {str(e)}")
 
 
 @router.put("/task-queue/scheduled-tasks/{schedule_id}/toggle")

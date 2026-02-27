@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import WeatherResultDisplay from '../components/WeatherResultDisplay'
+import TaskResultDisplay from '../components/TaskResultDisplay'
+import { useToast } from '../components/ToastModal'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 /**
@@ -14,6 +15,7 @@ const TASK_API = {
     const q = new URLSearchParams({ limit: 100, offset: 0 })
     if (params?.status) q.set('status', params.status)
     if (params?.deleted) q.set('deleted', params.deleted)
+    if (params?.created_by_schedule_id) q.set('created_by_schedule_id', params.created_by_schedule_id)
     return fetch(`/api/task-queue/tasks?${q}`).then(r => r.json())
   },
   get: (taskId) => fetch(`/api/task-queue/tasks/${taskId}`).then(r => r.json()),
@@ -39,7 +41,51 @@ function formatDateTime(s) {
   return isNaN(d) ? '-' : d.toLocaleString('zh-CN')
 }
 
+/** 将秒数转为可读的时分秒，如 3600 → "1小时"，3661 → "1小时 1分 1秒" */
+function formatIntervalSecondsReadable(sec) {
+  if (!sec || sec < 60) return null
+  const parts = []
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  if (h) parts.push(`${h}小时`)
+  if (m) parts.push(`${m}分`)
+  if (s || parts.length === 0) parts.push(`${s}秒`)
+  return parts.join(' ')
+}
+
+/** 距离下次执行的剩余时间描述 */
+function formatTimeUntil(nextRunTime) {
+  if (!nextRunTime) return ''
+  const next = new Date(nextRunTime)
+  if (isNaN(next)) return ''
+  const now = Date.now()
+  const diffMs = next - now
+  if (diffMs <= 0) return '即将执行'
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  const diffHour = Math.floor(diffMin / 60)
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffMin < 1) return '还剩 1 分钟内'
+  if (diffMin < 60) return `还剩 ${diffMin} 分钟`
+  if (diffHour < 24) return diffMin % 60 === 0 ? `还剩 ${diffHour} 小时` : `还剩 ${diffHour} 小时 ${diffMin % 60} 分钟`
+  if (diffDay < 7) return `还剩 ${diffDay} 天`
+  return `${formatDateTime(nextRunTime)}`
+}
+
+/** 从 API 错误响应中提取可读错误信息（FastAPI 422 时 detail 为对象数组） */
+function getApiErrorMessage(data) {
+  const d = data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d) && d.length) {
+    return d.map((x) => x?.msg ?? x?.loc?.join('.') ?? JSON.stringify(x)).join('; ')
+  }
+  if (d && typeof d === 'object') return JSON.stringify(d)
+  return data?.message ?? '未知错误'
+}
+
 export default function TaskManagement() {
+  const toast = useToast()
   const [tab, setTab] = useState('tasks')
   const [tasks, setTasks] = useState([])
   const [scheduledTasks, setScheduledTasks] = useState([])
@@ -52,6 +98,14 @@ export default function TaskManagement() {
   const [showCreatePipelineModal, setShowCreatePipelineModal] = useState(false)
   const [detailTaskId, setDetailTaskId] = useState(null)
   const [taskTypes, setTaskTypes] = useState([])
+  const [runsModalSchedule, setRunsModalSchedule] = useState(null)
+  const [runsModalRefreshTrigger, setRunsModalRefreshTrigger] = useState(0)
+
+  const handleGoToSchedule = useCallback((scheduleId) => {
+    setDetailTaskId(null)
+    setTab('scheduled')
+    setRunsModalSchedule({ scheduleId, taskName: '', nextRunTime: null })
+  }, [])
 
   const loadHeartbeat = useCallback(async () => {
     try {
@@ -127,7 +181,7 @@ export default function TaskManagement() {
   const filteredTasks = tasks.filter(t => {
     if (!search) return true
     const s = search.toLowerCase()
-    return (t.task_name || '').toLowerCase().includes(s) || (t.task_id || '').toLowerCase().includes(s)
+    return (t.task_name || '').toLowerCase().includes(s) || (t.task_id || '').toLowerCase().includes(s) || (t.created_by_schedule_id || '').toLowerCase().includes(s)
   })
 
   // 按 pipeline_id 分组：仅有 pipeline_id 的才放入组框；无 pipeline_id 的单独列出、不套框
@@ -277,13 +331,14 @@ export default function TaskManagement() {
                             task={task}
                             onRefresh={loadDeletedTasks}
                             onShowDetail={setDetailTaskId}
+                            onGoToSchedule={handleGoToSchedule}
                             recycleBin
                           />
                         ))}
                       </div>
                     </div>
                   ))}
-                  {ungroupedTasks.length > 0 && (
+                      {ungroupedTasks.length > 0 && (
                     <div className="space-y-3">
                       {ungroupedTasks.map(task => (
                         <TaskCard
@@ -291,6 +346,7 @@ export default function TaskManagement() {
                           task={task}
                           onRefresh={loadDeletedTasks}
                           onShowDetail={setDetailTaskId}
+                          onGoToSchedule={handleGoToSchedule}
                           recycleBin
                         />
                       ))}
@@ -351,16 +407,17 @@ export default function TaskManagement() {
               </button>
               <button
                 onClick={async () => {
-                  if (!confirm('确定要清理超时任务吗？')) return
+                  const ok = await toast.confirm('确定要清理超时任务吗？')
+                  if (!ok) return
                   try {
                     const res = await fetch('/api/task-queue/cleanup?max_idle_minutes=30', { method: 'POST' })
                     const data = await res.json()
                     if (data.success) {
-                      alert(`清理完成，共清理了 ${data.cleaned_count} 个超时任务`)
+                      toast.info(`清理完成，共清理了 ${data.cleaned_count} 个超时任务`)
                       loadTasks()
                     }
                   } catch (e) {
-                    alert('清理失败: ' + e.message)
+                    toast.error('清理失败: ' + e.message)
                   }
                 }}
                 className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 transition-colors"
@@ -397,6 +454,7 @@ export default function TaskManagement() {
                             task={task}
                             onRefresh={loadTasks}
                             onShowDetail={setDetailTaskId}
+                            onGoToSchedule={handleGoToSchedule}
                           />
                         ))}
                       </div>
@@ -410,6 +468,7 @@ export default function TaskManagement() {
                           task={task}
                           onRefresh={loadTasks}
                           onShowDetail={setDetailTaskId}
+                          onGoToSchedule={handleGoToSchedule}
                         />
                       ))}
                     </div>
@@ -420,34 +479,37 @@ export default function TaskManagement() {
           </>
         ) : (
           <div className="space-y-3">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm text-[#94a3b8]">定时任务到期后由心跳创建普通任务入队执行。</p>
+              <button onClick={loadScheduledTasks} className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5" title="刷新">↻</button>
+            </div>
             {scheduledTasks.length === 0 ? (
               <div className="py-12 text-center text-[#94a3b8]">暂无定时任务</div>
             ) : (
               scheduledTasks.map(t => (
-                <div
+                <ScheduledTaskCard
                   key={t.schedule_id}
-                  className="p-5 bg-white/5 border border-border rounded-xl hover:border-cyan-500/25 transition-colors"
-                >
-                  <div className="flex justify-between items-start gap-4">
-                    <div>
-                      <span className="font-medium text-white">{t.task_name || '未命名'}</span>
-                      <span className="text-sm text-[#64748b] ml-2">#{t.schedule_id}</span>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${t.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-500/20 text-slate-400'}`}>
-                      {t.is_active ? '激活' : '已禁用'}
-                    </span>
-                  </div>
-                  <div className="mt-3 text-sm text-[#94a3b8]">
-                    {t.task_type} · {typeof t.schedule_config === 'string' ? t.schedule_config : JSON.stringify(t.schedule_config || {})}
-                  </div>
-                </div>
+                  task={t}
+                  onRefresh={loadScheduledTasks}
+                  onViewRuns={() => setRunsModalSchedule({ scheduleId: t.schedule_id, taskName: t.task_name, nextRunTime: t.next_run_time })}
+                />
               ))
             )}
           </div>
         )}
       </div>
 
-      {showCreateModal && (
+      {showCreateModal && tab === 'scheduled' && (
+        <CreateScheduledTaskModal
+          taskTypes={taskTypes}
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            setShowCreateModal(false)
+            loadScheduledTasks()
+          }}
+        />
+      )}
+      {showCreateModal && tab !== 'scheduled' && (
         <CreateTaskModal
           taskTypes={taskTypes}
           onClose={() => setShowCreateModal(false)}
@@ -480,14 +542,31 @@ export default function TaskManagement() {
         <TaskDetailModal
           taskId={detailTaskId}
           onClose={() => setDetailTaskId(null)}
-          onRefresh={() => { loadTasks(); loadDeletedTasks(); setDetailTaskId(null) }}
+          onRefresh={() => {
+            loadTasks()
+            loadDeletedTasks()
+            setDetailTaskId(null)
+            if (runsModalSchedule) setRunsModalRefreshTrigger(t => t + 1)
+          }}
+          onGoToSchedule={handleGoToSchedule}
+        />
+      )}
+      {runsModalSchedule && (
+        <ScheduledTaskRunsModal
+          scheduleId={runsModalSchedule.scheduleId}
+          taskName={runsModalSchedule.taskName}
+          nextRunTime={runsModalSchedule.nextRunTime}
+          onClose={() => setRunsModalSchedule(null)}
+          onShowDetail={setDetailTaskId}
+          refreshTrigger={runsModalRefreshTrigger}
         />
       )}
     </div>
   )
 }
 
-function TaskDetailModal({ taskId, onClose, onRefresh }) {
+function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
+  const toast = useToast()
   const [task, setTask] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
@@ -591,6 +670,22 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                       ))}
                     </div>
                   )}
+                  {task.created_by_schedule_id && (
+                    <div>
+                      <span className="text-[#64748b]">来自定时任务 </span>
+                      {onGoToSchedule ? (
+                        <button
+                          type="button"
+                          onClick={() => onGoToSchedule(task.created_by_schedule_id)}
+                          className="text-cyan-400 hover:text-cyan-300 hover:underline focus:outline-none"
+                        >
+                          #{task.created_by_schedule_id.slice(0, 8)}
+                        </button>
+                      ) : (
+                        <code className="text-cyan-400">#{task.created_by_schedule_id.slice(0, 8)}</code>
+                      )}
+                    </div>
+                  )}
                   <div><span className="text-[#64748b]">任务名称 </span>{task.task_name || '未命名'}</div>
                   <div><span className="text-[#64748b]">类型 </span>{task.task_type}</div>
                   <div><span className="text-[#64748b]">状态 </span><span className={status?.cls}>{status?.text}</span></div>
@@ -618,10 +713,10 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                       if (updated.success && updated.task) setTask(updated.task)
                       if (onRefresh) onRefresh()
                     } else {
-                      alert(res.detail || res.message || '补全失败')
+                      toast.error(res.detail || res.message || '补全失败')
                     }
                   } catch (e) {
-                    alert('补全失败: ' + (e.message || String(e)))
+                    toast.error('补全失败: ' + (e.message || String(e)))
                   }
                   setPatchingResult(false)
                 }}
@@ -641,10 +736,10 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                       if (onRefresh) onRefresh()
                       onClose()
                     } else {
-                      alert(res.detail || res.message || '重新入队失败')
+                      toast.error(res.detail || res.message || '重新入队失败')
                     }
                   } catch (e) {
-                    alert('重新入队失败: ' + (e.message || String(e)))
+                    toast.error('重新入队失败: ' + (e.message || String(e)))
                   }
                   setRequeueing(false)
                 }}
@@ -665,17 +760,17 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                       if (onRefresh) onRefresh()
                       else onClose()
                     } else {
-                      alert(res.detail || res.message || '重置失败')
+                      toast.error(res.detail || res.message || '重置失败')
                     }
                   } catch (e) {
-                    alert('重置失败: ' + e.message)
+                    toast.error('重置失败: ' + e.message)
                   }
                   setRestarting(false)
                 }}
                 className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
-                title="原地重置为待执行，不新开任务"
+                title="将任务重新加入队列，可再次执行"
               >
-                {restarting ? '重置中...' : '重置为待执行'}
+                {restarting ? '重新执行中...' : '重新执行'}
               </button>
             )}
             {task.deleted_at ? (
@@ -687,8 +782,8 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                     try {
                       const res = await TASK_API.restore(task.task_id)
                       if (res.success) { if (onRefresh) onRefresh(); onClose() }
-                      else alert(res.detail || res.message || '恢复失败')
-                    } catch (e) { alert('恢复失败: ' + (e.message || String(e))) }
+                      else toast.error(res.detail || res.message || '恢复失败')
+                    } catch (e) { toast.error('恢复失败: ' + (e.message || String(e))) }
                     setDeleting(false)
                   }}
                   className="px-4 py-2 text-sm border border-green-500/50 rounded-lg text-green-400 hover:bg-green-500/10 disabled:opacity-50"
@@ -698,13 +793,14 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                 <button
                   disabled={deleting}
                   onClick={async () => {
-                    if (!window.confirm('确定彻底删除？不可恢复。')) return
+                    const ok = await toast.confirm('确定彻底删除？不可恢复。')
+                    if (!ok) return
                     setDeleting(true)
                     try {
                       const res = await TASK_API.delete(task.task_id)
                       if (res.success) { if (onRefresh) onRefresh(); onClose() }
-                      else alert(res.detail || res.message || '彻底删除失败')
-                    } catch (e) { alert('彻底删除失败: ' + (e.message || String(e))) }
+                      else toast.error(res.detail || res.message || '彻底删除失败')
+                    } catch (e) { toast.error('彻底删除失败: ' + (e.message || String(e))) }
                     setDeleting(false)
                   }}
                   className="px-4 py-2 text-sm border border-red-500/50 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50"
@@ -716,7 +812,8 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
               <button
                 disabled={deleting}
                 onClick={async () => {
-                  if (!window.confirm('移入回收站？可在「已删除」Tab 中恢复或彻底删除。')) return
+                  const ok = await toast.confirm('移入回收站？可在「已删除」Tab 中恢复或彻底删除。')
+                  if (!ok) return
                   setDeleting(true)
                   try {
                     const res = await TASK_API.softDelete(task.task_id)
@@ -724,10 +821,10 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
                       if (onRefresh) onRefresh()
                       onClose()
                     } else {
-                      alert(res.detail || res.message || '移入回收站失败')
+                      toast.error(res.detail || res.message || '移入回收站失败')
                     }
                   } catch (e) {
-                    alert('移入回收站失败: ' + (e.message || String(e)))
+                    toast.error('移入回收站失败: ' + (e.message || String(e)))
                   }
                   setDeleting(false)
                 }}
@@ -744,86 +841,8 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
   )
 }
 
-function TaskResultDisplay({ taskType, result }) {
-  const isSuccess = result?.status === 'success'
-  const isError = result?.status === 'error'
-  const hasDaily = Array.isArray(result?.daily) || (result?.result && Array.isArray(result?.result?.daily))
-  const isRawWeatherForecast = hasDaily && (String(result?.code) === '200' || result?.result?.code == null)
-
-  if (!result) {
-    return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
-  }
-
-  // 统一错误结构：status === 'error' 时友好展示
-  if (isError) {
-    const err = result.error || {}
-    return (
-      <div className="space-y-2">
-        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm">
-          <p className="text-red-400 font-medium">{result.summary || '执行失败'}</p>
-          {err.code && <p className="text-[#94a3b8] mt-1">错误码: {err.code}</p>}
-          {err.message && <p className="text-[#94a3b8] mt-1 whitespace-pre-wrap">{err.message}</p>}
-        </div>
-      </div>
-    )
-  }
-
-  if (!isSuccess && !isRawWeatherForecast) {
-    return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
-  }
-
-  if (taskType === 'video_download' && result.data) {
-    const d = result.data
-    return (
-      <div className="space-y-2 text-[#94a3b8]">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {d.title && <p><span className="text-[#64748b]">标题 </span>{d.title}</p>}
-        {d.output_dir && <p><span className="text-[#64748b]">保存位置 </span><code className="text-cyan-300 break-all">{d.output_dir}</code></p>}
-      </div>
-    )
-  }
-
-  if (taskType === 'speech_to_text' && result.data) {
-    const d = result.data
-    return (
-      <div className="space-y-2 text-[#94a3b8]">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {d.output_file && <p><span className="text-[#64748b]">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
-        {d.language && <p><span className="text-[#64748b]">语言 </span>{d.language}</p>}
-        {d.text != null && <p className="mt-2 text-[#64748b] text-xs">正文摘要: {String(d.text).slice(0, 200)}{String(d.text).length > 200 ? '…' : ''}</p>}
-      </div>
-    )
-  }
-
-  if (taskType === 'video_extract_audio' && result.data) {
-    const d = result.data
-    return (
-      <div className="space-y-2 text-[#94a3b8]">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {d.output_file && <p><span className="text-[#64748b]">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
-        {d.format && <p><span className="text-[#64748b]">格式 </span>{d.format}</p>}
-      </div>
-    )
-  }
-
-  if (taskType === 'mediawiki_write' && result.data) {
-    const d = result.data
-    return (
-      <div className="space-y-2 text-[#94a3b8]">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {d.title && <p><span className="text-[#64748b]">页面 </span>{d.title}</p>}
-        {d.message && <p className="text-[#94a3b8]">{d.message}</p>}
-      </div>
-    )
-  }
-
-  if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
-    return <WeatherResultDisplay result={result} />
-  }
-  return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
-}
-
-function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
+function TaskCard({ task, onRefresh, onShowDetail, onGoToSchedule, recycleBin = false, inRunsModal = false }) {
+  const toast = useToast()
   const status = STATUS_MAP[task.status] || { text: task.status, cls: 'bg-slate-500/20 text-slate-400' }
 
   return (
@@ -841,12 +860,13 @@ function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
           {['running', 'queued'].includes(task.status) && (
             <button
               onClick={async () => {
-                if (!confirm('确定要取消？')) return
+                const ok = await toast.confirm('确定要取消？')
+                if (!ok) return
                 try {
                   await TASK_API.cancel(task.task_id)
                   onRefresh()
                 } catch (e) {
-                  alert('取消失败: ' + e.message)
+                  toast.error('取消失败: ' + e.message)
                 }
               }}
               className="px-2 py-0.5 text-xs text-red-400 hover:bg-red-500/15 rounded"
@@ -856,8 +876,22 @@ function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
           )}
         </div>
       </div>
-      {(task.depends_on_task_id || (task.input_bindings && Object.keys(task.input_bindings).length)) ? (
+      {(task.depends_on_task_id || (task.input_bindings && Object.keys(task.input_bindings).length) || task.created_by_schedule_id) ? (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-cyan-400/90 mb-2">
+          {task.created_by_schedule_id && (
+            onGoToSchedule ? (
+              <button
+                type="button"
+                onClick={() => onGoToSchedule(task.created_by_schedule_id)}
+                className="text-cyan-400/90 hover:text-cyan-300 hover:underline focus:outline-none"
+                title={`跳转到定时任务 ${task.created_by_schedule_id}`}
+              >
+                定时: #{task.created_by_schedule_id.slice(0, 8)}
+              </button>
+            ) : (
+              <span title={`来自定时任务 ${task.created_by_schedule_id}`}>定时: #{task.created_by_schedule_id.slice(0, 8)}</span>
+            )
+          )}
           {task.depends_on_task_id && (
             <span>依赖: #{task.depends_on_task_id.slice(0, 8)}</span>
           )}
@@ -888,18 +922,25 @@ function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
           <strong>错误:</strong> {task.error || task.error_message}
         </div>
       )}
-      {task.status === 'completed' && task.result_summary && (
+      {task.status === 'completed' && task.result != null && (
+        <div className="p-3 bg-green-500/5 rounded-lg border border-green-500/20 mb-3">
+          <TaskResultDisplay taskType={task.task_type} result={task.result} />
+        </div>
+      )}
+      {task.status === 'completed' && task.result == null && task.result_summary && (
         <div className="p-3 bg-green-500/10 rounded-lg text-sm text-green-400 mb-3">
           {task.result_summary}
         </div>
       )}
       <div className="flex gap-2">
-        <button
-          onClick={() => onShowDetail(task.task_id)}
-          className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/5"
-        >
-          查看详情
-        </button>
+        {!inRunsModal && (
+          <button
+            onClick={() => onShowDetail(task.task_id)}
+            className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/5"
+          >
+            查看详情
+          </button>
+        )}
         {recycleBin ? (
           <>
             <button
@@ -907,9 +948,9 @@ function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
                 try {
                   const res = await TASK_API.restore(task.task_id)
                   if (res.success) onRefresh()
-                  else alert(res.detail || res.message || '恢复失败')
+                  else toast.error(res.detail || res.message || '恢复失败')
                 } catch (e) {
-                  alert('恢复失败: ' + (e.message || String(e)))
+                  toast.error('恢复失败: ' + (e.message || String(e)))
                 }
               }}
               className="px-3 py-1.5 text-sm border border-green-500/50 rounded-lg text-green-400 hover:bg-green-500/10"
@@ -919,13 +960,14 @@ function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
             </button>
             <button
               onClick={async () => {
-                if (!window.confirm('确定要彻底删除该任务？删除后不可恢复。')) return
+                const ok = await toast.confirm('确定要彻底删除该任务？删除后不可恢复。')
+                if (!ok) return
                 try {
                   const res = await TASK_API.delete(task.task_id)
                   if (res.success) onRefresh()
-                  else alert(res.detail || res.message || '删除失败')
+                  else toast.error(res.detail || res.message || '删除失败')
                 } catch (e) {
-                  alert('删除失败: ' + (e.message || String(e)))
+                  toast.error('删除失败: ' + (e.message || String(e)))
                 }
               }}
               className="px-3 py-1.5 text-sm border border-red-500/50 rounded-lg text-red-400 hover:bg-red-500/10"
@@ -942,27 +984,28 @@ function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
                   try {
                     const res = await TASK_API.restart(task.task_id)
                     if (res.success) onRefresh()
-                    else alert(res.detail || res.message || '重置失败')
+                    else toast.error(res.detail || res.message || '重置失败')
                   } catch (e) {
-                    alert('重置失败: ' + e.message)
+                    toast.error('重置失败: ' + e.message)
                   }
                 }}
                 className="px-3 py-1.5 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
-                title="原地重置为待执行，不新开任务"
+                title="将任务重新加入队列，可再次执行"
               >
-                重置为待执行
+                重新执行
               </button>
             )}
             {task.status !== 'running' && (
               <button
                 onClick={async () => {
-                  if (!window.confirm('移入回收站？可在「已删除」中恢复或彻底删除。')) return
+                  const ok = await toast.confirm('移入回收站？可在「已删除」中恢复或彻底删除。')
+                  if (!ok) return
                   try {
                     const res = await TASK_API.softDelete(task.task_id)
                     if (res.success) onRefresh()
-                    else alert(res.detail || res.message || '移入回收站失败')
+                    else toast.error(res.detail || res.message || '移入回收站失败')
                   } catch (e) {
-                    alert('移入回收站失败: ' + (e.message || String(e)))
+                    toast.error('移入回收站失败: ' + (e.message || String(e)))
                   }
                 }}
                 className="px-3 py-1.5 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10"
@@ -998,6 +1041,7 @@ function getDefaultMetadata(schema) {
  * Step 2: 只填该链路需要用户提供的参数（如第一步的输入文件、可选任务名）
  */
 function CreatePipelineModal({ api, onClose, onSuccess }) {
+  const toast = useToast()
   const [step, setStep] = useState('choose') // 'choose' | 'fill'
   const [selectedId, setSelectedId] = useState(null)
   const [formValues, setFormValues] = useState({})
@@ -1041,7 +1085,7 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
       if (data.success && data.path) setField(fieldId, data.path)
       else throw new Error(data.detail || '上传失败')
     } catch (err) {
-      alert('上传失败: ' + (err?.message || String(err)))
+      toast.error('上传失败: ' + (err?.message || String(err)))
     }
     setUploading(false)
     e.target.value = ''
@@ -1058,11 +1102,11 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([, v]) => v?.slice(0, 8))
         .join(' / ')
-      alert(`管道已创建：${ids || '完成'}`)
+      toast.info(`管道已创建：${ids || '完成'}`)
       onSuccess()
       onClose()
     } catch (err) {
-      alert('创建失败: ' + (err?.message || String(err)))
+      toast.error('创建失败: ' + (err?.message || String(err)))
     }
     setSubmitting(false)
   }
@@ -1158,6 +1202,7 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
 
 /** 管道模板：一键创建「视频提音频 → 语音转文字」两个任务，第二个依赖第一个的 result.data.output_file */
 function PipelineTemplateModal({ onClose, onSuccess }) {
+  const toast = useToast()
   const [inputFile, setInputFile] = useState('')
   const [name1, setName1] = useState('')
   const [name2, setName2] = useState('')
@@ -1177,7 +1222,7 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
       if (data.success && data.path) setInputFile(data.path)
       else throw new Error(data.detail || '上传失败')
     } catch (err) {
-      alert('上传失败: ' + (err?.message || String(err)))
+      toast.error('上传失败: ' + (err?.message || String(err)))
     }
     setUploading(false)
     e.target.value = ''
@@ -1187,7 +1232,7 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
     e.preventDefault()
     const path = (inputFile || '').trim()
     if (!path) {
-      alert('请填写或上传视频文件路径')
+      toast.warning('请填写或上传视频文件路径')
       return
     }
     setSubmitting(true)
@@ -1212,11 +1257,11 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
         input_bindings: { input_file: 'result.data.output_file' },
       })
       if (!res2.success) throw new Error(res2.detail || res2.message || '创建第二步任务失败')
-      alert(`管道已创建：\n1. 视频提音频 ${task1Id?.slice(0, 8)}\n2. 语音转文字（依赖上一步） ${res2.task_id?.slice(0, 8)}`)
+      toast.info(`管道已创建：\n1. 视频提音频 ${task1Id?.slice(0, 8)}\n2. 语音转文字（依赖上一步） ${res2.task_id?.slice(0, 8)}`)
       onSuccess()
       onClose()
     } catch (err) {
-      alert('创建失败: ' + (err?.message || String(err)))
+      toast.error('创建失败: ' + (err?.message || String(err)))
     }
     setSubmitting(false)
   }
@@ -1285,7 +1330,401 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
   )
 }
 
+function ScheduledTaskRunsModal({ scheduleId, taskName, nextRunTime, onClose, onShowDetail, refreshTrigger }) {
+  const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const loadRuns = useCallback(async () => {
+    if (!scheduleId) return
+    setLoading(true)
+    try {
+      const data = await TASK_API.list({ created_by_schedule_id: scheduleId })
+      if (data.success && data.tasks) setTasks(data.tasks)
+      else setTasks([])
+    } catch (e) {
+      setTasks([])
+    }
+    setLoading(false)
+  }, [scheduleId])
+
+  useEffect(() => {
+    loadRuns()
+  }, [loadRuns, refreshTrigger])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-white">
+            {taskName || '定时任务'} 执行记录
+          </h2>
+          <div className="flex gap-2">
+            <button onClick={loadRuns} disabled={loading} className="px-3 py-1.5 rounded-lg border border-border text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 disabled:opacity-50" title="刷新">↻</button>
+            <button onClick={onClose} className="text-[#94a3b8] hover:text-white text-2xl leading-none">×</button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+          ) : tasks.length === 0 ? (
+            <div className="py-12 text-center text-[#94a3b8] space-y-2">
+              <p>暂无执行记录</p>
+              <p className="text-xs">定时任务到期后由心跳创建任务，执行记录会显示在此处。</p>
+              {nextRunTime && (
+                <p className="text-xs">下次运行: {formatDateTime(nextRunTime)}</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {tasks.map(task => (
+                <TaskCard
+                  key={task.task_id}
+                  task={task}
+                  onRefresh={loadRuns}
+                  onShowDetail={onShowDetail}
+                  inRunsModal
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ScheduledTaskCard({ task, onRefresh, onViewRuns }) {
+  const toast = useToast()
+  const [toggling, setToggling] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [running, setRunning] = useState(false)
+  const cfg = task.schedule_config || {}
+  const scheduleLabel = task.schedule_type === 'cron'
+    ? `cron: ${cfg.cron || ''}`
+    : (() => {
+        const sec = cfg.interval_seconds || 0
+        const readable = formatIntervalSecondsReadable(sec)
+        return readable ? `每 ${sec} 秒（${readable}）` : `每 ${sec} 秒`
+      })()
+
+  const handleToggle = async () => {
+    setToggling(true)
+    try {
+      const res = await fetch(`/api/task-queue/scheduled-tasks/${task.schedule_id}/toggle?is_active=${!task.is_active}`, {
+        method: 'PUT',
+      })
+      const data = await res.json()
+      if (data.success) onRefresh()
+      else throw new Error(data.detail || '操作失败')
+    } catch (err) {
+      toast.error('操作失败: ' + (err.message || String(err)))
+    }
+    setToggling(false)
+  }
+
+  const handleRunNow = async () => {
+    setRunning(true)
+    try {
+      const res = await fetch(`/api/task-queue/scheduled-tasks/${task.schedule_id}/run-now`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        onRefresh()
+        if (data.task_id) toast.info(`已创建任务 #${data.task_id.slice(0, 8)}，可在执行记录中查看`)
+      } else throw new Error(data.detail || '执行失败')
+    } catch (err) {
+      toast.error('立即执行失败: ' + (err?.message || String(err)))
+    }
+    setRunning(false)
+  }
+
+  const handleDelete = async () => {
+    const ok = await toast.confirm('确定删除该定时任务？')
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/task-queue/scheduled-tasks/${task.schedule_id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) onRefresh()
+      else throw new Error(data.detail || '删除失败')
+    } catch (err) {
+      toast.error('删除失败: ' + (err.message || String(err)))
+    }
+    setDeleting(false)
+  }
+
+  return (
+    <div className="p-5 bg-white/5 border border-border rounded-xl hover:border-cyan-500/25 transition-colors">
+      <div className="flex justify-between items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <span className="font-medium text-white">{task.task_name || '未命名'}</span>
+          <span className="text-sm text-[#64748b] ml-2">#{task.schedule_id?.slice(0, 8)}</span>
+          <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${task.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-500/20 text-slate-400'}`}>
+            {task.is_active ? '激活' : '已禁用'}
+          </span>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {onViewRuns && (
+            <button onClick={onViewRuns} className="px-3 py-1.5 rounded-lg border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 text-sm">
+              查看执行记录
+            </button>
+          )}
+          <button onClick={handleRunNow} disabled={running} className="px-3 py-1.5 rounded-lg border border-green-500/50 text-green-400 hover:bg-green-500/10 text-sm disabled:opacity-50">
+            {running ? '执行中...' : '立即执行'}
+          </button>
+          <button onClick={handleToggle} disabled={toggling} className="px-3 py-1.5 rounded-lg border border-border text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 disabled:opacity-50">
+            {toggling ? '...' : task.is_active ? '禁用' : '启用'}
+          </button>
+          <button onClick={handleDelete} disabled={deleting} className="px-3 py-1.5 rounded-lg border border-red-500/50 text-amber-400 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            {deleting ? '...' : '删除'}
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 text-sm text-[#94a3b8]">
+        {task.task_type} · {scheduleLabel}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-4 text-xs text-[#64748b]">
+        <span>下次: {formatDateTime(task.next_run_time)}</span>
+        {task.is_active && task.next_run_time && (
+          <span className="text-cyan-400/90">{formatTimeUntil(task.next_run_time)}</span>
+        )}
+        {task.last_run_time && <span>上次: {formatDateTime(task.last_run_time)}</span>}
+        {task.consecutive_errors > 0 && (
+          <span className="text-amber-400">连续失败 {task.consecutive_errors} 次</span>
+        )}
+      </div>
+      {task.last_error && (
+        <div className="mt-2 text-xs text-[#64748b] truncate max-w-full" title={task.last_error}>
+          错误: {task.last_error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
+  const toast = useToast()
+  const [type, setType] = useState('')
+  const [name, setName] = useState('')
+  const [scheduleType, setScheduleType] = useState('interval')
+  const [intervalSeconds, setIntervalSeconds] = useState(3600)
+  const [cronExpr, setCronExpr] = useState('0 2 * * *')
+  const [cronTz, setCronTz] = useState('')
+  const [metadata, setMetadata] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+  const typeInfo = taskTypes.find(t => t.type === type) || null
+  const schema = typeInfo?.metadata_schema || {}
+  const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
+  const inputFileAccept = type === 'speech_to_text'
+    ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
+    : type === 'video_extract_audio'
+      ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
+      : ''
+
+  const setTypeAndResetMetadata = (newType) => {
+    setType(newType)
+    const info = taskTypes.find(t => t.type === newType)
+    setMetadata(getDefaultMetadata(info?.metadata_schema))
+  }
+
+  const uploadFileAndSet = (fieldKey) => async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.success && data.path) setMetadata(m => ({ ...m, [fieldKey]: data.path }))
+      else throw new Error(data.detail || '上传失败')
+    } catch (err) {
+      toast.error('上传失败: ' + (err.message || String(err)))
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!type) { toast.warning('请选择任务类型'); return }
+    for (const [key, spec] of Object.entries(schema)) {
+      if (spec?.required) {
+        const v = metadata[key]
+        if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
+          toast.warning(`请填写必填项: ${spec.description || key}`)
+          return
+        }
+      }
+    }
+    const scheduleConfig = scheduleType === 'interval'
+      ? { interval_seconds: Number(intervalSeconds) }
+      : { cron: cronExpr.trim(), ...(cronTz.trim() ? { tz: cronTz.trim() } : {}) }
+    if (scheduleType === 'interval' && (intervalSeconds < 60 || !Number.isFinite(intervalSeconds))) {
+      toast.warning('间隔秒数须 ≥ 60')
+      return
+    }
+    if (scheduleType === 'cron' && !cronExpr.trim()) {
+      toast.warning('请填写 cron 表达式')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/task-queue/scheduled-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_type: type,
+          task_name: name?.trim() || "",
+          schedule_type: scheduleType,
+          schedule_config: scheduleConfig,
+          metadata,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        onSuccess()
+        onClose()
+      } else {
+        throw new Error(getApiErrorMessage(data))
+      }
+    } catch (err) {
+      toast.error('创建失败: ' + (err?.message || String(err)))
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-white">创建定时任务</h3>
+          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">任务类型 *</label>
+            <select
+              value={type}
+              onChange={e => setTypeAndResetMetadata(e.target.value)}
+              className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
+              required
+            >
+              <option value="">请选择任务类型</option>
+              {taskTypes.map(t => (
+                <option key={t.type} value={t.type}>{t.name} - {t.description}</option>
+              ))}
+            </select>
+          </div>
+          {Object.entries(schema).map(([fieldKey, spec]) => {
+            if (!spec || typeof spec !== 'object') return null
+            const label = spec.description || fieldKey
+            const required = spec.required
+            const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
+            const isInputFileField = fieldKey === 'input_file' && isInputFileTask
+            if (spec.enum && Array.isArray(spec.enum)) {
+              const selectValue = value != null ? String(value) : ''
+              return (
+                <div key={fieldKey}>
+                  <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
+                  <select
+                    value={selectValue}
+                    onChange={e => {
+                      const v = e.target.value
+                      setMetadata(m => ({ ...m, [fieldKey]: v === '' ? undefined : (spec.type === 'number' ? Number(v) : v) }))
+                    }}
+                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
+                    required={required}
+                  >
+                    {!required && <option value="">请选择</option>}
+                    {spec.enum.map(opt => (
+                      <option key={String(opt.value)} value={String(opt.value)}>{opt.label ?? opt.value}</option>
+                    ))}
+                  </select>
+                </div>
+              )
+            }
+            if (spec.type === 'boolean') {
+              return (
+                <div key={fieldKey} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`sched-meta-${fieldKey}`}
+                    checked={!!value}
+                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
+                    className="rounded border-border bg-white/5 text-accent focus:ring-accent"
+                  />
+                  <label htmlFor={`sched-meta-${fieldKey}`} className="text-sm text-[#94a3b8]">{label}{required ? ' *' : ''}</label>
+                </div>
+              )
+            }
+            return (
+              <div key={fieldKey}>
+                <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
+                <div className="flex gap-2">
+                  <input
+                    type={spec.type === 'number' ? 'number' : 'text'}
+                    value={value}
+                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: spec.type === 'number' ? (Number(e.target.value) || 0) : e.target.value }))}
+                    placeholder={spec.placeholder || ''}
+                    className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                    required={required}
+                  />
+                  {isInputFileField && (
+                    <>
+                      <input ref={fileInputRef} type="file" accept={inputFileAccept} className="hidden" onChange={uploadFileAndSet('input_file')} />
+                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50">
+                        {uploading ? '上传中…' : '选择文件'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="留空自动生成" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">调度类型 *</label>
+            <select value={scheduleType} onChange={e => setScheduleType(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none">
+              <option value="interval">按间隔（interval）</option>
+              <option value="cron">Cron 表达式</option>
+            </select>
+          </div>
+          {scheduleType === 'interval' && (
+            <div>
+              <label className="block text-sm text-[#94a3b8] mb-1">间隔秒数 *（≥ 60）</label>
+              <input type="number" min={60} value={intervalSeconds} onChange={e => setIntervalSeconds(Number(e.target.value) || 60)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none" />
+            </div>
+          )}
+          {scheduleType === 'cron' && (
+            <>
+              <div>
+                <label className="block text-sm text-[#94a3b8] mb-1">Cron 表达式 *（分 时 日 月 周）</label>
+                <input type="text" value={cronExpr} onChange={e => setCronExpr(e.target.value)} placeholder="0 2 * * *" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94a3b8] mb-1">时区（可选）</label>
+                <input type="text" value={cronTz} onChange={e => setCronTz(e.target.value)} placeholder="Asia/Shanghai" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
+              </div>
+            </>
+          )}
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
+            <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">{submitting ? '创建中...' : '创建'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
+  const toast = useToast()
   const [type, setType] = useState('')
   const [name, setName] = useState('')
   const [priority, setPriority] = useState(2)
@@ -1325,7 +1764,7 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
         throw new Error(data.detail || '上传失败')
       }
     } catch (err) {
-      alert('上传失败: ' + (err.message || String(err)))
+      toast.error('上传失败: ' + (err.message || String(err)))
     }
     setUploading(false)
     e.target.value = ''
@@ -1380,14 +1819,14 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!type) {
-      alert('请选择任务类型')
+      toast.warning('请选择任务类型')
       return
     }
     for (const [key, spec] of Object.entries(schema)) {
       if (spec?.required) {
         const v = metadata[key]
         if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
-          alert(`请填写必填项: ${spec.description || key}`)
+          toast.warning(`请填写必填项: ${spec.description || key}`)
           return
         }
       }
@@ -1396,13 +1835,13 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
       const hasContent = metadata.content != null && String(metadata.content).trim()
       const hasContentFile = metadata.content_file != null && String(metadata.content_file).trim()
       if (!hasContent && !hasContentFile) {
-        alert('请填写页面内容或内容文件路径（二选一）')
+        toast.warning('请填写页面内容或内容文件路径（二选一）')
         return
       }
     }
     if (inputSource === 'from_task') {
       if (!dependsOnTaskId || !dependsOnTaskId.trim()) {
-        alert('请选择要依赖的已完成任务')
+        toast.warning('请选择要依赖的已完成任务')
         return
       }
     }
@@ -1422,14 +1861,14 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
       })
       const data = await res.json()
       if (data.success) {
-        alert('任务创建成功: ' + data.task_id)
+        toast.info('任务创建成功: ' + data.task_id)
         onSuccess()
         onClose()
       } else {
         throw new Error(data.detail || data.message || '创建失败')
       }
     } catch (err) {
-      alert('创建失败: ' + (err.message || String(err)))
+      toast.error('创建失败: ' + (err.message || String(err)))
     }
     setSubmitting(false)
   }

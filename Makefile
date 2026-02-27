@@ -87,8 +87,8 @@ start: install-deps build-web
 	@lsof -ti :$(WEB_PORT) >/dev/null 2>&1 && (echo "错误: 端口 $(WEB_PORT) 仍被占用，请手动执行 make stop 或 lsof -ti :$(WEB_PORT) | xargs kill -9"; exit 1) || true
 	@$(MAKE) pre-check
 	@echo "启动后端..."
-	@bash -c "source $(VENV_ACTIVATE) && (nohup $(PYTHON) -m backend.main >> backend.log 2>&1 &) && sleep 1"
-	@PORT=$(WEB_PORT); for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do sleep 2; if curl -sf --connect-timeout 2 --max-time 3 "http://127.0.0.1:$$PORT/health" >/dev/null; then echo "后端已就绪 http://127.0.0.1:$$PORT"; exit 0; fi; done; echo "连接失败（约 30 秒内未就绪），请查看 backend.log"; exit 1
+	@bash -c "source $(VENV_ACTIVATE) && (nohup $(PYTHON) -m backend.main >> backend.log 2>&1 &) && sleep 3"
+	@PORT=$(WEB_PORT); for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do sleep 2; if curl -sf --connect-timeout 2 --max-time 3 "http://127.0.0.1:$$PORT/health" >/dev/null; then echo "后端已就绪 http://127.0.0.1:$$PORT"; exit 0; fi; done; echo "连接失败（约 60 秒内未就绪），请查看 backend.log"; exit 1
 
 build-web:
 	@test -d "frontend/react-app" || (echo "frontend/react-app 不存在"; exit 1)

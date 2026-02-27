@@ -6,6 +6,7 @@ import psutil
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 from backend.infrastructure.storage.task_queue_db import TaskPriority
+from shared.time_utils import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -68,18 +69,24 @@ class HeartbeatMonitor:
                 self.last_heartbeat = datetime.now()
                 self.heartbeat_count += 1
                 
-                # 每 10 次心跳监控一次 Worker 健康状态和定时任务
-                if self.heartbeat_count % 10 == 0:
-                    if task_queue_db is None:
-                        try:
-                            from backend.infrastructure.storage.task_queue_db import get_task_queue_db
-                            task_queue_db = get_task_queue_db()
-                        except Exception:
-                            pass
-                    
-                    if task_queue_db:
-                        await self.monitor_workers(task_queue_db, max_silence_seconds=120)
-                        await self.check_scheduled_tasks(task_queue_db)
+                # 延迟加载 task_queue_db（首次心跳时加载）
+                if task_queue_db is None:
+                    try:
+                        from backend.infrastructure.storage.task_queue_db import (
+                            get_task_queue_db,
+                        )
+                        task_queue_db = get_task_queue_db()
+                    except Exception:
+                        pass
+
+                if task_queue_db:
+                    # 每 10 次心跳监控一次 Worker 健康状态
+                    if self.heartbeat_count % 10 == 0:
+                        await self.monitor_workers(
+                            task_queue_db, max_silence_seconds=120
+                        )
+                    # 每次心跳都检查定时任务
+                    await self.check_scheduled_tasks(task_queue_db)
                     
                     logger.debug(
                         f"心跳 #{self.heartbeat_count} - "
@@ -182,43 +189,63 @@ class HeartbeatMonitor:
     async def check_scheduled_tasks(self, task_queue_db):
         """
         检查并执行到期的定时任务（在心跳循环中调用）
-        
-        Args:
-            task_queue_db: 任务队列数据库实例
+        失败时应用错误退避，成功时重置 consecutive_errors。
         """
         try:
             due_tasks = task_queue_db.get_due_scheduled_tasks()
-            
             if not due_tasks:
                 return
-            
+
             logger.info(f"发现 {len(due_tasks)} 个到期的定时任务")
-            
+
             for scheduled_task in due_tasks:
+                schedule_id = scheduled_task.get("schedule_id")
                 try:
-                    # 创建任务（创建即入队）
+                    # 1. 校验 task_type 与 metadata（与 API 创建共用）
+                    from backend.infrastructure.execution.task_handlers import (
+                        validate_task_creation,
+                    )
+                    ok, err = validate_task_creation(
+                        scheduled_task["task_type"],
+                        scheduled_task.get("metadata", {}),
+                    )
+                    if not ok:
+                        task_queue_db.update_scheduled_task_on_failure(
+                            schedule_id=schedule_id,
+                            error=err or "校验失败",
+                        )
+                        continue
+
+                    # 2. 创建任务
                     task_id = task_queue_db.create_task(
                         task_type=scheduled_task["task_type"],
                         task_name=scheduled_task["task_name"],
                         priority=TaskPriority.NORMAL,
-                        metadata=scheduled_task.get("metadata", {})
+                        metadata=scheduled_task.get("metadata", {}),
+                        created_by_schedule_id=schedule_id,
                     )
-                    
-                    # 更新定时任务的下次执行时间
-                    task_queue_db.update_scheduled_task_next_run(
-                        schedule_id=scheduled_task["schedule_id"],
+
+                    # 3. 更新成功状态
+                    now = utc_now_iso()
+                    task_queue_db.update_scheduled_task_after_success(
+                        schedule_id=schedule_id,
                         schedule_type=scheduled_task["schedule_type"],
-                        schedule_config=scheduled_task["schedule_config"]
+                        schedule_config=scheduled_task["schedule_config"],
+                        last_run_time=now,
                     )
-                    
+
                     logger.info(
-                        f"定时任务 {scheduled_task['schedule_id']} 已创建任务 "
+                        f"定时任务 {schedule_id} 已创建任务 "
                         f"{task_id} ({scheduled_task['task_name']})"
                     )
                 except Exception as e:
                     logger.error(
-                        f"执行定时任务 {scheduled_task.get('schedule_id')} 失败: {e}",
-                        exc_info=True
+                        f"执行定时任务 {schedule_id} 失败: {e}",
+                        exc_info=True,
+                    )
+                    task_queue_db.update_scheduled_task_on_failure(
+                        schedule_id=schedule_id,
+                        error=str(e),
                     )
         except Exception as e:
             logger.error(f"检查定时任务失败: {e}", exc_info=True)

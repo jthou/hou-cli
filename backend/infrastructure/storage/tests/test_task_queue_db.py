@@ -268,6 +268,24 @@ class TestTaskQueueDB:
         assert completed is not None
         assert completed.get("result_summary") is None or completed.get("result_summary") == ""
 
+    def test_list_tasks_include_result_when_requested(self, temp_db):
+        """include_result=True 时，已完成任务包含完整 result"""
+        task_id = temp_db.create_task("test", "任务")
+        temp_db.register_worker("worker-1", "Worker")
+        temp_db.acquire_task("worker-1")
+        result_payload = {"status": "success", "summary": "摘要", "data": {"key": "value"}}
+        temp_db.complete_task(task_id, result=result_payload)
+
+        tasks = temp_db.list_tasks(include_result=True)
+        completed = next((t for t in tasks if t["task_id"] == task_id), None)
+        assert completed is not None
+        assert completed.get("result") == result_payload
+
+        tasks_no_result = temp_db.list_tasks(include_result=False)
+        completed_no = next((t for t in tasks_no_result if t["task_id"] == task_id), None)
+        assert completed_no is not None
+        assert "result" not in completed_no
+
     def test_get_task_returns_full_result(self, temp_db):
         """get_task 返回的 task 包含完整 result 对象"""
         task_id = temp_db.create_task("test", "任务")

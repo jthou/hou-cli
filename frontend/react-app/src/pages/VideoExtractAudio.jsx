@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useToast } from '../components/ToastModal'
 
 export default function VideoExtractAudio() {
+  const toast = useToast()
   const [inputFile, setInputFile] = useState('')
   const [outputFile, setOutputFile] = useState('')
   const [outputDir, setOutputDir] = useState('')
@@ -13,7 +15,7 @@ export default function VideoExtractAudio() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!inputFile.trim()) {
-      alert('请输入视频文件路径')
+      toast.warning('请输入视频文件路径')
       return
     }
     setSubmitting(true)

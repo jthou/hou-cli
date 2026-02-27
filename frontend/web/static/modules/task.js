@@ -1,4 +1,29 @@
 // 任务管理（普通任务 + 定时任务）
+
+/** 将秒数转为可读的时分秒，如 3600 → "1小时"，3661 → "1小时 1分 1秒" */
+function formatIntervalSecondsReadable(sec) {
+    if (!sec || sec < 60) return null;
+    const parts = [];
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h) parts.push(`${h}小时`);
+    if (m) parts.push(`${m}分`);
+    if (s || parts.length === 0) parts.push(`${s}秒`);
+    return parts.join(' ');
+}
+
+/** 从 API 错误响应中提取可读错误信息（FastAPI 422 时 detail 为对象数组） */
+function getApiErrorMessage(data) {
+    const d = data?.detail;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d) && d.length) {
+        return d.map((x) => x?.msg ?? (x?.loc && Array.isArray(x.loc) ? x.loc.join('.') : null) ?? JSON.stringify(x)).filter(Boolean).join('; ');
+    }
+    if (d && typeof d === 'object') return JSON.stringify(d);
+    return data?.message ?? '未知错误';
+}
+
 export const taskModule = {
     // 初始化任务统计卡片
     initTaskStats() {
@@ -203,7 +228,8 @@ export const taskModule = {
             if (!searchTerm) return true;
             const taskName = (task.task_name || '').toLowerCase();
             const taskId = (task.task_id || '').toLowerCase();
-            return taskName.includes(searchTerm) || taskId.includes(searchTerm);
+            const scheduleId = (task.created_by_schedule_id || '').toLowerCase();
+            return taskName.includes(searchTerm) || taskId.includes(searchTerm) || scheduleId.includes(searchTerm);
         });
 
         if (filteredTasks.length === 0) {
@@ -211,12 +237,15 @@ export const taskModule = {
             return;
         }
 
-        taskList.innerHTML = filteredTasks.map(task => {
-            const statusClass = this.getTaskStatusClass(task.status);
-            const priorityClass = this.getTaskPriorityClass(task.priority);
-            const progress = task.progress || 0;
+        taskList.innerHTML = filteredTasks.map(task => this.renderTaskListItem(task)).join('');
+    },
 
-            return `
+    renderTaskListItem(task) {
+        const statusClass = this.getTaskStatusClass(task.status);
+        const priorityClass = this.getTaskPriorityClass(task.priority);
+        const progress = task.progress || 0;
+
+        return `
                 <div class="task-item" data-task-id="${task.task_id}">
                     <div class="task-header">
                         <div class="task-title">
@@ -232,6 +261,11 @@ export const taskModule = {
                     </div>
                     <div class="task-body">
                         <div class="task-info">
+                            ${task.created_by_schedule_id ? `
+                            <div class="task-info-item">
+                                <span class="info-label">来自定时任务:</span>
+                                <span class="info-value">#${(task.created_by_schedule_id || '').slice(0, 8)}</span>
+                            </div>` : ''}
                             <div class="task-info-item">
                                 <span class="info-label">类型:</span>
                                 <span class="info-value">${this.escapeHtml(task.task_type || 'unknown')}</span>
@@ -250,10 +284,10 @@ export const taskModule = {
                                 <span class="info-label">完成时间:</span>
                                 <span class="info-value">${this.formatDateTime(task.completed_at)}</span>
                             </div>` : ''}
-                            ${task.retries_attempted > 0 ? `
+                            ${(task.retries_attempted || task.retry_count || 0) > 0 ? `
                             <div class="task-info-item">
                                 <span class="info-label">重试次数:</span>
-                                <span class="info-value">${task.retries_attempted}/${task.max_retries || 3}</span>
+                                <span class="info-value">${task.retries_attempted || task.retry_count || 0}/${task.max_retries || 3}</span>
                             </div>` : ''}
                         </div>
                         ${task.status === 'running' ? `
@@ -263,17 +297,23 @@ export const taskModule = {
                             </div>
                             <span class="progress-text">${progress}%</span>
                         </div>` : ''}
-                        ${task.error_message ? `
+                        ${(task.error || task.error_message) ? `
                         <div class="task-error">
-                            <strong>错误:</strong> ${this.escapeHtml(task.error_message)}
+                            <strong>错误:</strong> ${this.escapeHtml(task.error || task.error_message || '')}
                         </div>` : ''}
+                        ${task.status === 'completed' && task.result ? `
+                        <div class="task-result" style="margin-top:0.5rem">
+                            <div class="info-label" style="margin-bottom:0.25rem">执行结果</div>
+                            ${this.renderTaskResult(task.result)}
+                        </div>` : ''}
+                        ${task.status === 'completed' && !task.result && task.result_summary ? `
+                        <div class="task-result-summary" style="margin-top:0.5rem;color:var(--accent-color, #4ade80)">${this.escapeHtml(task.result_summary)}</div>` : ''}
                     </div>
                     <div class="task-footer">
                         <button class="btn-small btn-secondary" onclick="app.viewTaskDetail('${task.task_id}')">查看详情</button>
                     </div>
                 </div>
             `;
-        }).join('');
     },
 
     updateTasksStats(tasks) {
@@ -418,13 +458,18 @@ export const taskModule = {
                 // 枚举：渲染下拉选择
                 input = document.createElement('select');
                 input.className = 'form-control';
-                const defaultVal = field.default || (field.enum[0] && field.enum[0].value);
+                const defaultVal = field.default ?? (field.enum[0] && field.enum[0].value);
                 input.innerHTML = field.enum.map(opt => {
                     const val = opt.value ?? opt;
                     const lab = opt.label ?? opt;
-                    const sel = val === defaultVal ? ' selected' : '';
+                    const sel = (val === defaultVal || (val == null && defaultVal == null)) ? ' selected' : '';
                     return `<option value="${this.escapeHtml(String(val))}"${sel}>${this.escapeHtml(String(lab))}</option>`;
                 }).join('');
+            } else if (field.type === 'boolean') {
+                // 布尔：渲染复选框
+                input = document.createElement('input');
+                input.type = 'checkbox';
+                input.checked = !!field.default;
             } else if (field.type === 'array') {
                 input = document.createElement('textarea');
                 input.placeholder = field.placeholder || '请输入JSON数组，例如: ["item1", "item2"]';
@@ -891,15 +936,23 @@ export const taskModule = {
             let cfg = t.schedule_config || {};
             if (typeof cfg === 'string') { try { cfg = JSON.parse(cfg); } catch { cfg = {}; } }
             const cronOrInterval = t.schedule_type === 'cron'
-                ? (cfg.cron_expression || JSON.stringify(cfg))
-                : (cfg.interval_seconds ? `每 ${cfg.interval_seconds} 秒` : JSON.stringify(cfg));
+                ? (cfg.cron || JSON.stringify(cfg))
+                : (cfg.interval_seconds ? (() => {
+                    const sec = cfg.interval_seconds;
+                    const readable = formatIntervalSecondsReadable(sec);
+                    return readable ? `每 ${sec} 秒（${readable}）` : `每 ${sec} 秒`;
+                }()) : JSON.stringify(cfg));
             const statusClass = t.is_active ? 'status-completed' : 'status-cancelled';
+            const nextRun = t.next_run_time ? this.formatDateTime(t.next_run_time) : '-';
+            const lastRun = t.last_run_time ? this.formatDateTime(t.last_run_time) : '';
+            const errInfo = t.consecutive_errors > 0 ? `<span class="text-warning">连续失败 ${t.consecutive_errors} 次</span>` : '';
+            const lastErr = t.last_error ? `<div class="task-error"><strong>错误:</strong> ${this.escapeHtml(String(t.last_error).slice(0, 100))}</div>` : '';
             return `
             <div class="task-item" data-schedule-id="${t.schedule_id}">
                 <div class="task-header">
                     <div class="task-title">
                         <span class="task-name">${this.escapeHtml(t.task_name || t.name || '未命名')}</span>
-                        <span class="task-id">#${t.schedule_id}</span>
+                        <span class="task-id">#${(t.schedule_id || '').slice(0, 8)}</span>
                     </div>
                     <div class="task-actions">
                         <span class="task-status-tag ${statusClass}">${t.is_active ? '激活' : '已禁用'}</span>
@@ -915,9 +968,23 @@ export const taskModule = {
                             <span class="info-label">调度</span>
                             <span class="info-value">${this.escapeHtml(cronOrInterval)}</span>
                         </div>
+                        <div class="task-info-item">
+                            <span class="info-label">下次运行</span>
+                            <span class="info-value">${nextRun}</span>
+                        </div>
+                        ${t.is_active && t.next_run_time ? `
+                        <div class="task-info-item">
+                            <span class="info-label">距离下次</span>
+                            <span class="info-value">${this.formatTimeUntil(t.next_run_time)}</span>
+                        </div>` : ''}
+                        ${lastRun ? `<div class="task-info-item"><span class="info-label">上次运行</span><span class="info-value">${lastRun}</span></div>` : ''}
+                        ${errInfo ? `<div class="task-info-item">${errInfo}</div>` : ''}
                     </div>
+                    ${lastErr}
                 </div>
                 <div class="task-footer">
+                    <button class="btn-small btn-primary" onclick="app.viewScheduledTaskRuns('${t.schedule_id}', ${JSON.stringify(t.task_name || t.name || '')}, ${JSON.stringify(t.next_run_time || '')})">查看执行记录</button>
+                    <button class="btn-small btn-success" onclick="app.runScheduledTaskNow('${t.schedule_id}')">立即执行</button>
                     <button class="btn-small" onclick="app.toggleScheduledTask('${t.schedule_id}', ${!t.is_active})">${t.is_active ? '禁用' : '启用'}</button>
                     <button class="btn-small btn-danger" onclick="app.deleteScheduledTask('${t.schedule_id}')">删除</button>
                 </div>
@@ -943,20 +1010,209 @@ export const taskModule = {
         this.loadScheduledTasks();
     },
 
+    async viewScheduledTaskRuns(scheduleId, taskName, nextRunTime) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.id = 'scheduledTaskRunsModal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>${this.escapeHtml(taskName || '定时任务')} 执行记录</h3>
+                    <button class="modal-close" onclick="this.closest('.modal').remove()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div id="scheduledRunsTaskList" class="task-list">加载中...</div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal').remove()">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+        const container = document.getElementById('scheduledRunsTaskList');
+        try {
+            const q = new URLSearchParams({ limit: 100, offset: 0 });
+            if (scheduleId) q.set('created_by_schedule_id', scheduleId);
+            const res = await fetch(`/api/task-queue/tasks?${q}`);
+            const data = await res.json();
+            if (data.success && data.tasks && data.tasks.length) {
+                container.innerHTML = data.tasks.map(t => this.renderTaskListItem(t)).join('');
+            } else {
+                const nextRunHint = nextRunTime ? `<p class="form-hint">下次运行: ${this.formatDateTime(nextRunTime)}</p>` : '';
+                container.innerHTML = `<div class="empty-state"><p>暂无执行记录</p><p class="form-hint">定时任务到期后由心跳创建任务，执行记录会显示在此处。</p>${nextRunHint}</div>`;
+            }
+        } catch (e) {
+            container.innerHTML = `<div class="empty-state">加载失败: ${this.escapeHtml(String(e.message || e))}</div>`;
+        }
+    },
+
     async showCreateScheduledTaskModal() {
-        alert('创建定时任务功能待实现');
+        let taskTypes = [];
+        try {
+            const response = await fetch('/api/task-queue/task-types');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.task_types) taskTypes = data.task_types;
+            }
+        } catch (error) {
+            console.error('加载任务类型失败:', error);
+        }
+        if (taskTypes.length === 0) {
+            taskTypes = [
+                { type: 'weather_query', name: '天气查询', description: '查询天气预报', metadata_schema: { location: { type: 'string', required: true, description: '城市' }, query_type: { type: 'string', required: false, description: '类型', enum: [{ value: 'current', label: '实时' }, { value: 'forecast', label: '预报' }], default: 'current' } } }
+            ];
+        }
+
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.id = 'createScheduledTaskModal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>创建定时任务</h3>
+                    <button class="modal-close" onclick="this.closest('.modal').remove()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="schedTaskTypeSelect">任务类型 <span class="required">*</span></label>
+                        <select id="schedTaskTypeSelect" class="form-control">
+                            <option value="">请选择</option>
+                            ${taskTypes.map(t => `<option value="${t.type}" data-schema='${JSON.stringify(t.metadata_schema || {}).replace(/'/g, '&#39;')}'>${t.name} - ${t.description}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>任务参数</label>
+                        <div id="schedMetadataInputs"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="schedTaskNameInput">任务名称</label>
+                        <input type="text" id="schedTaskNameInput" class="form-control" placeholder="留空自动生成">
+                    </div>
+                    <div class="form-group">
+                        <label for="schedScheduleTypeSelect">调度类型 <span class="required">*</span></label>
+                        <select id="schedScheduleTypeSelect" class="form-control">
+                            <option value="interval">按间隔 (interval)</option>
+                            <option value="cron">Cron 表达式</option>
+                        </select>
+                    </div>
+                    <div id="schedIntervalGroup" class="form-group">
+                        <label for="schedIntervalSeconds">间隔秒数 <span class="required">*</span> (≥60)</label>
+                        <input type="number" id="schedIntervalSeconds" class="form-control" value="3600" min="60">
+                    </div>
+                    <div id="schedCronGroup" class="form-group" style="display:none">
+                        <label for="schedCronExpr">Cron 表达式 <span class="required">*</span></label>
+                        <input type="text" id="schedCronExpr" class="form-control" placeholder="0 2 * * * (分 时 日 月 周)">
+                        <label for="schedCronTz" class="form-hint">时区（可选）</label>
+                        <input type="text" id="schedCronTz" class="form-control" placeholder="Asia/Shanghai">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal').remove()">取消</button>
+                    <button class="btn-primary" onclick="app.submitCreateScheduledTask()">创建</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const typeSelect = document.getElementById('schedTaskTypeSelect');
+        const scheduleTypeSelect = document.getElementById('schedScheduleTypeSelect');
+        const intervalGroup = document.getElementById('schedIntervalGroup');
+        const cronGroup = document.getElementById('schedCronGroup');
+
+        typeSelect.addEventListener('change', () => {
+            const opt = typeSelect.options[typeSelect.selectedIndex];
+            const schema = opt.value ? JSON.parse(opt.getAttribute('data-schema') || '{}') : {};
+            this.renderMetadataFields(schema, document.getElementById('schedMetadataInputs'));
+        });
+
+        scheduleTypeSelect.addEventListener('change', () => {
+            const isCron = scheduleTypeSelect.value === 'cron';
+            intervalGroup.style.display = isCron ? 'none' : 'block';
+            cronGroup.style.display = isCron ? 'block' : 'none';
+        });
+
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    },
+
+    async submitCreateScheduledTask() {
+        const taskType = document.getElementById('schedTaskTypeSelect').value;
+        const taskName = document.getElementById('schedTaskNameInput').value.trim();
+        const scheduleType = document.getElementById('schedScheduleTypeSelect').value;
+        const metadata = {};
+        document.querySelectorAll('#schedMetadataInputs input, #schedMetadataInputs textarea, #schedMetadataInputs select').forEach(input => {
+            const key = (input.name || '').replace('metadata_', '');
+            if (!key) return;
+            let value;
+            if (input.type === 'checkbox') {
+                value = input.checked;
+            } else {
+                value = input.value?.trim();
+                if (value) {
+                    if (input.tagName === 'TEXTAREA') { try { value = JSON.parse(value); } catch {} }
+                    else if (input.type === 'number') value = parseFloat(value);
+                }
+            }
+            if (value !== undefined && value !== '') metadata[key] = value;
+        });
+
+        if (!taskType) { alert('请选择任务类型'); return; }
+
+        let scheduleConfig;
+        if (scheduleType === 'interval') {
+            const sec = parseInt(document.getElementById('schedIntervalSeconds').value) || 60;
+            if (sec < 60) { alert('间隔秒数须 ≥ 60'); return; }
+            scheduleConfig = { interval_seconds: sec };
+        } else {
+            const cron = document.getElementById('schedCronExpr').value.trim();
+            if (!cron) { alert('请填写 Cron 表达式'); return; }
+            scheduleConfig = { cron };
+            const tz = document.getElementById('schedCronTz').value.trim();
+            if (tz) scheduleConfig.tz = tz;
+        }
+
+        try {
+            const res = await fetch('/api/task-queue/scheduled-tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_type: taskType, task_name: (taskName || '').trim(), schedule_type: scheduleType, schedule_config: scheduleConfig, metadata })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('定时任务创建成功');
+                document.getElementById('createScheduledTaskModal')?.remove();
+                this.loadScheduledTasks();
+            } else {
+                throw new Error(getApiErrorMessage(data));
+            }
+        } catch (e) {
+            alert('创建失败: ' + (e.message || String(e)));
+        }
     },
 
     async toggleScheduledTask(scheduleId, isActive) {
         try {
-            const response = await fetch(`/api/task-queue/scheduled-tasks/${scheduleId}/toggle`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_active: isActive })
-            });
+            const response = await fetch(`/api/task-queue/scheduled-tasks/${scheduleId}/toggle?is_active=${isActive}`);
             if (response.ok) this.loadScheduledTasks();
         } catch (e) {
             console.error('切换定时任务失败:', e);
+        }
+    },
+
+    async runScheduledTaskNow(scheduleId) {
+        try {
+            const res = await fetch(`/api/task-queue/scheduled-tasks/${scheduleId}/run-now`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                this.loadScheduledTasks();
+                const tid = data.task_id ? `#${data.task_id.slice(0, 8)}` : '';
+                alert(`已创建任务 ${tid}，可在执行记录中查看`);
+            } else {
+                alert('立即执行失败: ' + (data.detail || '未知错误'));
+            }
+        } catch (e) {
+            alert('立即执行失败: ' + (e.message || String(e)));
         }
     },
 
@@ -999,7 +1255,37 @@ export const taskModule = {
         const map = { 1: '低', 2: '普通', 3: '高', 4: '紧急' };
         return map[priority] || '普通';
     },
-    
+
+    formatDateTime(s) {
+        if (!s) return '-';
+        const d = new Date(s);
+        return isNaN(d) ? '-' : d.toLocaleString('zh-CN');
+    },
+
+    formatTimeUntil(nextRunTime) {
+        if (!nextRunTime) return '';
+        const next = new Date(nextRunTime);
+        if (isNaN(next)) return '';
+        const now = Date.now();
+        const diffMs = next - now;
+        if (diffMs <= 0) return '即将执行';
+        const diffSec = Math.floor(diffMs / 1000);
+        const diffMin = Math.floor(diffSec / 60);
+        const diffHour = Math.floor(diffMin / 60);
+        const diffDay = Math.floor(diffHour / 24);
+        if (diffMin < 1) return '还剩 1 分钟内';
+        if (diffMin < 60) return `还剩 ${diffMin} 分钟`;
+        if (diffHour < 24) return diffMin % 60 === 0 ? `还剩 ${diffHour} 小时` : `还剩 ${diffHour} 小时 ${diffMin % 60} 分钟`;
+        if (diffDay < 7) return `还剩 ${diffDay} 天`;
+        return this.formatDateTime(nextRunTime);
+    },
+
+    escapeHtml(str) {
+        if (str == null) return '';
+        const s = String(str);
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
+
     // 配置数据
     normalStatsConfig: [
         { id: 'totalTasksCount', label: '总任务', class: '' },

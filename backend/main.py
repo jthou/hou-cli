@@ -229,11 +229,13 @@ def find_free_port() -> int:
         port = s.getsockname()[1]
     return port
 
-def is_port_available(port: int) -> bool:
-    """检查端口是否可用（可以绑定）"""
+def is_port_available(port: int, reuse_addr: bool = True) -> bool:
+    """检查端口是否可用（可以绑定）。reuse_addr=True 时使用 SO_REUSEADDR，支持 TIME_WAIT 状态下复用。"""
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if reuse_addr:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(('127.0.0.1', port))
             return True
     except OSError:
@@ -297,12 +299,14 @@ def main():
     uvicorn_log_level = "debug" if config.is_development else "info"
     
     # 启动服务器（不使用 reload 模式，需要手动重启）
-    # 开发环境和生产环境都使用相同的启动方式
+    # timeout_graceful_shutdown: 收到 SIGTERM 后最多等待 N 秒即强制退出，释放端口，避免 make start 重启时端口长期占用
+    # uvicorn 默认已设置 SO_REUSEADDR，支持端口在 TIME_WAIT 状态下快速复用
     uvicorn.run(
-        app,  # 直接传递应用对象
+        app,
         host="127.0.0.1",
         port=port,
-        log_level=uvicorn_log_level
+        log_level=uvicorn_log_level,
+        timeout_graceful_shutdown=int(os.getenv("UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN", "5")),
     )
 
 if __name__ == "__main__":

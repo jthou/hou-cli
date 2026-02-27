@@ -1,4 +1,12 @@
 
+/* 按钮样式补充 */
+.btn-success {
+    border-color: rgba(34, 197, 94, 0.5);
+    color: rgb(74, 222, 128);
+}
+.btn-success:hover {
+    background-color: rgba(34, 197, 94, 0.1);
+}
 
 /* 任务详情弹窗样式 */
 .task-detail-modal {

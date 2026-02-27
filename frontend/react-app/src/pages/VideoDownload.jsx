@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useToast } from '../components/ToastModal'
 
 export default function VideoDownload() {
+  const toast = useToast()
   const [url, setUrl] = useState('')
   const [quality, setQuality] = useState('best')
   const [outputDir, setOutputDir] = useState('')
@@ -23,7 +25,7 @@ export default function VideoDownload() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!url.trim()) {
-      alert('请输入视频链接')
+      toast.warning('请输入视频链接')
       return
     }
     setSubmitting(true)

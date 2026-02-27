@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { useToast } from '../components/ToastModal'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 const TASK_API = {
@@ -12,6 +13,7 @@ const TASK_API = {
 }
 
 export default function PipelineOrchestration() {
+  const toast = useToast()
   const [step, setStep] = useState('choose') // 'choose' | 'fill'
   const [selectedId, setSelectedId] = useState(null)
   const [formValues, setFormValues] = useState({})
@@ -58,7 +60,7 @@ export default function PipelineOrchestration() {
       if (data.success && data.path) setField(fieldId, data.path)
       else throw new Error(data.detail || '上传失败')
     } catch (err) {
-      alert('上传失败: ' + (err?.message || String(err)))
+      toast.error('上传失败: ' + (err?.message || String(err)))
     }
     setUploading(false)
     e.target.value = ''
@@ -73,7 +75,7 @@ export default function PipelineOrchestration() {
       const result = await template.createTasks(formValues, TASK_API)
       setCreatedIds(result)
     } catch (err) {
-      alert('创建失败: ' + (err?.message || String(err)))
+      toast.error('创建失败: ' + (err?.message || String(err)))
     }
     setSubmitting(false)
   }

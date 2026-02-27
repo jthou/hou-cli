@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useToast } from '../components/ToastModal'
 
 export default function WeatherQuery() {
+  const toast = useToast()
   const [location, setLocation] = useState('')
   const [queryType, setQueryType] = useState('current')
   const [includeWarning, setIncludeWarning] = useState(false)
@@ -13,7 +15,7 @@ export default function WeatherQuery() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!location.trim()) {
-      alert('请输入城市名称')
+      toast.warning('请输入城市名称')
       return
     }
     setSubmitting(true)

@@ -822,6 +822,86 @@ class TestTaskQueueRoutes:
         mock_task_queue_db.cleanup_stale_tasks.assert_called_once_with(max_idle_minutes=30)
 
 
+class TestScheduledTaskRoutes:
+    """定时任务 API 测试"""
+
+    def test_create_scheduled_task_interval(self, client, mock_task_queue_db):
+        """创建 interval 定时任务"""
+        mock_task_queue_db.create_scheduled_task.return_value = "sched-uuid-1"
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/scheduled-tasks",
+                json={
+                    "task_type": "weather_query",
+                    "task_name": "每小时北京天气",
+                    "schedule_type": "interval",
+                    "schedule_config": {"interval_seconds": 3600},
+                    "metadata": {"location": "北京", "query_type": "current"},
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["schedule_id"] == "sched-uuid-1"
+        mock_task_queue_db.create_scheduled_task.assert_called_once()
+        call_kw = mock_task_queue_db.create_scheduled_task.call_args[1]
+        assert call_kw["task_type"] == "weather_query"
+        assert call_kw["schedule_config"]["interval_seconds"] == 3600
+
+    def test_create_scheduled_task_cron(self, client, mock_task_queue_db):
+        """创建 cron 定时任务"""
+        mock_task_queue_db.create_scheduled_task.return_value = "sched-uuid-2"
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/scheduled-tasks",
+                json={
+                    "task_type": "weather_query",
+                    "task_name": "每天天气",
+                    "schedule_type": "cron",
+                    "schedule_config": {"cron": "0 8 * * *", "tz": "Asia/Shanghai"},
+                    "metadata": {"location": "上海"},
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        call_kw = mock_task_queue_db.create_scheduled_task.call_args[1]
+        assert call_kw["schedule_config"]["cron"] == "0 8 * * *"
+
+    def test_list_scheduled_tasks(self, client, mock_task_queue_db):
+        """列出定时任务"""
+        mock_task_queue_db.list_scheduled_tasks.return_value = [
+            {"schedule_id": "s1", "task_name": "测试", "is_active": True},
+        ]
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.get("/api/task-queue/scheduled-tasks?active_only=false")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert len(data["scheduled_tasks"]) == 1
+        mock_task_queue_db.list_scheduled_tasks.assert_called_once_with(active_only=False)
+
+    def test_toggle_scheduled_task(self, client, mock_task_queue_db):
+        """启用/禁用定时任务"""
+        mock_task_queue_db.toggle_scheduled_task.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.put("/api/task-queue/scheduled-tasks/s1/toggle?is_active=false")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        mock_task_queue_db.toggle_scheduled_task.assert_called_once_with("s1", False)
+
+    def test_delete_scheduled_task(self, client, mock_task_queue_db):
+        """删除定时任务"""
+        mock_task_queue_db.delete_scheduled_task.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.delete("/api/task-queue/scheduled-tasks/s1")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        mock_task_queue_db.delete_scheduled_task.assert_called_once_with("s1")
+
+
 class TestTaskQueueIntegration:
     """集成测试：真实 TaskQueueDB（SQLite）"""
 
