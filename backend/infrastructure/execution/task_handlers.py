@@ -171,7 +171,11 @@ TASK_TYPES = {
                 ]
             },
             "download_danmaku": {"type": "boolean", "required": False, "description": "下载 B 站弹幕（ASS）", "default": False},
-        }
+        },
+        "pipeline_outputs": [
+            {"path": "result.data.output_file", "type": "file", "format": "audio", "description": "输出音频文件路径（仅当 extract_audio_only 为 true 时有效）"},
+            {"path": "result.data.output_file", "type": "file", "format": "video", "description": "输出视频文件路径（完整下载时有效）"}
+        ],
     },
     "weather_query": {
         "name": "天气查询",
@@ -352,7 +356,8 @@ TASK_TYPES = {
                 "type": "string",
                 "required": False,
                 "description": "本地文本文件路径（与 content 二选一，填写则从该文件读取内容）",
-                "placeholder": "如：/Users/xx/note.txt"
+                "placeholder": "如：/Users/xx/note.txt",
+                "pipeline_accept": {"type": "file", "formats": ["text"]}
             },
             "summary": {
                 "type": "string",
@@ -578,7 +583,13 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
             except Exception:
                 pass
 
-        tool.progress_callback = on_progress
+        # 适配 Tool.progress_callback 的 (str) -> None：下载器可能调用 (pct, msg) 或 (msg)
+        def _cb(a, b=None):
+            if b is not None:
+                on_progress(a, b)
+            else:
+                on_progress(0, a or "")
+        tool.progress_callback = _cb
         result = tool.execute(url=url, output_dir=output_dir, **opts)
         return result
 
@@ -586,7 +597,16 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
         result = await asyncio.to_thread(_run_download)
         if result.success:
             worker.update_task_progress(100, "下载完成")
-            data = result.data or {}
+            data = dict(result.data or {})
+            # 管道衔接：若工具未提供 output_file，从 output_dir 推断（you-get 等仅返回 output_dir）
+            if not data.get("output_file") and data.get("output_dir"):
+                try:
+                    from backend.core.agent.tools.builtin.video_downloader_tool import _find_single_output_file
+                    out_path = _find_single_output_file(Path(data["output_dir"]))
+                    if out_path:
+                        data["output_file"] = out_path
+                except Exception:
+                    pass
             output_dir = data.get("output_dir", "")
             title = data.get("title", "")
             summary = f"已保存至 {output_dir}" if output_dir else (title or "下载完成")
@@ -817,7 +837,7 @@ def get_available_task_types() -> List[Dict[str, Any]]:
     ]
 
 
-def get_task_type_info(task_type: str) -> Dict[str, Any]:
+def get_task_type_info(task_type: str) -> Optional[Dict[str, Any]]:
     """获取特定任务类型的信息（含 pipeline_outputs，供管道编排判断可链接性）"""
     if task_type not in TASK_TYPES:
         return None

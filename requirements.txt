@@ -18,6 +18,9 @@ requests>=2.31.0  # 用于健康检查（httpx 在某些情况下可能有问题
 # 数据验证
 pydantic>=2.0.0
 
+# 数据库迁移（部署时手动执行 alembic upgrade head）
+alembic>=1.13.0
+
 # ===== LLM 服务 =====
 # OpenAI 兼容 API（用于 DeepSeek）
 openai>=1.0.0
@@ -74,17 +77,20 @@ cryptography>=41.0.0
 mwclient>=0.10.0
 wikipedia>=1.4.0
 
+# ===== 语音转文字（speech_to_text 任务） =====
+openai-whisper>=20231117
+
 # ===== 视频下载工具 =====
 # 浏览器 cookies 提取（用于视频下载工具，支持从浏览器提取 cookies）
 browser-cookie3>=0.19.0
+# 视频下载引擎（二选一或都装）
+yt-dlp>=2024.1.0
+you-get>=0.4.1650
 
-# ===== 浏览器自动化 =====
-# 注意：browser-use 已从源码集成到 backend/externals/browser-use
-# 不再需要安装 browser-use 包，但需要安装其依赖：
-# Playwright（浏览器驱动，browser-use 的依赖）
-playwright>=1.40.0
-# anyio（browser-use 需要）
-anyio>=4.9.0
+# ===== 浏览器自动化（暂时移除，后续再开发；启用时取消注释并设置 BROWSER_TOOL_ENABLED=true） =====
+# browser-use>=0.1.0
+# playwright>=1.40.0
+# anyio>=4.9.0
 # 注意：安装后需要运行 playwright install chromium 安装浏览器
 
 # ===== Jupyter 工具 =====

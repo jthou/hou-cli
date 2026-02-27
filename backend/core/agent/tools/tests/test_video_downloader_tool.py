@@ -11,8 +11,6 @@ from backend.core.agent.tools.builtin.video_downloader_tool import (
     YtDlpDownloader,
     _detect_platform,
     _select_downloader,
-    _get_you_get_path,
-    _get_yt_dlp_path,
 )
 
 
@@ -43,148 +41,142 @@ class TestPlatformDetection:
 
 
 class TestYouGetDownloader:
-    """测试 YouGetDownloader 适配器"""
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_you_get_path')
-    def test_is_available_true(self, mock_path):
+    """测试 YouGetDownloader 适配器（现用 pip you-get，通过 subprocess python -m you_get）"""
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool.subprocess.run')
+    def test_is_available_true(self, mock_run):
         """测试 is_available 返回 True"""
-        mock_path.return_value = Path("/fake/path")
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('sys.path'):
-                with patch('builtins.__import__', return_value=MagicMock()):
-                    downloader = YouGetDownloader()
-                    assert downloader.is_available() is True
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_you_get_path')
-    def test_is_available_false(self, mock_path):
+        mock_run.return_value = MagicMock(returncode=0)
+        downloader = YouGetDownloader()
+        assert downloader.is_available() is True
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool.subprocess.run')
+    def test_is_available_false(self, mock_run):
         """测试 is_available 返回 False"""
-        mock_path.return_value = Path("/fake/path")
-        with patch('pathlib.Path.exists', return_value=False):
-            downloader = YouGetDownloader()
-            assert downloader.is_available() is False
-    
+        mock_run.side_effect = FileNotFoundError()
+        downloader = YouGetDownloader()
+        assert downloader.is_available() is False
+
     def test_supports_platform(self):
         """测试 supports_platform"""
         downloader = YouGetDownloader()
         assert downloader.supports_platform("https://www.youtube.com/watch?v=xxx") is True
         assert downloader.supports_platform("https://www.bilibili.com/video/BV123") is True
         assert downloader.supports_platform("https://example.com/video") is False
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_you_get_path')
-    @patch('subprocess.run')
-    def test_download_success(self, mock_run, mock_path):
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool.subprocess.run')
+    def test_download_success(self, mock_run):
         """测试下载成功"""
-        mock_path_obj = MagicMock()
-        mock_path_obj.exists.return_value = True
-        mock_path.return_value = mock_path_obj
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
-        
+        mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
         downloader = YouGetDownloader()
         result = downloader.download(
             "https://www.youtube.com/watch?v=xxx",
             Path("/tmp/output"),
             quality="720p"
         )
-        
         assert result.success is True
         assert result.data['tool'] == 'you-get'
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_you_get_path')
-    @patch('subprocess.run')
-    def test_download_failure(self, mock_run, mock_path):
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool.subprocess.run')
+    def test_download_failure(self, mock_run):
         """测试下载失败"""
-        mock_path_obj = MagicMock()
-        mock_path_obj.exists.return_value = True
-        mock_path.return_value = mock_path_obj
-        mock_run.return_value = MagicMock(returncode=1, stderr="Error message")
-        
+        mock_run.return_value = MagicMock(returncode=1, stderr="Error message", stdout="")
         downloader = YouGetDownloader()
         result = downloader.download(
             "https://www.youtube.com/watch?v=xxx",
             Path("/tmp/output")
         )
-        
         assert result.success is False
-        # 错误信息可能是中文或英文
         error_lower = result.error.lower()
         assert "you-get" in error_lower and ("failed" in error_lower or "失败" in error_lower or "下载失败" in result.error)
 
 
 class TestYtDlpDownloader:
-    """测试 YtDlpDownloader 适配器"""
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_yt_dlp_path')
-    def test_is_available_true(self, mock_path):
-        """测试 is_available 返回 True"""
-        mock_path.return_value = Path("/fake/path")
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('sys.path'):
-                with patch('builtins.__import__', return_value=MagicMock()):
-                    downloader = YtDlpDownloader()
-                    assert downloader.is_available() is True
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_yt_dlp_path')
-    def test_is_available_false(self, mock_path):
-        """测试 is_available 返回 False"""
-        mock_path.return_value = Path("/fake/path")
-        with patch('pathlib.Path.exists', return_value=False):
+    """测试 YtDlpDownloader 适配器（现用 pip yt-dlp，直接 import yt_dlp）"""
+
+    def test_is_available_true(self):
+        """测试 is_available 返回 True（mock 已安装 yt_dlp）"""
+        import sys
+        try:
+            sys.modules['yt_dlp'] = MagicMock()
+            downloader = YtDlpDownloader()
+            assert downloader.is_available() is True
+        finally:
+            sys.modules.pop('yt_dlp', None)
+
+    def test_is_available_false(self):
+        """测试 is_available 返回 False（import yt_dlp 失败）"""
+        real_import = builtins.__import__
+        def fake_import(name, *a, **k):
+            if name == 'yt_dlp':
+                raise ImportError("No module named 'yt_dlp'")
+            return real_import(name, *a, **k)
+        with patch('builtins.__import__', side_effect=fake_import):
             downloader = YtDlpDownloader()
             assert downloader.is_available() is False
-    
+
     def test_supports_platform(self):
         """测试 supports_platform"""
         downloader = YtDlpDownloader()
         assert downloader.supports_platform("https://www.youtube.com/watch?v=xxx") is True
         assert downloader.supports_platform("https://www.bilibili.com/video/BV123") is True
         assert downloader.supports_platform("https://example.com/video") is False
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_yt_dlp_path')
-    def test_download_subtitle_only(self, mock_path):
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
+    def test_download_subtitle_only(self, mock_ffmpeg_dir):
         """测试只下载字幕"""
-        mock_path.return_value = Path("/fake/path")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         mock_yt_dlp = MagicMock()
         mock_ydl = MagicMock()
         mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
         mock_ydl.extract_info.return_value = {'title': 'Test Video'}
-        
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('sys.path'):
-                with patch('builtins.__import__', return_value=mock_yt_dlp):
-                    downloader = YtDlpDownloader()
-                    result = downloader.download(
-                        "https://www.youtube.com/watch?v=xxx",
-                        Path("/tmp/output"),
-                        download_subtitle_only=True,
-                        subtitle_languages=["en", "zh"]
-                    )
-                    
-                    assert result.success is True
-                    mock_ydl.extract_info.assert_called_once()
-    
-    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_yt_dlp_path')
-    def test_extract_audio_only(self, mock_path):
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            result = downloader.download(
+                "https://www.youtube.com/watch?v=xxx",
+                Path("/tmp/output"),
+                download_subtitle_only=True,
+                subtitle_languages=["en", "zh"]
+            )
+            assert result.success is True
+            mock_ydl.extract_info.assert_called_once()
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
+    def test_extract_audio_only(self, mock_ffmpeg_dir):
         """测试只提取音频"""
-        mock_path.return_value = Path("/fake/path")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         mock_yt_dlp = MagicMock()
         mock_ydl = MagicMock()
         mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
         mock_ydl.extract_info.return_value = {'title': 'Test Video'}
-        
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('sys.path'):
-                with patch('builtins.__import__', return_value=mock_yt_dlp):
-                    downloader = YtDlpDownloader()
-                    result = downloader.download(
-                        "https://www.youtube.com/watch?v=xxx",
-                        Path("/tmp/output"),
-                        extract_audio_only=True,
-                        audio_format="mp3",
-                        audio_quality="192k"
-                    )
-                    
-                    assert result.success is True
-                    mock_ydl.extract_info.assert_called_once()
-    
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            result = downloader.download(
+                "https://www.youtube.com/watch?v=xxx",
+                Path("/tmp/output"),
+                extract_audio_only=True,
+                audio_format="mp3",
+                audio_quality="192k"
+            )
+            assert result.success is True
+            mock_ydl.extract_info.assert_called_once()
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
+
     def test_convert_quality_to_yt_dlp_format(self):
         """测试质量参数转换"""
         downloader = YtDlpDownloader()
@@ -408,14 +400,12 @@ def _patch_import_yt_dlp(mock_yt_dlp):
 
 
 @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
-@patch('backend.core.agent.tools.builtin.video_downloader_tool._get_yt_dlp_path')
 class TestYtDlpAntiScrapingCapability:
     """能力测试：YtDlp 反爬虫能力（headers、cookies、412、错误文案）"""
 
-    def test_bilibili_url_receives_http_headers(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+    def test_bilibili_url_receives_http_headers(self, mock_ffmpeg_dir):
         """B 站 URL 时传入 yt-dlp 的 opts 含 http_headers（User-Agent、Referer）"""
-        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
-        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         captured_opts = []
 
         def capture_opts(ydl_opts):
@@ -426,24 +416,29 @@ class TestYtDlpAntiScrapingCapability:
         mock_yt_dlp.YoutubeDL.side_effect = capture_opts
         mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
 
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('sys.path'):
-                with _patch_import_yt_dlp(mock_yt_dlp):
-                    downloader = YtDlpDownloader()
-                    downloader.download(
-                        "https://www.bilibili.com/video/BV123",
-                        Path("/tmp/out"),
-                    )
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            downloader.download(
+                "https://www.bilibili.com/video/BV123",
+                Path("/tmp/out"),
+            )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
         assert len(captured_opts) >= 1
         opts = captured_opts[0]
         assert 'http_headers' in opts
         assert opts['http_headers'].get('User-Agent', '').startswith('Mozilla/')
         assert 'bilibili.com' in opts['http_headers'].get('Referer', '')
 
-    def test_cookies_file_sets_cookiefile_in_opts(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+    def test_cookies_file_sets_cookiefile_in_opts(self, mock_ffmpeg_dir):
         """cookies_file 有效时 ydl_opts 含 cookiefile"""
-        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
-        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         captured_opts = []
 
         def capture_opts(ydl_opts):
@@ -453,25 +448,29 @@ class TestYtDlpAntiScrapingCapability:
         mock_yt_dlp = MagicMock()
         mock_yt_dlp.YoutubeDL.side_effect = capture_opts
         mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
-
-        with patch('backend.core.agent.tools.builtin.video_downloader_tool._load_cookies_from_file') as m_load:
-            m_load.return_value = "/tmp/cookies.txt"
-            with patch('pathlib.Path.exists', return_value=True):
-                with patch('sys.path'):
-                    with _patch_import_yt_dlp(mock_yt_dlp):
-                        downloader = YtDlpDownloader()
-                        downloader.download(
-                            "https://www.youtube.com/watch?v=xxx",
-                            Path("/tmp/out"),
-                            cookies_file="/tmp/cookies.txt",
-                        )
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            with patch('backend.core.agent.tools.builtin.video_downloader_tool._load_cookies_from_file') as m_load:
+                m_load.return_value = "/tmp/cookies.txt"
+                downloader = YtDlpDownloader()
+                downloader.download(
+                    "https://www.youtube.com/watch?v=xxx",
+                    Path("/tmp/out"),
+                    cookies_file="/tmp/cookies.txt",
+                )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
         assert len(captured_opts) >= 1
         assert captured_opts[0].get('cookiefile') == "/tmp/cookies.txt"
 
-    def test_cookies_from_browser_sets_cookiefile_in_opts(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+    def test_cookies_from_browser_sets_cookiefile_in_opts(self, mock_ffmpeg_dir):
         """cookies_from_browser 指定时尝试提取并设置 cookiefile"""
-        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
-        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         captured_opts = []
 
         def capture_opts(ydl_opts):
@@ -481,25 +480,29 @@ class TestYtDlpAntiScrapingCapability:
         mock_yt_dlp = MagicMock()
         mock_yt_dlp.YoutubeDL.side_effect = capture_opts
         mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
-
-        with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
-            m_extract.return_value = "/tmp/browser_cookies.txt"
-            with patch('pathlib.Path.exists', return_value=True):
-                with patch('sys.path'):
-                    with _patch_import_yt_dlp(mock_yt_dlp):
-                        downloader = YtDlpDownloader()
-                        downloader.download(
-                            "https://www.bilibili.com/video/BV123",
-                            Path("/tmp/out"),
-                            cookies_from_browser="chrome",
-                        )
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
+                m_extract.return_value = "/tmp/browser_cookies.txt"
+                downloader = YtDlpDownloader()
+                downloader.download(
+                    "https://www.bilibili.com/video/BV123",
+                    Path("/tmp/out"),
+                    cookies_from_browser="chrome",
+                )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
         assert len(captured_opts) >= 1
         assert captured_opts[0].get('cookiefile') == "/tmp/browser_cookies.txt"
 
-    def test_412_tries_browser_cookies_and_retry_succeeds(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+    def test_412_tries_browser_cookies_and_retry_succeeds(self, mock_ffmpeg_dir):
         """412 错误时尝试从浏览器提取 cookie 并重试，第二次成功则返回 success"""
-        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
-        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         DownloadError = type('DownloadError', (Exception,), {})
 
         cm_first = MagicMock()
@@ -510,26 +513,30 @@ class TestYtDlpAntiScrapingCapability:
         mock_yt_dlp = MagicMock()
         mock_yt_dlp.YoutubeDL.side_effect = [cm_first, cm_retry]
         mock_yt_dlp.utils.DownloadError = DownloadError
-
-        with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
-            m_extract.return_value = "/tmp/auto_cookies.txt"
-            with patch('pathlib.Path.exists', return_value=True):
-                with patch('sys.path'):
-                    with _patch_import_yt_dlp(mock_yt_dlp):
-                        downloader = YtDlpDownloader()
-                        result = downloader.download(
-                            "https://www.bilibili.com/video/BV123",
-                            Path("/tmp/out"),
-                        )
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
+                m_extract.return_value = "/tmp/auto_cookies.txt"
+                downloader = YtDlpDownloader()
+                result = downloader.download(
+                    "https://www.bilibili.com/video/BV123",
+                    Path("/tmp/out"),
+                )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
         assert result.success is True
         assert result.data.get('title') == 'B站视频'
         assert result.data.get('cookies_auto_extracted') is True
         assert result.data.get('cookies_source') in ('chrome', 'firefox', 'safari', 'edge')
 
-    def test_login_required_error_includes_cookie_suggestion(self, mock_yt_dlp_path, mock_ffmpeg_dir):
+    def test_login_required_error_includes_cookie_suggestion(self, mock_ffmpeg_dir):
         """登录/机器人错误时返回文案含 cookie 使用建议"""
-        mock_yt_dlp_path.return_value = Path("/fake/yt-dlp")
-        mock_ffmpeg_dir.return_value = Path("/fake/ffmpeg")
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
         DownloadError = type('DownloadError', (Exception,), {})
 
         mock_ydl = MagicMock()
@@ -540,14 +547,20 @@ class TestYtDlpAntiScrapingCapability:
         mock_yt_dlp.YoutubeDL.return_value.__exit__.return_value = None
         mock_yt_dlp.utils.DownloadError = DownloadError
 
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('sys.path'):
-                with _patch_import_yt_dlp(mock_yt_dlp):
-                    downloader = YtDlpDownloader()
-                    result = downloader.download(
-                        "https://www.bilibili.com/video/BV123",
-                        Path("/tmp/out"),
-                    )
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            result = downloader.download(
+                "https://www.bilibili.com/video/BV123",
+                Path("/tmp/out"),
+            )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
         assert result.success is False
         assert result.error
         err_lower = result.error.lower()

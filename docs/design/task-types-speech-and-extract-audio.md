@@ -32,8 +32,8 @@
 | **language** | string | False | 语言代码，auto 为自动检测 | zh, en, ja；默认 auto |
 | **model** | string | False | Whisper 模型大小 | enum: tiny, base, small, medium, large；默认 base |
 | **output_format** | string | False | 输出格式 | enum: json, text, srt；默认 srt（便于字幕场景） |
-| **output_file** | string | False | 输出文件路径；不填则自动生成在输入文件同目录 | 如：/Users/xx/out.srt |
-| **output_dir** | string | False | 输出目录（仅当未指定 output_file 时生效，用于指定输出目录） | 须在用户主目录下，留空则与输入同目录 |
+| **output_file** | string | False | 输出文件路径；不填则自动生成到项目默认输出目录 | 如：/Users/xx/out.srt |
+| **output_dir** | string | False | 输出目录（仅当未指定 output_file 时生效） | 须在用户主目录下，留空则使用 ~/hou-cli/outputs |
 
 **enum 详细（与现有 WhisperTool 一致）**：
 
@@ -43,13 +43,13 @@
 ### 2.3 校验规则
 
 - **input_file**：必填；非空字符串；对应路径需存在且为文件（可 `expanduser`）；建议限制在用户主目录或允许的根目录下，防止读取任意系统文件。
-- **output_file** / **output_dir**：若提供，须在用户主目录下（使用 `normalize_output_dir` 或等价逻辑，`restrict_to_home=True`）；不提供则 WhisperTool 默认输出到输入文件同目录（需在 handler 内保证该目录可写且安全）。
+- **output_file** / **output_dir**：若提供，须在用户主目录下（使用 `normalize_output_dir` 或等价逻辑，`restrict_to_home=True`）；不提供则使用项目统一默认输出目录 `~/hou-cli/outputs`。
 
 ### 2.4 Handler 行为：`process_speech_to_text_task(task_info)`
 
 1. **取参**：从 `task_info["metadata"]` 读取 `input_file`、`language`、`model`、`output_format`、`output_file`、`output_dir`。
 2. **校验**：校验 `input_file` 存在、可读、路径安全；若指定 `output_file` 或 `output_dir`，做主目录限制。
-3. **输出路径**：若未传 `output_file`，则根据 `output_dir`（经 `normalize_output_dir(..., restrict_to_home=True)`）或输入文件所在目录，生成默认输出路径（如 `{input_stem}_transcription.{srt|txt|json}`）。
+3. **输出路径**：若未传 `output_file`，则根据 `output_dir`（经 `normalize_output_dir(..., restrict_to_home=True)`）或项目默认输出目录（`~/hou-cli/outputs`），生成默认输出路径（如 `{input_stem}_transcription.{srt|txt|json}`）。
 4. **执行**：在 `asyncio.to_thread` 中调用 `WhisperTool().execute(...)`；将工具的进度回调映射到 `worker.update_task_progress`（见 2.6 节）。
 5. **返回**：
    - 成功：`{ "status": "success", "summary": "已转写至 xxx.srt", "data": { ... } }`。
@@ -78,7 +78,7 @@
 | `INPUT_FILE_NOT_FOUND` | 输入文件不存在 | 路径错误或文件已删除 |
 | `INPUT_PATH_OUTSIDE_HOME` | 输入路径不在允许范围内 | 路径安全校验失败 |
 | `OUTPUT_PATH_DENIED` | 输出路径不可写或越界 | output_dir 超出主目录 |
-| `WHISPER_NOT_AVAILABLE` | Whisper 未安装或加载失败 | 缺少 externals/whisper 或依赖 |
+| `WHISPER_NOT_AVAILABLE` | Whisper 未安装或加载失败 | 未安装 openai-whisper 或依赖 |
 | `UNSUPPORTED_FORMAT` | 文件格式不支持 | 非音频或无法解码 |
 | `TRANSCRIPTION_FAILED` | 转写过程失败 | 模型异常、OOM、内部错误 |
 | `TIMEOUT` | 执行超时 | Worker 侧 wait_for 超时 |
@@ -144,7 +144,7 @@ result = await asyncio.to_thread(
 
 ### 2.7 依赖与可选
 
-- **Whisper**：依赖 `backend/externals/whisper`；若未安装或路径错误，返回 `WHISPER_NOT_AVAILABLE` 及明确 message。
+- **Whisper**：已纳入 `requirements.txt`（`openai-whisper`），执行 `make start` 时会自动执行 `pip install -r requirements.txt` 安装。若未安装或加载失败，返回 `WHISPER_NOT_AVAILABLE` 及明确 message。
 - **进度**：按 2.6 将 WhisperTool 的 `report_progress` 或 `progress_callback` 映射到 `worker.update_task_progress`。
 
 ---
@@ -165,8 +165,8 @@ result = await asyncio.to_thread(
 | 字段 | type | required | description | placeholder / enum / default |
 |------|------|----------|-------------|-----------------------------|
 | **input_file** | string | **True** | 本地视频文件路径 | 如：/Users/xx/video.mp4 |
-| **output_file** | string | False | 输出音频文件路径；不填则自动生成 | 如：/Users/xx/audio.mp3 |
-| **output_dir** | string | False | 输出目录（仅当未指定 output_file 时生效） | 须在用户主目录下，留空则与输入同目录 |
+| **output_file** | string | False | 输出音频文件路径；不填则自动生成到项目默认输出目录 | 如：/Users/xx/audio.mp3 |
+| **output_dir** | string | False | 输出目录（仅当未指定 output_file 时生效） | 须在用户主目录下，留空则使用 ~/hou-cli/outputs |
 | **audio_format** | string | False | 音频格式 | enum: mp3, wav, aac, flac, ogg；默认 mp3 |
 | **audio_quality** | string | False | 音频码率/质量 | 默认 192k；可选 128k, 256k, 320k 等 |
 
@@ -178,13 +178,13 @@ result = await asyncio.to_thread(
 ### 3.3 校验规则
 
 - **input_file**：必填；非空；路径存在且为文件；建议限制在用户主目录下（或白名单目录），防止读取任意路径。
-- **output_file** / **output_dir**：若提供，须在用户主目录下；不提供则默认输出到输入文件同目录，文件名由输入 stem + 扩展名（如 `.mp3`）生成。
+- **output_file** / **output_dir**：若提供，须在用户主目录下；不提供则使用项目统一默认输出目录 `~/hou-cli/outputs`，文件名由输入 stem + 扩展名（如 `.mp3`）生成。
 
 ### 3.4 Handler 行为：`process_video_extract_audio_task(task_info)`
 
 1. **取参**：从 `task_info["metadata"]` 读取 `input_file`、`output_file`、`output_dir`、`audio_format`、`audio_quality`。
 2. **校验**：校验 `input_file` 存在、可读、路径安全；若指定 `output_file` 或 `output_dir`，做主目录限制。
-3. **输出路径**：若未传 `output_file`，则根据 `output_dir`（经 `normalize_output_dir(..., restrict_to_home=True)`）或输入文件所在目录，生成默认输出路径（如 `{input_stem}.mp3`），扩展名由 `audio_format` 决定。
+3. **输出路径**：若未传 `output_file`，则根据 `output_dir`（经 `normalize_output_dir(..., restrict_to_home=True)`）或项目默认输出目录（`~/hou-cli/outputs`），生成默认输出路径（如 `{input_stem}.mp3`），扩展名由 `audio_format` 决定。
 4. **执行**：在 `asyncio.to_thread` 中调用 `FFmpegTool().execute(operation="extract_audio", input_file=..., output_file=..., audio_format=..., audio_quality=...)`。
 5. **返回**：
    - 成功：`{ "status": "success", "summary": "已提取至 xxx.mp3", "data": { ... } }`。
@@ -192,7 +192,7 @@ result = await asyncio.to_thread(
 
 ### 3.5 依赖与可选
 
-- **FFmpeg**：依赖系统或 `backend/externals/ffmpeg`；若未找到，返回 `FFMPEG_NOT_FOUND` 及明确 message。
+- **FFmpeg**：依赖系统安装（如 `brew install ffmpeg`）；若未找到，返回 `FFMPEG_NOT_FOUND` 及明确 message。
 - **进度**：extract_audio 通常较快，仅在开始/完成时更新 `message` 即可；若需要可后续在 FFmpegTool 侧增加进度回调。
 
 ---
@@ -203,7 +203,7 @@ result = await asyncio.to_thread(
   - 必须存在且为文件。
   - 建议：`Path(input_file).expanduser().resolve()` 后，检查 `path.relative_to(Path.home().resolve())` 或白名单目录，禁止读写主目录外的路径。
 - **输出路径（output_file / output_dir）**：
-  - 与 `video_download` 一致：使用 `normalize_output_dir(output_dir, restrict_to_home=True)` 或对 `output_file` 的父目录做同样主目录限制；超出则回退到默认下载目录或拒绝。
+  - 与 `video_download` 一致：使用 `normalize_output_dir(output_dir, restrict_to_home=True)` 或对 `output_file` 的父目录做同样主目录限制；未指定则使用项目统一默认输出目录 `~/hou-cli/outputs`，超出主目录则拒绝。
 
 ---
 

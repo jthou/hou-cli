@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import TaskManagement from './pages/TaskManagement'
+import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
+import VideoExtractAudio from './pages/VideoExtractAudio'
+import SpeechToText from './pages/SpeechToText'
+import WeatherQuery from './pages/WeatherQuery'
 import SettingsGeneral from './pages/SettingsGeneral'
 import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
@@ -19,7 +23,11 @@ export default function App() {
         <main className="flex-1 flex flex-col min-w-0 bg-surface overflow-hidden">
           <Routes>
             <Route path="/" element={<TaskManagement />} />
+            <Route path="/pipeline" element={<PipelineOrchestration />} />
             <Route path="/video-download" element={<VideoDownload />} />
+            <Route path="/video-extract-audio" element={<VideoExtractAudio />} />
+            <Route path="/speech-to-text" element={<SpeechToText />} />
+            <Route path="/weather-query" element={<WeatherQuery />} />
             <Route path="/settings/general" element={<SettingsGeneral />} />
             <Route path="/settings/storage" element={<SettingsStorage />} />
             <Route path="/settings/tests" element={<SettingsTests />} />

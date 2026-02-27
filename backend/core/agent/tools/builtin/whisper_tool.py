@@ -1,6 +1,5 @@
-"""Whisper 语音转文字工具"""
+"""Whisper 语音转文字工具（依赖 pip 包 openai-whisper）"""
 import logging
-import sys
 import os
 import threading
 import time
@@ -18,29 +17,14 @@ os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
 os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 
 
-def _get_whisper_path() -> Path:
-    """获取 Whisper 路径"""
-    current_file = Path(__file__).resolve()
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "whisper"
-
-
 def _load_whisper_model(model_name: str = "base"):
-    """加载 Whisper 模型"""
-    whisper_path = _get_whisper_path()
-    if not whisper_path.exists():
-        raise ImportError(f"Whisper not found at {whisper_path}")
-    
-    if str(whisper_path) not in sys.path:
-        sys.path.insert(0, str(whisper_path))
-    
-    import whisper
+    """加载 Whisper 模型（使用 pip 安装的 openai-whisper）"""
+    try:
+        import whisper
+    except ImportError as e:
+        raise ImportError(
+            "Whisper 未安装。请执行: pip install openai-whisper"
+        ) from e
     return whisper.load_model(model_name)
 
 

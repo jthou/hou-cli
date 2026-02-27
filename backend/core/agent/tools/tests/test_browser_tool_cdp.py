@@ -1,15 +1,11 @@
-"""浏览器工具 CDP 连接测试
-
-专门测试 browser-use 库的 CDP (Chrome DevTools Protocol) 连接功能。
-CDP 连接问题通常表现为：
-- JSONDecodeError: 解析浏览器版本信息失败
-- AssertionError: Root CDP client not initialized
-- 浏览器启动失败
-"""
+"""浏览器工具 CDP 连接测试。暂时移除 browser 工具，后续再开发。"""
 import pytest
 import os
 import json
 from dotenv import load_dotenv
+
+pytestmark = pytest.mark.skip(reason="browser tool 暂时移除，后续再开发")
+
 from backend.core.agent.tools.builtin.browser_tool import BrowserTool, BROWSER_USE_AVAILABLE
 
 # 加载 .env 文件

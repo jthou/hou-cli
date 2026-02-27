@@ -1,0 +1,274 @@
+
+
+/* 任务详情弹窗样式 */
+.task-detail-modal {
+    max-width: 800px;
+    width: 90vw;
+    max-height: 90vh;
+}
+
+.task-detail-modal .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.task-detail-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background-color: var(--surface-color);
+    border-radius: 8px;
+}
+
+.task-detail-section h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-color);
+    font-size: 1.2rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.detail-item:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.detail-value {
+    font-weight: 400;
+    color: var(--text-color);
+}
+
+.error-section {
+    background-color: rgba(244, 135, 113, 0.1);
+    border: 1px solid rgba(244, 135, 113, 0.3);
+}
+
+.error-message {
+    color: var(--error-color);
+    padding: 1rem;
+    background-color: rgba(244, 135, 113, 0.15);
+    border-radius: 4px;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+/* 天气预报结果样式 */
+.weather-forecast-result {
+    background-color: var(--bg-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.forecast-summary {
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.forecast-summary h4 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-color);
+}
+
+.forecast-summary p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.forecast-days {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.forecast-day {
+    background-color: var(--surface-color);
+    border-radius: 6px;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+}
+
+.day-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.date {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.temp-range {
+    font-weight: 500;
+    color: var(--accent-color);
+}
+
+.weather-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.day-weather, .night-weather {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.weather-icon {
+    font-size: 1.2rem;
+}
+
+.weather-text {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.wind-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* 实时天气结果样式 */
+.current-weather-result {
+    background-color: var(--bg-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.weather-summary {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.weather-summary h4 {
+    margin: 0;
+    color: var(--text-color);
+}
+
+.weather-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.weather-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem;
+    background-color: var(--surface-color);
+    border-radius: 4px;
+}
+
+.weather-item .label {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.weather-item .value {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+/* 通用结果样式 */
+.generic-result {
+    background-color: var(--bg-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.result-summary {
+    margin-bottom: 1rem;
+}
+
+.result-summary h4 {
+    margin: 0;
+    color: var(--text-color);
+}
+
+.result-data pre {
+    background-color: var(--surface-color);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.9rem;
+}
+
+/* 原始数据折叠面板 */
+.raw-data-details {
+    margin-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+}
+
+.raw-data-details summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--accent-color);
+    padding: 0.5rem 0;
+    outline: none;
+}
+
+.raw-data-details summary:hover {
+    text-decoration: underline;
+}
+
+.raw-json {
+    background-color: var(--surface-color);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+/* 元数据显示 */
+.metadata-display {
+    background-color: var(--surface-color);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+/* 结果JSON显示 */
+.result-json pre {
+    background-color: var(--surface-color);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.result-error {
+    color: var(--error-color);
+    padding: 1rem;
+    background-color: rgba(244, 135, 113, 0.15);
+    border-radius: 4px;
+    text-align: center;
+    font-weight: 500;
+}

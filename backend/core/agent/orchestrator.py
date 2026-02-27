@@ -715,69 +715,54 @@ class UnifiedOrchestrator:
         
         # ===== 2. 网络搜索工具（按使用场景排序） =====
         
-        # 注册浏览器工具（访问特定网站，放在 google_search 之前，优先使用）
-        # 当用户要求"打开"、"访问"、"查看"网站时，必须使用 browser 工具
-        try:
-            from backend.core.agent.tools.builtin.browser_tool import BrowserTool
-            
-            # 健康检查：确保工具可用且 API 兼容
-            is_available, health_error = BrowserTool.check_health()
-            if not is_available:
-                error_msg = f"Browser tool 健康检查失败: {health_error}. Browser tool will not be available."
-                self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-                logger.warning(error_msg)
-            else:
-                browser_tool = BrowserTool()
-                self.tool_registry.register(browser_tool)
-                self.debug.log_orchestrator_step("注册工具", {"browser_tool": "registered"})
-                logger.info("Browser tool registered successfully")
-        except ImportError as e:
-            error_msg = f"Browser-use not installed: {str(e)}. Browser tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        except Exception as e:
-            error_msg = f"Failed to register browser tool: {str(e)}. Browser tool will not be available."
-            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
-            logger.warning(error_msg)
-        
-        # 注册细粒度浏览器操作工具（可选，根据配置决定是否启用）
-        enable_fine_grained_browser_tools = os.getenv("BROWSER_TOOL_ENABLE_FINE_GRAINED_TOOLS", "false").lower() == "true"
-        if enable_fine_grained_browser_tools:
+        # 暂时移除 browser 工具，后续再开发。设置 BROWSER_TOOL_ENABLED=true 可重新启用。
+        if os.getenv("BROWSER_TOOL_ENABLED", "false").lower() == "true":
             try:
-                from backend.core.agent.tools.builtin.browser_action_tool import (
-                    BrowserNavigateTool,
-                    BrowserClickTool,
-                    BrowserFillTool,
-                    BrowserSearchTool,
-                    BrowserExtractTool
-                )
-                
-                # 注册细粒度浏览器工具
-                fine_grained_tools = [
-                    BrowserNavigateTool(),
-                    BrowserClickTool(),
-                    BrowserFillTool(),
-                    BrowserSearchTool(),
-                    BrowserExtractTool()
-                ]
-                
-                for tool in fine_grained_tools:
-                    self.tool_registry.register(tool)
-                    logger.info(f"细粒度浏览器工具已注册: {tool.name}")
-                
-                self.debug.log_orchestrator_step("细粒度浏览器工具注册", {
-                    "count": len(fine_grained_tools),
-                    "tools": [tool.name for tool in fine_grained_tools]
-                })
+                from backend.core.agent.tools.builtin.browser_tool import BrowserTool
+
+                is_available, health_error = BrowserTool.check_health()
+                if not is_available:
+                    self.debug.log_orchestrator_step("工具注册失败", {"error": health_error})
+                    logger.warning("Browser tool 健康检查失败: %s", health_error)
+                else:
+                    browser_tool = BrowserTool()
+                    self.tool_registry.register(browser_tool)
+                    self.debug.log_orchestrator_step("注册工具", {"browser_tool": "registered"})
+                    logger.info("Browser tool registered successfully")
             except ImportError as e:
-                error_msg = f"细粒度浏览器工具导入失败: {str(e)}. 细粒度浏览器工具将不可用."
-                self.debug.log_orchestrator_step("细粒度浏览器工具注册失败", {"error": error_msg})
-                logger.warning(error_msg)
+                logger.warning("Browser-use not installed: %s. Browser tool will not be available.", e)
             except Exception as e:
-                error_msg = f"细粒度浏览器工具注册失败: {str(e)}. 细粒度浏览器工具将不可用."
-                self.debug.log_orchestrator_step("细粒度浏览器工具注册失败", {"error": error_msg})
-                logger.warning(error_msg)
-        
+                logger.warning("Failed to register browser tool: %s. Browser tool will not be available.", e)
+
+            enable_fine_grained_browser_tools = os.getenv("BROWSER_TOOL_ENABLE_FINE_GRAINED_TOOLS", "false").lower() == "true"
+            if enable_fine_grained_browser_tools:
+                try:
+                    from backend.core.agent.tools.builtin.browser_action_tool import (
+                        BrowserNavigateTool,
+                        BrowserClickTool,
+                        BrowserFillTool,
+                        BrowserSearchTool,
+                        BrowserExtractTool
+                    )
+                    fine_grained_tools = [
+                        BrowserNavigateTool(),
+                        BrowserClickTool(),
+                        BrowserFillTool(),
+                        BrowserSearchTool(),
+                        BrowserExtractTool()
+                    ]
+                    for tool in fine_grained_tools:
+                        self.tool_registry.register(tool)
+                        logger.info("细粒度浏览器工具已注册: %s", tool.name)
+                    self.debug.log_orchestrator_step("细粒度浏览器工具注册", {
+                        "count": len(fine_grained_tools),
+                        "tools": [tool.name for tool in fine_grained_tools]
+                    })
+                except Exception as e:
+                    logger.warning("细粒度浏览器工具注册失败: %s", e)
+        else:
+            logger.info("Browser tool disabled (set BROWSER_TOOL_ENABLED=true to enable).")
+
         # 注册 Google 搜索工具（用于在 Google 上搜索网络信息）
         try:
             from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool

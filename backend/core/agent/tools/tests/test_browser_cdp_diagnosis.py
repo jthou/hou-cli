@@ -1,11 +1,7 @@
 """Browser CDP 连接诊断测试
 
 用于诊断和修复 browser-use CDP 连接问题。
-这个测试会：
-1. 检查浏览器是否安装
-2. 测试浏览器启动
-3. 测试 CDP 端点访问
-4. 诊断问题并提供修复建议
+暂时移除 browser 工具，后续再开发。
 """
 import pytest
 import os
@@ -14,6 +10,9 @@ import asyncio
 import httpx
 from pathlib import Path
 from dotenv import load_dotenv
+
+pytestmark = pytest.mark.skip(reason="browser tool 暂时移除，后续再开发")
+
 from backend.core.agent.tools.builtin.browser_tool import BrowserTool, BROWSER_USE_AVAILABLE
 
 # 加载 .env 文件

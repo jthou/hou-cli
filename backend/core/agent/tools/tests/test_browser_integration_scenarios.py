@@ -1,14 +1,15 @@
-"""浏览器工具集成场景测试 - 测试复杂浏览器任务场景"""
+"""浏览器工具集成场景测试。暂时移除 browser 工具，后续再开发。"""
 import pytest
 from unittest.mock import Mock, patch
+
+pytestmark = pytest.mark.skip(reason="browser tool 暂时移除，后续再开发")
+
 from backend.core.agent.tools.builtin.browser_intelligence import BrowserIntelligence
 from backend.core.agent.tools.builtin.browser_action_tool import (
     BrowserNavigateTool,
     BrowserClickTool,
     BrowserSearchTool
 )
-
-# BrowserTool 在测试中被引用，但不是直接导入使用
 
 
 class TestBrowserIntegrationScenarios:

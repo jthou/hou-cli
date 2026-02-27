@@ -1,7 +1,6 @@
-"""浏览器自动化工具实现 - 基于 Browser-use"""
+"""浏览器自动化工具实现 - 基于 Browser-use（pip 包 browser-use）"""
 import asyncio
 import os
-import sys
 import logging
 from typing import Optional, TYPE_CHECKING
 from pathlib import Path
@@ -13,19 +12,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from backend.services.llm.llm_service import LLMService
 
-# 添加 backend/externals/browser-use 到 Python 路径
-# 使用绝对路径，确保从任何地方导入都能正确工作
-_current_file = Path(__file__).resolve()
-# browser_tool.py 在 backend/core/agent/tools/builtin/
-# 向上5级到项目根目录：builtin -> tools -> agent -> core -> backend -> 项目根
-_project_root = _current_file.parent.parent.parent.parent.parent
-_externals_path = _project_root / "externals" / "browser-use"
-if _externals_path.exists():
-    _browser_use_path = str(_externals_path.resolve())
-    if _browser_use_path not in sys.path:
-        sys.path.insert(0, _browser_use_path)
-        logger.debug(f"Added browser-use to sys.path: {_browser_use_path}")
-
 try:
     from browser_use import Agent, Browser
     BROWSER_USE_AVAILABLE = True
@@ -33,7 +19,7 @@ except ImportError as e:
     BROWSER_USE_AVAILABLE = False
     Agent = None
     Browser = None
-    logger.warning(f"Failed to import browser-use: {e}")
+    logger.warning(f"Failed to import browser-use: {e}. Install with: pip install browser-use")
 
 
 class BrowserTool(Tool):

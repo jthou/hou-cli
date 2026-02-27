@@ -12,7 +12,7 @@ ERROR: Postprocessing: audio conversion failed: Error opening output files: Enco
 
 ### 原因分析
 
-1. **FFmpeg 缺少 MP3 编码器**：项目中的 FFmpeg（`backend/externals/ffmpeg/build/bin/ffmpeg`）在编译时没有包含 `libmp3lame` 编码器
+1. **FFmpeg 缺少 MP3 编码器**：系统 FFmpeg 在安装时可能未包含 `libmp3lame` 编码器
 2. **默认使用 MP3 格式**：yt-dlp 默认尝试将音频转换为 MP3 格式，但 FFmpeg 找不到 MP3 编码器
 
 ### 修复方案
@@ -23,7 +23,7 @@ ERROR: Postprocessing: audio conversion failed: Error opening output files: Enco
 1. 在音频转换前检查 FFmpeg 是否支持 MP3 编码器（libmp3lame）
 2. 如果不支持，自动改用 AAC 格式（更通用，大多数 FFmpeg 版本都支持）
 3. 检查顺序：
-   - 先检查项目中的 FFmpeg（`backend/externals/ffmpeg/build/bin/ffmpeg`）
+   - 先检查系统 FFmpeg（`ffmpeg -encoders`）
    - 如果不存在，检查系统 PATH 中的 FFmpeg
    - 如果检查失败，默认使用 AAC 格式
 

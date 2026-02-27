@@ -1,9 +1,11 @@
+"""复杂浏览器任务场景测试。暂时移除 browser 工具，后续再开发。"""
 from dotenv import load_dotenv
 load_dotenv()
 
-"""复杂浏览器任务场景测试 - 搜索、打开网页、提取内容并生成报告"""
 import pytest
 from unittest.mock import Mock, patch
+
+pytestmark = pytest.mark.skip(reason="browser tool 暂时移除，后续再开发")
 
 from backend.core.agent.tools.builtin.browser_intelligence import BrowserIntelligence
 from backend.core.agent.tools.builtin.browser_action_tool import (
@@ -13,8 +15,6 @@ from backend.core.agent.tools.builtin.browser_action_tool import (
     BrowserSearchTool,
     BrowserExtractTool
 )
-
-# BrowserTool 在测试中被引用，但不是直接导入使用
 
 
 class TestComplexBrowserScenarios:

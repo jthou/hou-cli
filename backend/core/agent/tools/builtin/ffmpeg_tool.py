@@ -1,8 +1,8 @@
-"""FFmpeg 工具 - 视频/音频处理工具集"""
+"""FFmpeg 工具 - 视频/音频处理工具集（依赖系统安装的 FFmpeg，如 brew install ffmpeg）"""
 import logging
 import os
 import subprocess
-import sys
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -14,87 +14,32 @@ logger = logging.getLogger(__name__)
 _DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / '.cursor' / 'debug.log'
 
 
-def _get_ffmpeg_path() -> Path:
-    """获取 FFmpeg 可执行文件路径"""
-    current_file = Path(__file__).resolve()
-    # ffmpeg_tool.py 在 backend/core/agent/tools/builtin/
-    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        # 如果找不到，使用向上5级的方式（向后兼容）
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
-
-
-def _get_ffprobe_path() -> Path:
-    """获取 FFprobe 可执行文件路径"""
-    current_file = Path(__file__).resolve()
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffprobe"
-
-
-def _get_ffplay_path() -> Path:
-    """获取 FFplay 可执行文件路径"""
-    current_file = Path(__file__).resolve()
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffplay"
-
-
 def _find_ffmpeg_binary(name: str) -> Optional[Path]:
-    """查找 FFmpeg 二进制文件（优先使用项目中的，否则查找系统 PATH）"""
-    # 先尝试项目中的
-    current_file = Path(__file__).resolve()
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        project_root = current_file.parent.parent.parent.parent.parent
-    
-    project_binary = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / name
-    if project_binary.exists():
-        return project_binary
-    
-    # 查找系统 PATH
-    import shutil
+    """查找 FFmpeg 相关二进制（仅从系统 PATH，需预先安装：brew install ffmpeg / apt install ffmpeg）"""
     system_binary = shutil.which(name)
     if system_binary:
         return Path(system_binary)
-    
     return None
 
 
+def _get_ffmpeg_path() -> Path:
+    """获取 ffmpeg 可执行文件路径（系统 PATH 或占位，不存在时调用会失败）"""
+    return _find_ffmpeg_binary("ffmpeg") or Path("ffmpeg")
+
+
+def _get_ffprobe_path() -> Path:
+    """获取 ffprobe 可执行文件路径"""
+    return _find_ffmpeg_binary("ffprobe") or Path("ffprobe")
+
+
+def _get_ffplay_path() -> Path:
+    """获取 ffplay 可执行文件路径"""
+    return _find_ffmpeg_binary("ffplay") or Path("ffplay")
+
+
 def _get_ffmpeg_lib_dir() -> Path:
-    """获取 FFmpeg lib 目录路径"""
-    current_file = Path(__file__).resolve()
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        project_root = current_file.parent.parent.parent.parent.parent
-    
-    ffmpeg_bin_dir = project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin"
-    # lib 目录在 bin 目录的同一级
-    return ffmpeg_bin_dir.parent / "lib"
+    """不再使用项目内 FFmpeg，返回不存在的路径以便不设置 LD_LIBRARY_PATH"""
+    return Path("/nonexistent")
 
 
 def _run_ffmpeg_command(binary: Path, args: List[str], input_file: Optional[Path] = None) -> Dict[str, Any]:

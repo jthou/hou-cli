@@ -47,17 +47,15 @@ class TestFFmpegTool:
         assert "未知操作" in result.error or "invalid" in result.error.lower()
 
     def test_ffmpeg_path_detection(self):
-        """测试 FFmpeg 路径检测"""
+        """测试 FFmpeg 路径检测（系统 PATH 或占位名）"""
         ffmpeg_path = _get_ffmpeg_path()
         assert isinstance(ffmpeg_path, Path)
-        # 路径应该指向 externals/ffmpeg
         assert "ffmpeg" in str(ffmpeg_path).lower()
 
     def test_ffprobe_path_detection(self):
-        """测试 FFprobe 路径检测"""
+        """测试 FFprobe 路径检测（系统 PATH 或占位名）"""
         ffprobe_path = _get_ffprobe_path()
         assert isinstance(ffprobe_path, Path)
-        # 路径应该指向 externals/ffmpeg
         assert "ffprobe" in str(ffprobe_path).lower()
 
     def test_probe_operation_missing_file(self, tool):

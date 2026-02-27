@@ -1,4 +1,9 @@
 """细粒度浏览器操作工具测试 - 测试各个专用浏览器操作工具"""
+import pytest
+
+# 暂时移除 browser 工具，后续再开发
+pytestmark = pytest.mark.skip(reason="browser tool 暂时移除，后续再开发")
+
 from backend.core.agent.tools.builtin.browser_action_tool import (
     BrowserActionTool,
     BrowserNavigateTool,

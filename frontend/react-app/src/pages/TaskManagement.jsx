@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import WeatherResultDisplay from '../components/WeatherResultDisplay'
+import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 /**
  * 任务管理与展示机制
@@ -9,10 +10,18 @@ import WeatherResultDisplay from '../components/WeatherResultDisplay'
  */
 
 const TASK_API = {
-  list: (params) => fetch(`/api/task-queue/tasks?limit=100&offset=0${params?.status ? `&status=${params.status}` : ''}`).then(r => r.json()),
+  list: (params) => {
+    const q = new URLSearchParams({ limit: 100, offset: 0 })
+    if (params?.status) q.set('status', params.status)
+    if (params?.deleted) q.set('deleted', params.deleted)
+    return fetch(`/api/task-queue/tasks?${q}`).then(r => r.json())
+  },
   get: (taskId) => fetch(`/api/task-queue/tasks/${taskId}`).then(r => r.json()),
   cancel: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/cancel`, { method: 'POST' }).then(r => r.json()),
   restart: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/restart`, { method: 'POST' }).then(r => r.json()),
+  softDelete: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/soft-delete`, { method: 'POST' }).then(r => r.json()),
+  restore: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/restore`, { method: 'POST' }).then(r => r.json()),
+  delete: (taskId) => fetch(`/api/task-queue/tasks/${taskId}`, { method: 'DELETE' }).then(r => r.json()),
   create: (payload) => fetch('/api/task-queue/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => r.json()),
 }
 
@@ -40,6 +49,7 @@ export default function TaskManagement() {
   const [search, setSearch] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPipelineModal, setShowPipelineModal] = useState(false)
+  const [showCreatePipelineModal, setShowCreatePipelineModal] = useState(false)
   const [detailTaskId, setDetailTaskId] = useState(null)
   const [taskTypes, setTaskTypes] = useState([])
 
@@ -63,6 +73,18 @@ export default function TaskManagement() {
     setLoading(false)
   }, [statusFilter])
 
+  const loadDeletedTasks = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await TASK_API.list({ deleted: 'only' })
+      if (data.success && data.tasks) setTasks(data.tasks)
+      else setTasks([])
+    } catch (e) {
+      setTasks([])
+    }
+    setLoading(false)
+  }, [])
+
   const loadScheduledTasks = useCallback(async () => {
     try {
       const res = await fetch('/api/task-queue/scheduled-tasks?active_only=false')
@@ -81,8 +103,9 @@ export default function TaskManagement() {
 
   useEffect(() => {
     if (tab === 'tasks') loadTasks()
+    else if (tab === 'deleted') loadDeletedTasks()
     else loadScheduledTasks()
-  }, [tab, loadTasks, loadScheduledTasks])
+  }, [tab, loadTasks, loadDeletedTasks, loadScheduledTasks])
 
   useEffect(() => {
     if (showCreateModal) {
@@ -106,6 +129,32 @@ export default function TaskManagement() {
     const s = search.toLowerCase()
     return (t.task_name || '').toLowerCase().includes(s) || (t.task_id || '').toLowerCase().includes(s)
   })
+
+  // 按 pipeline_id 分组：仅有 pipeline_id 的才放入组框；无 pipeline_id 的单独列出、不套框
+  const { pipelineGroups, ungroupedTasks } = (() => {
+    const groups = new Map() // pipeline_id -> tasks
+    const ungrouped = []
+    for (const t of filteredTasks) {
+      const pid = (t.pipeline_id && String(t.pipeline_id).trim()) || null
+      if (pid) {
+        if (!groups.has(pid)) groups.set(pid, [])
+        groups.get(pid).push(t)
+      } else {
+        ungrouped.push(t)
+      }
+    }
+    const pipelineGroups = Array.from(groups.entries()).map(([pipelineId, list]) => ({
+      pipelineId,
+      tasks: list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)),
+    }))
+    pipelineGroups.sort((a, b) => {
+      const aMin = Math.min(...a.tasks.map(t => new Date(t.created_at || 0)))
+      const bMin = Math.min(...b.tasks.map(t => new Date(t.created_at || 0)))
+      return bMin - aMin
+    })
+    ungrouped.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    return { pipelineGroups, ungroupedTasks: ungrouped }
+  })()
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -155,26 +204,103 @@ export default function TaskManagement() {
             >
               定时任务
             </button>
+            <button
+              onClick={() => setTab('deleted')}
+              className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
+                tab === 'deleted' ? 'bg-accent text-white' : 'text-[#94a3b8] hover:text-white'
+              }`}
+            >
+              已删除
+            </button>
           </div>
           <div className="flex gap-2">
             {tab === 'tasks' && (
+              <>
+                <button
+                  onClick={() => setShowCreatePipelineModal(true)}
+                  className="px-4 py-2 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 rounded-lg text-sm font-medium transition-colors"
+                >
+                  创建管道
+                </button>
+                <button
+                  onClick={() => setShowPipelineModal(true)}
+                  className="px-3 py-2 text-[#94a3b8] hover:text-white text-sm"
+                  title="快捷：视频提音频 → 语音转文字"
+                >
+                  快捷模板
+                </button>
+              </>
+            )}
+            {tab !== 'deleted' && (
               <button
-                onClick={() => setShowPipelineModal(true)}
-                className="px-4 py-2 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 rounded-lg text-sm font-medium transition-colors"
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
               >
-                管道：视频提音频 → 语音转文字
+                + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
               </button>
             )}
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
-            </button>
           </div>
         </div>
 
-        {tab === 'tasks' ? (
+        {tab === 'deleted' ? (
+          <>
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm text-[#94a3b8]">回收站：可恢复任务到普通列表，或彻底删除。</p>
+              <button
+                onClick={loadDeletedTasks}
+                className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5"
+                title="刷新"
+              >
+                ↻
+              </button>
+            </div>
+            <div className="space-y-6">
+              {loading ? (
+                <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+              ) : pipelineGroups.length === 0 && ungroupedTasks.length === 0 ? (
+                <div className="py-12 text-center text-[#94a3b8]">暂无已删除任务</div>
+              ) : (
+                <>
+                  {pipelineGroups.map(({ pipelineId, tasks: groupTasks }) => (
+                    <div
+                      key={pipelineId}
+                      className="rounded-xl border border-border bg-white/[0.02] overflow-hidden"
+                    >
+                      <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center gap-2">
+                        <span className="text-cyan-400 font-medium">{`管道 #${pipelineId.slice(0, 8)}`}</span>
+                        <span className="text-xs text-[#64748b]">{groupTasks.length} 个任务</span>
+                      </div>
+                      <div className="p-3 space-y-3">
+                        {groupTasks.map(task => (
+                          <TaskCard
+                            key={task.task_id}
+                            task={task}
+                            onRefresh={loadDeletedTasks}
+                            onShowDetail={setDetailTaskId}
+                            recycleBin
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {ungroupedTasks.length > 0 && (
+                    <div className="space-y-3">
+                      {ungroupedTasks.map(task => (
+                        <TaskCard
+                          key={task.task_id}
+                          task={task}
+                          onRefresh={loadDeletedTasks}
+                          onShowDetail={setDetailTaskId}
+                          recycleBin
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        ) : tab === 'tasks' ? (
           <>
             {/* 统计卡片 */}
             <div className="grid grid-cols-5 gap-4 mb-6">
@@ -243,16 +369,52 @@ export default function TaskManagement() {
               </button>
             </div>
 
-            {/* 任务列表 */}
-            <div className="space-y-3">
+            {/* 任务列表：有 pipeline_id 的按组大框展示，无 pipeline_id 的单独列出不套框 */}
+            <div className="space-y-6">
               {loading ? (
                 <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
-              ) : filteredTasks.length === 0 ? (
+              ) : pipelineGroups.length === 0 && ungroupedTasks.length === 0 ? (
                 <div className="py-12 text-center text-[#94a3b8]">暂无任务</div>
               ) : (
-                filteredTasks.map(task => (
-                  <TaskCard key={task.task_id} task={task} onRefresh={loadTasks} onShowDetail={setDetailTaskId} />
-                ))
+                <>
+                  {pipelineGroups.map(({ pipelineId, tasks: groupTasks }) => (
+                    <div
+                      key={pipelineId}
+                      className="rounded-xl border border-border bg-white/[0.02] overflow-hidden"
+                    >
+                      <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center gap-2">
+                        <span className="text-cyan-400 font-medium">
+                          {`管道 #${pipelineId.slice(0, 8)}`}
+                        </span>
+                        <span className="text-xs text-[#64748b]">
+                          {groupTasks.length} 个任务
+                        </span>
+                      </div>
+                      <div className="p-3 space-y-3">
+                        {groupTasks.map(task => (
+                          <TaskCard
+                            key={task.task_id}
+                            task={task}
+                            onRefresh={loadTasks}
+                            onShowDetail={setDetailTaskId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {ungroupedTasks.length > 0 && (
+                    <div className="space-y-3">
+                      {ungroupedTasks.map(task => (
+                        <TaskCard
+                          key={task.task_id}
+                          task={task}
+                          onRefresh={loadTasks}
+                          onShowDetail={setDetailTaskId}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </>
@@ -295,6 +457,16 @@ export default function TaskManagement() {
           }}
         />
       )}
+      {showCreatePipelineModal && (
+        <CreatePipelineModal
+          api={TASK_API}
+          onClose={() => setShowCreatePipelineModal(false)}
+          onSuccess={() => {
+            setShowCreatePipelineModal(false)
+            loadTasks()
+          }}
+        />
+      )}
       {showPipelineModal && (
         <PipelineTemplateModal
           onClose={() => setShowPipelineModal(false)}
@@ -308,7 +480,7 @@ export default function TaskManagement() {
         <TaskDetailModal
           taskId={detailTaskId}
           onClose={() => setDetailTaskId(null)}
-          onRefresh={() => { loadTasks(); setDetailTaskId(null) }}
+          onRefresh={() => { loadTasks(); loadDeletedTasks(); setDetailTaskId(null) }}
         />
       )}
     </div>
@@ -320,11 +492,16 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
   const [restarting, setRestarting] = useState(false)
+  const [requeueing, setRequeueing] = useState(false)
+  const [patchingResult, setPatchingResult] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [queueStatus, setQueueStatus] = useState(null)
 
   useEffect(() => {
     if (!taskId) return
     setLoading(true)
     setErr(null)
+    setQueueStatus(null)
     TASK_API.get(taskId)
       .then(d => {
         if (d.success && d.task) setTask(d.task)
@@ -333,6 +510,14 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false))
   }, [taskId])
+
+  useEffect(() => {
+    if (!taskId || !task || task.status !== 'queued' || !task.depends_on_task_id) return
+    fetch(`/api/task-queue/tasks/${taskId}/queue-status`)
+      .then(r => r.json())
+      .then(d => d.success && setQueueStatus(d))
+      .catch(() => {})
+  }, [taskId, task?.status, task?.depends_on_task_id])
 
   if (!taskId) return null
   const status = task ? (STATUS_MAP[task.status] || { text: task.status, cls: '' }) : null
@@ -359,6 +544,24 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
               {(task.error || task.error_message) && (
                 <div className="p-3 bg-red-500/10 rounded-lg text-red-400">
                   <strong>错误：</strong> {task.error || task.error_message}
+                </div>
+              )}
+              {task.status === 'queued' && task.depends_on_task_id && (
+                <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                  <div className="text-amber-400/90 text-xs font-medium mb-1">衔接诊断（为何仍待执行）</div>
+                  {queueStatus ? (
+                    <>
+                      <p className="text-sm text-amber-200/90">{queueStatus.message}</p>
+                      {queueStatus.upstream && (
+                        <p className="text-xs text-[#94a3b8] mt-2">
+                          上游 #{queueStatus.upstream.task_id?.slice(0, 8)}：状态={queueStatus.upstream.status}，result 非空={String(queueStatus.upstream.has_result)}
+                          {queueStatus.upstream.missing_bindings?.length ? `，绑定缺失: ${queueStatus.upstream.missing_bindings.join(', ')}` : ''}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-[#94a3b8]">加载中...</p>
+                  )}
                 </div>
               )}
               {/* 任务信息仅供参考，放在执行结果后 */}
@@ -401,29 +604,139 @@ function TaskDetailModal({ taskId, onClose, onRefresh }) {
             </div>
           )}
         </div>
-        {!loading && task && ['failed', 'completed'].includes(task.status) && (
-          <div className="shrink-0 px-6 py-4 border-t border-border flex justify-end">
-            <button
-              disabled={restarting}
-              onClick={async () => {
-                setRestarting(true)
-                try {
-                  const res = await TASK_API.restart(task.task_id)
-                  if (res.success) {
-                    if (onRefresh) onRefresh()
-                    else onClose()
-                  } else {
-                    alert(res.detail || res.message || '重新开始失败')
+        {!loading && task && task.status !== 'running' && (
+          <div className="shrink-0 px-6 py-4 border-t border-border flex flex-wrap gap-2 justify-end">
+            {task.status === 'completed' && task.result?.data?.output_dir && !task.result?.data?.output_file && (
+              <button
+                disabled={patchingResult}
+                onClick={async () => {
+                  setPatchingResult(true)
+                  try {
+                    const res = await fetch(`/api/task-queue/tasks/${task.task_id}/patch-result-output-file`, { method: 'PATCH' }).then(r => r.json())
+                    if (res.success) {
+                      const updated = await TASK_API.get(task.task_id)
+                      if (updated.success && updated.task) setTask(updated.task)
+                      if (onRefresh) onRefresh()
+                    } else {
+                      alert(res.detail || res.message || '补全失败')
+                    }
+                  } catch (e) {
+                    alert('补全失败: ' + (e.message || String(e)))
                   }
-                } catch (e) {
-                  alert('重新开始失败: ' + e.message)
-                }
-                setRestarting(false)
-              }}
-              className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
-            >
-              {restarting ? '创建中...' : '重新开始'}
-            </button>
+                  setPatchingResult(false)
+                }}
+                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+              >
+                {patchingResult ? '补全中...' : '补全 result（供下游衔接）'}
+              </button>
+            )}
+            {task.status === 'failed' && task.depends_on_task_id && (
+              <button
+                disabled={requeueing}
+                onClick={async () => {
+                  setRequeueing(true)
+                  try {
+                    const res = await fetch(`/api/task-queue/tasks/${task.task_id}/requeue`, { method: 'POST' }).then(r => r.json())
+                    if (res.success) {
+                      if (onRefresh) onRefresh()
+                      onClose()
+                    } else {
+                      alert(res.detail || res.message || '重新入队失败')
+                    }
+                  } catch (e) {
+                    alert('重新入队失败: ' + (e.message || String(e)))
+                  }
+                  setRequeueing(false)
+                }}
+                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                title="用上游最新 result 再执行一次（上游若已补全 result 请先补全）"
+              >
+                {requeueing ? '入队中...' : '重新入队'}
+              </button>
+            )}
+            {['failed', 'completed'].includes(task.status) && (
+              <button
+                disabled={restarting}
+                onClick={async () => {
+                  setRestarting(true)
+                  try {
+                    const res = await TASK_API.restart(task.task_id)
+                    if (res.success) {
+                      if (onRefresh) onRefresh()
+                      else onClose()
+                    } else {
+                      alert(res.detail || res.message || '重置失败')
+                    }
+                  } catch (e) {
+                    alert('重置失败: ' + e.message)
+                  }
+                  setRestarting(false)
+                }}
+                className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
+                title="原地重置为待执行，不新开任务"
+              >
+                {restarting ? '重置中...' : '重置为待执行'}
+              </button>
+            )}
+            {task.deleted_at ? (
+              <>
+                <button
+                  disabled={deleting}
+                  onClick={async () => {
+                    setDeleting(true)
+                    try {
+                      const res = await TASK_API.restore(task.task_id)
+                      if (res.success) { if (onRefresh) onRefresh(); onClose() }
+                      else alert(res.detail || res.message || '恢复失败')
+                    } catch (e) { alert('恢复失败: ' + (e.message || String(e))) }
+                    setDeleting(false)
+                  }}
+                  className="px-4 py-2 text-sm border border-green-500/50 rounded-lg text-green-400 hover:bg-green-500/10 disabled:opacity-50"
+                >
+                  {deleting ? '恢复中...' : '恢复'}
+                </button>
+                <button
+                  disabled={deleting}
+                  onClick={async () => {
+                    if (!window.confirm('确定彻底删除？不可恢复。')) return
+                    setDeleting(true)
+                    try {
+                      const res = await TASK_API.delete(task.task_id)
+                      if (res.success) { if (onRefresh) onRefresh(); onClose() }
+                      else alert(res.detail || res.message || '彻底删除失败')
+                    } catch (e) { alert('彻底删除失败: ' + (e.message || String(e))) }
+                    setDeleting(false)
+                  }}
+                  className="px-4 py-2 text-sm border border-red-500/50 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  {deleting ? '删除中...' : '彻底删除'}
+                </button>
+              </>
+            ) : (
+              <button
+                disabled={deleting}
+                onClick={async () => {
+                  if (!window.confirm('移入回收站？可在「已删除」Tab 中恢复或彻底删除。')) return
+                  setDeleting(true)
+                  try {
+                    const res = await TASK_API.softDelete(task.task_id)
+                    if (res.success) {
+                      if (onRefresh) onRefresh()
+                      onClose()
+                    } else {
+                      alert(res.detail || res.message || '移入回收站失败')
+                    }
+                  } catch (e) {
+                    alert('移入回收站失败: ' + (e.message || String(e)))
+                  }
+                  setDeleting(false)
+                }}
+                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                title="移入回收站，可恢复"
+              >
+                {deleting ? '删除中...' : '删除'}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -510,15 +823,15 @@ function TaskResultDisplay({ taskType, result }) {
   return <pre className="text-[#94a3b8] text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
 }
 
-function TaskCard({ task, onRefresh, onShowDetail }) {
+function TaskCard({ task, onRefresh, onShowDetail, recycleBin = false }) {
   const status = STATUS_MAP[task.status] || { text: task.status, cls: 'bg-slate-500/20 text-slate-400' }
 
   return (
     <div className="p-5 bg-white/5 border border-border rounded-xl hover:border-cyan-500/25 transition-colors">
       <div className="flex justify-between items-start gap-4 mb-3">
-        <div>
-          <span className="font-medium text-white">{task.task_name || '未命名任务'}</span>
-          <span className="text-sm text-[#64748b] ml-2">#{task.task_id?.slice(0, 8)}</span>
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="text-sm text-cyan-400/90 font-mono shrink-0">#{task.task_id?.slice(0, 8)}</span>
+          <span className="font-medium text-white truncate">{task.task_name || '未命名任务'}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className={`px-2 py-0.5 rounded text-xs font-medium ${status.cls}`}>{status.text}</span>
@@ -550,6 +863,9 @@ function TaskCard({ task, onRefresh, onShowDetail }) {
           )}
           {task.input_bindings && Object.keys(task.input_bindings).length > 0 && (
             <span>绑定: {Object.entries(task.input_bindings).map(([k, v]) => `${k} ← ${v}`).join(', ')}</span>
+          )}
+          {task.status === 'queued' && task.depends_on_task_id && (
+            <span className="text-amber-400/90">（等待上游完成后执行）</span>
           )}
         </div>
       ) : null}
@@ -584,24 +900,78 @@ function TaskCard({ task, onRefresh, onShowDetail }) {
         >
           查看详情
         </button>
-        {['failed', 'completed'].includes(task.status) && (
-          <button
-            onClick={async () => {
-              try {
-                const res = await TASK_API.restart(task.task_id)
-                if (res.success) {
-                  onRefresh()
-                } else {
-                  alert(res.detail || res.message || '重新开始失败')
+        {recycleBin ? (
+          <>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await TASK_API.restore(task.task_id)
+                  if (res.success) onRefresh()
+                  else alert(res.detail || res.message || '恢复失败')
+                } catch (e) {
+                  alert('恢复失败: ' + (e.message || String(e)))
                 }
-              } catch (e) {
-                alert('重新开始失败: ' + e.message)
-              }
-            }}
-            className="px-3 py-1.5 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
-          >
-            重新开始
-          </button>
+              }}
+              className="px-3 py-1.5 text-sm border border-green-500/50 rounded-lg text-green-400 hover:bg-green-500/10"
+              title="恢复任务到普通列表"
+            >
+              恢复
+            </button>
+            <button
+              onClick={async () => {
+                if (!window.confirm('确定要彻底删除该任务？删除后不可恢复。')) return
+                try {
+                  const res = await TASK_API.delete(task.task_id)
+                  if (res.success) onRefresh()
+                  else alert(res.detail || res.message || '删除失败')
+                } catch (e) {
+                  alert('删除失败: ' + (e.message || String(e)))
+                }
+              }}
+              className="px-3 py-1.5 text-sm border border-red-500/50 rounded-lg text-red-400 hover:bg-red-500/10"
+              title="彻底删除，不可恢复"
+            >
+              彻底删除
+            </button>
+          </>
+        ) : (
+          <>
+            {['failed', 'completed'].includes(task.status) && (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await TASK_API.restart(task.task_id)
+                    if (res.success) onRefresh()
+                    else alert(res.detail || res.message || '重置失败')
+                  } catch (e) {
+                    alert('重置失败: ' + e.message)
+                  }
+                }}
+                className="px-3 py-1.5 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
+                title="原地重置为待执行，不新开任务"
+              >
+                重置为待执行
+              </button>
+            )}
+            {task.status !== 'running' && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm('移入回收站？可在「已删除」中恢复或彻底删除。')) return
+                  try {
+                    const res = await TASK_API.softDelete(task.task_id)
+                    if (res.success) onRefresh()
+                    else alert(res.detail || res.message || '移入回收站失败')
+                  } catch (e) {
+                    alert('移入回收站失败: ' + (e.message || String(e)))
+                  }
+                }}
+                className="px-3 py-1.5 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10"
+                title="移入回收站，可恢复"
+              >
+                删除
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -620,6 +990,170 @@ function getDefaultMetadata(schema) {
     }
   }
   return meta
+}
+
+/**
+ * 创建管道（先选链路，再填任务细节）
+ * Step 1: 选择管道模板
+ * Step 2: 只填该链路需要用户提供的参数（如第一步的输入文件、可选任务名）
+ */
+function CreatePipelineModal({ api, onClose, onSuccess }) {
+  const [step, setStep] = useState('choose') // 'choose' | 'fill'
+  const [selectedId, setSelectedId] = useState(null)
+  const [formValues, setFormValues] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const template = PIPELINE_TEMPLATES.find(t => t.id === selectedId)
+  const fields = template?.form?.fields || []
+
+  const getInitialFormValues = (t) => {
+    const fds = t?.form?.fields || []
+    return Object.fromEntries(fds.map(f => [f.id, '']))
+  }
+
+  const handleSelectTemplate = (id) => {
+    const t = PIPELINE_TEMPLATES.find(x => x.id === id)
+    setSelectedId(id)
+    setStep('fill')
+    setFormValues(getInitialFormValues(t))
+  }
+
+  const handleBack = () => {
+    setStep('choose')
+    setSelectedId(null)
+  }
+
+  const setField = (fieldId, value) => {
+    setFormValues(prev => ({ ...prev, [fieldId]: value }))
+  }
+
+  const handleUpload = async (e, fieldId) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.success && data.path) setField(fieldId, data.path)
+      else throw new Error(data.detail || '上传失败')
+    } catch (err) {
+      alert('上传失败: ' + (err?.message || String(err)))
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!template?.createTasks) return
+    setSubmitting(true)
+    try {
+      const result = await template.createTasks(formValues, api)
+      const ids = Object.entries(result || {})
+        .filter(([k]) => k.startsWith('task') && k.endsWith('Id'))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, v]) => v?.slice(0, 8))
+        .join(' / ')
+      alert(`管道已创建：${ids || '完成'}`)
+      onSuccess()
+      onClose()
+    } catch (err) {
+      alert('创建失败: ' + (err?.message || String(err)))
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center p-6 pb-4">
+          <h3 className="text-lg font-semibold text-white">
+            {step === 'choose' ? '创建管道 - 选择链路' : `填写参数 - ${template?.name || ''}`}
+          </h3>
+          <button type="button" onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+        </div>
+
+        {step === 'choose' && (
+          <div className="px-6 pb-6 space-y-3">
+            <p className="text-sm text-[#94a3b8] mb-4">先选择一条管道链路，下一步只需填写该链路需要的输入参数。</p>
+            {PIPELINE_TEMPLATES.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => handleSelectTemplate(t.id)}
+                className="w-full text-left p-4 rounded-xl border border-border bg-white/5 hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-colors"
+              >
+                <div className="font-medium text-white">{t.name}</div>
+                <div className="text-sm text-[#94a3b8] mt-1">{t.description}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {step === 'fill' && template && (
+          <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
+            <p className="text-sm text-[#94a3b8]">以下仅需填写<strong className="text-white">第一步</strong>的输入；后续步骤的输入将按链路自动绑定。</p>
+            {fields.map(field => (
+              <div key={field.id}>
+                <label className="block text-sm text-[#94a3b8] mb-1">
+                  {field.label}{field.required ? ' *' : ''}
+                </label>
+                {field.type === 'file' ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formValues[field.id] ?? ''}
+                      onChange={e => setField(field.id, e.target.value)}
+                      placeholder={field.placeholder || ''}
+                      className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                    />
+                    <input
+                      type="file"
+                      accept={field.accept || '*'}
+                      className="hidden"
+                      ref={fileInputRef}
+                      onChange={e => handleUpload(e, field.id)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white whitespace-nowrap disabled:opacity-50"
+                    >
+                      {uploading ? '上传中…' : '上传'}
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={formValues[field.id] ?? ''}
+                    onChange={e => setField(field.id, e.target.value)}
+                    placeholder={field.placeholder || ''}
+                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                  />
+                )}
+              </div>
+            ))}
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={handleBack} className="px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+                上一步
+              </button>
+              <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+                取消
+              </button>
+              <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">
+                {submitting ? '创建中...' : '创建管道'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /** 管道模板：一键创建「视频提音频 → 语音转文字」两个任务，第二个依赖第一个的 result.data.output_file */

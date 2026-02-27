@@ -4,7 +4,11 @@ import BackendStatus from './BackendStatus'
 
 const navItems = [
   { path: '/', icon: '📦', label: '任务管理' },
+  { path: '/pipeline', icon: '🔀', label: '管道编排' },
   { path: '/video-download', icon: '🎬', label: '视频下载' },
+  { path: '/video-extract-audio', icon: '🎵', label: '视频提取音频' },
+  { path: '/speech-to-text', icon: '🎤', label: '语音转文字' },
+  { path: '/weather-query', icon: '🌤️', label: '天气查询' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },

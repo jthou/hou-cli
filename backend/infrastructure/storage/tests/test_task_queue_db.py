@@ -333,3 +333,123 @@ class TestTaskQueueDB:
         assert down["status"] == TaskStatus.FAILED.value
         assert "上游任务失败" in (down.get("error") or "")
 
+    def test_reset_task_to_queued_in_place_no_new_task(self, temp_db):
+        """重新开始：只修改内容与状态，不新开任务；保留 task_id、metadata、depends_on_task_id、pipeline_id，清空执行结果并置 retry_count=0"""
+        up_id = temp_db.create_task("test", "上游")
+        temp_db.register_worker("w", "Worker")
+        temp_db.acquire_task("w")
+        temp_db.complete_task(up_id, result={"data": {"output_file": "/out.mp3"}})
+
+        down_id = temp_db.create_task(
+            "test", "下游",
+            metadata={"input_file": "/old.mp3"},
+            depends_on_task_id=up_id,
+            input_bindings={"input_file": "result.data.output_file"},
+            pipeline_id="pipe-123",
+        )
+        temp_db.acquire_task("w")
+        temp_db.complete_task(down_id, result={"data": {"output_file": "/subtitle.txt"}})  # 下游先完成
+
+        tasks_before = temp_db.list_tasks()
+        count_before = len(tasks_before)
+
+        ok = temp_db.reset_task_to_queued(down_id)
+        assert ok is True
+
+        tasks_after = temp_db.list_tasks()
+        assert len(tasks_after) == count_before, "重新开始不得新开任务，任务总数不变"
+
+        task = temp_db.get_task(down_id)
+        assert task is not None
+        assert task["task_id"] == down_id
+        assert task["status"] == TaskStatus.QUEUED.value
+        assert task["metadata"] == {"input_file": "/old.mp3"}
+        assert task.get("depends_on_task_id") == up_id
+        assert task.get("input_bindings") == {"input_file": "result.data.output_file"}
+        assert task.get("pipeline_id") == "pipe-123"
+        assert task.get("result") is None
+        assert task.get("error") is None
+        assert task.get("started_at") is None
+        assert task.get("completed_at") is None
+        assert task.get("duration") is None
+        assert task.get("worker_id") is None
+        assert task.get("progress") == 0
+        assert task.get("message") is None
+        assert task.get("retry_count") == 0
+
+    def test_delete_task_success(self, temp_db):
+        """删除任务：queued/completed/failed/cancelled 可被彻底删除，列表不再包含"""
+        task_id = temp_db.create_task("test", "测试任务")
+        tasks_before = temp_db.list_tasks()
+        ok = temp_db.delete_task(task_id)
+        assert ok is True
+        assert temp_db.get_task(task_id) is None
+        tasks_after = temp_db.list_tasks()
+        assert len(tasks_after) == len(tasks_before) - 1
+        assert not any(t["task_id"] == task_id for t in tasks_after)
+
+    def test_delete_task_running_rejected(self, temp_db):
+        """删除任务：running 状态不可删除，返回 False"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.register_worker("w", "Worker")
+        temp_db.acquire_task("w")
+        ok = temp_db.delete_task(task_id)
+        assert ok is False
+        assert temp_db.get_task(task_id) is not None
+        assert temp_db.get_task(task_id)["status"] == TaskStatus.RUNNING.value
+
+    def test_delete_task_cascade_downstream(self, temp_db):
+        """删除任务：删除上游时，依赖其的 queued 下游被级联标记为取消"""
+        up_id = temp_db.create_task("test", "上游")
+        temp_db.register_worker("w", "Worker")
+        temp_db.acquire_task("w")
+        temp_db.complete_task(up_id, result={"data": {"output_file": "/out.mp3"}})
+        down_id = temp_db.create_task("test", "下游", depends_on_task_id=up_id)
+        ok = temp_db.delete_task(up_id)
+        assert ok is True
+        assert temp_db.get_task(up_id) is None
+        down = temp_db.get_task(down_id)
+        assert down is not None
+        assert down["status"] == TaskStatus.CANCELLED.value
+        assert "上游任务已删除" in (down.get("error") or "")
+
+    def test_soft_delete_and_restore(self, temp_db):
+        """软删除后列表不包含，恢复后重新出现；list_tasks include_deleted 过滤"""
+        task_id = temp_db.create_task("test", "测试任务")
+        all_before = temp_db.list_tasks()
+        assert any(t["task_id"] == task_id for t in all_before)
+        ok = temp_db.soft_delete_task(task_id)
+        assert ok is True
+        task = temp_db.get_task(task_id)
+        assert task is not None
+        assert task.get("deleted_at") is not None
+        default_list = temp_db.list_tasks()
+        assert not any(t["task_id"] == task_id for t in default_list)
+        only_deleted = temp_db.list_tasks(include_deleted="only")
+        assert any(t["task_id"] == task_id for t in only_deleted)
+        ok = temp_db.restore_task(task_id)
+        assert ok is True
+        task = temp_db.get_task(task_id)
+        assert task.get("deleted_at") is None
+        default_after = temp_db.list_tasks()
+        assert any(t["task_id"] == task_id for t in default_after)
+        only_deleted_after = temp_db.list_tasks(include_deleted="only")
+        assert not any(t["task_id"] == task_id for t in only_deleted_after)
+
+    def test_soft_delete_running_rejected(self, temp_db):
+        """软删除：running 状态不可软删除"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.register_worker("w", "Worker")
+        temp_db.acquire_task("w")
+        ok = temp_db.soft_delete_task(task_id)
+        assert ok is False
+        assert temp_db.get_task(task_id).get("deleted_at") is None
+
+    def test_acquire_task_excludes_soft_deleted(self, temp_db):
+        """acquire_task 不返回已软删除的 queued 任务"""
+        task_id = temp_db.create_task("test", "测试任务")
+        temp_db.soft_delete_task(task_id)
+        temp_db.register_worker("w", "Worker")
+        t = temp_db.acquire_task("w")
+        assert t is None
+

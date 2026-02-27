@@ -45,11 +45,11 @@
 
 ## 2. 已具备的能力（成熟部分）
 
-- **多引擎**：yt-dlp（外置在 `backend/externals/yt-dlp`）、you-get（`backend/externals/you-get`）按平台与 `preferred_tool` 自动/指定选择。
+- **多引擎**：yt-dlp、you-get（pip 安装）按平台与 `preferred_tool` 自动/指定选择。
 - **平台识别**：`_detect_platform(url)` 识别 bilibili、youtube、youku、iqiyi、腾讯视频、twitter、facebook 等。
 - **选项**：质量（best/1080p/720p/480p/360p）、下载字幕、仅提取音频、仅下载字幕、字幕语言、音频格式/质量、cookies 文件/从浏览器提取、B 站弹幕等；yt-dlp 侧有完整选项与进度钩子。
 - **B 站**：412 等错误时自动尝试从 Chrome/Firefox/Safari/Edge 提取 cookies 并重试；请求头与 yt-dlp 选项已针对 B 站做适配。
-- **FFmpeg**：优先使用项目内 `backend/externals/ffmpeg`；提取音频时检测 MP3 编码器，不可用时回退到 AAC。
+- **FFmpeg**：使用系统 FFmpeg（需预先安装）；提取音频时检测 MP3 编码器，不可用时回退到 AAC。
 - **进度**：`progress_callback` 从下载器传到任务进度，任务详情可展示百分比与状态。
 - **错误与降级**：you-get 登录/模块冲突等有明确错误文案；多引擎间自动降级（yt-dlp ↔ you-get）。
 - **测试**：`test_task_handlers.py` 覆盖 video_download 成功返回结构、缺 url 抛错；`test_video_downloader_tool.py` / `test_video_downloader_tool_integration.py` 覆盖工具选择、执行与参数。

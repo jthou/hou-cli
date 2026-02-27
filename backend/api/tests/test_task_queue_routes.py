@@ -679,7 +679,7 @@ class TestTaskQueueRoutes:
         assert "不存在" in data["detail"] or "无法取消" in data["detail"]
 
     def test_restart_task_success(self, client, mock_task_queue_db):
-        """重新开始：按原任务创建新任务，返回新 task_id"""
+        """重新开始：原地重置为待执行，不新开任务，返回原 task_id"""
         old_task = {
             "task_id": "old-weather-1",
             "task_type": "weather_query",
@@ -689,18 +689,15 @@ class TestTaskQueueRoutes:
             "metadata": {"location": "北京", "query_type": "current"},
         }
         mock_task_queue_db.get_task.return_value = old_task
-        mock_task_queue_db.create_task.return_value = "new-weather-2"
+        mock_task_queue_db.reset_task_to_queued.return_value = True
         with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
             response = client.post("/api/task-queue/tasks/old-weather-1/restart")
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["task_id"] == "new-weather-2"
-        assert "已基于原任务" in data.get("message", "")
-        mock_task_queue_db.create_task.assert_called_once()
-        call_kw = mock_task_queue_db.create_task.call_args[1]
-        assert call_kw["task_type"] == "weather_query"
-        assert call_kw["metadata"] == {"location": "北京", "query_type": "current"}
+        assert data["task_id"] == "old-weather-1"
+        assert "已重置为待执行" in data.get("message", "")
+        mock_task_queue_db.reset_task_to_queued.assert_called_once_with("old-weather-1")
 
     def test_restart_task_not_found(self, client, mock_task_queue_db):
         """重新开始：任务不存在时 404"""
@@ -709,6 +706,80 @@ class TestTaskQueueRoutes:
             response = client.post("/api/task-queue/tasks/non-existent/restart")
         assert response.status_code == 404
         assert "不存在" in response.json().get("detail", "")
+
+    def test_delete_task_success(self, client, mock_task_queue_db):
+        """删除任务：成功彻底删除，返回 200"""
+        mock_task_queue_db.get_task.return_value = {
+            "task_id": "task-1",
+            "status": "completed",
+        }
+        mock_task_queue_db.delete_task.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.delete("/api/task-queue/tasks/task-1")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "已删除" in data.get("message", "")
+        mock_task_queue_db.delete_task.assert_called_once_with("task-1")
+
+    def test_delete_task_not_found(self, client, mock_task_queue_db):
+        """删除任务：任务不存在时 404"""
+        mock_task_queue_db.get_task.return_value = None
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.delete("/api/task-queue/tasks/non-existent")
+        assert response.status_code == 404
+        assert "不存在" in response.json().get("detail", "")
+
+    def test_delete_task_running_returns_400(self, client, mock_task_queue_db):
+        """删除任务：运行中时需先取消，返回 400"""
+        mock_task_queue_db.get_task.return_value = {
+            "task_id": "task-1",
+            "status": "running",
+        }
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.delete("/api/task-queue/tasks/task-1")
+        assert response.status_code == 400
+        assert "先取消" in response.json().get("detail", "")
+        mock_task_queue_db.delete_task.assert_not_called()
+
+    def test_soft_delete_task_success(self, client, mock_task_queue_db):
+        """软删除任务：成功返回 200"""
+        mock_task_queue_db.get_task.return_value = {"task_id": "task-1", "status": "completed", "deleted_at": None}
+        mock_task_queue_db.soft_delete_task.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post("/api/task-queue/tasks/task-1/soft-delete")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "回收站" in data.get("message", "")
+        mock_task_queue_db.soft_delete_task.assert_called_once_with("task-1")
+
+    def test_restore_task_success(self, client, mock_task_queue_db):
+        """恢复任务：成功返回 200"""
+        mock_task_queue_db.get_task.return_value = {"task_id": "task-1", "deleted_at": "2024-01-01T00:00:00"}
+        mock_task_queue_db.restore_task.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post("/api/task-queue/tasks/task-1/restore")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "恢复" in data.get("message", "")
+        mock_task_queue_db.restore_task.assert_called_once_with("task-1")
+
+    def test_list_tasks_deleted_only(self, client, mock_task_queue_db):
+        """列表任务：deleted=only 时只返回已软删除"""
+        mock_task_queue_db.list_tasks.return_value = [
+            {"task_id": "t1", "task_name": "已删", "status": "completed", "deleted_at": "2024-01-01T00:00:00"}
+        ]
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.get("/api/task-queue/tasks?deleted=only")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert len(data["tasks"]) == 1
+        mock_task_queue_db.list_tasks.assert_called_once()
+        call_kw = mock_task_queue_db.list_tasks.call_args[1]
+        assert call_kw.get("include_deleted") == "only"
 
     def test_list_workers_success(self, client, mock_task_queue_db):
         """测试列出 Worker 成功"""

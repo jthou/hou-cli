@@ -1,9 +1,10 @@
-"""视频下载工具 - 整合 you-get 和 yt-dlp"""
+"""视频下载工具 - 整合 you-get 和 yt-dlp（依赖 pip：you-get、yt-dlp；FFmpeg 需系统安装）"""
 import logging
 import sys
 import json
 import os
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable
 from abc import ABC, abstractmethod
@@ -12,6 +13,26 @@ from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from shared.platform_utils import normalize_output_dir
 
 logger = logging.getLogger(__name__)
+
+# 管道下游绑定用：从输出目录中找单个视频/音频文件（按修改时间取最新）
+_VIDEO_AUDIO_SUFFIXES = frozenset(
+    '.mp4 .mkv .avi .mov .webm .flv .m4a .mp3 .wav .aac .flac .ogg .opus .wma'.split()
+)
+
+
+def _find_single_output_file(output_dir: Path) -> Optional[str]:
+    """从输出目录中取一个视频/音频文件路径（仅一个时返回该文件，多个时返回最新）。供管道下游绑定。"""
+    if not output_dir.is_dir():
+        return None
+    found = []
+    for f in output_dir.iterdir():
+        if f.is_file() and f.suffix.lower() in _VIDEO_AUDIO_SUFFIXES:
+            found.append(f)
+    if not found:
+        return None
+    if len(found) > 1:
+        found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return str(found[0].resolve())
 
 
 # ============================================================================
@@ -184,77 +205,25 @@ def _detect_platform(url: str) -> str:
 
 
 # ============================================================================
-# YouGetDownloader 适配器
+# YouGetDownloader 适配器（使用 pip 安装的 you-get：pip install you-get）
 # ============================================================================
-
-def _get_you_get_path() -> Path:
-    """获取 you-get 路径"""
-    current_file = Path(__file__).resolve()
-    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
-    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        # 如果找不到，使用向上5级的方式（向后兼容）
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "you-get"
-
 
 class YouGetDownloader(DownloaderAdapter):
     """you-get 适配器"""
     
     def is_available(self) -> bool:
-        """检查 you-get 是否可用
-        
-        注意：不直接导入模块，避免与 subprocess 调用时的模块冲突
-        """
+        """检查 you-get 是否可用（pip install you-get）"""
         try:
-            you_get_path = _get_you_get_path()
-            if not you_get_path.exists():
-                return False
-            
-            # 检查是否有 you_get 模块或 src/you_get 目录
-            you_get_module = you_get_path / "you_get"
-            you_get_src = you_get_path / "src" / "you_get"
-            if not you_get_module.exists() and not you_get_src.exists():
-                return False
-            
-            # 不导入模块，只检查文件是否存在（避免模块冲突）
-            # 通过尝试运行命令来检查是否可用（使用超时避免阻塞）
-            import subprocess
-            import os
-            try:
-                # 使用 sys.executable 确保使用正确的 Python 解释器
-                python_exe = sys.executable
-                
-                # 设置环境变量，确保能找到模块
-                env = os.environ.copy()
-                if you_get_src.exists():
-                    env['PYTHONPATH'] = str(you_get_path / "src")
-                elif you_get_module.exists():
-                    env['PYTHONPATH'] = str(you_get_path)
-                
-                # 使用 python -m you_get --version 来检查（不导入模块）
-                result = subprocess.run(
-                    [python_exe, '-m', 'you_get', '--version'],
-                    cwd=str(you_get_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    env=env
-                )
-                # 即使返回非零退出码，只要命令能运行就认为可用
-                # 如果命令不存在或模块不存在，会抛出 FileNotFoundError 或其他异常
-                return True
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                return False
-            except Exception:
-                # 其他异常（如模块导入错误），但文件存在，仍然认为可用
-                # 因为可能是运行时环境问题，不是模块不存在
-                return you_get_module.exists() or you_get_src.exists()
+            result = subprocess.run(
+                [sys.executable, '-m', 'you_get', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=os.environ.copy(),
+            )
+            return True  # 能运行即视为可用
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
         except Exception:
             return False
     
@@ -264,80 +233,27 @@ class YouGetDownloader(DownloaderAdapter):
         return platform != 'unknown'
     
     def download(self, url: str, output_dir: Path, **options) -> DownloadResult:
-        """使用 you-get 下载"""
+        """使用 you-get 下载（python -m you_get，依赖 pip install you-get）"""
         try:
-            you_get_path = _get_you_get_path()
-            if not you_get_path.exists():
-                return DownloadResult(success=False, error="you-get not found")
-            
-            import subprocess
-            import os
-            
-            # 设置环境变量，确保 you-get 能找到模块（避免模块导入冲突）
-            env = os.environ.copy()
-            you_get_module = you_get_path / "you_get"
-            you_get_src = you_get_path / "src" / "you_get"
-            
-            if you_get_src.exists():
-                # 如果存在 src 目录，添加到 PYTHONPATH
-                src_path = you_get_path / "src"
-                if 'PYTHONPATH' in env:
-                    env['PYTHONPATH'] = str(src_path) + os.pathsep + env['PYTHONPATH']
-                else:
-                    env['PYTHONPATH'] = str(src_path)
-            elif you_get_module.exists():
-                # 否则使用 you_get_path
-                if 'PYTHONPATH' in env:
-                    env['PYTHONPATH'] = str(you_get_path) + os.pathsep + env['PYTHONPATH']
-                else:
-                    env['PYTHONPATH'] = str(you_get_path)
-            
-            # 使用独立的 Python 进程调用 you-get（完全隔离，避免模块冲突）
-            # 使用 sys.executable 确保使用当前 Python 解释器
-            import sys as sys_module
-            python_exe = sys_module.executable
-            
-            # 使用 -I 参数（隔离模式）或 -S 参数（不导入 site 模块）来避免模块冲突
-            # -I 参数会忽略 PYTHONPATH 和 site-packages，但我们需要 PYTHONPATH，所以使用 -S
-            # 但实际上，由于我们在 env 中设置了 PYTHONPATH，所以直接使用即可
-            # 关键是要确保使用独立的进程，并且不导入当前进程中的模块
-            cmd = [python_exe, '-m', 'you_get']
-            
-            # 输出目录
-            cmd.extend(['-o', str(output_dir)])
-            
-            # you-get 不支持 -q 参数，只支持 -f 格式选择
-            # 如果指定了 format，使用 -f 参数
+            cmd = [sys.executable, '-m', 'you_get', '-o', str(output_dir)]
             if options.get('format'):
                 cmd.extend(['-f', str(options['format'])])
-            # 如果指定了 quality，尝试转换为 format
-            # you-get 的 format 参数格式：stream_id 或 stream_id+stream_id（如 "80" 或 "80+64"）
-            # 对于 quality 参数，我们需要忽略它，因为 you-get 不支持直接的质量选择
-            # 用户可以通过 format 参数指定具体的流 ID
-            # 注意：quality 参数在 you-get 中不被支持，这里忽略它
-            
-            # URL
             cmd.append(url)
             
-            # 执行（使用环境变量，避免模块导入冲突）
-            # 关键：使用独立的 Python 进程，并且确保 PYTHONPATH 正确设置
-            # 这样即使当前进程中有 you_get 模块，子进程也不会受到影响
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                cwd=str(you_get_path),
-                env=env,
-                # 确保使用独立的进程组，避免继承父进程的模块状态
-                start_new_session=False  # macOS 上 start_new_session 可能不可用
+                env=os.environ.copy(),
             )
             
             if result.returncode == 0:
                 logger.info(f"you-get 下载成功: {url}")
-                return DownloadResult(
-                    success=True,
-                    data={'tool': 'you-get', 'output_dir': str(output_dir)}
-                )
+                data = {'tool': 'you-get', 'output_dir': str(output_dir)}
+                out_file = _find_single_output_file(output_dir)
+                if out_file:
+                    data['output_file'] = out_file
+                return DownloadResult(success=True, data=data)
             else:
                 # 合并 stderr 和 stdout，因为 you-get 可能将错误信息输出到 stdout
                 error_output = (result.stderr or "") + (result.stdout or "")
@@ -410,80 +326,30 @@ class YouGetDownloader(DownloaderAdapter):
 # YtDlpDownloader 适配器
 # ============================================================================
 
-def _get_yt_dlp_path() -> Path:
-    """获取 yt-dlp 路径"""
-    current_file = Path(__file__).resolve()
-    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
-    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        # 如果找不到，使用向上5级的方式（向后兼容）
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "yt-dlp"
-
-
 def _get_ffmpeg_path() -> Path:
-    """获取 FFmpeg 可执行文件路径"""
-    current_file = Path(__file__).resolve()
-    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
-    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        # 如果找不到，使用向上5级的方式（向后兼容）
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin" / "ffmpeg"
+    """获取 FFmpeg 可执行文件路径（系统 PATH，需预先安装：brew install ffmpeg）"""
+    ffmpeg = shutil.which("ffmpeg")
+    return Path(ffmpeg) if ffmpeg else Path("ffmpeg")
 
 
 def _get_ffmpeg_bin_dir() -> Path:
-    """获取 FFmpeg bin 目录路径"""
-    current_file = Path(__file__).resolve()
-    # video_downloader_tool.py 在 backend/core/agent/tools/builtin/
-    # 向上找到包含 backend 目录的父目录，然后取其父目录作为项目根
-    current = current_file.parent
-    while current.name != 'backend' and len(current.parts) > 1:
-        current = current.parent
-    if current.name == 'backend':
-        project_root = current.parent
-    else:
-        # 如果找不到，使用向上5级的方式（向后兼容）
-        project_root = current_file.parent.parent.parent.parent.parent
-    return project_root / "backend" / "externals" / "ffmpeg" / "build" / "bin"
+    """获取 FFmpeg 所在目录（用于 yt-dlp ffmpeg_location）；不存在时返回不存在的路径"""
+    ffmpeg = shutil.which("ffmpeg")
+    return Path(ffmpeg).parent if ffmpeg else Path("/nonexistent")
 
 
 class YtDlpDownloader(DownloaderAdapter):
-    """yt-dlp 适配器"""
+    """yt-dlp 适配器（使用 pip 安装的 yt-dlp：pip install yt-dlp）"""
     
     def is_available(self) -> bool:
-        """检查 yt-dlp 是否可用，并检查版本"""
+        """检查 yt-dlp 是否可用（pip install yt-dlp）"""
         try:
-            yt_dlp_path = _get_yt_dlp_path()
-            if not yt_dlp_path.exists():
-                logger.debug("yt-dlp path does not exist")
-                return False
-            
-            # 尝试导入 yt_dlp
-            if str(yt_dlp_path) not in sys.path:
-                sys.path.insert(0, str(yt_dlp_path))
-            
             import yt_dlp  # type: ignore
-            
-            # 检查版本并记录
             try:
                 version = yt_dlp.version.__version__
                 logger.info(f"yt-dlp version: {version}")
-                # 可以在这里添加版本检查逻辑，提示用户更新
-                # 例如：检查版本是否过旧，建议更新
             except Exception:
-                pass  # 版本检查失败不影响可用性
-            
+                pass
             return True
         except Exception as e:
             logger.debug(f"yt-dlp availability check failed: {e}")
@@ -495,21 +361,11 @@ class YtDlpDownloader(DownloaderAdapter):
         return platform != 'unknown'
     
     def download(self, url: str, output_dir: Path, **options) -> DownloadResult:
-        """使用 yt-dlp 下载"""
+        """使用 yt-dlp 下载（import yt_dlp，依赖 pip install yt-dlp）"""
         cookie_files_to_cleanup: List[str] = []
         try:
-            yt_dlp_path = _get_yt_dlp_path()
-            if not yt_dlp_path.exists():
-                return DownloadResult(success=False, error="yt-dlp not found")
-            
-            # 添加路径
-            if str(yt_dlp_path) not in sys.path:
-                sys.path.insert(0, str(yt_dlp_path))
-            
             import yt_dlp  # type: ignore
-            import os
             
-            # 尝试使用项目中的 FFmpeg（如果存在）
             ffmpeg_bin_dir = _get_ffmpeg_bin_dir()
             use_local_ffmpeg = ffmpeg_bin_dir.exists()
             
@@ -698,6 +554,15 @@ class YtDlpDownloader(DownloaderAdapter):
                         'view_count': info.get('view_count'),
                         'description': info.get('description', '')[:200] if info.get('description') else '',  # 限制长度
                     }
+                    # 提供 output_file 供管道下游绑定（仅音频或完整视频均可用）
+                    if info:
+                        try:
+                            out_path = ydl.prepare_filename(info)
+                            if out_path and not Path(out_path).is_absolute():
+                                out_path = str((output_dir / out_path).resolve())
+                            result_data['output_file'] = out_path
+                        except Exception:
+                            pass
                     
                     logger.info(f"yt-dlp 下载成功: {result_data.get('title', 'Unknown')} (时长: {result_data.get('duration', 'N/A')}秒)")
                     return DownloadResult(
@@ -745,7 +610,14 @@ class YtDlpDownloader(DownloaderAdapter):
                                                 'cookies_auto_extracted': True,
                                                 'cookies_source': browser
                                             }
-                                            
+                                            if info:
+                                                try:
+                                                    out_path = ydl.prepare_filename(info)
+                                                    if out_path and not Path(out_path).is_absolute():
+                                                        out_path = str((output_dir / out_path).resolve())
+                                                    result_data['output_file'] = out_path
+                                                except Exception:
+                                                    pass
                                             logger.info("使用自动提取的 cookies 下载成功")
                                             return DownloadResult(
                                                 success=True,
@@ -953,7 +825,7 @@ class VideoDownloaderTool(Tool):
             ToolParameter(
                 name="output_dir",
                 type="string",
-                description="视频文件的保存目录。如果不指定，默认保存到系统下载目录。",
+                description="视频文件的保存目录。不指定则保存到 ~/hou-cli/outputs。",
                 required=False
             ),
             ToolParameter(

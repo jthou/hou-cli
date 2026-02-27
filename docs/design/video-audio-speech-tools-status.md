@@ -16,7 +16,7 @@
 
 | 能力 | 实现位置 | 输入 | 状态 |
 |------|----------|------|------|
-| **语音转文字 / 字幕** | `whisper_tool` | 本地音频路径 | ✅ 已有，依赖 `backend/externals/whisper` |
+| **语音转文字 / 字幕** | `whisper_tool` | 本地音频路径 | ✅ 已有，依赖 `pip install openai-whisper` |
 
 - **WhisperTool**：`audio_file`（必填）、`language`、`model`、`output_format`（json/text/srt）、`output_file`。
 - 已在 **orchestrator** 中注册，供对话/LLM 调用；**未**作为独立任务类型接入任务队列。

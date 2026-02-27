@@ -1,17 +1,15 @@
 # Browser-Use 集成调试指南
 
-由于 browser-use 的源码位于 `backend/externals/browser-use/` 目录中，我们可以直接在源码中设置断点和进行调试。
+browser-use 现通过 **pip 安装**（`pip install browser-use`），源码位于当前环境的 `site-packages/browser_use/`。若需在源码中下断点，可在该目录或使用 `pip install -e <clone_path>` 从本地 clone 安装。
 
-## 📁 源码位置
+## 📁 源码位置（pip 安装后或本地 clone）
 
 ```
-backend/externals/browser-use/
-├── browser_use/
-│   ├── browser/
-│   │   ├── session.py          # 浏览器会话管理（CDP 连接在这里）
-│   │   ├── watchdogs/
-│   │   │   └── local_browser_watchdog.py  # 本地浏览器启动
-│   │   └── ...
+site-packages/browser_use/  或  <clone>/browser_use/
+├── browser/
+│   ├── session.py          # 浏览器会话管理（CDP 连接在这里）
+│   ├── watchdogs/
+│   │   └── local_browser_watchdog.py  # 本地浏览器启动
 │   └── ...
 ```
 
@@ -22,7 +20,7 @@ backend/externals/browser-use/
 在 browser-use 源码中添加断点：
 
 ```python
-# backend/externals/browser-use/browser_use/browser/session.py
+# browser_use/browser/session.py
 # 在 connect() 方法中添加断点
 
 async def connect(self, cdp_url: str | None = None) -> None:
@@ -87,8 +85,8 @@ pytest backend/core/agent/tools/tests/test_browser_tool.py::TestBrowserTool::tes
 ```
 
 2. **设置断点**:
-   - 在 `backend/externals/browser-use/browser_use/browser/session.py` 的 `connect()` 方法中设置断点
-   - 在 `backend/externals/browser-use/browser_use/browser/watchdogs/local_browser_watchdog.py` 的 `_launch_browser()` 方法中设置断点
+   - 在 `browser_use/browser/session.py` 的 `connect()` 方法中设置断点
+   - 在 `browser_use/browser/watchdogs/local_browser_watchdog.py` 的 `_launch_browser()` 方法中设置断点
 
 3. **开始调试**:
    - 按 `F5` 或点击"开始调试"
@@ -114,7 +112,7 @@ pytest backend/core/agent/tools/tests/test_browser_tool.py::TestBrowserTool::tes
 在 browser-use 源码中添加详细日志：
 
 ```python
-# backend/externals/browser-use/browser_use/browser/session.py
+# browser_use/browser/session.py
 
 async def connect(self, cdp_url: str | None = None) -> None:
     self.logger.debug(f'🔍 [DEBUG] connect() called with cdp_url={cdp_url}')
@@ -140,7 +138,7 @@ pytest backend/core/agent/tools/tests/test_browser_tool.py -v -s --log-cli-level
 
 ### 1. CDP 连接问题
 
-**文件**: `backend/externals/browser-use/browser_use/browser/session.py`
+**文件**: `browser_use/browser/session.py`
 
 **关键方法**:
 - `connect()` (约 1507 行) - CDP 连接逻辑
@@ -160,7 +158,7 @@ async def connect(self, cdp_url: str | None = None) -> None:
 
 ### 2. 浏览器启动问题
 
-**文件**: `backend/externals/browser-use/browser_use/browser/watchdogs/local_browser_watchdog.py`
+**文件**: `browser_use/browser/watchdogs/local_browser_watchdog.py`
 
 **关键方法**:
 - `_launch_browser()` (约 91 行) - 启动浏览器进程
@@ -186,7 +184,7 @@ async def _launch_browser(self, max_retries: int = 3):
 
 ### 3. CDP URL 获取问题
 
-**文件**: `backend/externals/browser-use/browser_use/browser/watchdogs/local_browser_watchdog.py`
+**文件**: `browser_use/browser/watchdogs/local_browser_watchdog.py`
 
 **调试点**:
 ```python
@@ -253,7 +251,7 @@ print(f"Is local: {self.is_local}")
 ### 示例 1: 调试 CDP 连接失败
 
 ```python
-# 在 backend/externals/browser-use/browser_use/browser/session.py
+# 在 browser_use/browser/session.py
 # connect() 方法中添加调试代码
 
 async def connect(self, cdp_url: str | None = None) -> None:
@@ -279,7 +277,7 @@ async def connect(self, cdp_url: str | None = None) -> None:
 ### 示例 2: 调试浏览器启动
 
 ```python
-# 在 backend/externals/browser-use/browser_use/browser/watchdogs/local_browser_watchdog.py
+# 在 browser_use/browser/watchdogs/local_browser_watchdog.py
 # _launch_browser() 方法中添加调试代码
 
 async def _launch_browser(self, max_retries: int = 3):
@@ -321,7 +319,7 @@ pytest backend/core/agent/tools/tests/test_browser_cdp_diagnosis.py::TestBrowser
 
 ## 💡 提示
 
-1. **修改源码后**: browser-use 源码在 `externals/` 目录中，修改后立即生效，无需重新安装
+1. **修改源码后**: 若使用 `pip install -e <clone>` 从本地安装，修改后立即生效；否则需改 site-packages 或重新安装
 2. **使用 justMyCode: false**: 在 IDE 调试配置中设置 `justMyCode: false` 以允许调试外部库
 3. **查看日志**: 使用 `--log-cli-level=DEBUG` 查看详细日志
 4. **检查进程**: 在调试过程中检查浏览器进程状态

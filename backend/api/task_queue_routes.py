@@ -31,7 +31,8 @@ class TaskCreateRequest(BaseModel):
     max_retries: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
     depends_on_task_id: Optional[str] = None  # 上游任务 ID，管道用
-    input_bindings: Optional[Dict[str, str]] = None  # 下游 metadata 字段 -> 上游 result 路径，如 {"input_file": "result.data.output_file"}
+    input_bindings: Optional[Dict[str, str]] = None  # 下游 metadata 字段 -> 上游 result 路径
+    pipeline_id: Optional[str] = None  # 同一编排的组号，前端按组展示
 
 
 def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -155,6 +156,7 @@ async def create_task(request: TaskCreateRequest):
                     )
         
         # 创建任务（创建即入队，由 Worker 轮询拉取）
+        pipeline_id = (request.pipeline_id or "").strip() or None
         task_id = task_queue_db.create_task(
             task_type=request.task_type,
             task_name=task_name,
@@ -163,6 +165,7 @@ async def create_task(request: TaskCreateRequest):
             metadata=request.metadata,
             depends_on_task_id=dep_id,
             input_bindings=request.input_bindings,
+            pipeline_id=pipeline_id,
         )
         
         return {
@@ -178,6 +181,127 @@ async def create_task(request: TaskCreateRequest):
             status_code=500,
             detail=f"创建任务失败: {str(e)}"
         )
+
+
+@router.get("/task-queue/tasks/{task_id}/queue-status")
+async def get_task_queue_status(task_id: str):
+    """
+    诊断「为何带依赖的任务仍在待执行」：检查上游状态与 result 是否满足 acquire 条件。
+    仅当任务 status=queued 且 depends_on_task_id 非空时返回上游信息。
+    """
+    try:
+        task_queue_db = get_task_queue_db()
+        task = task_queue_db.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        dep_id = (task.get("depends_on_task_id") or "").strip() or None
+        if task.get("status") != TaskStatus.QUEUED.value or not dep_id:
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": task.get("status"),
+                "message": "仅对「待执行且存在依赖」的任务做衔接诊断",
+                "upstream": None,
+            }
+        upstream = task_queue_db.get_task(dep_id)
+        bindings = task.get("input_bindings") or {}
+        upstream_status = upstream.get("status") if upstream else None
+        upstream_result = upstream.get("result") if upstream else None
+        upstream_has_result = upstream_result is not None and (upstream_result != "" if isinstance(upstream_result, str) else True)
+        # 检查上游 result 是否包含绑定路径所需字段（如 result.data.output_file）
+        resolved = resolve_input_bindings_from_result(upstream_result, bindings) if upstream_has_result and bindings else {}
+        missing_bindings = [k for k in bindings if not resolved.get(k)]
+        can_acquire = (
+            upstream_status == TaskStatus.COMPLETED.value
+            and upstream_has_result
+            and len(missing_bindings) == 0
+        )
+        message = (
+            "下游可被拉取" if can_acquire
+            else "上游未找到，无法衔接" if not upstream
+            else f"上游状态={upstream_status}，result 非空={upstream_has_result}"
+            + (f"；绑定缺失: {missing_bindings}" if missing_bindings else "")
+        )
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": task.get("status"),
+            "depends_on_task_id": dep_id,
+            "message": message,
+            "can_acquire": can_acquire,
+            "upstream": {
+                "task_id": dep_id,
+                "found": upstream is not None,
+                "status": upstream_status,
+                "has_result": upstream_has_result,
+                "resolved_bindings": resolved if bindings else None,
+                "missing_bindings": missing_bindings or None,
+            } if dep_id else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"queue-status 失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"诊断失败: {str(e)}")
+
+
+@router.patch("/task-queue/tasks/{task_id}/patch-result-output-file")
+async def patch_task_result_output_file(task_id: str):
+    """
+    为已完成的「视频下载」等任务补全 result.data.output_file（从 result.data.output_dir 推断），
+    使其满足管道下游绑定 result.data.output_file 的设计。支持 8 位短 id（如 af0a871c）。
+    """
+    try:
+        from pathlib import Path
+        from backend.core.agent.tools.builtin.video_downloader_tool import _find_single_output_file
+
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        if task.get("status") != TaskStatus.COMPLETED.value:
+            raise HTTPException(
+                status_code=400,
+                detail=f"仅支持对已完成任务补全 result；当前状态: {task.get('status')}",
+            )
+        result = task.get("result")
+        if not result or not isinstance(result, dict):
+            raise HTTPException(status_code=400, detail="任务无 result 或格式无效")
+        data = dict(result.get("data") or {})
+        if data.get("output_file"):
+            return {"success": True, "message": "result.data.output_file 已存在", "task_id": resolved_id}
+        output_dir = data.get("output_dir")
+        if not output_dir:
+            raise HTTPException(
+                status_code=400,
+                detail="result.data 中无 output_dir，无法推断 output_file",
+            )
+        out_path = _find_single_output_file(Path(output_dir))
+        if not out_path:
+            raise HTTPException(
+                status_code=404,
+                detail=f"在 output_dir 下未找到视频/音频文件: {output_dir}",
+            )
+        data["output_file"] = out_path
+        new_result = {**result, "data": data}
+        if not task_queue_db.update_task_result(resolved_id, new_result):
+            raise HTTPException(status_code=500, detail="更新 result 失败")
+        return {
+            "success": True,
+            "message": "已补全 result.data.output_file",
+            "task_id": resolved_id,
+            "output_file": out_path,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"patch-result-output-file 失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"补全失败: {str(e)}")
 
 
 @router.get("/task-queue/tasks/{task_id}")
@@ -219,9 +343,10 @@ async def get_task(task_id: str):
 async def list_tasks(
     status: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    deleted: Optional[str] = None,
 ):
-    """列出任务"""
+    """列出任务。deleted=only 时仅返回已软删除任务；不传或 exclude 时仅返回未删除。"""
     try:
         task_queue_db = get_task_queue_db()
         
@@ -235,11 +360,17 @@ async def list_tasks(
                     status_code=400,
                     detail=f"无效的任务状态: {status}"
                 )
+        include_deleted = None
+        if deleted == "only":
+            include_deleted = "only"
+        elif deleted and deleted != "exclude":
+            raise HTTPException(status_code=400, detail="deleted 仅支持 only 或 exclude")
         
         tasks = task_queue_db.list_tasks(
             status=task_status,
             limit=limit,
-            offset=offset
+            offset=offset,
+            include_deleted=include_deleted,
         )
         
         return {
@@ -257,43 +388,64 @@ async def list_tasks(
         )
 
 
-@router.post("/task-queue/tasks/{task_id}/restart")
-async def restart_task(task_id: str):
-    """基于原任务重新开始：按原 task_type、metadata、priority 创建一条新任务并入队"""
+@router.post("/task-queue/tasks/{task_id}/requeue")
+async def requeue_task(task_id: str):
+    """将已失败且带依赖的任务重新入队（清空错误），用上游最新 result 再执行一次。支持 8 位短 id。"""
     try:
         task_queue_db = get_task_queue_db()
-        task = task_queue_db.get_task(task_id)
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-
-        task_type = task.get("task_type")
-        metadata = task.get("metadata") or {}
-        priority = task.get("priority")
-        if priority is None:
-            priority = TaskPriority.NORMAL
-        else:
-            try:
-                priority = TaskPriority(priority)
-            except ValueError:
-                priority = TaskPriority.NORMAL
-
-        ok, err = validate_task_creation(task_type, metadata)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err)
-
-        task_name = _generate_task_name(task_type, metadata)
-        new_task_id = task_queue_db.create_task(
-            task_type=task_type,
-            task_name=task_name,
-            priority=priority,
-            max_retries=3,
-            metadata=metadata,
-        )
-
+        if task.get("status") != TaskStatus.FAILED.value:
+            raise HTTPException(
+                status_code=400,
+                detail=f"仅支持对已失败任务重新入队；当前状态: {task.get('status')}",
+            )
+        if not task_queue_db.requeue_failed_task(resolved_id):
+            raise HTTPException(status_code=400, detail="重新入队失败（可能状态已变更）")
         return {
             "success": True,
-            "task_id": new_task_id,
-            "message": "已基于原任务创建新任务",
+            "message": "已重新入队，待 Worker 拉取后会用上游最新 result 执行",
+            "task_id": resolved_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"requeue 失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"重新入队失败: {str(e)}")
+
+
+@router.post("/task-queue/tasks/{task_id}/restart")
+async def restart_task(task_id: str):
+    """将已完成或已失败的任务原地重置为待执行：只修改状态与执行结果，不新开任务。"""
+    try:
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        status = task.get("status")
+        if status not in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value):
+            raise HTTPException(
+                status_code=400,
+                detail=f"仅支持对已完成或已失败的任务重新开始，当前状态: {status}",
+            )
+        ok = task_queue_db.reset_task_to_queued(resolved_id)
+        if not ok:
+            raise HTTPException(status_code=500, detail="重置任务失败")
+        return {
+            "success": True,
+            "task_id": resolved_id,
+            "message": "任务已重置为待执行",
         }
     except HTTPException:
         raise
@@ -327,6 +479,92 @@ async def cancel_task(task_id: str):
             status_code=500,
             detail=f"取消任务失败: {str(e)}"
         )
+
+
+@router.post("/task-queue/tasks/{task_id}/soft-delete")
+async def soft_delete_task(task_id: str):
+    """软删除任务：任务进入回收站，可恢复。仅允许对非运行中的任务操作。"""
+    try:
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        if task.get("deleted_at"):
+            raise HTTPException(status_code=400, detail="任务已在回收站中")
+        if task.get("status") == TaskStatus.RUNNING.value:
+            raise HTTPException(status_code=400, detail="请先取消运行中的任务再删除")
+        success = task_queue_db.soft_delete_task(resolved_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="软删除失败（可能状态已变更）")
+        return {"success": True, "message": "已移入回收站", "task_id": resolved_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"软删除任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"软删除失败: {str(e)}")
+
+
+@router.post("/task-queue/tasks/{task_id}/restore")
+async def restore_task(task_id: str):
+    """从回收站恢复任务。"""
+    try:
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        if not task.get("deleted_at"):
+            raise HTTPException(status_code=400, detail="任务未在回收站中，无需恢复")
+        success = task_queue_db.restore_task(resolved_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="恢复失败（可能状态已变更）")
+        return {"success": True, "message": "已恢复", "task_id": resolved_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"恢复任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"恢复失败: {str(e)}")
+
+
+@router.delete("/task-queue/tasks/{task_id}")
+async def delete_task(task_id: str):
+    """彻底删除任务（物理删除）。仅允许删除 queued/completed/failed/cancelled；running 需先取消再删除。"""
+    try:
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        if task.get("status") == TaskStatus.RUNNING.value:
+            raise HTTPException(
+                status_code=400,
+                detail="请先取消运行中的任务再删除",
+            )
+        success = task_queue_db.delete_task(resolved_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="删除任务失败")
+        return {
+            "success": True,
+            "message": "任务已删除",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"删除任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"删除任务失败: {str(e)}")
 
 
 @router.get("/task-queue/workers")
