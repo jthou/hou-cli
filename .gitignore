@@ -57,14 +57,15 @@ frontend/web/dist/
 .cursor/
 data/
 
-# External dependencies build artifacts
-backend/externals/ffmpeg/build/
+# 外部依赖目录（已不再以 submodule 跟踪，本地可保留用于运行，但不提交）
+backend/externals/browser-use/
+backend/externals/ffmpeg/
+backend/externals/whisper/
+backend/externals/you-get/
+backend/externals/yt-dlp/
 
 # Development entry point (避免与系统级 hou-cli 冲突)
 venv/bin/hou-cli
-
-# 子模块构建产物（不提交编译后的文件）
-backend/externals/ffmpeg/build/
 
 # Planning files directory
 plans/
