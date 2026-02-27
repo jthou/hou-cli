@@ -87,6 +87,13 @@ class ScheduledTaskCreateRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class ScheduledTaskUpdateRequest(BaseModel):
+    task_name: Optional[str] = None
+    schedule_type: Optional[str] = None
+    schedule_config: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 @router.get("/task-queue/debug")
 async def task_queue_debug():
     """诊断接口：确认 task-queue API 已挂载"""
@@ -871,6 +878,54 @@ async def run_scheduled_task_now(schedule_id: str):
     except Exception as e:
         debug_log(f"立即执行定时任务失败: {str(e)}", level="error")
         raise HTTPException(status_code=500, detail=f"立即执行失败: {str(e)}")
+
+
+@router.patch("/task-queue/scheduled-tasks/{schedule_id}")
+async def update_scheduled_task(schedule_id: str, request: ScheduledTaskUpdateRequest):
+    """更新定时任务参数（任务名称、调度配置、metadata）"""
+    try:
+        task_queue_db = get_task_queue_db()
+        tasks = task_queue_db.list_scheduled_tasks(active_only=False)
+        task = next((t for t in tasks if t["schedule_id"] == schedule_id), None)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"定时任务 {schedule_id} 不存在")
+
+        if request.schedule_type is not None or request.schedule_config is not None:
+            st = request.schedule_type or task["schedule_type"]
+            cfg = request.schedule_config if request.schedule_config is not None else task.get("schedule_config", {})
+            if st not in ["interval", "cron"]:
+                raise HTTPException(status_code=400, detail="schedule_type 必须是 'interval' 或 'cron'")
+            if st == "interval":
+                if "interval_seconds" not in cfg:
+                    raise HTTPException(status_code=400, detail="interval 类型需要 interval_seconds")
+                sec = cfg.get("interval_seconds")
+                if not isinstance(sec, (int, float)) or sec < 60:
+                    raise HTTPException(status_code=400, detail="interval_seconds 必须 >= 60")
+            elif st == "cron":
+                if not (cfg.get("cron") or "").strip():
+                    raise HTTPException(status_code=400, detail="cron 类型需要 cron 表达式非空")
+
+        if request.metadata is not None:
+            ok, err = validate_task_creation(task["task_type"], request.metadata)
+            if not ok:
+                raise HTTPException(status_code=400, detail=err or "任务参数校验失败")
+
+        success = task_queue_db.update_scheduled_task(
+            schedule_id=schedule_id,
+            task_name=request.task_name,
+            schedule_type=request.schedule_type,
+            schedule_config=request.schedule_config,
+            metadata=request.metadata,
+        )
+        if not success:
+            raise HTTPException(status_code=404, detail="更新失败")
+
+        return {"success": True, "message": "定时任务已更新"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"更新定时任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/task-queue/scheduled-tasks/{schedule_id}/toggle")

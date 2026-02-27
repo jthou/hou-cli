@@ -100,6 +100,7 @@ export default function TaskManagement() {
   const [taskTypes, setTaskTypes] = useState([])
   const [runsModalSchedule, setRunsModalSchedule] = useState(null)
   const [runsModalRefreshTrigger, setRunsModalRefreshTrigger] = useState(0)
+  const [editScheduleTask, setEditScheduleTask] = useState(null)
 
   const handleGoToSchedule = useCallback((scheduleId) => {
     setDetailTaskId(null)
@@ -162,13 +163,13 @@ export default function TaskManagement() {
   }, [tab, loadTasks, loadDeletedTasks, loadScheduledTasks])
 
   useEffect(() => {
-    if (showCreateModal) {
+    if (showCreateModal || editScheduleTask) {
       fetch('/api/task-queue/task-types')
         .then(r => r.json())
         .then(d => setTaskTypes(d.task_types || []))
         .catch(() => setTaskTypes([]))
     }
-  }, [showCreateModal])
+  }, [showCreateModal, editScheduleTask])
 
   const stats = {
     total: tasks.length,
@@ -492,6 +493,7 @@ export default function TaskManagement() {
                   task={t}
                   onRefresh={loadScheduledTasks}
                   onViewRuns={() => setRunsModalSchedule({ scheduleId: t.schedule_id, taskName: t.task_name, nextRunTime: t.next_run_time })}
+                  onEdit={() => setEditScheduleTask(t)}
                 />
               ))
             )}
@@ -505,6 +507,17 @@ export default function TaskManagement() {
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false)
+            loadScheduledTasks()
+          }}
+        />
+      )}
+      {editScheduleTask && (
+        <EditScheduledTaskModal
+          task={editScheduleTask}
+          taskTypes={taskTypes}
+          onClose={() => setEditScheduleTask(null)}
+          onSuccess={() => {
+            setEditScheduleTask(null)
             loadScheduledTasks()
           }}
         />
@@ -1393,7 +1406,7 @@ function ScheduledTaskRunsModal({ scheduleId, taskName, nextRunTime, onClose, on
   )
 }
 
-function ScheduledTaskCard({ task, onRefresh, onViewRuns }) {
+function ScheduledTaskCard({ task, onRefresh, onViewRuns, onEdit }) {
   const toast = useToast()
   const [toggling, setToggling] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1463,6 +1476,11 @@ function ScheduledTaskCard({ task, onRefresh, onViewRuns }) {
           </span>
         </div>
         <div className="flex gap-2 shrink-0">
+          {onEdit && (
+            <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:bg-white/5 text-sm">
+              编辑
+            </button>
+          )}
           {onViewRuns && (
             <button onClick={onViewRuns} className="px-3 py-1.5 rounded-lg border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 text-sm">
               查看执行记录
@@ -1498,6 +1516,219 @@ function ScheduledTaskCard({ task, onRefresh, onViewRuns }) {
           错误: {task.last_error}
         </div>
       )}
+    </div>
+  )
+}
+
+function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
+  const toast = useToast()
+  const typeInfo = taskTypes.find(t => t.type === task.task_type) || null
+  const defaultMeta = getDefaultMetadata(typeInfo?.metadata_schema)
+  const cfg = task.schedule_config || {}
+  const [name, setName] = useState(task.task_name || '')
+  const [scheduleType, setScheduleType] = useState(task.schedule_type || 'interval')
+  const [intervalSeconds, setIntervalSeconds] = useState(cfg.interval_seconds ?? 3600)
+  const [cronExpr, setCronExpr] = useState(cfg.cron || '0 2 * * *')
+  const [cronTz, setCronTz] = useState(cfg.tz || '')
+  const [metadata, setMetadata] = useState({ ...defaultMeta, ...(task.metadata || {}) })
+  const [submitting, setSubmitting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+  const type = task.task_type
+  const schema = typeInfo?.metadata_schema || {}
+  const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
+  const inputFileAccept = type === 'speech_to_text'
+    ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
+    : type === 'video_extract_audio'
+      ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
+      : ''
+
+  const uploadFileAndSet = (fieldKey) => async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.success && data.path) setMetadata(m => ({ ...m, [fieldKey]: data.path }))
+      else throw new Error(data.detail || '上传失败')
+    } catch (err) {
+      toast.error('上传失败: ' + (err.message || String(err)))
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    for (const [key, spec] of Object.entries(schema)) {
+      if (spec?.required) {
+        const v = metadata[key]
+        if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
+          toast.warning(`请填写必填项: ${spec.description || key}`)
+          return
+        }
+      }
+    }
+    const scheduleConfig = scheduleType === 'interval'
+      ? { interval_seconds: Number(intervalSeconds) }
+      : { cron: cronExpr.trim(), ...(cronTz.trim() ? { tz: cronTz.trim() } : {}) }
+    if (scheduleType === 'interval' && (intervalSeconds < 60 || !Number.isFinite(intervalSeconds))) {
+      toast.warning('间隔秒数须 ≥ 60')
+      return
+    }
+    if (scheduleType === 'cron' && !cronExpr.trim()) {
+      toast.warning('请填写 cron 表达式')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/task-queue/scheduled-tasks/${task.schedule_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_name: name?.trim() || task.task_name,
+          schedule_type: scheduleType,
+          schedule_config: scheduleConfig,
+          metadata,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast.info('定时任务已更新')
+        onSuccess()
+        onClose()
+      } else {
+        throw new Error(getApiErrorMessage(data))
+      }
+    } catch (err) {
+      toast.error('更新失败: ' + (err?.message || String(err)))
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-white">编辑定时任务</h3>
+          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">任务类型</label>
+            <input type="text" value={type} readOnly disabled className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-[#64748b] cursor-not-allowed" />
+          </div>
+          {Object.keys(schema).length > 0 && (
+            <div className="pt-2 border-t border-border">
+              <div className="text-sm font-medium text-[#94a3b8] mb-3">任务参数（城市、查询类型等）</div>
+              <div className="space-y-4">
+          {Object.entries(schema).map(([fieldKey, spec]) => {
+            if (!spec || typeof spec !== 'object') return null
+            const label = spec.description || fieldKey
+            const required = spec.required
+            const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
+            const isInputFileField = fieldKey === 'input_file' && isInputFileTask
+            if (spec.enum && Array.isArray(spec.enum)) {
+              const selectValue = value != null ? String(value) : ''
+              return (
+                <div key={fieldKey}>
+                  <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
+                  <select
+                    value={selectValue}
+                    onChange={e => {
+                      const v = e.target.value
+                      setMetadata(m => ({ ...m, [fieldKey]: v === '' ? undefined : (spec.type === 'number' ? Number(v) : v) }))
+                    }}
+                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
+                    required={required}
+                  >
+                    {!required && <option value="">请选择</option>}
+                    {spec.enum.map(opt => (
+                      <option key={String(opt.value)} value={String(opt.value)}>{opt.label ?? opt.value}</option>
+                    ))}
+                  </select>
+                </div>
+              )
+            }
+            if (spec.type === 'boolean') {
+              return (
+                <div key={fieldKey} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`edit-meta-${fieldKey}`}
+                    checked={!!value}
+                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
+                    className="rounded border-border bg-white/5 text-accent focus:ring-accent"
+                  />
+                  <label htmlFor={`edit-meta-${fieldKey}`} className="text-sm text-[#94a3b8]">{label}{required ? ' *' : ''}</label>
+                </div>
+              )
+            }
+            return (
+              <div key={fieldKey}>
+                <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
+                <div className="flex gap-2">
+                  <input
+                    type={spec.type === 'number' ? 'number' : 'text'}
+                    value={value}
+                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: spec.type === 'number' ? (Number(e.target.value) || 0) : e.target.value }))}
+                    placeholder={spec.placeholder || ''}
+                    className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                    required={required}
+                  />
+                  {isInputFileField && (
+                    <>
+                      <input ref={fileInputRef} type="file" accept={inputFileAccept} className="hidden" onChange={uploadFileAndSet('input_file')} />
+                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50">
+                        {uploading ? '上传中…' : '选择文件'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm text-[#94a3b8] mb-1">调度类型 *</label>
+            <select value={scheduleType} onChange={e => setScheduleType(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none">
+              <option value="interval">按间隔（interval）</option>
+              <option value="cron">Cron 表达式</option>
+            </select>
+          </div>
+          {scheduleType === 'interval' && (
+            <div>
+              <label className="block text-sm text-[#94a3b8] mb-1">间隔秒数 *（≥ 60）</label>
+              <input type="number" min={60} value={intervalSeconds} onChange={e => setIntervalSeconds(Number(e.target.value) || 60)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none" />
+            </div>
+          )}
+          {scheduleType === 'cron' && (
+            <>
+              <div>
+                <label className="block text-sm text-[#94a3b8] mb-1">Cron 表达式 *（分 时 日 月 周）</label>
+                <input type="text" value={cronExpr} onChange={e => setCronExpr(e.target.value)} placeholder="0 2 * * *" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94a3b8] mb-1">时区（可选）</label>
+                <input type="text" value={cronTz} onChange={e => setCronTz(e.target.value)} placeholder="Asia/Shanghai" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
+              </div>
+            </>
+          )}
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
+            <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

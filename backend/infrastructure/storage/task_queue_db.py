@@ -1285,6 +1285,89 @@ class TaskQueueDB:
         finally:
             conn.close()
 
+    def update_scheduled_task(
+        self,
+        schedule_id: str,
+        task_name: Optional[str] = None,
+        schedule_type: Optional[str] = None,
+        schedule_config: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """更新定时任务参数，修改 schedule_config 时会重新计算 next_run_time"""
+        from backend.infrastructure.schedule import compute_next_run_time
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT schedule_type, schedule_config, last_run_time, created_at
+                FROM scheduled_tasks WHERE schedule_id = ?
+            """, (schedule_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            current_schedule_type, current_schedule_config, last_run_time, created_at = row
+            current_cfg = json.loads(current_schedule_config) if current_schedule_config else {}
+
+            st = schedule_type or current_schedule_type
+            cfg = schedule_config if schedule_config is not None else current_cfg
+
+            if st not in ("interval", "cron"):
+                raise ValueError("schedule_type 必须是 'interval' 或 'cron'")
+            if st == "interval":
+                if "interval_seconds" not in cfg:
+                    raise ValueError("interval 类型需要 schedule_config.interval_seconds")
+                sec = cfg.get("interval_seconds")
+                if not isinstance(sec, (int, float)) or sec < 60:
+                    raise ValueError("interval_seconds 必须 >= 60")
+            if st == "cron":
+                if not (cfg.get("cron") or "").strip():
+                    raise ValueError("cron 类型需要 schedule_config.cron 非空")
+
+            now = utc_now_iso()
+            updates = ["updated_at = ?"]
+            params = [now]
+
+            # 仅当调度配置变更时重新计算 next_run_time
+            if schedule_type is not None or schedule_config is not None:
+                next_run = compute_next_run_time(
+                    schedule_type=st,
+                    schedule_config=cfg,
+                    last_run_time=last_run_time,
+                    created_at=created_at,
+                )
+                updates.append("next_run_time = ?")
+                params.append(next_run)
+
+            if task_name is not None:
+                updates.append("task_name = ?")
+                params.append(task_name.strip() or "")
+            if schedule_type is not None:
+                updates.append("schedule_type = ?")
+                params.append(schedule_type)
+            if schedule_config is not None:
+                updates.append("schedule_config = ?")
+                params.append(json.dumps(schedule_config))
+            if metadata is not None:
+                updates.append("metadata = ?")
+                params.append(json.dumps(metadata))
+
+            params.append(schedule_id)
+            cursor.execute(
+                f"UPDATE scheduled_tasks SET {', '.join(updates)} WHERE schedule_id = ?",
+                params,
+            )
+            conn.commit()
+            debug_log(f"更新定时任务: {schedule_id}")
+            return cursor.rowcount > 0
+        except Exception as e:
+            debug_log(f"更新定时任务失败: {e}", level="error")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def toggle_scheduled_task(self, schedule_id: str, is_active: bool) -> bool:
         """启用/禁用定时任务"""
         now = utc_now_iso()

@@ -901,6 +901,33 @@ class TestScheduledTaskRoutes:
         assert data["success"] is True
         mock_task_queue_db.delete_scheduled_task.assert_called_once_with("s1")
 
+    def test_update_scheduled_task(self, client, mock_task_queue_db):
+        """更新定时任务参数"""
+        mock_task_queue_db.list_scheduled_tasks.return_value = [
+            {
+                "schedule_id": "s1",
+                "task_type": "weather_query",
+                "task_name": "天气_定时",
+                "schedule_type": "interval",
+                "schedule_config": {"interval_seconds": 3600},
+                "metadata": {"location": "北京"},
+            },
+        ]
+        mock_task_queue_db.update_scheduled_task.return_value = True
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.patch(
+                "/api/task-queue/scheduled-tasks/s1",
+                json={"task_name": "新名称", "metadata": {"location": "上海"}},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        mock_task_queue_db.update_scheduled_task.assert_called_once()
+        call_kw = mock_task_queue_db.update_scheduled_task.call_args[1]
+        assert call_kw["schedule_id"] == "s1"
+        assert call_kw["task_name"] == "新名称"
+        assert call_kw["metadata"] == {"location": "上海"}
+
 
 class TestTaskQueueIntegration:
     """集成测试：真实 TaskQueueDB（SQLite）"""
