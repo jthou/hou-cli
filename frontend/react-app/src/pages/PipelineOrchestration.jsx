@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
+import { formStyles } from '../components/task/taskFormUtils'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 const TASK_API = {
@@ -87,9 +88,7 @@ export default function PipelineOrchestration() {
     setFormValues({})
   }
 
-  const inputCls =
-    'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
-  const labelCls = 'block text-sm font-medium text-[#94a3b8] mb-1'
+  const { inputCls, labelCls } = formStyles
 
   return (
     <div className="flex flex-col h-full">

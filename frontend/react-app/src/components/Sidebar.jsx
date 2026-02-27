@@ -13,7 +13,7 @@ const navItems = [
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },
   { path: '/settings/backend', icon: '🔧', label: '后端服务', group: 'settings' },
-  { path: '/about', icon: 'ℹ️', label: '关于' },
+  { path: '/about', icon: 'ℹ️', label: '关于', group: 'settings' },
 ]
 
 export default function Sidebar({ open, onToggle }) {
@@ -39,7 +39,7 @@ export default function Sidebar({ open, onToggle }) {
 
       <nav className="flex-1 overflow-y-auto py-4">
         <ul className="space-y-1 px-2">
-          {otherItems.filter(i => i.path === '/').map(item => (
+          {otherItems.map(item => (
             <li key={item.path}>
               <NavLink
                 to={item.path}
@@ -85,21 +85,6 @@ export default function Sidebar({ open, onToggle }) {
               </ul>
             )}
           </li>
-          {otherItems.filter(i => i.path !== '/').map(item => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
-                  }`
-                }
-              >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
-            </li>
-          ))}
         </ul>
       </nav>
 

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import TaskResultDisplay from '../components/TaskResultDisplay'
 import { useToast } from '../components/ToastModal'
+import { getDefaultMetadata, getApiErrorMessage } from '../components/task/taskFormUtils'
+import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
+import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 /**
@@ -71,17 +74,6 @@ function formatTimeUntil(nextRunTime) {
   if (diffHour < 24) return diffMin % 60 === 0 ? `还剩 ${diffHour} 小时` : `还剩 ${diffHour} 小时 ${diffMin % 60} 分钟`
   if (diffDay < 7) return `还剩 ${diffDay} 天`
   return `${formatDateTime(nextRunTime)}`
-}
-
-/** 从 API 错误响应中提取可读错误信息（FastAPI 422 时 detail 为对象数组） */
-function getApiErrorMessage(data) {
-  const d = data?.detail
-  if (typeof d === 'string') return d
-  if (Array.isArray(d) && d.length) {
-    return d.map((x) => x?.msg ?? x?.loc?.join('.') ?? JSON.stringify(x)).join('; ')
-  }
-  if (d && typeof d === 'object') return JSON.stringify(d)
-  return data?.message ?? '未知错误'
 }
 
 export default function TaskManagement() {
@@ -1034,20 +1026,6 @@ function TaskCard({ task, onRefresh, onShowDetail, onGoToSchedule, recycleBin = 
   )
 }
 
-function getDefaultMetadata(schema) {
-  if (!schema || typeof schema !== 'object') return {}
-  const meta = {}
-  for (const [key, spec] of Object.entries(schema)) {
-    if (spec && typeof spec === 'object') {
-      if (spec.default !== undefined) meta[key] = spec.default
-      else if (Array.isArray(spec.enum) && spec.enum.length) meta[key] = spec.enum[0].value
-      else if (spec.type === 'boolean') meta[key] = false
-      else meta[key] = ''
-    }
-  }
-  return meta
-}
-
 /**
  * 创建管道（先选链路，再填任务细节）
  * Step 1: 选择管道模板
@@ -1532,8 +1510,6 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
   const [cronTz, setCronTz] = useState(cfg.tz || '')
   const [metadata, setMetadata] = useState({ ...defaultMeta, ...(task.metadata || {}) })
   const [submitting, setSubmitting] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef(null)
   const type = task.task_type
   const schema = typeInfo?.metadata_schema || {}
   const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
@@ -1541,25 +1517,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
     ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
     : type === 'video_extract_audio'
       ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
-      : ''
-
-  const uploadFileAndSet = (fieldKey) => async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
-      const data = await res.json()
-      if (data.success && data.path) setMetadata(m => ({ ...m, [fieldKey]: data.path }))
-      else throw new Error(data.detail || '上传失败')
-    } catch (err) {
-      toast.error('上传失败: ' + (err.message || String(err)))
-    }
-    setUploading(false)
-    e.target.value = ''
-  }
+      : '*'
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -1624,105 +1582,28 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
           {Object.keys(schema).length > 0 && (
             <div className="pt-2 border-t border-border">
               <div className="text-sm font-medium text-[#94a3b8] mb-3">任务参数（城市、查询类型等）</div>
-              <div className="space-y-4">
-          {Object.entries(schema).map(([fieldKey, spec]) => {
-            if (!spec || typeof spec !== 'object') return null
-            const label = spec.description || fieldKey
-            const required = spec.required
-            const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
-            const isInputFileField = fieldKey === 'input_file' && isInputFileTask
-            if (spec.enum && Array.isArray(spec.enum)) {
-              const selectValue = value != null ? String(value) : ''
-              return (
-                <div key={fieldKey}>
-                  <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                  <select
-                    value={selectValue}
-                    onChange={e => {
-                      const v = e.target.value
-                      setMetadata(m => ({ ...m, [fieldKey]: v === '' ? undefined : (spec.type === 'number' ? Number(v) : v) }))
-                    }}
-                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
-                    required={required}
-                  >
-                    {!required && <option value="">请选择</option>}
-                    {spec.enum.map(opt => (
-                      <option key={String(opt.value)} value={String(opt.value)}>{opt.label ?? opt.value}</option>
-                    ))}
-                  </select>
-                </div>
-              )
-            }
-            if (spec.type === 'boolean') {
-              return (
-                <div key={fieldKey} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id={`edit-meta-${fieldKey}`}
-                    checked={!!value}
-                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
-                    className="rounded border-border bg-white/5 text-accent focus:ring-accent"
-                  />
-                  <label htmlFor={`edit-meta-${fieldKey}`} className="text-sm text-[#94a3b8]">{label}{required ? ' *' : ''}</label>
-                </div>
-              )
-            }
-            return (
-              <div key={fieldKey}>
-                <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                <div className="flex gap-2">
-                  <input
-                    type={spec.type === 'number' ? 'number' : 'text'}
-                    value={value}
-                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: spec.type === 'number' ? (Number(e.target.value) || 0) : e.target.value }))}
-                    placeholder={spec.placeholder || ''}
-                    className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
-                    required={required}
-                  />
-                  {isInputFileField && (
-                    <>
-                      <input ref={fileInputRef} type="file" accept={inputFileAccept} className="hidden" onChange={uploadFileAndSet('input_file')} />
-                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50">
-                        {uploading ? '上传中…' : '选择文件'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-              </div>
+              <TaskMetadataFormFields
+                schema={schema}
+                metadata={metadata}
+                setMetadata={setMetadata}
+                fieldIdPrefix="edit-sched"
+                isInputFileTask={isInputFileTask}
+                inputFileAccept={inputFileAccept}
+              />
             </div>
           )}
-          <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">调度类型 *</label>
-            <select value={scheduleType} onChange={e => setScheduleType(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none">
-              <option value="interval">按间隔（interval）</option>
-              <option value="cron">Cron 表达式</option>
-            </select>
-          </div>
-          {scheduleType === 'interval' && (
-            <div>
-              <label className="block text-sm text-[#94a3b8] mb-1">间隔秒数 *（≥ 60）</label>
-              <input type="number" min={60} value={intervalSeconds} onChange={e => setIntervalSeconds(Number(e.target.value) || 60)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none" />
-            </div>
-          )}
-          {scheduleType === 'cron' && (
-            <>
-              <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">Cron 表达式 *（分 时 日 月 周）</label>
-                <input type="text" value={cronExpr} onChange={e => setCronExpr(e.target.value)} placeholder="0 2 * * *" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">时区（可选）</label>
-                <input type="text" value={cronTz} onChange={e => setCronTz(e.target.value)} placeholder="Asia/Shanghai" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
-              </div>
-            </>
-          )}
+          <ScheduleConfigFields
+            taskName={name}
+            onTaskNameChange={setName}
+            scheduleType={scheduleType}
+            onScheduleTypeChange={setScheduleType}
+            intervalSeconds={intervalSeconds}
+            onIntervalSecondsChange={setIntervalSeconds}
+            cronExpr={cronExpr}
+            onCronExprChange={setCronExpr}
+            cronTz={cronTz}
+            onCronTzChange={setCronTz}
+          />
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
@@ -1743,8 +1624,6 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
   const [cronTz, setCronTz] = useState('')
   const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef(null)
   const typeInfo = taskTypes.find(t => t.type === type) || null
   const schema = typeInfo?.metadata_schema || {}
   const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
@@ -1752,30 +1631,12 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
     ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
     : type === 'video_extract_audio'
       ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
-      : ''
+      : '*'
 
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
     const info = taskTypes.find(t => t.type === newType)
     setMetadata(getDefaultMetadata(info?.metadata_schema))
-  }
-
-  const uploadFileAndSet = (fieldKey) => async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
-      const data = await res.json()
-      if (data.success && data.path) setMetadata(m => ({ ...m, [fieldKey]: data.path }))
-      else throw new Error(data.detail || '上传失败')
-    } catch (err) {
-      toast.error('上传失败: ' + (err.message || String(err)))
-    }
-    setUploading(false)
-    e.target.value = ''
   }
 
   const handleSubmit = async (e) => {
@@ -1849,101 +1710,26 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
               ))}
             </select>
           </div>
-          {Object.entries(schema).map(([fieldKey, spec]) => {
-            if (!spec || typeof spec !== 'object') return null
-            const label = spec.description || fieldKey
-            const required = spec.required
-            const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
-            const isInputFileField = fieldKey === 'input_file' && isInputFileTask
-            if (spec.enum && Array.isArray(spec.enum)) {
-              const selectValue = value != null ? String(value) : ''
-              return (
-                <div key={fieldKey}>
-                  <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                  <select
-                    value={selectValue}
-                    onChange={e => {
-                      const v = e.target.value
-                      setMetadata(m => ({ ...m, [fieldKey]: v === '' ? undefined : (spec.type === 'number' ? Number(v) : v) }))
-                    }}
-                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
-                    required={required}
-                  >
-                    {!required && <option value="">请选择</option>}
-                    {spec.enum.map(opt => (
-                      <option key={String(opt.value)} value={String(opt.value)}>{opt.label ?? opt.value}</option>
-                    ))}
-                  </select>
-                </div>
-              )
-            }
-            if (spec.type === 'boolean') {
-              return (
-                <div key={fieldKey} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id={`sched-meta-${fieldKey}`}
-                    checked={!!value}
-                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
-                    className="rounded border-border bg-white/5 text-accent focus:ring-accent"
-                  />
-                  <label htmlFor={`sched-meta-${fieldKey}`} className="text-sm text-[#94a3b8]">{label}{required ? ' *' : ''}</label>
-                </div>
-              )
-            }
-            return (
-              <div key={fieldKey}>
-                <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                <div className="flex gap-2">
-                  <input
-                    type={spec.type === 'number' ? 'number' : 'text'}
-                    value={value}
-                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: spec.type === 'number' ? (Number(e.target.value) || 0) : e.target.value }))}
-                    placeholder={spec.placeholder || ''}
-                    className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
-                    required={required}
-                  />
-                  {isInputFileField && (
-                    <>
-                      <input ref={fileInputRef} type="file" accept={inputFileAccept} className="hidden" onChange={uploadFileAndSet('input_file')} />
-                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50">
-                        {uploading ? '上传中…' : '选择文件'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-          <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="留空自动生成" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">调度类型 *</label>
-            <select value={scheduleType} onChange={e => setScheduleType(e.target.value)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none">
-              <option value="interval">按间隔（interval）</option>
-              <option value="cron">Cron 表达式</option>
-            </select>
-          </div>
-          {scheduleType === 'interval' && (
-            <div>
-              <label className="block text-sm text-[#94a3b8] mb-1">间隔秒数 *（≥ 60）</label>
-              <input type="number" min={60} value={intervalSeconds} onChange={e => setIntervalSeconds(Number(e.target.value) || 60)} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none" />
-            </div>
-          )}
-          {scheduleType === 'cron' && (
-            <>
-              <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">Cron 表达式 *（分 时 日 月 周）</label>
-                <input type="text" value={cronExpr} onChange={e => setCronExpr(e.target.value)} placeholder="0 2 * * *" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">时区（可选）</label>
-                <input type="text" value={cronTz} onChange={e => setCronTz(e.target.value)} placeholder="Asia/Shanghai" className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none" />
-              </div>
-            </>
-          )}
+          <TaskMetadataFormFields
+            schema={schema}
+            metadata={metadata}
+            setMetadata={setMetadata}
+            fieldIdPrefix="create-sched"
+            isInputFileTask={isInputFileTask}
+            inputFileAccept={inputFileAccept}
+          />
+          <ScheduleConfigFields
+            taskName={name}
+            onTaskNameChange={setName}
+            scheduleType={scheduleType}
+            onScheduleTypeChange={setScheduleType}
+            intervalSeconds={intervalSeconds}
+            onIntervalSecondsChange={setIntervalSeconds}
+            cronExpr={cronExpr}
+            onCronExprChange={setCronExpr}
+            cronTz={cronTz}
+            onCronTzChange={setCronTz}
+          />
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">{submitting ? '创建中...' : '创建'}</button>
@@ -1961,47 +1747,24 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
   const [priority, setPriority] = useState(2)
   const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [inputSource, setInputSource] = useState('manual') // 'manual' | 'from_task'
   const [completedTasks, setCompletedTasks] = useState([])
   const [linkableUpstreams, setLinkableUpstreams] = useState({ linkable_task_types: [], suggested_bindings: {} })
   const [dependsOnTaskId, setDependsOnTaskId] = useState('')
   const [inputBindings, setInputBindings] = useState({}) // { fieldKey: 'result.data.output_file' }
-  const fileInputRef = useRef(null)
-  const contentFileInputRef = useRef(null)
   const typeInfo = taskTypes.find(t => t.type === type) || null
   const schema = typeInfo?.metadata_schema || {}
 
-  const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
   const inputFileAccept = type === 'speech_to_text'
     ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
     : type === 'video_extract_audio'
       ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
       : ''
   const contentFileAccept = '.txt,.md,.markdown,.wiki,text/*'
-
-  const uploadFileAndSet = (fieldKey) => async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/task-queue/upload-input-file', { method: 'POST', body: form })
-      const data = await res.json()
-      if (data.success && data.path) {
-        setMetadata(m => ({ ...m, [fieldKey]: data.path }))
-      } else {
-        throw new Error(data.detail || '上传失败')
-      }
-    } catch (err) {
-      toast.error('上传失败: ' + (err.message || String(err)))
-    }
-    setUploading(false)
-    e.target.value = ''
-  }
-  const handleInputFileChoose = () => { fileInputRef.current?.click() }
-  const handleContentFileChoose = () => { contentFileInputRef.current?.click() }
+  const fileUploadFields = {}
+  if (type === 'speech_to_text') fileUploadFields.input_file = inputFileAccept
+  if (type === 'video_extract_audio') fileUploadFields.input_file = inputFileAccept
+  if (type === 'mediawiki_write') fileUploadFields.content_file = contentFileAccept
 
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
@@ -2202,110 +1965,15 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
               )}
             </div>
           )}
-          {Object.entries(schema).map(([fieldKey, spec]) => {
-            if (!spec || typeof spec !== 'object') return null
-            const label = spec.description || fieldKey
-            const required = spec.required
-            const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
-            if (spec.enum && Array.isArray(spec.enum)) {
-              return (
-                <div key={fieldKey}>
-                  <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                  <select
-                    value={value}
-                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
-                    className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
-                    required={required}
-                  >
-                    {spec.enum.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label ?? opt.value}</option>
-                    ))}
-                  </select>
-                </div>
-              )
-            }
-            if (spec.type === 'boolean') {
-              return (
-                <div key={fieldKey} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id={`meta-${fieldKey}`}
-                    checked={!!value}
-                    onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
-                    className="rounded border-border bg-white/5 text-accent focus:ring-accent"
-                  />
-                  <label htmlFor={`meta-${fieldKey}`} className="text-sm text-[#94a3b8]">{label}{required ? ' *' : ''}</label>
-                </div>
-              )
-            }
-            const isInputFileField = fieldKey === 'input_file' && isInputFileTask
-            const isContentFileField = type === 'mediawiki_write' && fieldKey === 'content_file'
-            const isMediaWikiContent = type === 'mediawiki_write' && fieldKey === 'content'
-            return (
-              <div key={fieldKey}>
-                <label className="block text-sm text-[#94a3b8] mb-1">{label}{required ? ' *' : ''}</label>
-                <div className="flex gap-2">
-                  {isMediaWikiContent ? (
-                    <textarea
-                      value={value}
-                      onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
-                      placeholder={spec.placeholder || ''}
-                      rows={8}
-                      className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none resize-y min-h-[120px]"
-                      required={required}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={value}
-                      onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
-                      placeholder={spec.placeholder || ''}
-                      className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
-                      required={required}
-                    />
-                  )}
-                  {isInputFileField && (
-                    <>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept={inputFileAccept}
-                        className="hidden"
-                        onChange={uploadFileAndSet('input_file')}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleInputFileChoose}
-                        disabled={uploading}
-                        className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50"
-                      >
-                        {uploading ? '上传中…' : '选择文件'}
-                      </button>
-                    </>
-                  )}
-                  {isContentFileField && (
-                    <>
-                      <input
-                        ref={contentFileInputRef}
-                        type="file"
-                        accept={contentFileAccept}
-                        className="hidden"
-                        onChange={uploadFileAndSet('content_file')}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleContentFileChoose}
-                        disabled={uploading}
-                        className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap disabled:opacity-50"
-                      >
-                        {uploading ? '上传中…' : '选择文件'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+          {inputSource === 'manual' && type && (
+            <TaskMetadataFormFields
+              schema={schema}
+              metadata={metadata}
+              setMetadata={setMetadata}
+              fieldIdPrefix="create-task"
+              fileUploadFields={Object.keys(fileUploadFields).length ? fileUploadFields : undefined}
+            />
+          )}
           <div>
             <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
             <input
