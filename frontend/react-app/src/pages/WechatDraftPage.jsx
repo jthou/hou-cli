@@ -7,7 +7,7 @@ import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import WechatDraftPreview from '../components/WechatDraftPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
-import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmit, htmlToMd } from '../utils/mdToHtml'
+import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
 
 const WECHAT_MP_API = {
   drafts: (params = {}) => {
@@ -144,7 +144,7 @@ export default function WechatDraftPage() {
     }
     setFormSubmitting(true)
     try {
-      const metadataToSend = prepareMetadataForSubmit(WECHAT_MP_DRAFT_TASK_TYPE, formMetadata)
+      const metadataToSend = await prepareMetadataForSubmitAsync(WECHAT_MP_DRAFT_TASK_TYPE, formMetadata)
       const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

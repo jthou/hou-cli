@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../ToastModal'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
 import { getDefaultMetadata, getApiErrorMessage } from './taskFormUtils'
-import { prepareMetadataForSubmit } from '../../utils/mdToHtml'
+import { prepareMetadataForSubmitAsync } from '../../utils/mdToHtml'
 
 const INPUT_FILE_TASKS = ['speech_to_text', 'video_extract_audio']
 const INPUT_FILE_ACCEPT = {
@@ -53,10 +53,11 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
     setSubmitting(true)
     setResult(null)
     try {
+      const meta = await prepareMetadataForSubmitAsync(taskType, metadata)
       const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_type: taskType, metadata: prepareMetadataForSubmit(taskType, metadata) }),
+        body: JSON.stringify({ task_type: taskType, metadata: meta }),
       })
       const data = await res.json()
       if (data.success) {
@@ -92,6 +93,17 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
             isInputFileTask={isInputFileTask}
             inputFileAccept={inputFileAccept}
           />
+          {taskType === 'mediawiki_write' && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!metadata._contentIsMarkdown}
+                onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
+                className="text-accent focus:ring-accent rounded"
+              />
+              <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+            </label>
+          )}
           <button
             type="submit"
             disabled={submitting}

@@ -3,7 +3,7 @@ import TaskResultDisplay from '../components/TaskResultDisplay'
 import WechatDraftPreview from '../components/WechatDraftPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import { useToast } from '../components/ToastModal'
-import { prepareMetadataForSubmit } from '../utils/mdToHtml'
+import { prepareMetadataForSubmitAsync } from '../utils/mdToHtml'
 import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
@@ -1728,6 +1728,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
     }
     setSubmitting(true)
     try {
+      const meta = await prepareMetadataForSubmitAsync(task.task_type, metadata)
       const res = await fetch(`/api/task-queue/scheduled-tasks/${task.schedule_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1735,7 +1736,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
           task_name: name?.trim() || task.task_name,
           schedule_type: scheduleType,
           schedule_config: scheduleConfig,
-          metadata: prepareMetadataForSubmit(task.task_type, metadata),
+          metadata: meta,
         }),
       })
       const data = await res.json()
@@ -1775,6 +1776,17 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
                 isInputFileTask={isInputFileTask}
                 inputFileAccept={inputFileAccept}
               />
+              {type === 'mediawiki_write' && (
+                <label className="flex items-center gap-2 cursor-pointer mt-3">
+                  <input
+                    type="checkbox"
+                    checked={!!metadata._contentIsMarkdown}
+                    onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
+                    className="text-accent focus:ring-accent rounded"
+                  />
+                  <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+                </label>
+              )}
             </div>
           )}
           <ScheduleConfigFields
@@ -1849,6 +1861,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
     }
     setSubmitting(true)
     try {
+      const meta = await prepareMetadataForSubmitAsync(type, metadata)
       const res = await fetch('/api/task-queue/scheduled-tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1857,7 +1870,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
           task_name: name?.trim() || "",
           schedule_type: scheduleType,
           schedule_config: scheduleConfig,
-          metadata: prepareMetadataForSubmit(type, metadata),
+          metadata: meta,
         }),
       })
       const data = await res.json()
@@ -1903,6 +1916,17 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
             isInputFileTask={isInputFileTask}
             inputFileAccept={inputFileAccept}
           />
+          {type === 'mediawiki_write' && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!metadata._contentIsMarkdown}
+                onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
+                className="text-accent focus:ring-accent rounded"
+              />
+              <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+            </label>
+          )}
           <ScheduleConfigFields
             taskName={name}
             onTaskNameChange={setName}
@@ -2036,7 +2060,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
     }
     setSubmitting(true)
     try {
-      const meta = prepareMetadataForSubmit(type, metadata)
+      const meta = await prepareMetadataForSubmitAsync(type, metadata)
       const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata: meta }
       if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
         payload.depends_on_task_id = dependsOnTaskId.trim()
@@ -2220,6 +2244,17 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
                   )}
                   <p className="mt-1 text-xs text-amber-400/90">图片 ≤2MB，上传后自动填入「封面 media_id」</p>
                 </div>
+              )}
+              {type === 'mediawiki_write' && (
+                <label className="flex items-center gap-2 cursor-pointer mt-2">
+                  <input
+                    type="checkbox"
+                    checked={!!metadata._contentIsMarkdown}
+                    onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
+                    className="text-accent focus:ring-accent rounded"
+                  />
+                  <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+                </label>
               )}
             </>
           )}
