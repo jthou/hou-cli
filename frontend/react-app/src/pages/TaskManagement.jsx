@@ -4,7 +4,7 @@ import WechatDraftPreview from '../components/WechatDraftPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import { useToast } from '../components/ToastModal'
 import { prepareMetadataForSubmitAsync } from '../utils/mdToHtml'
-import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata } from '../components/task/taskFormUtils'
+import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata, getDateCategoryStrings } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
@@ -787,6 +787,17 @@ function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
       .catch(() => {})
   }, [taskId, task?.status, task?.depends_on_task_id])
 
+  // 运行中时定期刷新任务，以便更新进度与进度说明
+  useEffect(() => {
+    if (!taskId || !task || task.status !== 'running') return
+    const t = setInterval(() => {
+      TASK_API.get(taskId)
+        .then(d => { if (d.success && d.task) setTask(d.task) })
+        .catch(() => {})
+    }, 2500)
+    return () => clearInterval(t)
+  }, [taskId, task?.status])
+
   if (!taskId) return null
   const status = task ? (STATUS_MAP[task.status] || { text: task.status, cls: '' }) : null
 
@@ -829,6 +840,20 @@ function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
                     </>
                   ) : (
                     <p className="text-sm text-[#94a3b8]">加载中...</p>
+                  )}
+                </div>
+              )}
+              {task.status === 'running' && (
+                <div className="p-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10">
+                  <div className="text-cyan-400/90 text-xs font-medium mb-2">当前进度</div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex-1 h-2 bg-white/10 rounded overflow-hidden">
+                      <div className="h-full bg-cyan-500 rounded transition-all" style={{ width: `${task.progress ?? 0}%` }} />
+                    </div>
+                    <span className="text-xs text-cyan-300 w-10 text-right">{(task.progress ?? 0)}%</span>
+                  </div>
+                  {task.message && (
+                    <p className="text-sm text-cyan-200/90">{task.message}</p>
                   )}
                 </div>
               )}
@@ -1099,11 +1124,14 @@ function TaskCard({ task, onRefresh, onShowDetail, onGoToSchedule, recycleBin = 
         {task.completed_at && <span>完成: {formatDateTime(task.completed_at)}</span>}
       </div>
       {task.status === 'running' && (
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex-1 h-1.5 bg-white/10 rounded overflow-hidden">
-            <div className="h-full bg-cyan-500 rounded" style={{ width: `${task.progress ?? 0}%` }} />
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-white/10 rounded overflow-hidden">
+              <div className="h-full bg-cyan-500 rounded" style={{ width: `${task.progress ?? 0}%` }} />
+            </div>
+            <span className="text-xs text-[#94a3b8] w-9 text-right">{(task.progress ?? 0)}%</span>
           </div>
-          <span className="text-xs text-[#94a3b8] w-9 text-right">{(task.progress ?? 0)}%</span>
+          {task.message && <p className="text-xs text-cyan-400/90 mt-1 truncate" title={task.message}>{task.message}</p>}
         </div>
       )}
       {(task.error || task.error_message) && (
@@ -1685,7 +1713,10 @@ function ScheduledTaskCard({ task, onRefresh, onViewRuns, onEdit }) {
 function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
   const toast = useToast()
   const typeInfo = taskTypes.find(t => t.type === task.task_type) || null
-  const defaultMeta = getDefaultMetadata(typeInfo?.metadata_schema)
+  let defaultMeta = getDefaultMetadata(typeInfo?.metadata_schema)
+  if (task.task_type === 'url_to_wiki' && Array.isArray(defaultMeta.categories)) {
+    defaultMeta = { ...defaultMeta, categories: [...defaultMeta.categories, ...getDateCategoryStrings()] }
+  }
   const cfg = task.schedule_config || {}
   const [name, setName] = useState(task.task_name || '')
   const [scheduleType, setScheduleType] = useState(task.schedule_type || 'interval')
@@ -1787,6 +1818,9 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
                   <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
                 </label>
               )}
+              {type === 'url_to_wiki' && (
+                <p className="mt-2 text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
+              )}
             </div>
           )}
           <ScheduleConfigFields
@@ -1833,7 +1867,11 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
     const info = taskTypes.find(t => t.type === newType)
-    setMetadata(getDefaultMetadata(info?.metadata_schema))
+    let meta = getDefaultMetadata(info?.metadata_schema)
+    if (newType === 'url_to_wiki' && Array.isArray(meta.categories)) {
+      meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
+    }
+    setMetadata(meta)
   }
 
   const handleSubmit = async (e) => {
@@ -1927,6 +1965,9 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
               <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
             </label>
           )}
+          {type === 'url_to_wiki' && (
+            <p className="text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
+          )}
           <ScheduleConfigFields
             taskName={name}
             onTaskNameChange={setName}
@@ -1988,7 +2029,11 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
     const info = taskTypes.find(t => t.type === newType)
-    setMetadata(getDefaultMetadata(info?.metadata_schema))
+    let meta = getDefaultMetadata(info?.metadata_schema)
+    if (newType === 'url_to_wiki' && Array.isArray(meta.categories)) {
+      meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
+    }
+    setMetadata(meta)
     setInputBindings({})
     setDependsOnTaskId('')
     setLinkableUpstreams({ linkable_task_types: [], suggested_bindings: {} })
@@ -2255,6 +2300,9 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
                   />
                   <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
                 </label>
+              )}
+              {type === 'url_to_wiki' && (
+                <p className="mt-2 text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
               )}
             </>
           )}

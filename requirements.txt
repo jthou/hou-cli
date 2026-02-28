@@ -78,6 +78,10 @@ cryptography>=41.0.0
 mwclient>=0.10.0
 wikipedia>=1.4.0
 
+# ===== URL 正文抓取（web_fetch 工具，可选） =====
+# 安装后 web_fetch 工具会优先用 trafilatura 提取正文，否则用内置简单清洗
+# trafilatura>=1.6.0
+
 # ===== 语音转文字（speech_to_text 任务） =====
 openai-whisper>=20231117
 

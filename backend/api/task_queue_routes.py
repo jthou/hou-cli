@@ -74,6 +74,11 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         short = (t[:30] + "..." if len(t) > 30 else t) if t else "MediaWiki"
         return f"MediaWiki 写入 {short} {ts}"
 
+    if task_type == "url_to_wiki":
+        u = meta.get("url", "")
+        short = (u[:40] + "…" if len(u) > 40 else u) if u else "网文抓取"
+        return f"网文抓取 {short} {ts}"
+
     if task_type == "wechat_mp_draft":
         t = meta.get("title", "")
         short = (t[:20] + "…" if len(t) > 20 else t) if t else "公众号草稿"
@@ -85,6 +90,7 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         "speech_to_text": "语音转文字",
         "video_extract_audio": "视频提取音频",
         "mediawiki_write": "MediaWiki 写入",
+        "url_to_wiki": "网文抓取",
         "wechat_mp_draft": "公众号草稿",
     }
     name = type_names.get(task_type, task_type)
@@ -771,7 +777,7 @@ async def create_scheduled_task(request: ScheduledTaskCreateRequest):
 
         task_name = (request.task_name or "").strip()
         if not task_name:
-            type_names = {"weather_query": "天气查询", "video_download": "视频下载", "speech_to_text": "语音转文字", "video_extract_audio": "视频提取音频", "mediawiki_write": "MediaWiki 写入", "wechat_mp_draft": "公众号草稿"}
+            type_names = {"weather_query": "天气查询", "video_download": "视频下载", "speech_to_text": "语音转文字", "video_extract_audio": "视频提取音频", "mediawiki_write": "MediaWiki 写入", "url_to_wiki": "网文抓取", "wechat_mp_draft": "公众号草稿"}
             task_name = f"{type_names.get(request.task_type, request.task_type)}_定时"
 
         schedule_id = task_queue_db.create_scheduled_task(

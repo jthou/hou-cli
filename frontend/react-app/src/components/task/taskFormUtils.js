@@ -32,6 +32,25 @@ export function migrateWeatherMetadata(meta) {
   return next
 }
 
+/** 当天日/周/月分类标签（与后端格式一致：日、周、月），供网文抓取默认分类用 */
+export function getDateCategoryStrings() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  const day = d.getDate()
+  const 日 = `${y}年${m}月${day}日`
+  const 月 = `${y}年${m}月`
+  // ISO 周
+  const d2 = new Date(d)
+  d2.setHours(0, 0, 0, 0)
+  d2.setDate(d2.getDate() + 4 - (d2.getDay() || 7))
+  const isoYear = d2.getFullYear()
+  const start = new Date(isoYear, 0, 1)
+  const isoWeek = Math.ceil((((d2 - start) / 86400000) + 1) / 7)
+  const 周 = `${isoYear}年第${isoWeek}周`
+  return [日, 周, 月]
+}
+
 /** 从 metadata_schema 生成默认 metadata */
 export function getDefaultMetadata(schema) {
   if (!schema || typeof schema !== 'object') return {}
@@ -41,6 +60,7 @@ export function getDefaultMetadata(schema) {
       if (spec.default !== undefined) meta[key] = spec.default
       else if (Array.isArray(spec.enum) && spec.enum.length) meta[key] = spec.enum[0].value
       else if (spec.type === 'boolean') meta[key] = false
+      else if (spec.type === 'array') meta[key] = []
       else meta[key] = ''
     }
   }

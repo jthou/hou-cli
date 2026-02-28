@@ -3,6 +3,7 @@
  * 按 task_type 统一渲染，供任务详情弹窗、任务卡片、执行记录等复用，保持展示一致。
  */
 import WeatherResultDisplay from './WeatherResultDisplay'
+import { getMediaWikiPageUrl } from '../config/mediawiki'
 
 export default function TaskResultDisplay({ taskType, result }) {
   const isSuccess = result?.status === 'success'
@@ -68,10 +69,20 @@ export default function TaskResultDisplay({ taskType, result }) {
 
   if (taskType === 'mediawiki_write' && result.data) {
     const d = result.data
+    const pageUrl = d.title ? getMediaWikiPageUrl(d.title) : ''
     return (
       <div className="space-y-2 text-[#94a3b8]">
         {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {d.title && <p><span className="text-[#64748b]">页面 </span>{d.title}</p>}
+        {d.title && (
+          <p>
+            <span className="text-[#64748b]">页面 </span>
+            {pageUrl ? (
+              <a href={pageUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{d.title}</a>
+            ) : (
+              d.title
+            )}
+          </p>
+        )}
         {d.message && <p className="text-[#94a3b8]">{d.message}</p>}
       </div>
     )
@@ -84,6 +95,35 @@ export default function TaskResultDisplay({ taskType, result }) {
         {result.summary && <p className="text-green-400">{result.summary}</p>}
         {d.media_id && <p><span className="text-[#64748b]">media_id </span><code className="text-cyan-300 break-all text-xs">{d.media_id}</code></p>}
         {d.message && <p className="text-[#94a3b8]">{d.message}</p>}
+      </div>
+    )
+  }
+
+  if (taskType === 'url_to_wiki' && result.data) {
+    const d = result.data
+    const wikiPageUrl = d.wiki_title ? getMediaWikiPageUrl(d.wiki_title) : ''
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && (
+          <p className="text-green-400">
+            {d.wiki_title && wikiPageUrl ? (
+              <>已抓取并翻译写入页面「<a href={wikiPageUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{d.wiki_title}</a>」</>
+            ) : (
+              result.summary
+            )}
+          </p>
+        )}
+        {d.url && <p><span className="text-[#64748b]">源 URL </span><a href={d.url} target="_blank" rel="noopener noreferrer" className="text-cyan-300 break-all text-xs">{d.url}</a></p>}
+        {d.wiki_title && (
+          <p>
+            <span className="text-[#64748b]">Wiki 页面 </span>
+            {wikiPageUrl ? (
+              <a href={wikiPageUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{d.wiki_title}</a>
+            ) : (
+              d.wiki_title
+            )}
+          </p>
+        )}
       </div>
     )
   }

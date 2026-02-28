@@ -1,7 +1,9 @@
 """任务处理器注册和定义"""
 import asyncio
 import logging
+import re
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -374,6 +376,42 @@ TASK_TYPES = {
                     {"value": "edit", "label": "编辑（存在则覆盖）"},
                     {"value": "create", "label": "创建（仅当页面不存在时）"}
                 ]
+            },
+        }
+    },
+    "url_to_wiki": {
+        "name": "网文抓取",
+        "description": "抓取指定 URL 正文，翻译成中文后写入 MediaWiki 同名页面",
+        "metadata_schema": {
+            "url": {
+                "type": "string",
+                "required": True,
+                "description": "要抓取并翻译的文章 URL（仅 http/https）",
+                "placeholder": "https://example.com/article"
+            },
+            "wiki_title": {
+                "type": "string",
+                "required": False,
+                "description": "Wiki 页面标题（留空则默认从网页 HTML title 获取，并按目标语言自动翻译）",
+                "placeholder": "可选，留空则用网页标题并翻译"
+            },
+            "language": {
+                "type": "string",
+                "required": False,
+                "description": "目标语言",
+                "default": "zh",
+                "enum": [
+                    {"value": "zh", "label": "中文"},
+                    {"value": "en", "label": "英文"},
+                    {"value": "ja", "label": "日文"},
+                ]
+            },
+            "categories": {
+                "type": "array",
+                "required": False,
+                "description": "Wiki 分类",
+                "placeholder": "输入标签后回车添加",
+                "default": ["网文抓取", "hou-cli"]
             },
         }
     },
@@ -934,6 +972,153 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
     return {"status": "success", "summary": summary, "data": data}
 
 
+# 长文分段阈值（字符），超过则分段翻译
+URL_TO_WIKI_CHUNK_SIZE = 5000
+
+
+def _chunk_text_by_paragraphs(text: str, max_chars: int = 4000) -> List[str]:
+    """按段落（双换行）切分，使每块不超过 max_chars。"""
+    if len(text) <= max_chars:
+        return [text] if text.strip() else []
+    chunks = []
+    current = []
+    current_len = 0
+    for para in text.split("\n\n"):
+        para = para.strip()
+        if not para:
+            continue
+        if current_len + len(para) + 2 <= max_chars:
+            current.append(para)
+            current_len += len(para) + 2
+        else:
+            if current:
+                chunks.append("\n\n".join(current))
+            current = [para]
+            current_len = len(para) + 2
+    if current:
+        chunks.append("\n\n".join(current))
+    return chunks
+
+
+async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """抓取 URL 正文 → 翻译成中文 → 写入 MediaWiki 同名页面。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+    url = (metadata.get("url") or "").strip()
+    if not url:
+        return _err("MISSING_URL", "缺少 URL", "请填写要抓取的文章 url")
+    if not url.startswith(("http://", "https://")):
+        return _err("INVALID_URL", "URL 无效", "仅支持 http 或 https 链接")
+
+    worker.update_task_progress(5, "正在抓取 URL...")
+    fetch_tool = None
+    try:
+        from backend.core.agent.tools.builtin.web_fetch_tool import WebFetchTool
+        fetch_tool = WebFetchTool()
+    except Exception as e:
+        return _err("WEB_FETCH_UNAVAILABLE", "web_fetch 不可用", str(e))
+    try:
+        result = await asyncio.to_thread(fetch_tool.execute, url=url)
+    except Exception as e:
+        return _err("FETCH_FAILED", "抓取失败", str(e), details=traceback.format_exc())
+    if not result.success:
+        return _err("FETCH_FAILED", "抓取失败", result.error or "未知错误")
+    data = result.data or {}
+    title = (data.get("title") or "").strip()
+    content = (data.get("content") or "").strip()
+    if not content:
+        return _err("NO_CONTENT", "未提取到正文", "该 URL 未能提取到正文内容")
+    from backend.core.agent.tools.builtin.web_fetch_tool import _url_to_fallback_title
+    raw_title = title or _url_to_fallback_title(url)
+    user_wiki_title = (metadata.get("wiki_title") or "").strip()
+
+    worker.update_task_progress(25, "正在翻译...")
+    from backend.services.llm.llm_service import LLMService
+    llm = LLMService()
+    lang = (metadata.get("language") or "zh").strip().lower()
+    lang_name = {"zh": "中文", "en": "英文", "ja": "日文"}.get(lang, "中文")
+
+    # 页面标题：用户指定则用用户的；否则默认从 HTML title（或 URL 派生）获取，并按目标语言自动翻译
+    if user_wiki_title:
+        wiki_title = user_wiki_title
+    elif raw_title:
+        title_prompt = f"将以下标题翻译成{lang_name}，只输出翻译后的标题，不要引号、换行或多余内容：\n{raw_title}"
+        try:
+            translated_title = await llm.chat(user_prompt=title_prompt)
+            wiki_title = (translated_title or "").strip() or raw_title
+        except Exception:
+            wiki_title = raw_title
+    else:
+        wiki_title = "Untitled"
+
+    sys_prompt = (
+        f"将用户提供的内容翻译成{lang_name}，保持标题、列表、段落结构。"
+        "输出格式为 MediaWiki wikitext：一级标题用 == 标题 ==，二级用 === 标题 ===；"
+        "无序列表用 * 项，有序列表用 # 项；段落之间空一行。只输出转换后的内容，不要其他说明。"
+    )
+    if len(content) > URL_TO_WIKI_CHUNK_SIZE:
+        chunks = _chunk_text_by_paragraphs(content, max_chars=4000)
+        translated_parts = []
+        for i, chunk in enumerate(chunks):
+            worker.update_task_progress(25 + int(45 * (i + 1) / len(chunks)), f"翻译第 {i + 1}/{len(chunks)} 段...")
+            part = await llm.chat(system_prompt=sys_prompt, user_prompt=chunk)
+            translated_parts.append((part or "").strip())
+        translated = "\n\n".join(translated_parts)
+    else:
+        translated = await llm.chat(system_prompt=sys_prompt, user_prompt=content)
+        translated = (translated or "").strip()
+    if not translated:
+        return _err("TRANSLATE_FAILED", "翻译失败", "LLM 未返回有效内容")
+
+    # 分类：前端传来的 categories + 执行时的日/周/月（按当天日期追加）
+    categories = metadata.get("categories")
+    if isinstance(categories, list) and categories:
+        categories = [str(c).strip() for c in categories if str(c).strip()]
+    else:
+        categories = []
+    now = datetime.now()
+    iso_year, iso_week, _ = now.isocalendar()
+    date_cats = [
+        f"{now.year}年{now.month}月{now.day}日",
+        f"{iso_year}年第{iso_week}周",
+        f"{now.year}年{now.month}月",
+    ]
+    categories = list(categories) + date_cats
+    if categories:
+        existing = set(re.findall(r"\[\[Category:\s*([^\]\|]+)", translated, re.I))
+        for cat in categories:
+            if cat and cat not in existing:
+                translated = translated.rstrip() + f"\n\n[[Category:{cat}]]"
+                existing.add(cat)
+
+    # 在正文开头加入原文链接（MediaWiki 外链格式 [url 显示文字]）
+    original_link_line = f"'''原文链接'''：[{url} 原文]"
+    content_to_write = f"{original_link_line}\n\n{translated}"
+
+    worker.update_task_progress(85, "正在写入 MediaWiki...")
+    from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
+    mw_tool = MediaWikiTool()
+    try:
+        write_result = await asyncio.to_thread(
+            mw_tool.execute,
+            operation="edit",
+            title=wiki_title,
+            content=content_to_write,
+            summary=f"由 url_to_wiki 任务写入：{url[:50]}…",
+        )
+    except Exception as e:
+        return _err("MEDIAWIKI_WRITE_FAILED", "写入 Wiki 失败", str(e), details=traceback.format_exc())
+    if not write_result.success:
+        return _err("MEDIAWIKI_WRITE_FAILED", "写入 Wiki 失败", write_result.error or "未知错误")
+
+    worker.update_task_progress(100, "完成")
+    return {
+        "status": "success",
+        "summary": f"已抓取并翻译写入页面「{wiki_title}」",
+        "data": {"url": url, "wiki_title": wiki_title},
+    }
+
+
 def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
@@ -942,6 +1127,7 @@ def register_default_handlers():
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
+    worker.register_handler("url_to_wiki", process_url_to_wiki_task)
     worker.register_handler("wechat_mp_draft", process_wechat_mp_draft_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 

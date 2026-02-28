@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../ToastModal'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
-import { getDefaultMetadata, getApiErrorMessage } from './taskFormUtils'
+import { getDefaultMetadata, getApiErrorMessage, getDateCategoryStrings } from './taskFormUtils'
 import { prepareMetadataForSubmitAsync } from '../../utils/mdToHtml'
 
 const INPUT_FILE_TASKS = ['speech_to_text', 'video_extract_audio']
@@ -34,7 +34,11 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
         const types = d.task_types || []
         setTaskTypes(types)
         const info = types.find(t => t.type === taskType)
-        setMetadata(getDefaultMetadata(info?.metadata_schema))
+        let meta = getDefaultMetadata(info?.metadata_schema)
+        if (taskType === 'url_to_wiki' && Array.isArray(meta.categories)) {
+          meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
+        }
+        setMetadata(meta)
       })
       .catch(() => setTaskTypes([]))
   }, [taskType])
@@ -103,6 +107,9 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
               />
               <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
             </label>
+          )}
+          {taskType === 'url_to_wiki' && (
+            <p className="text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
           )}
           <button
             type="submit"

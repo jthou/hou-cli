@@ -22,6 +22,7 @@ TASK_TIMEOUT_SECONDS = {
     "video_extract_audio": 30 * 60,  # 30 分钟
     "mediawiki_write": 5 * 60,       # 5 分钟
     "wechat_mp_draft": 60,           # 1 分钟
+    "url_to_wiki": 15 * 60,          # 15 分钟（抓取 + 翻译 + 写入）
 }
 
 

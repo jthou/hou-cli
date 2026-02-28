@@ -798,6 +798,18 @@ class UnifiedOrchestrator:
             error_msg = f"Failed to register MediaWiki tool: {str(e)}. MediaWiki tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
+
+        # 注册 Web Fetch 工具（抓取 URL 正文，用于翻译→Wiki 等流程）
+        try:
+            from backend.core.agent.tools.builtin.web_fetch_tool import WebFetchTool
+            web_fetch_tool = WebFetchTool()
+            self.tool_registry.register(web_fetch_tool)
+            self.debug.log_orchestrator_step("注册工具", {"web_fetch_tool": "registered"})
+            logger.info("Web fetch tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register Web fetch tool: {str(e)}. Web fetch tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
         
         # ===== 3. 特定功能工具 =====
         
@@ -1112,32 +1124,34 @@ Please return strictly in the following JSON format:
    - 例如："查找关于 AI 的最新信息" → 必须调用 google_search 工具
    - 不要只提供搜索建议，必须直接执行搜索
 
-3. **视频下载工具（video_downloader）**：当用户要求下载视频时，必须使用 video_downloader 工具
+3. **URL 抓取与翻译存 Wiki**：当用户要求「把某链接/URL 的内容翻译成中文并存到 MediaWiki（或同名页面）」时，按顺序执行：(1) 先用 web_fetch 工具抓取该 URL，获取正文和 title；(2) 将正文翻译成中文并保持标题层级、列表等结构；若 content_length 超过 5000 字，请按段落（双换行）分段翻译再合并，保持逻辑连贯；(3) 用 mediawiki 工具的 create 或 edit 写入，页面标题使用 web_fetch 返回的 title（或从 URL 派生的同名）。不要只给出步骤，必须依次调用 web_fetch → 翻译 → mediawiki。
+
+4. **视频下载工具（video_downloader）**：当用户要求下载视频时，必须使用 video_downloader 工具
    - 例如："下载这个视频 https://..." → 必须调用 video_downloader 工具
    - 例如："用 you-get 下载视频" → 必须调用 video_downloader 工具（工具会自动选择 you-get）
    - 例如："下载视频并提取音频" → 必须调用 video_downloader 工具，设置 extract_audio_only=true
    - 例如："下载视频并提取字幕" → 必须调用 video_downloader 工具，设置 subtitle_languages
    - **重要**：不要只告诉用户如何使用 you-get 或 yt-dlp，必须直接调用工具执行下载
 
-4. **代码执行工具（execute_code）**：当用户要求执行命令或代码时，必须使用 execute_code 工具
+5. **代码执行工具（execute_code）**：当用户要求执行命令或代码时，必须使用 execute_code 工具
    - 例如："执行 ls /home" → 必须调用 execute_code 工具
    - 例如："运行 Python 脚本" → 必须调用 execute_code 工具
    - 不要只提供命令，必须直接执行
 
-5. **Whisper 语音转文字工具（whisper）**：当用户要求语音转文字、音频转字幕、生成字幕时，必须使用 whisper 工具
+6. **Whisper 语音转文字工具（whisper）**：当用户要求语音转文字、音频转字幕、生成字幕时，必须使用 whisper 工具
    - 例如："将这个音频文件转成字幕" → 必须调用 whisper 工具，设置 output_format='srt'
    - 例如："提取这个音频的文字" → 必须调用 whisper 工具
    - 例如："为这个视频生成字幕" → 必须调用 whisper 工具（需要先提取音频）
    - 例如："声音转文字"、"语音转字幕"、"音频转字幕" → 必须调用 whisper 工具
    - **重要**：不要只告诉用户如何使用 Whisper，必须直接调用工具执行
 
-6. **FFmpeg 工具（ffmpeg）**：当用户要求处理音视频文件（提取音频、转换格式、剪切等）时，必须使用 ffmpeg 工具
+7. **FFmpeg 工具（ffmpeg）**：当用户要求处理音视频文件（提取音频、转换格式、剪切等）时，必须使用 ffmpeg 工具
    - 例如："从视频中提取音频" → 必须调用 ffmpeg 工具
    - 例如："转换视频格式" → 必须调用 ffmpeg 工具
    - 例如："剪切视频" → 必须调用 ffmpeg 工具
    - **重要**：不要只提供 FFmpeg 命令，必须直接调用工具执行
 
-7. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
+8. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
 当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
 
@@ -1559,7 +1573,9 @@ Please return strictly in the following JSON format:
    - 例如："搜索 Python 教程" → 使用 google_search
    - 例如："查找关于 AI 的最新信息" → 使用 google_search
 
-3. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
+3. **URL 抓取与翻译存 Wiki**：当用户要求「把某链接内容翻译成中文并存到 MediaWiki（或同名页面）」时，按顺序执行：先 web_fetch 抓取 URL 获取正文和 title；若正文超过 5000 字则按段落分段翻译再合并；最后用 mediawiki 的 create/edit 写入，标题用 web_fetch 返回的 title 或从 URL 派生。
+
+4. **天气工具（get_weather）**：当用户询问天气信息时，必须使用 get_weather 工具来获取实时天气数据。绝对不要编造或猜测天气信息。如果工具调用失败，请明确告诉用户工具调用失败，不要生成虚假的天气信息。
 
 当展示天气信息时，请使用清晰、美观的 Markdown 格式，并添加天气和风力图标：
 

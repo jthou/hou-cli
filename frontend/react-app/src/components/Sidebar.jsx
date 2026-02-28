@@ -10,6 +10,7 @@ const navItems = [
   { path: '/speech-to-text', icon: '🎤', label: '语音转文字' },
   { path: '/weather-query', icon: '🌤️', label: '天气查询' },
   { path: '/wechat-drafts', icon: '📝', label: '公众号草稿' },
+  { path: '/url-to-wiki', icon: '🌐', label: '网文抓取' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },
