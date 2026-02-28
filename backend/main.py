@@ -194,13 +194,13 @@ logger = logging.getLogger(__name__)
 # API 路由
 app.include_router(router, prefix="/api")
 
-# Web UI 路由（静态、首页、WebSocket）
-app.include_router(web_router)
-
-# React SPA 静态资源
+# React SPA 静态资源（必须在 web_router 通配路由之前挂载，否则 /assets/* 会被当成 SPA 路径返回 index.html 导致白屏）
 _react_dist = Path(__file__).parent.parent / "frontend" / "web" / "dist"
 if _react_dist.exists() and (_react_dist / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(_react_dist / "assets")), name="assets")
+
+# Web UI 路由（首页、SPA 回退、WebSocket）
+app.include_router(web_router)
 
 @app.get("/health")
 async def health():

@@ -77,6 +77,17 @@ export default function TaskResultDisplay({ taskType, result }) {
     )
   }
 
+  if (taskType === 'wechat_mp_draft' && result.data) {
+    const d = result.data
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.media_id && <p><span className="text-[#64748b]">media_id </span><code className="text-cyan-300 break-all text-xs">{d.media_id}</code></p>}
+        {d.message && <p className="text-[#94a3b8]">{d.message}</p>}
+      </div>
+    )
+  }
+
   if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
     return <WeatherResultDisplay result={result} />
   }

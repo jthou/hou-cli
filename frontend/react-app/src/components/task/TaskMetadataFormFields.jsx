@@ -8,7 +8,7 @@ import { useToast } from '../ToastModal'
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
 const labelCls = 'block text-sm text-[#94a3b8] mb-1'
 
-/** 支持文件上传的字段：{ fieldKey: accept }，如 { input_file: '.mp3,...', content_file: '.txt,...' } */
+/** 支持文件上传的字段：{ fieldKey: accept }；customFieldRender: (fieldKey, { value, onChange, spec, required, label }) => ReactNode | null 可替代默认渲染 */
 export default function TaskMetadataFormFields({
   schema,
   metadata,
@@ -17,6 +17,7 @@ export default function TaskMetadataFormFields({
   isInputFileTask = false,
   inputFileAccept = '*',
   fileUploadFields = null, // { [fieldKey]: accept }，优先于 isInputFileTask
+  customFieldRender = null, // (fieldKey, { value, onChange, spec, required, label }) => ReactNode | null
 }) {
   const toast = useToast()
   const fileInputRefs = useRef({})
@@ -52,6 +53,10 @@ export default function TaskMetadataFormFields({
         const label = spec.description || fieldKey
         const required = spec.required
         const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))
+        const onChange = (v) => setMetadata(m => ({ ...m, [fieldKey]: v }))
+        const custom = customFieldRender?.(fieldKey, { value, onChange, spec, required, label })
+        if (custom != null) return <div key={fieldKey}>{custom}</div>
+
         const hasFileUpload = getFileAccept(fieldKey) != null
         const useTextarea = spec.multiline || (fieldKey === 'content' && spec.type === 'string')
 

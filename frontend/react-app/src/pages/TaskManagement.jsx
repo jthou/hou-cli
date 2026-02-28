@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import TaskResultDisplay from '../components/TaskResultDisplay'
+import WechatDraftPreview from '../components/WechatDraftPreview'
+import WechatDraftEditor from '../components/WechatDraftEditor'
 import { useToast } from '../components/ToastModal'
+import { mdToHtml } from '../utils/mdToHtml'
 import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
@@ -28,6 +31,19 @@ const TASK_API = {
   restore: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/restore`, { method: 'POST' }).then(r => r.json()),
   delete: (taskId) => fetch(`/api/task-queue/tasks/${taskId}`, { method: 'DELETE' }).then(r => r.json()),
   create: (payload) => fetch('/api/task-queue/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(r => r.json()),
+}
+
+const WECHAT_MP_API = {
+  drafts: (params = {}) => {
+    const q = new URLSearchParams({ offset: String(params.offset ?? 0), count: String(params.count ?? 20), no_content: String(params.no_content ?? 1) })
+    return fetch(`/api/wechat-mp/drafts?${q}`).then(r => r.json())
+  },
+  draftDetail: (mediaId) => fetch(`/api/wechat-mp/drafts/detail?media_id=${encodeURIComponent(mediaId)}`).then(r => r.json()),
+  uploadCover: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form }).then(r => r.json())
+  },
 }
 
 const STATUS_MAP = {
@@ -76,6 +92,91 @@ function formatTimeUntil(nextRunTime) {
   return `${formatDateTime(nextRunTime)}`
 }
 
+function WechatDraftsPanel({ drafts, loading, onRefresh, onShowDetail }) {
+  return (
+    <div className="space-y-3">
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-[#94a3b8]">公众号草稿箱（只读），点击查看详情，可「编辑」创建更新草稿任务。</p>
+        <button onClick={onRefresh} className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5" title="刷新">↻</button>
+      </div>
+      {loading ? (
+        <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+      ) : !drafts.length ? (
+        <div className="py-12 text-center text-[#94a3b8]">暂无草稿</div>
+      ) : (
+        <div className="space-y-2">
+          {drafts.map((item) => {
+            const title = item?.content?.news_item?.[0]?.title || item?.media_id || '无标题'
+            return (
+              <div
+                key={item?.media_id}
+                onClick={() => onShowDetail(item)}
+                className="px-4 py-3 rounded-lg border border-border bg-white/[0.02] hover:bg-white/5 cursor-pointer text-left"
+              >
+                <div className="font-medium text-white">{title}</div>
+                <div className="text-xs text-[#64748b] mt-1">media_id: {item?.media_id}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DraftDetailModal({ draftDetail, onClose, onEdit }) {
+  const { loading, draft } = draftDetail
+  const news = draft?.news_item?.[0]
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-white">草稿详情</h2>
+          <button onClick={onClose} className="text-[#94a3b8] hover:text-white">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 text-sm">
+          {loading && <p className="text-[#94a3b8]">加载中...</p>}
+          {!loading && draft && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-[#64748b] text-xs mb-1">标题</div>
+                <div className="text-white">{news?.title ?? '-'}</div>
+              </div>
+              {news?.author && (
+                <div>
+                  <div className="text-[#64748b] text-xs mb-1">作者</div>
+                  <div className="text-[#94a3b8]">{news.author}</div>
+                </div>
+              )}
+              {news?.digest && (
+                <div>
+                  <div className="text-[#64748b] text-xs mb-1">摘要</div>
+                  <div className="text-[#94a3b8]">{news.digest}</div>
+                </div>
+              )}
+              <div>
+                <div className="text-[#64748b] text-xs mb-1">正文</div>
+                <div className="max-h-60 overflow-y-auto rounded bg-white/5 p-3">
+                  <WechatDraftPreview html={news?.content ?? ''} />
+                </div>
+              </div>
+              <div className="pt-4 border-t border-border flex justify-end">
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
+                >
+                  编辑（创建更新草稿任务）
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function TaskManagement() {
   const toast = useToast()
   const [tab, setTab] = useState('tasks')
@@ -93,6 +194,10 @@ export default function TaskManagement() {
   const [runsModalSchedule, setRunsModalSchedule] = useState(null)
   const [runsModalRefreshTrigger, setRunsModalRefreshTrigger] = useState(0)
   const [editScheduleTask, setEditScheduleTask] = useState(null)
+  const [drafts, setDrafts] = useState([])
+  const [draftsLoading, setDraftsLoading] = useState(false)
+  const [draftDetail, setDraftDetail] = useState(null)
+  const [editDraftPreFill, setEditDraftPreFill] = useState(null)
 
   const handleGoToSchedule = useCallback((scheduleId) => {
     setDetailTaskId(null)
@@ -132,6 +237,18 @@ export default function TaskManagement() {
     setLoading(false)
   }, [])
 
+  const loadDrafts = useCallback(async () => {
+    setDraftsLoading(true)
+    try {
+      const data = await WECHAT_MP_API.drafts({ offset: 0, count: 20, no_content: 1 })
+      if (data.success && Array.isArray(data.item)) setDrafts(data.item)
+      else setDrafts([])
+    } catch (e) {
+      setDrafts([])
+    }
+    setDraftsLoading(false)
+  }, [])
+
   const loadScheduledTasks = useCallback(async () => {
     try {
       const res = await fetch('/api/task-queue/scheduled-tasks?active_only=false')
@@ -151,6 +268,7 @@ export default function TaskManagement() {
   useEffect(() => {
     if (tab === 'tasks') loadTasks()
     else if (tab === 'deleted') loadDeletedTasks()
+    else if (tab === 'wechat-drafts') loadDrafts()
     else loadScheduledTasks()
   }, [tab, loadTasks, loadDeletedTasks, loadScheduledTasks])
 
@@ -259,6 +377,14 @@ export default function TaskManagement() {
             >
               已删除
             </button>
+            <button
+              onClick={() => setTab('wechat-drafts')}
+              className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
+                tab === 'wechat-drafts' ? 'bg-accent text-white' : 'text-[#94a3b8] hover:text-white'
+              }`}
+            >
+              公众号草稿
+            </button>
           </div>
           <div className="flex gap-2">
             {tab === 'tasks' && (
@@ -280,16 +406,40 @@ export default function TaskManagement() {
             )}
             {tab !== 'deleted' && (
               <button
-                onClick={() => setShowCreateModal(true)}
+                onClick={() => {
+                  if (tab === 'wechat-drafts') {
+                    setEditDraftPreFill({ initialType: 'wechat_mp_draft', initialMetadata: { operation: 'add' }, initialName: '' })
+                  } else {
+                    setEditDraftPreFill(null)
+                  }
+                  setShowCreateModal(true)
+                }}
                 className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
               >
-                + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
+                + {tab === 'tasks' ? '创建普通任务' : tab === 'wechat-drafts' ? '新建草稿' : '创建定时任务'}
               </button>
             )}
           </div>
         </div>
 
-        {tab === 'deleted' ? (
+        {tab === 'wechat-drafts' ? (
+          <WechatDraftsPanel
+            drafts={drafts}
+            loading={draftsLoading}
+            onRefresh={loadDrafts}
+            onShowDetail={(item) => {
+              const mediaId = item?.media_id
+              if (!mediaId) return
+              setDraftDetail({ media_id: mediaId, loading: true })
+              WECHAT_MP_API.draftDetail(mediaId)
+                .then(d => {
+                  if (d.success && d.draft) setDraftDetail({ media_id: mediaId, draft: d.draft })
+                  else setDraftDetail(null)
+                })
+                .catch(() => setDraftDetail(null))
+            }}
+          />
+        ) : tab === 'deleted' ? (
           <>
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm text-[#94a3b8]">回收站：可恢复任务到普通列表，或彻底删除。</p>
@@ -517,10 +667,44 @@ export default function TaskManagement() {
       {showCreateModal && tab !== 'scheduled' && (
         <CreateTaskModal
           taskTypes={taskTypes}
-          onClose={() => setShowCreateModal(false)}
+          initialType={editDraftPreFill?.initialType}
+          initialMetadata={editDraftPreFill?.initialMetadata}
+          initialName={editDraftPreFill?.initialName}
+          onClose={() => {
+            setShowCreateModal(false)
+            setEditDraftPreFill(null)
+          }}
           onSuccess={() => {
             setShowCreateModal(false)
+            setEditDraftPreFill(null)
             loadTasks()
+            if (tab === 'wechat-drafts') loadDrafts()
+          }}
+        />
+      )}
+      {draftDetail && (
+        <DraftDetailModal
+          draftDetail={draftDetail}
+          onClose={() => setDraftDetail(null)}
+          onEdit={() => {
+            const d = draftDetail.draft
+            const news = d?.news_item?.[0]
+            setEditDraftPreFill({
+              initialType: 'wechat_mp_draft',
+              initialMetadata: {
+                operation: 'update',
+                media_id: d?.media_id ?? '',
+                title: news?.title ?? '',
+                content: news?.content ?? '',
+                author: news?.author ?? '',
+                digest: news?.digest ?? '',
+                content_source_url: news?.content_source_url ?? '',
+                thumb_media_id: news?.thumb_media_id ?? '',
+              },
+              initialName: '',
+            })
+            setDraftDetail(null)
+            setShowCreateModal(true)
           }}
         />
       )}
@@ -1741,13 +1925,14 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
   )
 }
 
-function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
+function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName, onClose, onSuccess }) {
   const toast = useToast()
   const [type, setType] = useState('')
   const [name, setName] = useState('')
   const [priority, setPriority] = useState(2)
   const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
+  const [coverUploading, setCoverUploading] = useState(false)
   const [inputSource, setInputSource] = useState('manual') // 'manual' | 'from_task'
   const [completedTasks, setCompletedTasks] = useState([])
   const [linkableUpstreams, setLinkableUpstreams] = useState({ linkable_task_types: [], suggested_bindings: {} })
@@ -1755,6 +1940,15 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
   const [inputBindings, setInputBindings] = useState({}) // { fieldKey: 'result.data.output_file' }
   const typeInfo = taskTypes.find(t => t.type === type) || null
   const schema = typeInfo?.metadata_schema || {}
+
+  useEffect(() => {
+    if (initialType != null && initialType !== '') {
+      setType(initialType)
+      setMetadata({ ...(initialMetadata || {}) })
+      setName(initialName != null ? String(initialName) : '')
+      setInputSource('manual')
+    }
+  }, [initialType, initialMetadata, initialName])
 
   const inputFileAccept = type === 'speech_to_text'
     ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
@@ -1842,7 +2036,11 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
     }
     setSubmitting(true)
     try {
-      const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata }
+      let meta = { ...metadata }
+      if (type === 'wechat_mp_draft' && meta.content != null && String(meta.content).trim()) {
+        meta = { ...meta, content: mdToHtml(meta.content) }
+      }
+      const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata: meta }
       if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
         payload.depends_on_task_id = dependsOnTaskId.trim()
         const bindings = {}
@@ -1868,14 +2066,19 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
     setSubmitting(false)
   }
 
+  const isWechatDraft = type === 'wechat_mp_draft'
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className={`bg-surface border border-border rounded-xl shadow-xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col ${isWechatDraft ? 'max-w-5xl h-[95vh]' : 'max-w-lg'}`}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
           <h3 className="text-lg font-semibold text-white">创建新任务</h3>
           <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
           <div>
             <label className="block text-sm text-[#94a3b8] mb-1">任务类型 *</label>
             <select
@@ -1967,13 +2170,61 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
             </div>
           )}
           {inputSource === 'manual' && type && (
-            <TaskMetadataFormFields
-              schema={schema}
-              metadata={metadata}
-              setMetadata={setMetadata}
-              fieldIdPrefix="create-task"
-              fileUploadFields={Object.keys(fileUploadFields).length ? fileUploadFields : undefined}
-            />
+            <>
+              <TaskMetadataFormFields
+                schema={schema}
+                metadata={metadata}
+                setMetadata={setMetadata}
+                fieldIdPrefix="create-task"
+                fileUploadFields={Object.keys(fileUploadFields).length ? fileUploadFields : undefined}
+                customFieldRender={
+                  type === 'wechat_mp_draft' && (metadata.operation === 'add' || !metadata.operation)
+                    ? (fieldKey, { value, onChange }) =>
+                        fieldKey === 'content' ? (
+                          <WechatDraftEditor value={value ?? ''} onChange={onChange} />
+                        ) : null
+                    : null
+                }
+              />
+              {type === 'wechat_mp_draft' && (metadata.operation === 'add' || !metadata.operation) && (
+                <div>
+                  <label className="block text-sm text-[#94a3b8] mb-1">封面上传</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="w-full text-sm text-[#94a3b8] file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
+                    disabled={coverUploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      setCoverUploading(true)
+                      try {
+                        const data = await WECHAT_MP_API.uploadCover(file)
+                        if (data.success && data.media_id) {
+                          setMetadata(m => ({ ...m, thumb_media_id: data.media_id }))
+                          toast.info('封面上传成功')
+                        } else throw new Error(data.detail || '上传失败')
+                      } catch (err) {
+                        toast.error('封面上传失败: ' + (err?.message || String(err)))
+                      }
+                      setCoverUploading(false)
+                      e.target.value = ''
+                    }}
+                  />
+                  {metadata.thumb_media_id && (
+                    <div className="mt-2 flex items-start gap-3">
+                      <img
+                        src={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(metadata.thumb_media_id)}`}
+                        alt="封面预览"
+                        className="w-20 h-20 object-cover rounded border border-border shrink-0"
+                      />
+                      <p className="text-xs text-green-400/90 pt-1">已上传封面 media_id: {metadata.thumb_media_id}</p>
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-amber-400/90">图片 ≤2MB，上传后自动填入「封面 media_id」</p>
+                </div>
+              )}
+            </>
           )}
           <div>
             <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
@@ -1998,7 +2249,8 @@ function CreateTaskModal({ taskTypes, onClose, onSuccess }) {
               <option value={4}>紧急 (4)</option>
             </select>
           </div>
-          <div className="flex gap-3 pt-4">
+          </div>
+          <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
               取消
             </button>

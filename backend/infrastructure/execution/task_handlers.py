@@ -377,6 +377,62 @@ TASK_TYPES = {
             },
         }
     },
+    "wechat_mp_draft": {
+        "name": "公众号草稿",
+        "description": "向微信公众号草稿箱新增或更新一篇图文草稿（个人号可用；发布需在手机端「公众号助手」操作）。正文不超过 2 万字、1MB。",
+        "metadata_schema": {
+            "operation": {
+                "type": "string",
+                "required": True,
+                "description": "操作类型",
+                "enum": [
+                    {"value": "add", "label": "新增草稿"},
+                    {"value": "update", "label": "更新草稿"}
+                ],
+                "default": "add"
+            },
+            "title": {
+                "type": "string",
+                "required": True,
+                "description": "标题（不超过 32 字）",
+                "placeholder": "文章标题"
+            },
+            "content": {
+                "type": "string",
+                "required": True,
+                "description": "正文 HTML（不超过 2 万字、1MB）",
+                "placeholder": "<p>正文内容...</p>"
+            },
+            "author": {
+                "type": "string",
+                "required": False,
+                "description": "作者（不超过 16 字）"
+            },
+            "digest": {
+                "type": "string",
+                "required": False,
+                "description": "摘要（不超过 128 字）"
+            },
+            "thumb_media_id": {
+                "type": "string",
+                "required": False,
+                "description": "封面图素材 media_id（新增草稿时必填，需先通过上传图文消息内图片接口获取）",
+                "placeholder": "永久素材 media_id"
+            },
+            "content_source_url": {
+                "type": "string",
+                "required": False,
+                "description": "阅读原文链接",
+                "placeholder": "https://..."
+            },
+            "media_id": {
+                "type": "string",
+                "required": False,
+                "description": "草稿 media_id（operation=update 时必填）",
+                "placeholder": "从草稿列表或详情获取"
+            },
+        }
+    },
 }
 
 
@@ -806,6 +862,78 @@ async def process_mediawiki_write_task(task_info: Dict[str, Any]) -> Dict[str, A
     return {"status": "success", "summary": summary_text, "data": data}
 
 
+async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理公众号草稿任务（新增或更新）。失败时返回统一错误结构。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+
+    operation = (metadata.get("operation") or "add").strip().lower()
+    if operation not in ("add", "update"):
+        operation = "add"
+
+    title = (metadata.get("title") or "").strip()
+    if not title:
+        return _err("MISSING_TITLE", "缺少标题", "title 参数是必需的")
+
+    content = metadata.get("content")
+    content = (content.strip() if isinstance(content, str) else str(content or "").strip()) if content is not None else ""
+    if not content:
+        return _err("MISSING_CONTENT", "缺少正文", "content 参数是必需的")
+
+    author = (metadata.get("author") or "").strip() or None
+    digest = (metadata.get("digest") or "").strip() or None
+    thumb_media_id = (metadata.get("thumb_media_id") or "").strip() or None
+    content_source_url = (metadata.get("content_source_url") or "").strip() or None
+    media_id = (metadata.get("media_id") or "").strip() or None
+
+    if operation == "update" and not media_id:
+        return _err("MISSING_MEDIA_ID", "更新草稿需要 media_id", "operation=update 时请填写 media_id（从草稿列表或详情获取）")
+
+    if operation == "add" and not thumb_media_id:
+        return _err("MISSING_THUMB", "新增草稿需要封面图", "请先通过上传图文消息内图片接口获取 thumb_media_id 并填写")
+
+    worker.update_task_progress(10, "正在写入公众号草稿...")
+
+    def _run_draft():
+        from backend.services.wechat_mp_service import WeChatMPClient, WeChatMPClientError
+        client = WeChatMPClient()
+        if operation == "add":
+            result = client.add_draft(
+                title=title,
+                content=content,
+                author=author,
+                digest=digest,
+                thumb_media_id=thumb_media_id,
+                content_source_url=content_source_url,
+            )
+            mid = result.get("media_id") or ""
+            return {"media_id": mid, "operation": "add", "message": "草稿已保存，可在公众号助手发布"}
+        else:
+            client.update_draft(
+                media_id=media_id,
+                index=0,
+                title=title,
+                content=content,
+                author=author,
+                digest=digest,
+                thumb_media_id=thumb_media_id,
+                content_source_url=content_source_url,
+            )
+            return {"media_id": media_id, "operation": "update", "message": "草稿已更新，可在公众号助手发布"}
+
+    try:
+        data = await asyncio.to_thread(_run_draft)
+    except Exception as e:
+        err_msg = str(e)
+        if "WeChatMPClientError" in type(e).__name__ or "公众号" in err_msg or "草稿" in err_msg:
+            return _err("WECHAT_MP_DRAFT_FAILED", "公众号草稿失败", err_msg, details=traceback.format_exc())
+        return _err("WECHAT_MP_DRAFT_FAILED", "公众号草稿失败", err_msg, details=traceback.format_exc())
+
+    worker.update_task_progress(100, "草稿已保存")
+    summary = f"已{'新增' if operation == 'add' else '更新'}草稿：{title[:20]}{'…' if len(title) > 20 else ''}"
+    return {"status": "success", "summary": summary, "data": data}
+
+
 def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
@@ -814,6 +942,7 @@ def register_default_handlers():
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
+    worker.register_handler("wechat_mp_draft", process_wechat_mp_draft_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 
 
@@ -943,5 +1072,13 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
             if not any((_tb(metadata.get("fetch_current", True)), _tb(metadata.get("fetch_forecast", True)),
                         _tb(metadata.get("fetch_warning", True)), _tb(metadata.get("fetch_air_quality", True)))):
                 return False, "请至少勾选一种查询类型（实时天气、天气预报、预警、空气质量）"
+
+    # wechat_mp_draft：operation=update 时 media_id 必填
+    if task_type == "wechat_mp_draft":
+        op = (metadata.get("operation") or "").strip().lower()
+        if op == "update":
+            mid = (metadata.get("media_id") or "").strip()
+            if not mid:
+                return False, "更新草稿时 media_id 为必填"
 
     return True, None

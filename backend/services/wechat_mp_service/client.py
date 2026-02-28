@@ -1,0 +1,292 @@
+"""
+微信公众号 API 客户端（个人未认证账号可用：token、草稿列表/详情、新增/更新草稿）。
+不包含需认证的统计、发布接口。配置：WECHAT_MP_APP_ID、WECHAT_MP_APP_SECRET（.env）。
+正文 content 限制：少于 2 万字符、小于 1M（微信接口要求）。
+"""
+import os
+import time
+import logging
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://api.weixin.qq.com"
+
+# 微信单篇正文限制（与官方文档一致）
+CONTENT_MAX_CHARS = 20000
+CONTENT_MAX_BYTES = 1024 * 1024  # 1M
+
+
+class WeChatMPClientError(Exception):
+    """微信公众号 API 调用错误"""
+    pass
+
+
+class WeChatMPClient:
+    """微信公众号 API 客户端（个人号可用：token、草稿列表/详情；不包含统计与发布）"""
+
+    def __init__(
+        self,
+        app_id: Optional[str] = None,
+        app_secret: Optional[str] = None,
+    ):
+        self.app_id = app_id or os.getenv("WECHAT_MP_APP_ID")
+        self.app_secret = app_secret or os.getenv("WECHAT_MP_APP_SECRET")
+        if not self.app_id or not self.app_secret:
+            raise WeChatMPClientError(
+                "请配置 WECHAT_MP_APP_ID 和 WECHAT_MP_APP_SECRET（.env）"
+            )
+        self._access_token: Optional[str] = None
+        self._token_expires_at: float = 0
+        self._token_ttl = 7200  # 2 小时，提前 5 分钟刷新
+        self._refresh_before = 300
+
+    def _ensure_token(self) -> str:
+        """获取并缓存 access_token，过期前刷新"""
+        now = time.time()
+        if self._access_token and now < self._token_expires_at - self._refresh_before:
+            return self._access_token
+        url = f"{BASE_URL}/cgi-bin/token"
+        params = {
+            "grant_type": "client_credential",
+            "appid": self.app_id,
+            "secret": self.app_secret,
+        }
+        try:
+            r = httpx.get(url, params=params, timeout=15.0)
+            r.raise_for_status()
+            data = r.json()
+        except httpx.HTTPStatusError as e:
+            raise WeChatMPClientError(f"获取 token 请求失败: {e}") from e
+        except httpx.RequestError as e:
+            raise WeChatMPClientError(f"获取 token 网络错误: {e}") from e
+        errcode = data.get("errcode")
+        if errcode and errcode != 0:
+            raise WeChatMPClientError(
+                f"获取 token 失败: errcode={errcode}, errmsg={data.get('errmsg', '')}"
+            )
+        token = data.get("access_token")
+        if not token:
+            raise WeChatMPClientError("获取 token 返回无 access_token")
+        self._access_token = token
+        self._token_expires_at = now + (data.get("expires_in") or self._token_ttl)
+        logger.debug("WeChat MP access_token 已刷新")
+        return self._access_token
+
+    def _post(self, path: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """带 token 的 POST，path 不含域名，如 /cgi-bin/draft/batchget"""
+        token = self._ensure_token()
+        url = f"{BASE_URL}{path}"
+        params = {"access_token": token}
+        payload = body or {}
+        try:
+            r = httpx.post(url, params=params, json=payload, timeout=30.0)
+            r.raise_for_status()
+            data = r.json()
+        except httpx.HTTPStatusError as e:
+            raise WeChatMPClientError(f"请求失败: {e}") from e
+        except httpx.RequestError as e:
+            raise WeChatMPClientError(f"网络错误: {e}") from e
+        errcode = data.get("errcode")
+        if errcode and errcode != 0:
+            raise WeChatMPClientError(
+                f"接口错误: errcode={errcode}, errmsg={data.get('errmsg', '')}"
+            )
+        return data
+
+    def _post_multipart(
+        self,
+        path: str,
+        files: Dict[str, tuple],
+        params_extra: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """带 token 的 multipart POST（用于上传文件）。files: {"media": (filename, content, content_type)}"""
+        token = self._ensure_token()
+        url = f"{BASE_URL}{path}"
+        params = {"access_token": token, **(params_extra or {})}
+        try:
+            r = httpx.post(url, params=params, files=files, timeout=30.0)
+            r.raise_for_status()
+            data = r.json()
+        except httpx.HTTPStatusError as e:
+            raise WeChatMPClientError(f"请求失败: {e}") from e
+        except httpx.RequestError as e:
+            raise WeChatMPClientError(f"网络错误: {e}") from e
+        errcode = data.get("errcode")
+        if errcode and errcode != 0:
+            raise WeChatMPClientError(
+                f"接口错误: errcode={errcode}, errmsg={data.get('errmsg', '')}"
+            )
+        return data
+
+    # ---------- 只读：草稿 ----------
+    def get_draft_list(
+        self,
+        offset: int = 0,
+        count: int = 20,
+        no_content: int = 0,
+    ) -> Dict[str, Any]:
+        """获取草稿列表。no_content=1 不返回正文，减少体积。"""
+        return self._post("/cgi-bin/draft/batchget", {
+            "offset": offset,
+            "count": min(20, max(1, count)),
+            "no_content": 1 if no_content else 0,
+        })
+
+    def get_draft(self, media_id: str) -> Dict[str, Any]:
+        """获取草稿详情（需从草稿列表拿到 media_id）。"""
+        return self._post("/cgi-bin/draft/get", {"media_id": media_id})
+
+    @staticmethod
+    def _validate_content(content: str) -> None:
+        """校验正文长度与体积，超限抛 WeChatMPClientError。"""
+        if not content:
+            return
+        enc = content.encode("utf-8")
+        if len(content) >= CONTENT_MAX_CHARS:
+            raise WeChatMPClientError(
+                f"正文不能超过 {CONTENT_MAX_CHARS} 字，当前 {len(content)} 字。请分段或使用「阅读原文」链接。"
+            )
+        if len(enc) >= CONTENT_MAX_BYTES:
+            raise WeChatMPClientError(
+                f"正文体积不能超过 1MB，当前约 {len(enc) // 1024}KB。请缩短内容或使用「阅读原文」。"
+            )
+
+    def _build_news_article(
+        self,
+        title: str,
+        content: str,
+        author: Optional[str] = None,
+        digest: Optional[str] = None,
+        thumb_media_id: Optional[str] = None,
+        content_source_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """构建单条图文消息（news）结构，供新增/更新草稿使用。"""
+        self._validate_content(content)
+        title = (title or "").strip()
+        if not title:
+            raise WeChatMPClientError("标题不能为空")
+        if len(title) > 32:
+            raise WeChatMPClientError("标题不能超过 32 字")
+        author = (author or "").strip()
+        if author and len(author) > 16:
+            author = author[:16]
+        digest = (digest or "").strip()
+        if digest and len(digest) > 128:
+            digest = digest[:128]
+        article = {
+            "article_type": "news",
+            "title": title,
+            "content": content,
+            "need_open_comment": 0,
+            "only_fans_can_comment": 0,
+        }
+        if author:
+            article["author"] = author
+        if digest:
+            article["digest"] = digest
+        if thumb_media_id:
+            article["thumb_media_id"] = thumb_media_id.strip()
+        if content_source_url:
+            url = (content_source_url or "").strip()
+            if len(url.encode("utf-8")) > 1024:
+                raise WeChatMPClientError("阅读原文链接过长（不超过 1KB）")
+            article["content_source_url"] = url
+        return article
+
+    def add_draft(
+        self,
+        title: str,
+        content: str,
+        author: Optional[str] = None,
+        digest: Optional[str] = None,
+        thumb_media_id: Optional[str] = None,
+        content_source_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """新增单篇图文草稿。thumb_media_id 为封面图素材 id（图文消息必填，需先通过上传接口获取）。"""
+        if not (thumb_media_id or "").strip():
+            raise WeChatMPClientError("新增草稿需要封面图，请先通过「上传图文消息内的图片」接口获取 thumb_media_id")
+        article = self._build_news_article(
+            title=title,
+            content=content,
+            author=author,
+            digest=digest,
+            thumb_media_id=thumb_media_id,
+            content_source_url=content_source_url,
+        )
+        return self._post("/cgi-bin/draft/add", {"articles": [article]})
+
+    def update_draft(
+        self,
+        media_id: str,
+        index: int,
+        title: str,
+        content: str,
+        author: Optional[str] = None,
+        digest: Optional[str] = None,
+        thumb_media_id: Optional[str] = None,
+        content_source_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """更新草稿中指定位置的图文。index 为第一篇 0。"""
+        article = self._build_news_article(
+            title=title,
+            content=content,
+            author=author,
+            digest=digest,
+            thumb_media_id=(thumb_media_id or "").strip() or None,
+            content_source_url=content_source_url,
+        )
+        return self._post("/cgi-bin/draft/update", {
+            "media_id": media_id.strip(),
+            "index": index,
+            "articles": article,
+        })
+
+    def upload_image_permanent(self, content: bytes, filename: str = "cover.jpg") -> Dict[str, Any]:
+        """上传图片为永久素材，用于草稿封面。返回含 media_id、url。图片需 ≤2MB，支持 BMP/PNG/JPEG/JPG/GIF。"""
+        if len(content) > 2 * 1024 * 1024:
+            raise WeChatMPClientError("封面图不能超过 2MB")
+        ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else "jpg"
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png" if ext == "png" else "image/gif" if ext == "gif" else "image/bmp" if ext == "bmp" else "image/jpeg"
+        files = {"media": (filename or "cover.jpg", content, mime)}
+        return self._post_multipart("/cgi-bin/material/add_material", files, params_extra={"type": "image"})
+
+    def upload_image_for_article(self, content: bytes, filename: str = "image.jpg") -> Dict[str, Any]:
+        """上传图文消息内的图片，返回含 url。该 URL 用于正文 HTML 的 <img src="...">，不占素材库。图片需 ≤5MB。"""
+        if len(content) > 5 * 1024 * 1024:
+            raise WeChatMPClientError("正文图片不能超过 5MB")
+        ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else "jpg"
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png" if ext == "png" else "image/gif" if ext == "gif" else "image/bmp" if ext == "bmp" else "image/jpeg"
+        files = {"media": (filename or "image.jpg", content, mime)}
+        return self._post_multipart("/cgi-bin/media/uploadimg", files)
+
+    def get_material(self, media_id: str) -> tuple[bytes, str]:
+        """获取永久素材（如图片），返回 (二进制内容, content_type)。图片类返回二进制，错误时返回 JSON 并抛 WeChatMPClientError。"""
+        token = self._ensure_token()
+        url = f"{BASE_URL}/cgi-bin/material/get_material"
+        params = {"access_token": token}
+        payload = {"media_id": (media_id or "").strip()}
+        if not payload["media_id"]:
+            raise WeChatMPClientError("media_id 不能为空")
+        try:
+            r = httpx.post(url, params=params, json=payload, timeout=30.0)
+            r.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise WeChatMPClientError(f"请求失败: {e}") from e
+        except httpx.RequestError as e:
+            raise WeChatMPClientError(f"网络错误: {e}") from e
+        ct = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if ct in ("application/json", "text/plain", "text/html") or "json" in ct:
+            data = r.json()
+            errcode = data.get("errcode", 0)
+            if errcode and errcode != 0:
+                raise WeChatMPClientError(
+                    f"获取素材失败: errcode={errcode}, errmsg={data.get('errmsg', '')}"
+                )
+            raise WeChatMPClientError("该素材不是图片类型，仅支持图片永久素材用于封面预览")
+        if not r.content:
+            raise WeChatMPClientError("获取素材返回为空")
+        content_type = ct if ct and (ct.startswith("image/") or ct == "application/octet-stream") else "image/jpeg"
+        return (r.content, content_type)

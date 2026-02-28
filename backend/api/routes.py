@@ -16,6 +16,7 @@ from backend.api.chat_routes import router as chat_router
 from backend.api.session_routes import router as session_router
 from backend.api.search_routes import router as search_router
 from backend.api.mediawiki_routes import router as mediawiki_router
+from backend.api.wechat_mp_routes import router as wechat_mp_router
 from backend.api.tool_routes import router as tool_router
 from backend.api.heartbeat_routes import router as heartbeat_router
 from backend.api.storage_routes import router as storage_router
@@ -42,6 +43,7 @@ router.include_router(chat_router, tags=["chat"])
 router.include_router(session_router, tags=["sessions"])
 router.include_router(search_router, tags=["search"])
 router.include_router(mediawiki_router, tags=["mediawiki"])
+router.include_router(wechat_mp_router, tags=["wechat-mp"])
 router.include_router(tool_router, tags=["tools"])
 router.include_router(heartbeat_router, tags=["monitoring"])
 router.include_router(storage_router, tags=["storage"])

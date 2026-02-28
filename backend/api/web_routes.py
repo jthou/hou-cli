@@ -34,6 +34,18 @@ async def index(request: Request):
     )
 
 
+@router.get("/{full_path:path}", response_class=HTMLResponse)
+async def serve_spa(full_path: str):
+    """SPA 回退：未匹配的路径返回 index.html，由前端路由处理（如 /wechat-drafts）。"""
+    index_file = REACT_DIST / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return HTMLResponse(
+        content="<html><body style='font-family:sans-serif;padding:2rem;color:#94a3b8;'>前端未构建</body></html>",
+        status_code=503,
+    )
+
+
 @router.websocket("/ws")
 async def websocket_chat(websocket: WebSocket):
     """WebSocket 流式聊天 - 直接调用 chat stream，无需代理"""
