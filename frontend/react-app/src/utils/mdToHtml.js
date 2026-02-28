@@ -1,9 +1,11 @@
 /**
  * 公众号草稿正文：Markdown ↔ HTML 统一转换。
  * - 编辑与预览用 Markdown → mdToHtml() → HTML 渲染。
+ * - 编辑已有草稿时，接口返回的 content 为 HTML，用 htmlToMd() 转成 Markdown 再放入编辑器。
  * - 提交任务/定时任务时，metadata.content 必须为 HTML，由 prepareWechatDraftMetadata 或 prepareMetadataForSubmit 统一转换。
  */
 import { marked } from 'marked'
+import TurndownService from 'turndown'
 
 /** 任务类型：公众号草稿。凡提交该类型任务的 metadata 前，应对 content 做 MD→HTML。 */
 export const WECHAT_MP_DRAFT_TASK_TYPE = 'wechat_mp_draft'
@@ -24,6 +26,24 @@ export function mdToHtml(md) {
   if (!trimmed) return ''
   const out = marked.parse(trimmed)
   return typeof out === 'string' ? out : String(out)
+}
+
+const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+
+/**
+ * HTML → Markdown，用于编辑已有草稿时把接口返回的正文 HTML 转成 Markdown 再放入编辑器。
+ * @param {string} html - HTML 字符串（如公众号草稿 content）
+ * @returns {string} Markdown 字符串
+ */
+export function htmlToMd(html) {
+  if (html == null || typeof html !== 'string') return ''
+  const trimmed = html.trim()
+  if (!trimmed) return ''
+  try {
+    return turndownService.turndown(trimmed)
+  } catch {
+    return trimmed
+  }
 }
 
 /**
