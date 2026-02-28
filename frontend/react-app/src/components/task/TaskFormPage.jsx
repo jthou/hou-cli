@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../ToastModal'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
 import { getDefaultMetadata, getApiErrorMessage } from './taskFormUtils'
+import { prepareMetadataForSubmit } from '../../utils/mdToHtml'
 
 const INPUT_FILE_TASKS = ['speech_to_text', 'video_extract_audio']
 const INPUT_FILE_ACCEPT = {
@@ -55,7 +56,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
       const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_type: taskType, metadata }),
+        body: JSON.stringify({ task_type: taskType, metadata: prepareMetadataForSubmit(taskType, metadata) }),
       })
       const data = await res.json()
       if (data.success) {

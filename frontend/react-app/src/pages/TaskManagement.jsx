@@ -3,7 +3,7 @@ import TaskResultDisplay from '../components/TaskResultDisplay'
 import WechatDraftPreview from '../components/WechatDraftPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import { useToast } from '../components/ToastModal'
-import { mdToHtml } from '../utils/mdToHtml'
+import { prepareMetadataForSubmit } from '../utils/mdToHtml'
 import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
@@ -1735,7 +1735,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
           task_name: name?.trim() || task.task_name,
           schedule_type: scheduleType,
           schedule_config: scheduleConfig,
-          metadata,
+          metadata: prepareMetadataForSubmit(task.task_type, metadata),
         }),
       })
       const data = await res.json()
@@ -1857,7 +1857,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
           task_name: name?.trim() || "",
           schedule_type: scheduleType,
           schedule_config: scheduleConfig,
-          metadata,
+          metadata: prepareMetadataForSubmit(type, metadata),
         }),
       })
       const data = await res.json()
@@ -2036,10 +2036,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
     }
     setSubmitting(true)
     try {
-      let meta = { ...metadata }
-      if (type === 'wechat_mp_draft' && meta.content != null && String(meta.content).trim()) {
-        meta = { ...meta, content: mdToHtml(meta.content) }
-      }
+      const meta = prepareMetadataForSubmit(type, metadata)
       const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata: meta }
       if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
         payload.depends_on_task_id = dependsOnTaskId.trim()
