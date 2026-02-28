@@ -35,3 +35,19 @@ html:not(.dark) .text-white {
     color: var(--color-fg);
   }
 }
+
+/* 预报卡片横向滚动条 */
+.forecast-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+.forecast-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.forecast-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.forecast-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: 3px;
+}

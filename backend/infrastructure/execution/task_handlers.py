@@ -187,29 +187,29 @@ TASK_TYPES = {
                 "description": "城市名称",
                 "placeholder": "如：北京、上海、深圳"
             },
-            "query_type": {
-                "type": "string",
-                "required": False,
-                "description": "查询类型",
-                "enum": [
-                    {"value": "current", "label": "实时天气"},
-                    {"value": "forecast", "label": "天气预报"},
-                    {"value": "warning", "label": "仅查预警"},
-                    {"value": "air_quality", "label": "仅查空气质量"}
-                ],
-                "default": "current"
-            },
-            "include_warning": {
+            "fetch_current": {
                 "type": "boolean",
                 "required": False,
-                "description": "实时/预报时是否同时拉取预警",
-                "default": False
+                "description": "实时天气",
+                "default": True
             },
-            "include_air_quality": {
+            "fetch_forecast": {
                 "type": "boolean",
                 "required": False,
-                "description": "实时/预报时是否同时拉取空气质量",
-                "default": False
+                "description": "天气预报",
+                "default": True
+            },
+            "fetch_warning": {
+                "type": "boolean",
+                "required": False,
+                "description": "预警",
+                "default": True
+            },
+            "fetch_air_quality": {
+                "type": "boolean",
+                "required": False,
+                "description": "空气质量",
+                "default": True
             },
             "days": {
                 "type": "number",
@@ -380,14 +380,36 @@ TASK_TYPES = {
 }
 
 
+def _to_bool(v) -> bool:
+    return v in (True, "true", "1", 1)
+
+
 async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
-    """处理天气查询任务"""
+    """处理天气查询任务（多选：实时/预报/预警/空气质量可任意组合）"""
     task_id = task_info["task_id"]
     metadata = task_info.get("metadata", {})
     worker = get_task_worker()
 
     location = (metadata.get("location") or "").strip()
-    query_type = metadata.get("query_type", "current")
+    fetch_current = _to_bool(metadata.get("fetch_current", True))
+    fetch_forecast = _to_bool(metadata.get("fetch_forecast", True))
+    fetch_warning = _to_bool(metadata.get("fetch_warning", True))
+    fetch_air_quality = _to_bool(metadata.get("fetch_air_quality", True))
+
+    # 兼容旧任务：若存在 query_type 则按旧逻辑解析
+    query_type = metadata.get("query_type")
+    if query_type is not None and str(query_type).strip() != "":
+        qt = str(query_type).strip()
+        if qt == "warning":
+            fetch_current, fetch_forecast, fetch_warning, fetch_air_quality = False, False, True, False
+        elif qt == "air_quality":
+            fetch_current, fetch_forecast, fetch_warning, fetch_air_quality = False, False, False, True
+        else:
+            fetch_current = qt == "current"
+            fetch_forecast = qt == "forecast"
+            fetch_warning = _to_bool(metadata.get("include_warning", True))
+            fetch_air_quality = _to_bool(metadata.get("include_air_quality", True))
+
     days = metadata.get("days")
     if days is not None:
         try:
@@ -401,6 +423,9 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
 
     if not location:
         raise ValueError("location 参数是必需的")
+
+    if not any((fetch_current, fetch_forecast, fetch_warning, fetch_air_quality)):
+        raise ValueError("请至少勾选一种查询类型（实时天气、天气预报、预警、空气质量）")
 
     worker.update_task_progress(10, f"开始查询 {location} 的天气...")
 
@@ -416,49 +441,25 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
         except Exception as e:
             raise ValueError(f"天气工具初始化失败: {str(e)}")
 
-        worker.update_task_progress(30, "正在获取天气数据...")
+        formatted_result = {"location": location}
+        summary_parts = []
 
-        include_warning = metadata.get("include_warning") in (True, "true", "1", 1)
-        include_air_quality = metadata.get("include_air_quality") in (True, "true", "1", 1)
+        # 实时天气
+        if fetch_current:
+            worker.update_task_progress(30, "正在获取实时天气...")
+            weather_data = weather_tool.get_current_weather(location)
+            cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
+            if not isinstance(cur, dict):
+                cur = weather_data if isinstance(weather_data, dict) else {}
+            formatted_result["current_weather"] = cur
+            formatted_result["update_time"] = weather_data.get("updateTime") if isinstance(weather_data, dict) else None
+            if cur.get("text") or cur.get("temp") is not None:
+                summary_parts.append(f"{cur.get('text', '')} {cur.get('temp', '')}°C".strip())
 
-        if query_type == "warning":
-            warning_data = weather_tool.get_warning(location)
-            warning_list = (warning_data.get("warning") or []) if isinstance(warning_data, dict) else []
-            formatted_result = {
-                "location": location,
-                "query_type": "warning",
-                "update_time": warning_data.get("updateTime") if isinstance(warning_data, dict) else None,
-                "warning": warning_list,
-            }
-            summary = f"{location} {len(warning_list)} 条预警" if warning_list else f"{location} 暂无预警"
-            worker.update_task_progress(100, f"{location} 预警查询完成")
-            return {"status": "success", "summary": summary, "location": location, "query_type": query_type, "result": formatted_result}
-
-        if query_type == "air_quality":
-            air_data = weather_tool.get_air_quality(location)
-            now_air = (air_data.get("now") or {}) if isinstance(air_data, dict) else {}
-            formatted_result = {
-                "location": location,
-                "query_type": "air_quality",
-                "update_time": air_data.get("updateTime") if isinstance(air_data, dict) else None,
-                "air_quality": now_air,
-            }
-            aqi = now_air.get("aqi") or ""
-            category = now_air.get("category", "")
-            summary = f"{location} AQI {aqi} {category}".strip() or f"{location} 空气质量查询完成"
-            worker.update_task_progress(100, f"{location} 空气质量查询完成")
-            return {"status": "success", "summary": summary, "location": location, "query_type": query_type, "result": formatted_result}
-
-        if query_type == "forecast":
-            result = weather_tool.get_forecast(location, days=days)
-            weather_data = result
-        else:
-            result = weather_tool.get_current_weather(location)
-            weather_data = result
-
-        worker.update_task_progress(80, "天气数据获取成功")
-
-        if query_type == "forecast":
+        # 天气预报
+        if fetch_forecast:
+            worker.update_task_progress(40, "正在获取天气预报...")
+            weather_data = weather_tool.get_forecast(location, days=days)
             daily_raw = (weather_data.get("daily") or []) if isinstance(weather_data, dict) else []
             daily = [
                 {
@@ -478,56 +479,49 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
                 }
                 for d in daily_raw
             ]
-            formatted_result = {
-                "location": location,
-                "query_type": "forecast",
-                "update_time": weather_data.get("updateTime") if isinstance(weather_data, dict) else None,
-                "daily": daily,
-                "raw": weather_data,
-            }
-        else:
-            cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
-            if not isinstance(cur, dict):
-                cur = weather_data
-            formatted_result = {
-                "location": location,
-                "query_type": "current",
-                "current_weather": cur,
-            }
+            formatted_result["daily"] = daily
+            formatted_result["raw"] = weather_data
+            if not formatted_result.get("update_time") and isinstance(weather_data, dict):
+                formatted_result["update_time"] = weather_data.get("updateTime")
+            summary_parts.append(f"预报 {len(daily_raw)} 天")
 
-        if include_warning:
+        # 预警
+        if fetch_warning:
+            worker.update_task_progress(60, "正在获取预警...")
             try:
                 warning_data = weather_tool.get_warning(location)
-                formatted_result["warning"] = (warning_data.get("warning") or []) if isinstance(warning_data, dict) else []
+                warning_list = (warning_data.get("warning") or []) if isinstance(warning_data, dict) else []
+                formatted_result["warning"] = warning_list
+                if not formatted_result.get("update_time") and isinstance(warning_data, dict):
+                    formatted_result["update_time"] = warning_data.get("updateTime")
+                summary_parts.append(f"{len(warning_list)} 条预警" if warning_list else "暂无预警")
             except Exception:
                 formatted_result["warning"] = []
-        if include_air_quality:
+
+        # 空气质量
+        if fetch_air_quality:
+            worker.update_task_progress(80, "正在获取空气质量...")
             try:
                 air_data = weather_tool.get_air_quality(location)
                 now_air = (air_data.get("now") or {}) if isinstance(air_data, dict) else {}
                 formatted_result["air_quality"] = now_air
+                if not formatted_result.get("update_time") and isinstance(air_data, dict):
+                    formatted_result["update_time"] = air_data.get("updateTime")
+                aqi = now_air.get("aqi") or ""
+                category = now_air.get("category", "")
+                if aqi or category:
+                    summary_parts.append(f"AQI {aqi} {category}".strip())
             except Exception:
                 formatted_result["air_quality"] = {}
 
         worker.update_task_progress(100, f"{location} 天气查询完成")
+        summary = f"{location} {' '.join(summary_parts)}".strip() or f"{location} 天气查询完成"
 
-        if query_type == "forecast":
-            daily_raw = (weather_data.get("daily") or []) if isinstance(weather_data, dict) else []
-            first = daily_raw[0] if daily_raw else {}
-            summary = f"{location} 预报 {len(daily_raw)} 天"
-            if first:
-                summary = f"{location} {first.get('textDay', '')} {first.get('tempMin', '')}~{first.get('tempMax', '')}°C 等"
-        else:
-            cur = (weather_data.get("now") if isinstance(weather_data, dict) and "now" in weather_data else weather_data) or {}
-            if not isinstance(cur, dict):
-                cur = {}
-            summary = f"{location} {cur.get('text', '')} {cur.get('temp', '')}°C".strip() or f"{location} 天气查询完成"
         return {
             "status": "success",
             "summary": summary,
             "location": location,
-            "query_type": query_type,
-            "result": formatted_result
+            "result": formatted_result,
         }
     except Exception as e:
         error_msg = f"天气查询失败: {str(e)}"
@@ -940,4 +934,14 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
                         pass
                 if compare not in allowed:
                     return False, f"参数 {field_name} 取值无效，可选: {allowed}"
+
+    # weather_query 多选模式：至少勾选一种查询类型
+    if task_type == "weather_query":
+        qt = metadata.get("query_type")
+        if qt is None or str(qt).strip() == "":
+            _tb = lambda v: v in (True, "true", "1", 1)
+            if not any((_tb(metadata.get("fetch_current", True)), _tb(metadata.get("fetch_forecast", True)),
+                        _tb(metadata.get("fetch_warning", True)), _tb(metadata.get("fetch_air_quality", True)))):
+                return False, "请至少勾选一种查询类型（实时天气、天气预报、预警、空气质量）"
+
     return True, None

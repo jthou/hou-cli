@@ -43,9 +43,15 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
 
     if task_type == "weather_query":
         loc = meta.get("location", "")
-        qt = meta.get("query_type", "current")
+        qt = meta.get("query_type")
+        fetch_forecast = meta.get("fetch_forecast") in (True, "true", "1", 1)
+        fetch_current = meta.get("fetch_current") in (True, "true", "1", 1)
+        if qt == "forecast" or (qt is None and fetch_forecast and not fetch_current):
+            suffix = "天气预报"
+        else:
+            suffix = "天气查询"
         if loc:
-            return f"{loc}{'天气预报' if qt == 'forecast' else '天气查询'} {ts}"
+            return f"{loc}{suffix} {ts}"
         return f"天气查询 {ts}"
 
     if task_type == "video_download":

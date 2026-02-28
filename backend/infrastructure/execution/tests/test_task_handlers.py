@@ -209,6 +209,13 @@ class TestValidateTaskCreation:
         assert ok is True
         assert err is None
 
+    def test_valid_weather_query_multi_select(self):
+        ok, err = validate_task_creation(
+            "weather_query", {"location": "北京", "fetch_current": True, "fetch_forecast": True}
+        )
+        assert ok is True
+        assert err is None
+
     def test_valid_weather_query_warning(self):
         ok, err = validate_task_creation(
             "weather_query", {"location": "北京", "query_type": "warning"}
@@ -247,13 +254,14 @@ class TestValidateTaskCreation:
         assert "缺少必填参数" in err
         assert "url" in err
 
-    def test_weather_query_invalid_query_type_enum(self):
+    def test_weather_query_no_fetch_type_selected(self):
+        """多选模式下全部不勾选时应报错"""
         ok, err = validate_task_creation(
-            "weather_query", {"location": "北京", "query_type": "invalid"}
+            "weather_query",
+            {"location": "北京", "fetch_current": False, "fetch_forecast": False, "fetch_warning": False, "fetch_air_quality": False},
         )
         assert ok is False
-        assert "query_type" in err
-        assert "取值无效" in err
+        assert "至少勾选" in err or "查询类型" in err
 
     def test_metadata_not_dict_treated_as_empty(self):
         """非 dict 的 metadata 按空 dict 处理，weather_query 必填 location 仍报错"""

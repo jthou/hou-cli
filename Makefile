@@ -13,7 +13,7 @@ help:
 	@echo "  make restart          - 停止并重新启动后端"
 	@echo "  make start            - 预检查依赖 + 构建前端并启动后端（8081 提供最新 UI）"
 	@echo "  make pre-check        - 验证第三方依赖（ffmpeg、yt-dlp、you-get、whisper，Python 包见 requirements.txt）"
-	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install -r requirements.txt）"
+	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install + npm install）"
 	@echo "  make build-web        - 仅构建前端到 frontend/web/dist"
 	@echo "  make start-web        - 启动前端开发服务器 Vite（热更新，API 代理到 8081）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
@@ -51,16 +51,17 @@ create-venv:
 	@rm -rf venv && python3.12 -m venv venv
 	@echo "venv 已创建（Python 3.12），请执行 make install-deps"
 
-# 安装系统级第三方依赖（FFmpeg + requirements.txt 中的 Python 包）
+# 安装系统级第三方依赖（FFmpeg + requirements.txt 中的 Python 包 + 前端 npm 包）
 # 若曾以 editable 安裝於 backend/externals/（目錄已刪），需先卸載再從 PyPI 重裝
 install-deps:
 	@test -f "$(VENV_ACTIVATE)" || (echo "错误: 未找到虚拟环境，请先执行 python3 -m venv venv"; exit 1)
-	@echo "安装系统依赖（FFmpeg + Python 包）..."
+	@echo "安装系统依赖（FFmpeg + Python 包 + 前端 npm 包）..."
 	@bash scripts/install_ffmpeg.sh
 	@for pkg in yt-dlp you-get openai-whisper; do \
 	  ($(PYTHON) -m pip show $$pkg 2>/dev/null | grep -q "externals") && $(PYTHON) -m pip uninstall -y $$pkg || true; \
 	done
 	@$(PYTHON) -m pip install -r requirements.txt -q
+	@test -d "frontend/react-app" && (cd frontend/react-app && npm install) || true
 	@echo "系统依赖安装完成"
 
 # 验证第三方依赖（ffmpeg 在 PATH；yt-dlp/you-get/whisper 来自 requirements.txt）

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import TaskResultDisplay from '../components/TaskResultDisplay'
 import { useToast } from '../components/ToastModal'
-import { getDefaultMetadata, getApiErrorMessage } from '../components/task/taskFormUtils'
+import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
@@ -608,7 +608,7 @@ function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-white">任务详情</h2>
           <button onClick={onClose} className="text-[#94a3b8] hover:text-white">✕</button>
@@ -1344,7 +1344,7 @@ function ScheduledTaskRunsModal({ scheduleId, taskName, nextRunTime, onClose, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-white">
             {taskName || '定时任务'} 执行记录
@@ -1354,7 +1354,7 @@ function ScheduledTaskRunsModal({ scheduleId, taskName, nextRunTime, onClose, on
             <button onClick={onClose} className="text-[#94a3b8] hover:text-white text-2xl leading-none">×</button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
             <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
           ) : tasks.length === 0 ? (
@@ -1508,9 +1508,10 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
   const [intervalSeconds, setIntervalSeconds] = useState(cfg.interval_seconds ?? 3600)
   const [cronExpr, setCronExpr] = useState(cfg.cron || '0 2 * * *')
   const [cronTz, setCronTz] = useState(cfg.tz || '')
-  const [metadata, setMetadata] = useState({ ...defaultMeta, ...(task.metadata || {}) })
-  const [submitting, setSubmitting] = useState(false)
   const type = task.task_type
+  const initialMeta = type === 'weather_query' ? migrateWeatherMetadata(task.metadata || {}) : (task.metadata || {})
+  const [metadata, setMetadata] = useState({ ...defaultMeta, ...initialMeta })
+  const [submitting, setSubmitting] = useState(false)
   const schema = typeInfo?.metadata_schema || {}
   const isInputFileTask = type === 'speech_to_text' || type === 'video_extract_audio'
   const inputFileAccept = type === 'speech_to_text'

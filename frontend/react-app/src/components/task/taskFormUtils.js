@@ -2,6 +2,36 @@
  * 任务表单通用工具，供 TaskManagement 弹窗与各任务页面共用
  */
 
+/** 将天气任务旧 metadata（query_type）迁移为新格式（fetch_*） */
+export function migrateWeatherMetadata(meta) {
+  if (!meta || typeof meta !== 'object') return meta
+  const qt = meta.query_type
+  if (qt == null || String(qt).trim() === '') return meta
+  const _tb = (v) => v === true || v === 'true' || v === '1' || v === 1
+  const next = { ...meta }
+  delete next.query_type
+  delete next.include_warning
+  delete next.include_air_quality
+  const q = String(qt).trim()
+  if (q === 'warning') {
+    next.fetch_current = false
+    next.fetch_forecast = false
+    next.fetch_warning = true
+    next.fetch_air_quality = false
+  } else if (q === 'air_quality') {
+    next.fetch_current = false
+    next.fetch_forecast = false
+    next.fetch_warning = false
+    next.fetch_air_quality = true
+  } else {
+    next.fetch_current = q === 'current'
+    next.fetch_forecast = q === 'forecast'
+    next.fetch_warning = _tb(meta.include_warning ?? true)
+    next.fetch_air_quality = _tb(meta.include_air_quality ?? true)
+  }
+  return next
+}
+
 /** 从 metadata_schema 生成默认 metadata */
 export function getDefaultMetadata(schema) {
   if (!schema || typeof schema !== 'object') return {}
