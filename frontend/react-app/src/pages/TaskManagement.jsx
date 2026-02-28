@@ -1535,7 +1535,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
       ? { interval_seconds: Number(intervalSeconds) }
       : { cron: cronExpr.trim(), ...(cronTz.trim() ? { tz: cronTz.trim() } : {}) }
     if (scheduleType === 'interval' && (intervalSeconds < 60 || !Number.isFinite(intervalSeconds))) {
-      toast.warning('间隔秒数须 ≥ 60')
+      toast.warning('执行间隔至少 1 分钟')
       return
     }
     if (scheduleType === 'cron' && !cronExpr.trim()) {
@@ -1656,7 +1656,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
       ? { interval_seconds: Number(intervalSeconds) }
       : { cron: cronExpr.trim(), ...(cronTz.trim() ? { tz: cronTz.trim() } : {}) }
     if (scheduleType === 'interval' && (intervalSeconds < 60 || !Number.isFinite(intervalSeconds))) {
-      toast.warning('间隔秒数须 ≥ 60')
+      toast.warning('执行间隔至少 1 分钟')
       return
     }
     if (scheduleType === 'cron' && !cronExpr.trim()) {

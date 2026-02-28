@@ -17,7 +17,7 @@ help:
 	@echo "  make build-web        - 仅构建前端到 frontend/web/dist"
 	@echo "  make start-web        - 启动前端开发服务器 Vite（热更新，API 代理到 8081）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
-	@echo "  make migrate          - 执行任务队列 DB 迁移（alembic upgrade head，部署时手动跑）"
+	@echo "  make migrate          - 执行任务队列 DB 迁移（在 backend 下执行 alembic upgrade head，部署时手动跑）"
 	@echo "  make create-venv      - 用 Python 3.12 创建 venv（需 python3.12，如 brew install python@3.12）"
 	@echo "请在项目根目录执行 make。"
 
@@ -42,7 +42,7 @@ test-task-weather:
 
 migrate:
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
-	@bash -c "source $(VENV_ACTIVATE) && alembic upgrade head"
+	@bash -c "source $(VENV_ACTIVATE) && cd backend && alembic upgrade head"
 	@echo "迁移完成"
 
 # 用 Python 3.12 创建 venv（mineru 等依赖需 3.10+，conda 的 python3 可能是 3.9）

@@ -1,7 +1,21 @@
 /**
  * 定时任务调度配置字段：任务名称、调度类型、间隔/cron
+ * 间隔：前端按时/分/秒输入，内部仍用秒与父组件及后端通信。
  */
 import { formStyles } from './taskFormUtils'
+
+function secondsToHMS(total) {
+  const sec = Math.max(0, Math.floor(Number(total) || 0))
+  const hours = Math.floor(sec / 3600)
+  const remainder = sec % 3600
+  const minutes = Math.floor(remainder / 60)
+  const seconds = remainder % 60
+  return { hours, minutes, seconds }
+}
+
+function hmsToSeconds(h, m, s) {
+  return (parseInt(h, 10) || 0) * 3600 + (parseInt(m, 10) || 0) * 60 + (parseInt(s, 10) || 0)
+}
 
 export default function ScheduleConfigFields({
   taskName,
@@ -16,6 +30,17 @@ export default function ScheduleConfigFields({
   onCronTzChange,
 }) {
   const { inputCls, labelCls } = formStyles
+  const { hours, minutes, seconds } = secondsToHMS(intervalSeconds)
+
+  const handleIntervalChange = (field, value) => {
+    const str = String(value).trim()
+    const num = str === '' ? 0 : Math.max(0, parseInt(str, 10) || 0)
+    const h = field === 'hours' ? num : hours
+    const m = field === 'minutes' ? num : minutes
+    const s = field === 'seconds' ? num : seconds
+    onIntervalSecondsChange(hmsToSeconds(h, m, s))
+  }
+
   return (
     <>
       <div>
@@ -37,14 +62,39 @@ export default function ScheduleConfigFields({
       </div>
       {scheduleType === 'interval' && (
         <div>
-          <label className={labelCls}>间隔秒数 *（≥ 60）</label>
-          <input
-            type="number"
-            min={60}
-            value={intervalSeconds}
-            onChange={e => onIntervalSecondsChange(Number(e.target.value) || 60)}
-            className={inputCls}
-          />
+          <label className={labelCls}>执行间隔 *（至少 1 分钟）</label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="number"
+              min={0}
+              value={hours}
+              onChange={e => handleIntervalChange('hours', e.target.value)}
+              className={inputCls}
+              style={{ width: '4rem' }}
+              aria-label="小时"
+            />
+            <span className="text-[#94a3b8]">时</span>
+            <input
+              type="number"
+              min={0}
+              value={minutes}
+              onChange={e => handleIntervalChange('minutes', e.target.value)}
+              className={inputCls}
+              style={{ width: '4rem' }}
+              aria-label="分钟"
+            />
+            <span className="text-[#94a3b8]">分</span>
+            <input
+              type="number"
+              min={0}
+              value={seconds}
+              onChange={e => handleIntervalChange('seconds', e.target.value)}
+              className={inputCls}
+              style={{ width: '4rem' }}
+              aria-label="秒"
+            />
+            <span className="text-[#94a3b8]">秒</span>
+          </div>
         </div>
       )}
       {scheduleType === 'cron' && (

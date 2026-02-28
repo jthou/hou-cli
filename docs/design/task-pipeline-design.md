@@ -355,8 +355,8 @@ if "新列名" not in cols:
 - **执行时机**：**部署时手动执行**，不随应用启动自动跑。
 - **命令**：在项目根目录执行  
   `make migrate`  
-  或直接执行 `alembic upgrade head`。DB 路径与应用一致（`get_storage_manager().get_sqlite_path("task_queue.db")`）。
-- **约定**：若环境为**全新**（尚无 `task_queue.db` 或表未建），需先**启动一次应用**让 `_init_db()` 建表，再执行 `alembic upgrade head` 做补列；已有库则直接执行即可。迁移脚本为幂等（缺列才 ADD COLUMN）。
+  或直接执行 `cd backend && alembic upgrade head`。DB 路径与应用一致（`get_storage_manager().get_sqlite_path("task_queue.db")`）。
+- **约定**：若环境为**全新**（尚无 `task_queue.db` 或表未建），需先**启动一次应用**让 `_init_db()` 建表，再执行 `make migrate` 或 `cd backend && alembic upgrade head` 做补列；已有库则直接执行即可。迁移脚本为幂等（缺列才 ADD COLUMN）。
 
 ---
 

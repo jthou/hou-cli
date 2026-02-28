@@ -8,10 +8,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine
 
-# 将项目根目录加入 path，以便导入 shared
+# 将项目根目录加入 path，以便导入 shared（env 在 backend/alembic/，parents[2] 为项目根）
 import sys
 from pathlib import Path
-_sys_path_insert = Path(__file__).resolve().parents[1]
+_sys_path_insert = Path(__file__).resolve().parents[2]
 if str(_sys_path_insert) not in sys.path:
     sys.path.insert(0, str(_sys_path_insert))
 
@@ -44,7 +44,7 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    """在线模式：连接 DB 执行迁移（部署时 alembic upgrade head）"""
+    """在线模式：连接 DB 执行迁移（部署时在 backend 目录执行 alembic upgrade head）"""
     url = get_sqlite_url()
     connectable = create_engine(url)
     with connectable.connect() as connection:

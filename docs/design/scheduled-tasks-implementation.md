@@ -324,7 +324,7 @@ async def check_scheduled_tasks(self, task_queue_db):
 
 ### 迁移
 - **启动时**：`_init_db` 自动补列，无需手动操作
-- **部署时**（可选）：`make migrate` 或 `alembic upgrade head` 执行版本化迁移
+- **部署时**（可选）：`make migrate` 或 `cd backend && alembic upgrade head` 执行版本化迁移
 
 ---
 
