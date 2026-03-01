@@ -899,6 +899,7 @@ class TaskQueueDB:
         created_by_schedule_id: Optional[str] = None,
         include_result: bool = False,
         task_types: Optional[List[str]] = None,
+        pipeline_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         列出任务。
@@ -906,6 +907,7 @@ class TaskQueueDB:
         created_by_schedule_id: 仅返回该定时任务创建的任务（支持前缀匹配）。
         include_result: 为 True 时，已完成任务的 result 列解析为 JSON 并放入 task["result"]，供执行记录等场景统一展示。
         task_types: 仅返回指定任务类型（如 ["url_to_wiki", "pdf_to_wiki"]），为空则不过滤。
+        pipeline_only: 为 True 时仅返回 pipeline_id 非空的任务（管道编排创建的任务）。
         """
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -941,6 +943,8 @@ class TaskQueueDB:
                 placeholders = ",".join("?" * len(task_types))
                 conditions.append(f"task_type IN ({placeholders})")
                 params.extend(task_types)
+            if pipeline_only:
+                conditions.append("pipeline_id IS NOT NULL AND pipeline_id != ''")
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
             query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"

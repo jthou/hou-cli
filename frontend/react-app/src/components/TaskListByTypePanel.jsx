@@ -1,0 +1,93 @@
+/**
+ * 按任务类型展示的任务列表面板：进行中 / 排队 / 已完成，复用 TaskCard。
+ * 用于视频下载、视频提取音频等页右侧。
+ */
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import TaskCard from './TaskCard'
+
+const STATUS_LABEL = { queued: '排队', running: '进行中', completed: '已完成' }
+
+export default function TaskListByTypePanel({ taskType, title, emptyText, pipelineOnly = false }) {
+  const navigate = useNavigate()
+  const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchTasks = () => {
+    setLoading(true)
+    const params = new URLSearchParams({ limit: '50', include_result: 'true' })
+    if (pipelineOnly) params.set('pipeline_only', 'true')
+    else if (taskType) params.set('task_type', taskType)
+    fetch(`/api/task-queue/tasks?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && Array.isArray(d.tasks)) setTasks(d.tasks)
+      })
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    fetchTasks()
+  }, [taskType, pipelineOnly])
+
+  const byStatus = {
+    running: tasks.filter(t => t.status === 'running'),
+    queued: tasks.filter(t => t.status === 'queued'),
+    completed: tasks.filter(t => t.status === 'completed'),
+  }
+
+  if (loading) {
+    return (
+      <div className="p-4 text-sm text-[#94a3b8]">
+        加载中…
+      </div>
+    )
+  }
+  if (tasks.length === 0) {
+    return (
+      <div className="p-4 text-sm text-[#94a3b8]">
+        {emptyText || `暂无${title}`}
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 space-y-6">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-sm font-medium text-white">{title}</h3>
+        <button
+          type="button"
+          onClick={fetchTasks}
+          disabled={loading}
+          className="text-xs text-[#94a3b8] hover:text-white disabled:opacity-50"
+        >
+          刷新
+        </button>
+      </div>
+      {(['running', 'queued', 'completed']).map(status => {
+        const list = byStatus[status]
+        if (!list.length) return null
+        return (
+          <div key={status}>
+            <h4 className="text-xs font-medium text-[#64748b] mb-2 px-1">
+              {STATUS_LABEL[status]}（{list.length}）
+            </h4>
+            <ul className="space-y-3">
+              {list.map(t => (
+                <li key={t.task_id}>
+                  <TaskCard
+                    task={t}
+                    onRefresh={fetchTasks}
+                    onShowDetail={(taskId) => navigate('/', { state: { detailTaskId: taskId } })}
+                    recycleBin={false}
+                    inRunsModal={false}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
+    </div>
+  )
+}

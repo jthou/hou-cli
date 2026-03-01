@@ -8,6 +8,7 @@ import WechatDraftPreview from '../components/WechatDraftPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import WechatOutboundIpHint from '../components/WechatOutboundIpHint'
 import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
+import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
 
@@ -59,6 +60,7 @@ export default function WechatDraftPage() {
       if (data.success === true) {
         const list = Array.isArray(data.item) ? data.item : []
         setDrafts(list)
+        setSelectedMediaId((prev) => (prev != null ? prev : (list.length > 0 ? list[0]?.media_id ?? null : null)))
       } else {
         setDraftsError(data.detail || data.message || '获取草稿列表失败')
         setDrafts([])
@@ -247,8 +249,9 @@ export default function WechatDraftPage() {
           </div>
         </div>
 
-        {/* 右侧：详情预览 */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white/[0.02]">
+        {/* 中间：详情预览 + 右侧：公众号草稿任务 */}
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white/[0.02]">
           {!selectedMediaId ? (
             <div className="flex-1 flex items-center justify-center text-[#64748b] text-sm">
               请在左侧选择一篇草稿查看预览
@@ -311,6 +314,14 @@ export default function WechatDraftPage() {
               </div>
             </div>
           )}
+          </div>
+          <div className="w-80 shrink-0 border-l border-border overflow-y-auto bg-white/[0.02]">
+            <TaskListByTypePanel
+              taskType="wechat_mp_draft"
+              title="公众号草稿任务"
+              emptyText="暂无公众号草稿任务"
+            />
+          </div>
         </div>
       </div>
 

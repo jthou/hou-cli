@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import { formStyles } from '../components/task/taskFormUtils'
+import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 const TASK_API = {
@@ -96,7 +97,8 @@ export default function PipelineOrchestration() {
         <h1 className="text-xl font-semibold text-white">管道编排</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6 max-w-2xl">
+      <div className="flex-1 overflow-hidden flex">
+        <div className="flex-1 overflow-y-auto p-6 max-w-2xl shrink-0">
         <p className="text-[#94a3b8] mb-6">
           选择一条多任务链路并填写入口参数，系统将按顺序创建任务并自动绑定上下游输出与输入。创建后可在
           <Link to="/" className="text-accent hover:underline ml-1">任务管理</Link>
@@ -232,6 +234,14 @@ export default function PipelineOrchestration() {
             </div>
           </div>
         )}
+        </div>
+        <div className="min-w-0 flex-1 border-l border-border overflow-y-auto bg-white/[0.02]">
+          <TaskListByTypePanel
+            pipelineOnly
+            title="管道编排任务"
+            emptyText="暂无管道编排任务"
+          />
+        </div>
       </div>
     </div>
   )

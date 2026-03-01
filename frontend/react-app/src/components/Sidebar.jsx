@@ -2,29 +2,48 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import BackendStatus from './BackendStatus'
 
+// 分组：fetch=内容获取, publish=内容发布, orchestrate=编排, tools=工具, settings=设置
 const navItems = [
-  { path: '/', icon: '📦', label: '任务管理' },
-  { path: '/pipeline', icon: '🔀', label: '管道编排' },
-  { path: '/video-download', icon: '🎬', label: '视频下载' },
-  { path: '/video-extract-audio', icon: '🎵', label: '视频提取音频' },
-  { path: '/speech-to-text', icon: '🎤', label: '语音转文字' },
-  { path: '/weather-query', icon: '🌤️', label: '天气查询' },
-  { path: '/wechat-drafts', icon: '📝', label: '公众号草稿' },
-  { path: '/url-to-wiki', icon: '🌐', label: '网文抓取' },
-  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF 转 Wiki' },
-  { path: '/wiki-directory', icon: '📑', label: 'Wiki 目录刷新' },
+  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'fetch' },
+  { path: '/video-extract-audio', icon: '🎧', label: '视频提取音频', group: 'fetch' },
+  { path: '/speech-to-text', icon: '🎤', label: '语音转文字', group: 'fetch' },
+  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'fetch' },
+  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF 转 Wiki', group: 'fetch' },
+  { path: '/wiki-directory', icon: '📚', label: 'Wiki 目录刷新', group: 'fetch' },
+  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'publish' },
+  { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'orchestrate' },
+  { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },
-  { path: '/settings/backend', icon: '🔧', label: '后端服务', group: 'settings' },
+  { path: '/settings/backend', icon: '🖥️', label: '后端服务', group: 'settings' },
   { path: '/about', icon: 'ℹ️', label: '关于', group: 'settings' },
 ]
 
-export default function Sidebar({ open, onToggle }) {
-  const [settingsExpanded, setSettingsExpanded] = useState(true)
+const GROUP_META = {
+  fetch: { label: '内容获取', icon: '📥', defaultOpen: true },
+  publish: { label: '内容发布', icon: '📤', defaultOpen: true },
+  orchestrate: { label: '编排', icon: '📊', defaultOpen: true },
+  tools: { label: '工具', icon: '🔧', defaultOpen: true },
+  settings: { label: '设置', icon: '⚙️', defaultOpen: true },
+}
 
-  const settingsItems = navItems.filter(i => i.group === 'settings')
-  const otherItems = navItems.filter(i => !i.group)
+const GROUP_ORDER = ['fetch', 'publish', 'orchestrate', 'tools', 'settings']
+
+export default function Sidebar({ open, onToggle }) {
+  const [expanded, setExpanded] = useState(() =>
+    Object.fromEntries(GROUP_ORDER.map(g => [g, GROUP_META[g]?.defaultOpen ?? true]))
+  )
+
+  const toggleGroup = (group) => {
+    setExpanded(prev => ({ ...prev, [group]: !prev[group] }))
+  }
+
+  const itemsByGroup = GROUP_ORDER.map(groupId => ({
+    id: groupId,
+    meta: GROUP_META[groupId],
+    items: navItems.filter(i => i.group === groupId),
+  })).filter(g => g.items.length > 0)
 
   return (
     <aside
@@ -42,53 +61,53 @@ export default function Sidebar({ open, onToggle }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4">
-        <ul className="space-y-1 px-2">
-          {otherItems.map(item => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
-                  }`
-                }
+        <ul className="space-y-2 px-2">
+          <li>
+            <NavLink
+              to="/"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
+                }`
+              }
+            >
+              <span>📋</span>
+              <span>任务管理</span>
+            </NavLink>
+          </li>
+          {itemsByGroup.map(({ id, meta, items }) => (
+            <li key={id}>
+              <button
+                onClick={() => toggleGroup(id)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-[#94a3b8] hover:bg-white/5 hover:text-white transition-colors"
               >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
+                <span className="flex items-center gap-3">
+                  <span>{meta?.icon ?? '•'}</span>
+                  <span>{meta?.label ?? id}</span>
+                </span>
+                <span className={`transition-transform ${expanded[id] ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+              {expanded[id] && (
+                <ul className="mt-1 ml-4 space-y-0.5 border-l border-border pl-2">
+                  {items.map(item => (
+                    <li key={item.path}>
+                      <NavLink
+                        to={item.path}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                            isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
+                          }`
+                        }
+                      >
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
-          <li>
-            <button
-              onClick={() => setSettingsExpanded(!settingsExpanded)}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-[#94a3b8] hover:bg-white/5 hover:text-white transition-colors"
-            >
-              <span className="flex items-center gap-3">
-                <span>⚙️</span>
-                <span>设置</span>
-              </span>
-              <span className={`transition-transform ${settingsExpanded ? 'rotate-180' : ''}`}>▼</span>
-            </button>
-            {settingsExpanded && (
-              <ul className="mt-1 ml-4 space-y-1 border-l border-border pl-2">
-                {settingsItems.map(item => (
-                  <li key={item.path}>
-                    <NavLink
-                      to={item.path}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                          isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
-                        }`
-                      }
-                    >
-                      <span>{item.icon}</span>
-                      <span>{item.label}</span>
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
         </ul>
       </nav>
 

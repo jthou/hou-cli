@@ -391,11 +391,16 @@ async def list_tasks(
     offset: int = 0,
     deleted: Optional[str] = None,
     created_by_schedule_id: Optional[str] = None,
+    task_type: Optional[str] = None,
+    include_result: bool = False,
+    pipeline_only: bool = False,
 ):
-    """列出任务。deleted=only 时仅返回已软删除任务；不传或 exclude 时仅返回未删除。created_by_schedule_id 可筛选某定时任务创建的任务。"""
+    """列出任务。task_type 可筛选任务类型；pipeline_only=true 时仅返回管道编排创建的任务；include_result=true 时返回完整 result 供卡片展示；deleted=only 时仅返回已软删除。"""
     try:
         task_queue_db = get_task_queue_db()
-        
+
+        task_types = [task_type.strip()] if (task_type and task_type.strip()) else None
+
         # 解析状态
         task_status = None
         if status:
@@ -411,14 +416,16 @@ async def list_tasks(
             include_deleted = "only"
         elif deleted and deleted != "exclude":
             raise HTTPException(status_code=400, detail="deleted 仅支持 only 或 exclude")
-        
+
         tasks = task_queue_db.list_tasks(
             status=task_status,
             limit=limit,
             offset=offset,
             include_deleted=include_deleted,
             created_by_schedule_id=created_by_schedule_id or None,
-            include_result=bool(created_by_schedule_id),
+            include_result=include_result or bool(created_by_schedule_id),
+            task_types=task_types,
+            pipeline_only=pipeline_only,
         )
         
         return {

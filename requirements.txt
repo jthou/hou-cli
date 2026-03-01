@@ -43,6 +43,9 @@ chromadb>=0.4.0
 # ===== 文档处理 =====
 # 图片处理（WebP 转 PNG 等，封面上传用）
 Pillow>=10.0.0
+# 多平台草稿同步：HTML→Markdown、Markdown→HTML
+html2text>=2020.1.16
+markdown>=3.5.0
 # PDF 处理
 pypdf>=3.17.0
 pdfplumber>=0.10.0

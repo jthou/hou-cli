@@ -16,7 +16,7 @@ const INPUT_FILE_ACCEPT = {
   video_extract_audio: '.mp4,.mkv,.avi,.mov,.webm,video/*',
 }
 
-export default function TaskFormPage({ taskType, title, description, submitLabel = '提交任务' }) {
+export default function TaskFormPage({ taskType, title, description, submitLabel = '提交任务', rightContent }) {
   const toast = useToast()
   const [taskTypes, setTaskTypes] = useState([])
   const [metadata, setMetadata] = useState({})
@@ -83,7 +83,8 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
         <h1 className="text-xl font-semibold text-white">{title}</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6 max-w-2xl">
+      <div className={`flex-1 overflow-hidden flex ${rightContent ? 'flex-row' : 'flex-col'}`}>
+        <div className={`flex-1 overflow-y-auto p-6 ${rightContent ? 'max-w-2xl shrink-0' : 'max-w-2xl'}`}>
         <p className="text-[#94a3b8] mb-6">
           {description}
           <Link to="/" className="text-accent hover:underline ml-1">任务管理</Link>
@@ -136,6 +137,12 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
             ) : (
               <p>失败：{result.error}</p>
             )}
+          </div>
+        )}
+        </div>
+        {rightContent && (
+          <div className="min-w-0 flex-1 border-l border-border overflow-y-auto bg-white/[0.02]">
+            {rightContent}
           </div>
         )}
       </div>
