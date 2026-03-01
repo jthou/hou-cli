@@ -108,16 +108,7 @@ async def _lifespan(app):
     turbo = os.getenv('TURBOGATEWAY_API_KEY', '').strip()
     if not turbo or len(turbo) < 10:
         errors.append("TURBOGATEWAY_API_KEY 未配置或格式无效")
-    gkey = os.getenv('GOOGLE_SEARCH_API_KEY', '').strip()
-    gid = os.getenv('GOOGLE_SEARCH_ENGINE_ID', '').strip()
-    if gkey and len(gkey) < 10:
-        errors.append("GOOGLE_SEARCH_API_KEY 长度不足")
-    elif not gkey:
-        errors.append("GOOGLE_SEARCH_API_KEY 未配置")
-    if gid and len(gid) < 10:
-        errors.append("GOOGLE_SEARCH_ENGINE_ID 长度不足")
-    elif not gid:
-        errors.append("GOOGLE_SEARCH_ENGINE_ID 未配置")
+    # 网页搜索已改为 DuckDuckGo 无头方式，不再依赖 GOOGLE_SEARCH_API_KEY / GOOGLE_SEARCH_ENGINE_ID
 
     if errors:
         console.print("[bold yellow]⚠️  警告: 发现以下配置问题:[/bold yellow]")

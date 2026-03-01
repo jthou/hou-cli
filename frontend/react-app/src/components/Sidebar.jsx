@@ -13,6 +13,7 @@ const navItems = [
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'publish' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'orchestrate' },
   { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
+  { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },

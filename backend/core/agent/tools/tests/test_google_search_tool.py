@@ -1,16 +1,11 @@
-"""GoogleSearchTool 测试"""
-import os
+"""GoogleSearchTool 测试（网页搜索：DuckDuckGo HTML，无需 API Key）"""
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from dotenv import load_dotenv
+from unittest.mock import patch, MagicMock
 
-from backend.core.agent.tools.builtin.google_search_tool import (
-    GoogleSearchTool,
-)
-from backend.services.google_search_service import GoogleSearchServiceError
-
-# 加载 .env 文件
-load_dotenv()
+from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool
+from backend.services.google_search_service.browser_search import BrowserSearchError
+from backend.services.google_search_service.models import GoogleSearchResponse, GoogleSearchResult
 
 
 class TestGoogleSearchTool:
@@ -18,136 +13,80 @@ class TestGoogleSearchTool:
 
     @pytest.fixture
     def tool(self):
-        """创建 GoogleSearchTool 实例"""
         return GoogleSearchTool()
 
     def test_tool_initialization(self, tool):
-        """测试工具初始化"""
         assert tool.name == "google_search"
         assert tool.description is not None
         assert len(tool.parameters) == 3
-
         param_names = [p.name for p in tool.parameters]
         assert "query" in param_names
         assert "num_results" in param_names
         assert "language" in param_names
 
     def test_missing_query(self, tool):
-        """测试缺少 query 参数"""
         result = tool.execute()
         assert result.success is False
         assert "query" in result.error.lower() or "必需" in result.error
 
-    def test_service_initialization_error(self, tool):
-        """测试服务初始化错误"""
-        with patch.object(tool, '_get_search_service') as mock_get_service:
-            mock_get_service.side_effect = RuntimeError(
-                "Google 搜索服务初始化失败"
-            )
-
-            result = tool.execute(query="test")
-            assert result.success is False
-            assert "初始化失败" in result.error or "初始化" in result.error
-
-    @pytest.mark.skipif(
-        not os.getenv("GOOGLE_SEARCH_API_KEY") or
-        not os.getenv("GOOGLE_SEARCH_ENGINE_ID"),
-        reason="需要设置 GOOGLE_SEARCH_API_KEY 和 GOOGLE_SEARCH_ENGINE_ID"
-    )
-    def test_execute_search(self, tool):
-        """测试执行搜索（需要真实的 API Key）"""
-        result = tool.execute(
-            query="Python",
-            num_results=3,
-            language="zh-CN"
+    @patch("backend.core.agent.tools.builtin.google_search_tool.browser_search")
+    def test_search_success(self, mock_search, tool):
+        mock_search.return_value = GoogleSearchResponse(
+            results=[
+                GoogleSearchResult(title="Python", link="https://python.org", snippet="...", display_link="python.org"),
+            ],
+            total_results=None,
+            search_time=0.5,
+            query="python",
         )
+        result = tool.execute(query="python", num_results=3)
+        assert result.success is True
+        assert result.data["count"] == 1
+        assert len(result.data["results"]) == 1
+        assert result.data["results"][0]["title"] == "Python"
+        assert result.data["results"][0]["link"] == "https://python.org"
 
-        if result.success:
-            assert "results" in result.data
-            assert "count" in result.data
-            assert result.data["count"] > 0
-            assert len(result.data["results"]) <= 3
-        else:
-            # 检查是否是 API Key 问题
-            if "API" in result.error or "key" in result.error.lower():
-                pytest.skip(f"Google Search API Key 配置问题: {result.error}")
-            else:
-                # 其他错误，正常失败
-                assert False, f"搜索失败: {result.error}"
+    @patch("backend.core.agent.tools.builtin.google_search_tool.browser_search")
+    def test_search_service_error(self, mock_search, tool):
+        mock_search.side_effect = BrowserSearchError("请求失败")
+        result = tool.execute(query="test")
+        assert result.success is False
+        assert "失败" in result.error or "请求" in result.error
 
-    def test_num_results_limits(self, tool):
-        """测试结果数量限制"""
-        with patch.object(tool, '_get_search_service') as mock_get_service:
-            mock_service = MagicMock()
-            mock_response = MagicMock()
-            mock_response.results = [MagicMock() for _ in range(5)]
-            mock_response.total_results = 100
-            mock_response.search_time = 0.5
-            mock_response.query = "test"
-
-            async def mock_search(*args, **kwargs):
-                return mock_response
-
-            mock_service.search = AsyncMock(side_effect=mock_search)
-            mock_get_service.return_value = mock_service
-
-            # 测试超过最大限制
-            result1 = tool.execute(query="test", num_results=20)
-            # 应该被限制到 10
-
-            # 测试小于最小限制
-            result2 = tool.execute(query="test", num_results=0)
-            # 应该被限制到 1
-            assert result1 is not None
-            assert result2 is not None
-
-    def test_search_service_error(self, tool):
-        """测试搜索服务错误处理"""
-        with patch.object(tool, '_get_search_service') as mock_get_service:
-            mock_service = MagicMock()
-            mock_service.search = AsyncMock(
-                side_effect=GoogleSearchServiceError("API 错误")
-            )
-            mock_get_service.return_value = mock_service
-
-            result = tool.execute(query="test")
-            assert result.success is False
-            assert "失败" in result.error or "错误" in result.error
+    @patch("backend.core.agent.tools.builtin.google_search_tool.browser_search")
+    def test_num_results_limits(self, mock_search, tool):
+        mock_search.return_value = GoogleSearchResponse(
+            results=[],
+            total_results=None,
+            search_time=0.1,
+            query="test",
+        )
+        result1 = tool.execute(query="test", num_results=20)
+        result2 = tool.execute(query="test", num_results=0)
+        assert result1.success is True
+        assert result2.success is True
+        mock_search.assert_called()
+        calls = mock_search.call_args_list
+        assert calls[0][1]["num_results"] == 20
+        assert calls[1][1]["num_results"] == 1
 
 
 class TestGoogleSearchToolIntegration:
-    """GoogleSearchTool 集成测试（需要真实环境）"""
+    """集成测试（需网络，可选）"""
 
     @pytest.fixture
     def tool(self):
-        """创建 GoogleSearchTool 实例"""
         return GoogleSearchTool()
 
-    @pytest.mark.skipif(
-        not os.getenv("GOOGLE_SEARCH_API_KEY") or
-        not os.getenv("GOOGLE_SEARCH_ENGINE_ID"),
-        reason="需要设置 GOOGLE_SEARCH_API_KEY 和 GOOGLE_SEARCH_ENGINE_ID"
-    )
     @pytest.mark.integration
     def test_full_search_workflow(self, tool):
-        """测试完整的搜索工作流"""
-        result = tool.execute(
-            query="Python programming",
-            num_results=5,
-            language="en"
-        )
-
+        result = tool.execute(query="Python programming", num_results=3)
         if result.success:
             assert "results" in result.data
-            assert len(result.data["results"]) > 0
-
-            # 验证结果格式
+            assert result.data["count"] <= 3
             for item in result.data["results"]:
                 assert "title" in item
                 assert "link" in item
                 assert "snippet" in item
         else:
-            if "API" in result.error or "key" in result.error.lower():
-                pytest.skip(
-                    f"Google Search API Key 配置问题: {result.error}"
-                )
+            pytest.skip(f"网络或 DuckDuckGo 不可用: {result.error}")

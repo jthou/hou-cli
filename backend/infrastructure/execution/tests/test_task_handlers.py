@@ -17,6 +17,7 @@ from backend.infrastructure.execution.task_handlers import (
     process_video_download_task,
     process_video_extract_audio_task,
     process_weather_query_task,
+    process_web_search_task,
     process_speech_to_text_task,
     validate_task_creation,
     get_available_task_types,
@@ -150,6 +151,62 @@ class TestTaskHandlerValidation:
             await process_weather_query_task(task_info)
 
     @pytest.mark.asyncio
+    async def test_web_search_missing_query_raises(self):
+        """web_search 缺少 query 时应抛出 ValueError"""
+        task_info = {
+            "task_id": "t1",
+            "task_type": "web_search",
+            "metadata": {},
+        }
+        with pytest.raises(ValueError, match="query 参数是必需的"):
+            await process_web_search_task(task_info)
+
+    @pytest.mark.asyncio
+    async def test_web_search_empty_query_raises(self):
+        """web_search query 为空字符串时应抛出 ValueError"""
+        task_info = {
+            "task_id": "t1",
+            "task_type": "web_search",
+            "metadata": {"query": "   "},
+        }
+        with pytest.raises(ValueError, match="query 参数是必需的"):
+            await process_web_search_task(task_info)
+
+    @pytest.mark.asyncio
+    async def test_web_search_success_return_shape(self):
+        """web_search 成功时返回 status、summary、result.results"""
+        from backend.services.google_search_service.models import (
+            GoogleSearchResponse,
+            GoogleSearchResult,
+        )
+        task_info = {
+            "task_id": "t1",
+            "task_type": "web_search",
+            "metadata": {"query": "python", "num_results": 2},
+        }
+        mock_response = GoogleSearchResponse(
+            results=[
+                GoogleSearchResult(
+                    title="Python", link="https://python.org", snippet="...", display_link="python.org"
+                ),
+            ],
+            total_results=None,
+            search_time=0.5,
+            query="python",
+        )
+        with patch(
+            "backend.services.google_search_service.browser_search.search",
+            return_value=mock_response,
+        ):
+            out = await process_web_search_task(task_info)
+        assert out.get("status") == "success"
+        assert "summary" in out
+        assert "result" in out
+        assert "results" in out["result"]
+        assert len(out["result"]["results"]) == 1
+        assert out["result"]["results"][0]["title"] == "Python"
+
+    @pytest.mark.asyncio
     async def test_video_download_missing_url_raises(self):
         """video_download 缺少 url 时应抛出 ValueError"""
         task_info = {
@@ -257,6 +314,16 @@ class TestValidateTaskCreation:
         assert ok is False
         assert "无效的任务类型" in err
         assert "unknown_type" in err
+
+    def test_web_search_missing_query(self):
+        ok, err = validate_task_creation("web_search", {})
+        assert ok is False
+        assert "query" in (err or "").lower() or "关键词" in (err or "")
+
+    def test_web_search_valid(self):
+        ok, err = validate_task_creation("web_search", {"query": "测试"})
+        assert ok is True
+        assert err is None
 
     def test_weather_query_missing_location(self):
         ok, err = validate_task_creation("weather_query", {})

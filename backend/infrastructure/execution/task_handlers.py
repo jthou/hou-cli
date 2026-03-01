@@ -228,6 +228,30 @@ TASK_TYPES = {
             }
         }
     },
+    "web_search": {
+        "name": "网页搜索",
+        "description": "使用 DuckDuckGo 执行关键词搜索，可定时执行",
+        "metadata_schema": {
+            "query": {
+                "type": "string",
+                "required": True,
+                "description": "搜索关键词或语句",
+                "placeholder": "如：伊朗和美国战争的最新情况"
+            },
+            "num_results": {
+                "type": "number",
+                "required": False,
+                "description": "返回结果数量（可设置，建议 1–100，默认 10）",
+                "default": 10
+            },
+            "language": {
+                "type": "string",
+                "required": False,
+                "description": "语言代码（可选）",
+                "placeholder": "zh-CN, en"
+            }
+        }
+    },
     "speech_to_text": {
         "name": "语音转文字",
         "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
@@ -701,6 +725,62 @@ async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any
         error_msg = f"天气查询失败: {str(e)}"
         worker.update_task_progress(100, error_msg)
         raise Exception(error_msg)
+
+
+async def process_web_search_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理网页搜索任务（DuckDuckGo，可定时执行）"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+
+    query = (metadata.get("query") or "").strip()
+    if not query:
+        raise ValueError("query 参数是必需的")
+
+    num_results = metadata.get("num_results", 10)
+    try:
+        num_results = max(1, min(100, int(num_results)))
+    except (TypeError, ValueError):
+        num_results = 10
+    language = (metadata.get("language") or "").strip() or None
+
+    worker.update_task_progress(10, f"正在搜索: {query[:30]}…")
+
+    try:
+        from backend.services.google_search_service.browser_search import (
+            search as browser_search,
+            BrowserSearchError,
+        )
+        response = browser_search(
+            query=query,
+            num_results=num_results,
+            language=language,
+        )
+    except BrowserSearchError as e:
+        raise Exception(f"网页搜索失败: {str(e)}")
+
+    worker.update_task_progress(100, f"找到 {len(response.results)} 条结果")
+
+    results = [
+        {"title": r.title, "link": r.link, "snippet": r.snippet, "display_link": r.display_link}
+        for r in response.results
+    ]
+    summary = (
+        f"找到 {len(results)} 条结果，耗时 {response.search_time:.2f} 秒"
+        if response.search_time is not None
+        else f"找到 {len(results)} 条结果"
+    )
+
+    return {
+        "status": "success",
+        "summary": summary,
+        "query": query,
+        "result": {
+            "results": results,
+            "count": len(results),
+            "search_time": response.search_time,
+            "query": response.query,
+        },
+    }
 
 
 async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -1728,6 +1808,7 @@ def register_default_handlers():
     worker = get_task_worker()
     worker.register_handler("video_download", process_video_download_task)
     worker.register_handler("weather_query", process_weather_query_task)
+    worker.register_handler("web_search", process_web_search_task)
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
@@ -1864,6 +1945,11 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
             return False, "请填写 PDF 的 url 或 file_path（二选一）"
         if u and f:
             return False, "只能填写 url 或 file_path 其一"
+
+    if task_type == "web_search":
+        q = (metadata.get("query") or "").strip()
+        if not q:
+            return False, "请填写搜索关键词（query）"
 
     # weather_query 多选模式：至少勾选一种查询类型
     if task_type == "weather_query":

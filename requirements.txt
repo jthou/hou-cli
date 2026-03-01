@@ -105,6 +105,9 @@ you-get>=0.4.1650
 # anyio>=4.9.0
 # 注意：安装后需要运行 playwright install chromium 安装浏览器
 
+# ===== 网页搜索（DuckDuckGo HTML，替代 Google Custom Search API） =====
+beautifulsoup4>=4.12.0
+
 # ===== Jupyter 工具 =====
 # Jupyter 客户端（用于在 Jupyter kernel 中执行代码）
 jupyter-client>=8.6.0

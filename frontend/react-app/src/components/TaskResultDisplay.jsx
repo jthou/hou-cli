@@ -212,6 +212,36 @@ export default function TaskResultDisplay({ taskType, result }) {
     )
   }
 
+  if (taskType === 'web_search' && result.result?.results) {
+    const res = result.result
+    const list = res.results || []
+    return (
+      <div className="space-y-3 text-sm">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        <ul className="space-y-3">
+          {list.map((item, i) => (
+            <li key={i} className="border-b border-border/50 pb-3 last:border-0">
+              <a
+                href={item.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cyan-300 hover:underline font-medium block"
+              >
+                {item.title || item.link}
+              </a>
+              {item.display_link && (
+                <p className="text-[#64748b] text-xs mt-0.5">{item.display_link}</p>
+              )}
+              {item.snippet && (
+                <p className="text-[#94a3b8] mt-1 text-xs leading-relaxed">{item.snippet}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
   if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
     return <WeatherResultDisplay result={result} />
   }

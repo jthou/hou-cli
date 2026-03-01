@@ -132,7 +132,8 @@ class GoogleSearchService:
         except httpx.RequestError as e:
             raise GoogleSearchServiceError(f"网络错误: {str(e)}")
         except Exception as e:
-            raise GoogleSearchServiceError(f"搜索失败: {str(e)}")
+            msg = str(e).strip() or getattr(e, "__class__", type(e)).__name__
+            raise GoogleSearchServiceError(f"搜索失败: {msg}")
     
     async def close(self):
         """关闭客户端"""

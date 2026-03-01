@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 # 任务类型超时（秒），超时则标记失败
 TASK_TIMEOUT_SECONDS = {
     "video_download": 30 * 60,       # 30 分钟
+    "weather_query": 60,             # 1 分钟
+    "web_search": 60,                # 1 分钟
     "speech_to_text": 60 * 60,       # 1 小时
     "video_extract_audio": 30 * 60,  # 30 分钟
     "mediawiki_write": 5 * 60,       # 5 分钟
