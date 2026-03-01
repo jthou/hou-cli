@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from dotenv import load_dotenv
 
 from backend.infrastructure.execution.task_handlers import (
+    _fix_doubled_pdf_text,
     _validate_input_path_in_home,
     _validate_video_download_url,
     process_video_download_task,
@@ -34,6 +35,27 @@ for _env in _env_paths:
         break
 else:
     load_dotenv()
+
+
+class TestFixDoubledPdfText:
+    """PDF 提取「每字重复」修复逻辑"""
+
+    def test_doubled_text_even_length(self):
+        s = "TThhrroouugghh iinnssiigghhttss"
+        assert _fix_doubled_pdf_text(s) == "Through insights"
+
+    def test_doubled_text_with_spaces(self):
+        s = "TThhee  qquuiicckk  bbrroowwnn"
+        assert _fix_doubled_pdf_text(s) == "The quick brown"
+
+    def test_normal_text_unchanged(self):
+        s = "Through insights we gathered"
+        assert _fix_doubled_pdf_text(s) == s
+
+    def test_short_text_unchanged(self):
+        assert _fix_doubled_pdf_text("") == ""
+        assert _fix_doubled_pdf_text("ab") == "ab"
+        assert _fix_doubled_pdf_text("abc") == "abc"
 
 
 class TestTaskHandlerResultShape:

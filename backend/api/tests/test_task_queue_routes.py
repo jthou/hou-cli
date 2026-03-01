@@ -143,6 +143,40 @@ class TestTaskQueueRoutes:
         assert "缺少必填参数" in response.json()["detail"]
         assert "input_file" in response.json()["detail"]
 
+    def test_create_task_pdf_to_wiki_missing_url_and_file_path(self, client, mock_task_queue_db):
+        """测试 pdf_to_wiki 未填 url 与 file_path 时返回 400"""
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "pdf_to_wiki", "metadata": {}},
+            )
+        assert response.status_code == 400
+        assert "二选一" in response.json()["detail"]
+
+    def test_create_task_pdf_to_wiki_both_url_and_file_path_returns_400(self, client, mock_task_queue_db):
+        """测试 pdf_to_wiki 同时填 url 与 file_path 时返回 400"""
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "pdf_to_wiki", "metadata": {"url": "https://example.com/a.pdf", "file_path": "~/a.pdf"}},
+            )
+        assert response.status_code == 400
+        assert "其一" in response.json()["detail"] or "url" in response.json()["detail"]
+
+    def test_create_task_wiki_directory_refresh_success(self, client, mock_task_queue_db):
+        """测试 wiki_directory_refresh 创建成功（可选 metadata）"""
+        mock_task_queue_db.create_task.return_value = "dir-refresh-1"
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "wiki_directory_refresh", "metadata": {}},
+            )
+        assert response.status_code == 200
+        mock_task_queue_db.create_task.assert_called_once()
+        call_kw = mock_task_queue_db.create_task.call_args[1]
+        assert call_kw["task_type"] == "wiki_directory_refresh"
+        assert call_kw.get("metadata") is not None
+
     def test_task_types_video_download_metadata_schema_matches_tasks(self, client):
         """功能测试：GET task-types 返回的 video_download metadata_schema 与 TASK_TYPES 一致"""
         response = client.get("/api/task-queue/task-types")

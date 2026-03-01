@@ -162,6 +162,17 @@ class TaskQueueDB:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN deleted_at TEXT")
             if "created_by_schedule_id" not in cols:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN created_by_schedule_id TEXT")
+            # 任务链（子任务/父子链路）：主任务分解入队、链尾负责清理
+            if "parent_task_id" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN parent_task_id TEXT")
+            if "chain_id" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN chain_id TEXT")
+            if "chain_index" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN chain_index INTEGER")
+            if "chain_total" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN chain_total INTEGER")
+            if "is_chain_tail" not in cols:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN is_chain_tail INTEGER DEFAULT 0")
             conn.commit()
 
             # 定时任务表补列
@@ -213,6 +224,11 @@ class TaskQueueDB:
         input_bindings: Optional[Dict[str, str]] = None,
         pipeline_id: Optional[str] = None,
         created_by_schedule_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        chain_id: Optional[str] = None,
+        chain_index: Optional[int] = None,
+        chain_total: Optional[int] = None,
+        is_chain_tail: bool = False,
     ) -> str:
         """
         创建新任务
@@ -220,6 +236,11 @@ class TaskQueueDB:
         Args:
             pipeline_id: 同一管道编排的组号（可选），前端用于分组展示。
             created_by_schedule_id: 由哪个定时任务创建（可选），用于溯源。
+            parent_task_id: 若本任务由某任务分解而来，指向该父任务。
+            chain_id: 同一条链上的任务共用同一 chain_id，用于按链分组与展示。
+            chain_index: 本任务在链中的序号（0-based）。
+            chain_total: 本链子任务总数。
+            is_chain_tail: 是否为链尾；链尾任务执行完成后负责清理链上共享资源。
         """
         task_id = str(uuid.uuid4())
         now = utc_now_iso()
@@ -227,6 +248,9 @@ class TaskQueueDB:
         bindings_json = json.dumps(input_bindings) if input_bindings else None
         pipe_id = (pipeline_id or "").strip() or None
         sched_id = (created_by_schedule_id or "").strip() or None
+        parent_id = (parent_task_id or "").strip() or None
+        cid = (chain_id or "").strip() or None
+        tail = 1 if is_chain_tail else 0
 
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -235,8 +259,9 @@ class TaskQueueDB:
                 INSERT INTO tasks (
                     task_id, task_type, task_name, status, priority,
                     max_retries, metadata, created_at, queued_at, updated_at,
-                    depends_on_task_id, input_bindings, pipeline_id, created_by_schedule_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    depends_on_task_id, input_bindings, pipeline_id, created_by_schedule_id,
+                    parent_task_id, chain_id, chain_index, chain_total, is_chain_tail
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task_id,
                 task_type,
@@ -252,6 +277,11 @@ class TaskQueueDB:
                 bindings_json,
                 pipe_id,
                 sched_id,
+                parent_id,
+                cid,
+                chain_index,
+                chain_total,
+                tail,
             ))
             conn.commit()
             debug_log(f"创建任务: {task_id} ({task_name})")
@@ -594,7 +624,8 @@ class TaskQueueDB:
                        duration, progress, message, result, error,
                        retry_count, max_retries, metadata,
                        depends_on_task_id, input_bindings, pipeline_id, deleted_at,
-                       created_by_schedule_id
+                       created_by_schedule_id,
+                       parent_task_id, chain_id, chain_index, chain_total, is_chain_tail
                 FROM tasks
                 WHERE task_id = ?
             """, (task_id,))
@@ -632,6 +663,16 @@ class TaskQueueDB:
                 d["deleted_at"] = row[21]
             if len(row) > 22:
                 d["created_by_schedule_id"] = row[22]
+            if len(row) > 23:
+                d["parent_task_id"] = row[23]
+            if len(row) > 24:
+                d["chain_id"] = row[24]
+            if len(row) > 25:
+                d["chain_index"] = row[25]
+            if len(row) > 26:
+                d["chain_total"] = row[26]
+            if len(row) > 27:
+                d["is_chain_tail"] = bool(row[27])
             return d
         except Exception as e:
             debug_log(f"获取任务失败: {e}", level="error")
@@ -668,6 +709,53 @@ class TaskQueueDB:
             return cursor.rowcount > 0
         except Exception as e:
             debug_log(f"更新 result 失败: {e}", level="error")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def update_task_before_requeue(
+        self,
+        task_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        task_name: Optional[str] = None,
+        priority: Optional[int] = None,
+        max_retries: Optional[int] = None,
+    ) -> bool:
+        """重新执行前可编辑的字段：metadata、task_name、priority、max_retries。仅允许对已完成、已失败、已取消的任务修改。"""
+        allowed_statuses = (
+            TaskStatus.COMPLETED.value,
+            TaskStatus.FAILED.value,
+            TaskStatus.CANCELLED.value,
+        )
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            updates = ["updated_at = ?"]
+            params: List[Any] = [utc_now_iso()]
+            if metadata is not None:
+                updates.append("metadata = ?")
+                params.append(json.dumps(metadata))
+            if task_name is not None:
+                updates.append("task_name = ?")
+                params.append(task_name)
+            if priority is not None:
+                updates.append("priority = ?")
+                params.append(priority)
+            if max_retries is not None:
+                updates.append("max_retries = ?")
+                params.append(max_retries)
+            if len(params) == 1:
+                return True
+            params.append(task_id)
+            cursor.execute(
+                f"UPDATE tasks SET {', '.join(updates)} WHERE task_id = ? AND status IN (?, ?, ?)",
+                params + list(allowed_statuses),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            debug_log(f"更新任务失败: {e}", level="error")
             conn.rollback()
             return False
         finally:
@@ -810,12 +898,14 @@ class TaskQueueDB:
         include_deleted: Optional[str] = None,
         created_by_schedule_id: Optional[str] = None,
         include_result: bool = False,
+        task_types: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         列出任务。
         include_deleted: None 或 'exclude' 仅未删除；'only' 仅已软删除。
         created_by_schedule_id: 仅返回该定时任务创建的任务（支持前缀匹配）。
         include_result: 为 True 时，已完成任务的 result 列解析为 JSON 并放入 task["result"]，供执行记录等场景统一展示。
+        task_types: 仅返回指定任务类型（如 ["url_to_wiki", "pdf_to_wiki"]），为空则不过滤。
         """
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -826,7 +916,8 @@ class TaskQueueDB:
                        worker_id, created_at, started_at, completed_at,
                        duration, progress, message, error, retry_count, result,
                        depends_on_task_id, input_bindings, pipeline_id, deleted_at,
-                       created_by_schedule_id
+                       created_by_schedule_id,
+                       parent_task_id, chain_id, chain_index, chain_total, is_chain_tail
                 FROM tasks
             """
             params = []
@@ -846,6 +937,10 @@ class TaskQueueDB:
                 else:
                     conditions.append("created_by_schedule_id = ?")
                     params.append(sid)
+            if task_types:
+                placeholders = ",".join("?" * len(task_types))
+                conditions.append(f"task_type IN ({placeholders})")
+                params.extend(task_types)
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
             query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -896,6 +991,16 @@ class TaskQueueDB:
                     t["deleted_at"] = row[18]
                 if len(row) > 19:
                     t["created_by_schedule_id"] = row[19]
+                if len(row) > 20:
+                    t["parent_task_id"] = row[20]
+                if len(row) > 21:
+                    t["chain_id"] = row[21]
+                if len(row) > 22:
+                    t["chain_index"] = row[22]
+                if len(row) > 23:
+                    t["chain_total"] = row[23]
+                if len(row) > 24:
+                    t["is_chain_tail"] = bool(row[24])
                 tasks.append(t)
             
             return tasks

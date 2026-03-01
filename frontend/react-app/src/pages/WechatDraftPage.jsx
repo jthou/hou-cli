@@ -6,6 +6,8 @@ import { useToast } from '../components/ToastModal'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import WechatDraftPreview from '../components/WechatDraftPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
+import WechatOutboundIpHint from '../components/WechatOutboundIpHint'
+import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
 
@@ -336,6 +338,7 @@ export default function WechatDraftPage() {
             </div>
             <form onSubmit={handleFormSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+              <WechatOutboundIpHint />
               <TaskMetadataFormFields
                 schema={schema}
                 metadata={formMetadata}
@@ -355,7 +358,7 @@ export default function WechatDraftPage() {
                 <label className="block text-sm text-[#94a3b8] mb-1">封面{formModalMode === 'add' ? ' *' : ''}</label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                   className="w-full text-sm text-[#94a3b8] file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
                   disabled={coverUploading}
                   onChange={async (e) => {
@@ -375,6 +378,17 @@ export default function WechatDraftPage() {
                     e.target.value = ''
                   }}
                 />
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <WechatMaterialImagePicker onSelect={(mediaId) => setFormMetadata((m) => ({ ...m, thumb_media_id: mediaId }))} />
+                  <span className="text-xs text-[#64748b]">或填写 media_id：</span>
+                  <input
+                    type="text"
+                    value={formMetadata?.thumb_media_id ?? ''}
+                    onChange={e => setFormMetadata((m) => ({ ...m, thumb_media_id: e.target.value.trim() || undefined }))}
+                    placeholder="粘贴 media_id"
+                    className="flex-1 min-w-[120px] px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none text-sm"
+                  />
+                </div>
                 {formMetadata.thumb_media_id && (
                   <div className="mt-2 flex items-start gap-3">
                     <img
@@ -383,11 +397,11 @@ export default function WechatDraftPage() {
                       className="w-20 h-20 object-cover rounded border border-border shrink-0"
                     />
                     <p className="text-xs text-green-400/90 pt-1">
-                      已上传封面 media_id: {formMetadata.thumb_media_id}
+                      封面 media_id: {formMetadata.thumb_media_id}
                     </p>
                   </div>
                 )}
-                <p className="mt-1 text-xs text-amber-400/90">图片 ≤2MB{formModalMode === 'update' ? '，可重新上传替换' : ''}</p>
+                <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG，WebP 自动转 PNG；≤2MB；也可直接填已有素材的 media_id{formModalMode === 'update' ? '，可重新上传替换' : ''}</p>
               </div>
               </div>
               <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">

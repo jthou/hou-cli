@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../ToastModal'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
+import WikiTitlePreviewHint from './WikiTitlePreviewHint'
 import { getDefaultMetadata, getApiErrorMessage, getDateCategoryStrings } from './taskFormUtils'
 import { prepareMetadataForSubmitAsync } from '../../utils/mdToHtml'
 
@@ -26,6 +27,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
   const schema = typeInfo?.metadata_schema || {}
   const isInputFileTask = INPUT_FILE_TASKS.includes(taskType)
   const inputFileAccept = INPUT_FILE_ACCEPT[taskType] || '*'
+  const fileUploadFields = taskType === 'pdf_to_wiki' ? { file_path: '.pdf,application/pdf' } : null
 
   useEffect(() => {
     fetch('/api/task-queue/task-types')
@@ -96,6 +98,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
             fieldIdPrefix={`${taskType}-page`}
             isInputFileTask={isInputFileTask}
             inputFileAccept={inputFileAccept}
+            fileUploadFields={fileUploadFields}
           />
           {taskType === 'mediawiki_write' && (
             <label className="flex items-center gap-2 cursor-pointer">
@@ -110,6 +113,9 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
           )}
           {taskType === 'url_to_wiki' && (
             <p className="text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
+          )}
+          {(taskType === 'pdf_to_wiki' || taskType === 'url_to_wiki') && (
+            <WikiTitlePreviewHint taskType={taskType} metadata={metadata} />
           )}
           <button
             type="submit"

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import TaskResultDisplay from '../components/TaskResultDisplay'
 import WechatDraftPreview from '../components/WechatDraftPreview'
-import WechatDraftEditor from '../components/WechatDraftEditor'
 import { useToast } from '../components/ToastModal'
 import { prepareMetadataForSubmitAsync } from '../utils/mdToHtml'
 import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata, getDateCategoryStrings } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
+import TaskParamsForm from '../components/task/TaskParamsForm'
+import WikiTitlePreviewHint from '../components/task/WikiTitlePreviewHint'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
@@ -25,6 +26,7 @@ const TASK_API = {
     return fetch(`/api/task-queue/tasks?${q}`).then(r => r.json())
   },
   get: (taskId) => fetch(`/api/task-queue/tasks/${taskId}`).then(r => r.json()),
+  patch: (taskId, body) => fetch(`/api/task-queue/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
   cancel: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/cancel`, { method: 'POST' }).then(r => r.json()),
   restart: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/restart`, { method: 'POST' }).then(r => r.json()),
   softDelete: (taskId) => fetch(`/api/task-queue/tasks/${taskId}/soft-delete`, { method: 'POST' }).then(r => r.json()),
@@ -198,6 +200,7 @@ export default function TaskManagement() {
   const [draftsLoading, setDraftsLoading] = useState(false)
   const [draftDetail, setDraftDetail] = useState(null)
   const [editDraftPreFill, setEditDraftPreFill] = useState(null)
+  const [createModalEditTask, setCreateModalEditTask] = useState(null)
 
   const handleGoToSchedule = useCallback((scheduleId) => {
     setDetailTaskId(null)
@@ -670,13 +673,16 @@ export default function TaskManagement() {
           initialType={editDraftPreFill?.initialType}
           initialMetadata={editDraftPreFill?.initialMetadata}
           initialName={editDraftPreFill?.initialName}
+          editTask={createModalEditTask}
           onClose={() => {
             setShowCreateModal(false)
             setEditDraftPreFill(null)
+            setCreateModalEditTask(null)
           }}
           onSuccess={() => {
             setShowCreateModal(false)
             setEditDraftPreFill(null)
+            setCreateModalEditTask(null)
             loadTasks()
             if (tab === 'wechat-drafts') loadDrafts()
           }}
@@ -730,6 +736,7 @@ export default function TaskManagement() {
       {detailTaskId && (
         <TaskDetailModal
           taskId={detailTaskId}
+          taskTypes={taskTypes}
           onClose={() => setDetailTaskId(null)}
           onRefresh={() => {
             loadTasks()
@@ -738,6 +745,11 @@ export default function TaskManagement() {
             if (runsModalSchedule) setRunsModalRefreshTrigger(t => t + 1)
           }}
           onGoToSchedule={handleGoToSchedule}
+          onEditBeforeRestart={(task) => {
+            setCreateModalEditTask(task)
+            setShowCreateModal(true)
+            setDetailTaskId(null)
+          }}
         />
       )}
       {runsModalSchedule && (
@@ -754,7 +766,7 @@ export default function TaskManagement() {
   )
 }
 
-function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
+function TaskDetailModal({ taskId, taskTypes = [], onClose, onRefresh, onGoToSchedule, onEditBeforeRestart }) {
   const toast = useToast()
   const [task, setTask] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -802,6 +814,7 @@ function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
   const status = task ? (STATUS_MAP[task.status] || { text: task.status, cls: '' }) : null
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="bg-surface border border-border rounded-xl shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
@@ -964,28 +977,38 @@ function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
               </button>
             )}
             {['failed', 'completed'].includes(task.status) && (
-              <button
-                disabled={restarting}
-                onClick={async () => {
-                  setRestarting(true)
-                  try {
-                    const res = await TASK_API.restart(task.task_id)
-                    if (res.success) {
-                      if (onRefresh) onRefresh()
-                      else onClose()
-                    } else {
-                      toast.error(res.detail || res.message || '重置失败')
+              <>
+                <button
+                  type="button"
+                  onClick={() => onEditBeforeRestart?.(task)}
+                  className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
+                  title="复用新建任务 UI 修改参数后重新执行"
+                >
+                  编辑后重新执行
+                </button>
+                <button
+                  disabled={restarting}
+                  onClick={async () => {
+                    setRestarting(true)
+                    try {
+                      const res = await TASK_API.restart(task.task_id)
+                      if (res.success) {
+                        if (onRefresh) onRefresh()
+                        else onClose()
+                      } else {
+                        toast.error(res.detail || res.message || '重置失败')
+                      }
+                    } catch (e) {
+                      toast.error('重置失败: ' + e.message)
                     }
-                  } catch (e) {
-                    toast.error('重置失败: ' + e.message)
-                  }
-                  setRestarting(false)
-                }}
-                className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
-                title="将任务重新加入队列，可再次执行"
-              >
-                {restarting ? '重新执行中...' : '重新执行'}
-              </button>
+                    setRestarting(false)
+                  }}
+                  className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
+                  title="将任务重新加入队列，可再次执行"
+                >
+                  {restarting ? '重新执行中...' : '重新执行'}
+                </button>
+              </>
             )}
             {task.deleted_at ? (
               <>
@@ -1052,6 +1075,7 @@ function TaskDetailModal({ taskId, onClose, onRefresh, onGoToSchedule }) {
         )}
       </div>
     </div>
+    </>
   )
 }
 
@@ -1714,7 +1738,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
   const toast = useToast()
   const typeInfo = taskTypes.find(t => t.type === task.task_type) || null
   let defaultMeta = getDefaultMetadata(typeInfo?.metadata_schema)
-  if (task.task_type === 'url_to_wiki' && Array.isArray(defaultMeta.categories)) {
+  if ((task.task_type === 'url_to_wiki' || task.task_type === 'pdf_to_wiki') && Array.isArray(defaultMeta.categories)) {
     defaultMeta = { ...defaultMeta, categories: [...defaultMeta.categories, ...getDateCategoryStrings()] }
   }
   const cfg = task.schedule_config || {}
@@ -1734,6 +1758,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
     : type === 'video_extract_audio'
       ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
       : '*'
+  const fileUploadFields = type === 'pdf_to_wiki' ? { file_path: '.pdf,application/pdf' } : undefined
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -1806,6 +1831,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
                 fieldIdPrefix="edit-sched"
                 isInputFileTask={isInputFileTask}
                 inputFileAccept={inputFileAccept}
+                fileUploadFields={fileUploadFields}
               />
               {type === 'mediawiki_write' && (
                 <label className="flex items-center gap-2 cursor-pointer mt-3">
@@ -1818,8 +1844,11 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
                   <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
                 </label>
               )}
-              {type === 'url_to_wiki' && (
-                <p className="mt-2 text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
+              {(type === 'url_to_wiki' || type === 'pdf_to_wiki') && (
+                <p className="mt-2 text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；日、周、月按执行日期自动追加。</p>
+              )}
+              {(type === 'url_to_wiki' || type === 'pdf_to_wiki') && (
+                <WikiTitlePreviewHint taskType={type} metadata={metadata} />
               )}
             </div>
           )}
@@ -1863,12 +1892,13 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
     : type === 'video_extract_audio'
       ? '.mp4,.mkv,.avi,.mov,.webm,video/*'
       : '*'
+  const fileUploadFields = type === 'pdf_to_wiki' ? { file_path: '.pdf,application/pdf' } : undefined
 
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
     const info = taskTypes.find(t => t.type === newType)
     let meta = getDefaultMetadata(info?.metadata_schema)
-    if (newType === 'url_to_wiki' && Array.isArray(meta.categories)) {
+    if ((newType === 'url_to_wiki' || newType === 'pdf_to_wiki') && Array.isArray(meta.categories)) {
       meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
     }
     setMetadata(meta)
@@ -1946,14 +1976,15 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
               ))}
             </select>
           </div>
-          <TaskMetadataFormFields
-            schema={schema}
-            metadata={metadata}
-            setMetadata={setMetadata}
-            fieldIdPrefix="create-sched"
-            isInputFileTask={isInputFileTask}
-            inputFileAccept={inputFileAccept}
-          />
+              <TaskMetadataFormFields
+                schema={schema}
+                metadata={metadata}
+                setMetadata={setMetadata}
+                fieldIdPrefix="create-sched"
+                isInputFileTask={isInputFileTask}
+                inputFileAccept={inputFileAccept}
+                fileUploadFields={fileUploadFields}
+              />
           {type === 'mediawiki_write' && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -1965,8 +1996,11 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
               <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
             </label>
           )}
-          {type === 'url_to_wiki' && (
-            <p className="text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
+          {(type === 'url_to_wiki' || type === 'pdf_to_wiki') && (
+            <p className="text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；日、周、月按执行日期自动追加。</p>
+          )}
+          {(type === 'url_to_wiki' || type === 'pdf_to_wiki') && (
+            <WikiTitlePreviewHint taskType={type} metadata={metadata} />
           )}
           <ScheduleConfigFields
             taskName={name}
@@ -1990,14 +2024,15 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
   )
 }
 
-function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName, onClose, onSuccess }) {
+function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName, editTask, onClose, onSuccess }) {
   const toast = useToast()
+  const isEditMode = !!editTask
   const [type, setType] = useState('')
   const [name, setName] = useState('')
   const [priority, setPriority] = useState(2)
+  const [maxRetries, setMaxRetries] = useState(3)
   const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
-  const [coverUploading, setCoverUploading] = useState(false)
   const [inputSource, setInputSource] = useState('manual') // 'manual' | 'from_task'
   const [completedTasks, setCompletedTasks] = useState([])
   const [linkableUpstreams, setLinkableUpstreams] = useState({ linkable_task_types: [], suggested_bindings: {} })
@@ -2007,13 +2042,20 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
   const schema = typeInfo?.metadata_schema || {}
 
   useEffect(() => {
-    if (initialType != null && initialType !== '') {
+    if (editTask?.task_id) {
+      setType(editTask.task_type || '')
+      setName(editTask.task_name || '')
+      setPriority(editTask.priority ?? 2)
+      setMaxRetries(editTask.max_retries ?? 3)
+      setMetadata({ ...(editTask.metadata || {}) })
+      setInputSource('manual')
+    } else if (initialType != null && initialType !== '') {
       setType(initialType)
       setMetadata({ ...(initialMetadata || {}) })
       setName(initialName != null ? String(initialName) : '')
       setInputSource('manual')
     }
-  }, [initialType, initialMetadata, initialName])
+  }, [editTask?.task_id, initialType, initialMetadata, initialName])
 
   const inputFileAccept = type === 'speech_to_text'
     ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*'
@@ -2025,12 +2067,13 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
   if (type === 'speech_to_text') fileUploadFields.input_file = inputFileAccept
   if (type === 'video_extract_audio') fileUploadFields.input_file = inputFileAccept
   if (type === 'mediawiki_write') fileUploadFields.content_file = contentFileAccept
+  if (type === 'pdf_to_wiki') fileUploadFields.file_path = '.pdf,application/pdf'
 
   const setTypeAndResetMetadata = (newType) => {
     setType(newType)
     const info = taskTypes.find(t => t.type === newType)
     let meta = getDefaultMetadata(info?.metadata_schema)
-    if (newType === 'url_to_wiki' && Array.isArray(meta.categories)) {
+    if ((newType === 'url_to_wiki' || newType === 'pdf_to_wiki') && Array.isArray(meta.categories)) {
       meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
     }
     setMetadata(meta)
@@ -2106,25 +2149,40 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
     setSubmitting(true)
     try {
       const meta = await prepareMetadataForSubmitAsync(type, metadata)
-      const payload = { task_type: type, task_name: name || undefined, priority, max_retries: 3, metadata: meta }
-      if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
-        payload.depends_on_task_id = dependsOnTaskId.trim()
-        const bindings = {}
-        Object.entries(inputBindings || {}).forEach(([k, v]) => { if (v && String(v).trim()) bindings[k] = String(v).trim() })
-        if (Object.keys(bindings).length) payload.input_bindings = bindings
-      }
-      const res = await fetch('/api/task-queue/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json()
-      if (data.success) {
-        toast.info('任务创建成功: ' + data.task_id)
+      if (isEditMode && editTask?.task_id) {
+        const patchRes = await TASK_API.patch(editTask.task_id, {
+          metadata: meta,
+          task_name: (name || '').trim() || undefined,
+          priority,
+          max_retries: maxRetries,
+        })
+        if (!patchRes.success) throw new Error(patchRes.detail || patchRes.message || '更新失败')
+        const restartRes = await TASK_API.restart(editTask.task_id)
+        if (!restartRes.success) throw new Error(restartRes.detail || restartRes.message || '重新执行失败')
+        toast.info('已更新并重新入队')
         onSuccess()
         onClose()
       } else {
-        throw new Error(data.detail || data.message || '创建失败')
+        const payload = { task_type: type, task_name: name || undefined, priority, max_retries: maxRetries, metadata: meta }
+        if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
+          payload.depends_on_task_id = dependsOnTaskId.trim()
+          const bindings = {}
+          Object.entries(inputBindings || {}).forEach(([k, v]) => { if (v && String(v).trim()) bindings[k] = String(v).trim() })
+          if (Object.keys(bindings).length) payload.input_bindings = bindings
+        }
+        const res = await fetch('/api/task-queue/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        const data = await res.json()
+        if (data.success) {
+          toast.info('任务创建成功: ' + data.task_id)
+          onSuccess()
+          onClose()
+        } else {
+          throw new Error(data.detail || data.message || '创建失败')
+        }
       }
     } catch (err) {
       toast.error('创建失败: ' + (err.message || String(err)))
@@ -2140,13 +2198,16 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
-          <h3 className="text-lg font-semibold text-white">创建新任务</h3>
+          <h3 className="text-lg font-semibold text-white">{isEditMode ? '编辑后重新执行' : '创建新任务'}</h3>
           <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
           <div>
             <label className="block text-sm text-[#94a3b8] mb-1">任务类型 *</label>
+            {isEditMode ? (
+              <input type="text" readOnly value={typeInfo ? `${typeInfo.name} - ${typeInfo.description}` : type} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-[#64748b] cursor-not-allowed" />
+            ) : (
             <select
               value={type}
               onChange={e => setTypeAndResetMetadata(e.target.value)}
@@ -2158,6 +2219,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
                 <option key={t.type} value={t.type}>{t.name} - {t.description}</option>
               ))}
             </select>
+            )}
             {(type === 'speech_to_text' || type === 'video_extract_audio') && (
               <p className="mt-1 text-xs text-amber-400/90">
                 可点击「选择文件」上传，或填写用户主目录下的本地路径
@@ -2169,7 +2231,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
               </p>
             )}
           </div>
-          {type && (
+          {type && !isEditMode && (
             <div>
               <label className="block text-sm text-[#94a3b8] mb-2">输入来源</label>
               <div className="flex gap-4">
@@ -2235,107 +2297,33 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
               )}
             </div>
           )}
-          {inputSource === 'manual' && type && (
-            <>
-              <TaskMetadataFormFields
-                schema={schema}
-                metadata={metadata}
-                setMetadata={setMetadata}
-                fieldIdPrefix="create-task"
-                fileUploadFields={Object.keys(fileUploadFields).length ? fileUploadFields : undefined}
-                customFieldRender={
-                  type === 'wechat_mp_draft' && (metadata.operation === 'add' || !metadata.operation)
-                    ? (fieldKey, { value, onChange }) =>
-                        fieldKey === 'content' ? (
-                          <WechatDraftEditor value={value ?? ''} onChange={onChange} />
-                        ) : null
-                    : null
-                }
-              />
-              {type === 'wechat_mp_draft' && (metadata.operation === 'add' || !metadata.operation) && (
-                <div>
-                  <label className="block text-sm text-[#94a3b8] mb-1">封面上传</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="w-full text-sm text-[#94a3b8] file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
-                    disabled={coverUploading}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
-                      setCoverUploading(true)
-                      try {
-                        const data = await WECHAT_MP_API.uploadCover(file)
-                        if (data.success && data.media_id) {
-                          setMetadata(m => ({ ...m, thumb_media_id: data.media_id }))
-                          toast.info('封面上传成功')
-                        } else throw new Error(data.detail || '上传失败')
-                      } catch (err) {
-                        toast.error('封面上传失败: ' + (err?.message || String(err)))
-                      }
-                      setCoverUploading(false)
-                      e.target.value = ''
-                    }}
-                  />
-                  {metadata.thumb_media_id && (
-                    <div className="mt-2 flex items-start gap-3">
-                      <img
-                        src={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(metadata.thumb_media_id)}`}
-                        alt="封面预览"
-                        className="w-20 h-20 object-cover rounded border border-border shrink-0"
-                      />
-                      <p className="text-xs text-green-400/90 pt-1">已上传封面 media_id: {metadata.thumb_media_id}</p>
-                    </div>
-                  )}
-                  <p className="mt-1 text-xs text-amber-400/90">图片 ≤2MB，上传后自动填入「封面 media_id」</p>
-                </div>
-              )}
-              {type === 'mediawiki_write' && (
-                <label className="flex items-center gap-2 cursor-pointer mt-2">
-                  <input
-                    type="checkbox"
-                    checked={!!metadata._contentIsMarkdown}
-                    onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
-                    className="text-accent focus:ring-accent rounded"
-                  />
-                  <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
-                </label>
-              )}
-              {type === 'url_to_wiki' && (
-                <p className="mt-2 text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；默认含网文抓取、hou-cli。</p>
-              )}
-            </>
-          )}
-          <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">任务名称</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="留空自动生成"
-              className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+          {(inputSource === 'manual' || isEditMode) && type && (
+            <TaskParamsForm
+              taskType={type}
+              schema={schema}
+              metadata={metadata}
+              setMetadata={setMetadata}
+              fieldIdPrefix="create-task"
+              fileUploadFields={Object.keys(fileUploadFields).length ? fileUploadFields : undefined}
+              isInputFileTask={type === 'speech_to_text' || type === 'video_extract_audio'}
+              inputFileAccept={type === 'speech_to_text' ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*' : type === 'video_extract_audio' ? '.mp4,.mkv,.avi,.mov,.webm,video/*' : '*'}
+              taskName={name}
+              onTaskNameChange={setName}
+              taskNamePlaceholder={isEditMode ? '留空则保持原样' : '留空自动生成'}
+              priority={priority}
+              onPriorityChange={setPriority}
+              maxRetries={isEditMode ? maxRetries : undefined}
+              onMaxRetriesChange={isEditMode ? setMaxRetries : undefined}
+              onCoverUpload={type === 'wechat_mp_draft' ? (file) => WECHAT_MP_API.uploadCover(file) : undefined}
             />
-          </div>
-          <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">优先级</label>
-            <select
-              value={priority}
-              onChange={e => setPriority(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
-            >
-              <option value={1}>低 (1)</option>
-              <option value={2}>普通 (2)</option>
-              <option value={3}>高 (3)</option>
-              <option value={4}>紧急 (4)</option>
-            </select>
-          </div>
+          )}
           </div>
           <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
               取消
             </button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">
-              {submitting ? '创建中...' : '创建'}
+              {isEditMode ? (submitting ? '保存并入队中...' : '保存并重新执行') : (submitting ? '创建中...' : '创建')}
             </button>
           </div>
         </form>

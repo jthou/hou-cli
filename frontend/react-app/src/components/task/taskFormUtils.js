@@ -78,6 +78,30 @@ export function getApiErrorMessage(data) {
   return data?.message ?? '未知错误'
 }
 
+/**
+ * 从 URL 或 file_path 推断将使用的 Wiki 标题（与后端 pdf_to_wiki/url_to_wiki 逻辑一致）。
+ * 返回 { derived, looksLikeHash }；若 looksLikeHash 为 true 建议用户填写可读标题。
+ */
+export function deriveWikiTitlePreview(metadata, taskType) {
+  const url = (metadata?.url || '').trim()
+  const filePath = (metadata?.file_path || '').trim()
+  let derived = ''
+  if (taskType === 'pdf_to_wiki') {
+    if (filePath) {
+      const name = filePath.split(/[/\\]/).filter(Boolean).pop() || ''
+      derived = /\.pdf$/i.test(name) ? name.slice(0, -4) : name
+    } else if (url) {
+      const seg = url.split('?')[0].split('/').filter(Boolean).pop() || ''
+      derived = /\.pdf$/i.test(seg) ? seg.slice(0, -4) : seg
+    }
+  } else if (taskType === 'url_to_wiki' && url) {
+    derived = url.split('?')[0].split('/').filter(Boolean).pop() || ''
+  }
+  derived = (derived || '').trim()
+  const looksLikeHash = derived.length >= 16 && /^[a-f0-9]+$/i.test(derived)
+  return { derived, looksLikeHash }
+}
+
 /** 表单样式常量，供各页面保持一致 */
 export const formStyles = {
   inputCls: 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none',

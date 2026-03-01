@@ -128,6 +128,90 @@ export default function TaskResultDisplay({ taskType, result }) {
     )
   }
 
+  if (taskType === 'pdf_to_wiki' && result.data) {
+    const d = result.data
+    const wikiPageUrl = d.wiki_title ? getMediaWikiPageUrl(d.wiki_title) : ''
+    const isPartial = result.status === 'partial'
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && (
+          <p className={isPartial ? 'text-amber-400' : 'text-green-400'}>{result.summary}</p>
+        )}
+        {d.pdf_url && <p><span className="text-[#64748b]">PDF </span><a href={d.pdf_url} target="_blank" rel="noopener noreferrer" className="text-cyan-300 break-all text-xs">{d.pdf_url}</a></p>}
+        {d.file_path && !d.pdf_url && <p><span className="text-[#64748b]">本地文件 </span><code className="text-cyan-300 break-all text-xs">{d.file_path}</code></p>}
+        {d.wiki_title && (
+          <p>
+            <span className="text-[#64748b]">Wiki 页面 </span>
+            {wikiPageUrl ? (
+              <a href={wikiPageUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{d.wiki_title}</a>
+            ) : (
+              d.wiki_title
+            )}
+          </p>
+        )}
+        {(d.total_pages != null || d.total_chunks != null) && (
+          <p className="text-[#64748b] text-xs">
+            {d.total_pages != null && `共 ${d.total_pages} 页`}
+            {d.total_pages != null && d.total_chunks != null && '，'}
+            {d.total_chunks != null && `${d.total_chunks} 块`}
+            {d.successful_chunks != null && `，成功 ${d.successful_chunks} 块`}
+            {Array.isArray(d.failed_chunks) && d.failed_chunks.length > 0 && `，${d.failed_chunks.length} 块失败`}
+          </p>
+        )}
+        {Array.isArray(d.wiki_pages) && d.wiki_pages.length > 1 && (
+          <details className="text-xs text-[#94a3b8]">
+            <summary>目录与子页（{d.wiki_pages.length} 个）</summary>
+            <ul className="mt-1 list-disc pl-4 space-y-0.5">
+              {d.wiki_pages.map((page, idx) => {
+                const url = getMediaWikiPageUrl(page)
+                return (
+                  <li key={idx}>
+                    {url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{page}</a>
+                    ) : (
+                      page
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </details>
+        )}
+        {Array.isArray(d.failed_chunks) && d.failed_chunks.length > 0 && (
+          <details className="text-xs text-amber-400/90">
+            <summary>失败块明细</summary>
+            <ul className="mt-1 list-disc pl-4">
+              {d.failed_chunks.map((fc, idx) => (
+                <li key={idx}>第 {fc.chunk_index + 1} 块（页 {fc.page_from}-{fc.page_to}）：{fc.reason}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+    )
+  }
+
+  if (taskType === 'wiki_directory_refresh' && result.data) {
+    const d = result.data
+    const wikiPageUrl = d.wiki_title ? getMediaWikiPageUrl(d.wiki_title) : ''
+    return (
+      <div className="space-y-2 text-[#94a3b8]">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.wiki_title && (
+          <p>
+            <span className="text-[#64748b]">目录页 </span>
+            {wikiPageUrl ? (
+              <a href={wikiPageUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{d.wiki_title}</a>
+            ) : (
+              d.wiki_title
+            )}
+          </p>
+        )}
+        {d.entry_count != null && <p className="text-[#64748b] text-xs">共 {d.entry_count} 条记录</p>}
+      </div>
+    )
+  }
+
   if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
     return <WeatherResultDisplay result={result} />
   }

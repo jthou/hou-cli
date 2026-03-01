@@ -1,6 +1,7 @@
 """任务处理器注册和定义"""
 import asyncio
 import logging
+import os
 import re
 import traceback
 from datetime import datetime
@@ -10,6 +11,7 @@ from urllib.parse import urlparse
 import ipaddress
 
 from backend.infrastructure.execution.task_worker import get_task_worker
+from backend.infrastructure.storage.task_queue_db import get_task_queue_db, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -392,18 +394,19 @@ TASK_TYPES = {
             "wiki_title": {
                 "type": "string",
                 "required": False,
-                "description": "Wiki 页面标题（留空则默认从网页 HTML title 获取，并按目标语言自动翻译）",
-                "placeholder": "可选，留空则用网页标题并翻译"
+                "description": "Wiki 页面标题（留空则从网页 title 或 URL 推断；若 URL 为哈希/随机路径，建议填写可读标题）",
+                "placeholder": "如：文章标题，留空则用网页标题或 URL 推断"
             },
             "language": {
                 "type": "string",
                 "required": False,
-                "description": "目标语言",
+                "description": "目标语言；选「不翻译」则保留原文写入 Wiki",
                 "default": "zh",
                 "enum": [
                     {"value": "zh", "label": "中文"},
                     {"value": "en", "label": "英文"},
                     {"value": "ja", "label": "日文"},
+                    {"value": "original", "label": "不翻译（保留原文）"},
                 ]
             },
             "categories": {
@@ -412,6 +415,83 @@ TASK_TYPES = {
                 "description": "Wiki 分类",
                 "placeholder": "输入标签后回车添加",
                 "default": ["网文抓取", "hou-cli"]
+            },
+        }
+    },
+    "pdf_to_wiki": {
+        "name": "PDF 转 Wiki",
+        "description": "从 PDF URL 或本地路径读取，按页拆分、转文字、翻译后写入 MediaWiki；支持大文件分块处理。",
+        "metadata_schema": {
+            "url": {
+                "type": "string",
+                "required": False,
+                "description": "PDF 的 http(s) URL（与 file_path 二选一）",
+                "placeholder": "https://example.com/doc.pdf"
+            },
+            "file_path": {
+                "type": "string",
+                "required": False,
+                "description": "本地 PDF 路径，须在用户主目录下（与 url 二选一）",
+                "placeholder": "~/Downloads/doc.pdf"
+            },
+            "wiki_title": {
+                "type": "string",
+                "required": False,
+                "description": "Wiki 主页面标题（留空则从 PDF 文件名推断；若链接为哈希/随机文件名，建议填写可读标题）",
+                "placeholder": "如：文章标题、书名，留空则用文件名"
+            },
+            "language": {
+                "type": "string",
+                "required": False,
+                "description": "目标语言；选「不翻译」则保留原文写入 Wiki",
+                "default": "zh",
+                "enum": [
+                    {"value": "zh", "label": "中文"},
+                    {"value": "en", "label": "英文"},
+                    {"value": "ja", "label": "日文"},
+                    {"value": "original", "label": "不翻译（保留原文）"},
+                ]
+            },
+            "categories": {
+                "type": "array",
+                "required": False,
+                "description": "Wiki 分类",
+                "default": ["PDF转Wiki", "hou-cli"]
+            },
+            "wiki_output_mode": {
+                "type": "string",
+                "required": False,
+                "description": "输出模式：单页汇总或目录页+多子页",
+                "default": "single",
+                "enum": [
+                    {"value": "single", "label": "单页汇总"},
+                    {"value": "multi", "label": "多子页面（目录页+书名/第k部分）"},
+                ]
+            },
+            "max_pages": {
+                "type": "integer",
+                "required": False,
+                "description": "仅处理前 N 页（不填则用系统上限）",
+                "placeholder": "可选"
+            },
+        }
+    },
+    "wiki_directory_refresh": {
+        "name": "Wiki 目录页刷新",
+        "description": "根据任务记录（网文抓取、PDF 转 Wiki）生成并写入一个 Wiki 目录页，列出已写入的页面与来源。",
+        "metadata_schema": {
+            "wiki_title": {
+                "type": "string",
+                "required": False,
+                "description": "目录页标题（不填则使用「网文与PDF翻译目录」）",
+                "placeholder": "网文与PDF翻译目录"
+            },
+            "limit": {
+                "type": "integer",
+                "required": False,
+                "description": "最多纳入最近 N 条任务记录",
+                "default": 300,
+                "placeholder": "300"
             },
         }
     },
@@ -975,6 +1055,106 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
 # 长文分段阈值（字符），超过则分段翻译
 URL_TO_WIKI_CHUNK_SIZE = 5000
 
+# PDF 转 Wiki 限制（可从环境变量覆盖）
+PDF_TO_WIKI_MAX_FILE_BYTES = int(
+    os.environ.get("PDF_TO_WIKI_MAX_FILE_BYTES", str(50 * 1024 * 1024))
+)
+PDF_TO_WIKI_MAX_PAGES = int(os.environ.get("PDF_TO_WIKI_MAX_PAGES", "500"))
+PDF_TO_WIKI_DOWNLOAD_TIMEOUT = int(os.environ.get("PDF_TO_WIKI_DOWNLOAD_TIMEOUT", "300"))
+PDF_TO_WIKI_CHUNK_CHARS = 8000
+PDF_TO_WIKI_PAGES_PER_CHUNK = 10
+
+
+def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
+    """将 PDF URL 下载到临时文件。返回 (临时文件路径, 字节数)。超过 PDF_TO_WIKI_MAX_FILE_BYTES 抛 ValueError。"""
+    import tempfile
+    import httpx
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        temp_path = f.name
+    try:
+        with httpx.stream(
+            "GET", url, follow_redirects=True, timeout=PDF_TO_WIKI_DOWNLOAD_TIMEOUT
+        ) as r:
+            r.raise_for_status()
+            cl = r.headers.get("content-length")
+            if cl and int(cl) > PDF_TO_WIKI_MAX_FILE_BYTES:
+                Path(temp_path).unlink(missing_ok=True)
+                raise ValueError(
+                    f"PDF 超过大小限制（当前上限 {PDF_TO_WIKI_MAX_FILE_BYTES // (1024*1024)} MB）"
+                )
+            total = 0
+            with open(temp_path, "wb") as out:
+                for chunk in r.iter_bytes(8192):
+                    total += len(chunk)
+                    if total > PDF_TO_WIKI_MAX_FILE_BYTES:
+                        out.close()
+                        Path(temp_path).unlink(missing_ok=True)
+                        raise ValueError(
+                            f"PDF 超过大小限制（当前上限 {PDF_TO_WIKI_MAX_FILE_BYTES // (1024*1024)} MB）"
+                        )
+                    out.write(chunk)
+        return temp_path, total
+    except Exception:
+        Path(temp_path).unlink(missing_ok=True)
+        raise
+
+
+def _fix_doubled_pdf_text(text: str) -> str:
+    """
+    部分 PDF 导出会导致「每字重复」（如 TThhee -> The）。
+    若相邻重复对占比过高，尝试取偶数位还原（奇数长度时取前 n-1 再取偶，避免误伤）。
+    """
+    if not text or len(text) < 4:
+        return text
+    n = len(text)
+    pairs = sum(1 for i in range(n - 1) if text[i] == text[i + 1])
+    ratio = pairs / (n - 1) if n > 1 else 0
+    if ratio < 0.25:
+        return text
+    # 取偶数位即得到「去重」结果；长度为奇数时仍取 0::2，可能少一个尾字
+    undoubled = text[0::2]
+    # 校验：还原后不应出现大量连续相同字符（避免误伤正常文段）
+    if len(undoubled) > 1:
+        runs = sum(1 for i in range(len(undoubled) - 1) if undoubled[i] == undoubled[i + 1])
+        if runs / (len(undoubled) - 1) >= 0.5:
+            return text
+    return undoubled
+
+
+def _extract_text_from_pdf_page_range(pdf_path: str, page_from: int, page_to: int) -> str:
+    """从 PDF 提取指定页范围（1-based，含首尾）的文本。优先用 pdfminer.six（与 pdf2txt 同引擎），效果更好；失败则回退 pdfplumber。"""
+    # 优先使用 pdfminer.six（与 pdf2txt 同引擎，排版/编码通常更稳）
+    try:
+        from pdfminer.high_level import extract_text as pdfminer_extract_text
+
+        page_numbers = list(range(page_from - 1, page_to))
+        if not page_numbers:
+            return ""
+        raw = pdfminer_extract_text(pdf_path, page_numbers=page_numbers)
+        if raw and raw.strip():
+            text = _fix_doubled_pdf_text(raw.strip())
+            return text
+    except Exception:
+        pass
+
+    # 回退：pdfplumber
+    import pdfplumber
+
+    parts = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for i in range(page_from - 1, min(page_to, len(pdf.pages))):
+            page = pdf.pages[i]
+            try:
+                page = page.dedupe_chars(tolerance=3)
+            except Exception:
+                pass
+            text = page.extract_text()
+            if text:
+                text = _fix_doubled_pdf_text(text.strip())
+                parts.append(text)
+    return "\n\n".join(parts)
+
 
 def _chunk_text_by_paragraphs(text: str, max_chars: int = 4000) -> List[str]:
     """按段落（双换行）切分，使每块不超过 max_chars。"""
@@ -1032,43 +1212,51 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     raw_title = title or _url_to_fallback_title(url)
     user_wiki_title = (metadata.get("wiki_title") or "").strip()
 
-    worker.update_task_progress(25, "正在翻译...")
-    from backend.services.llm.llm_service import LLMService
-    llm = LLMService()
     lang = (metadata.get("language") or "zh").strip().lower()
-    lang_name = {"zh": "中文", "en": "英文", "ja": "日文"}.get(lang, "中文")
-
-    # 页面标题：用户指定则用用户的；否则默认从 HTML title（或 URL 派生）获取，并按目标语言自动翻译
-    if user_wiki_title:
-        wiki_title = user_wiki_title
-    elif raw_title:
-        title_prompt = f"将以下标题翻译成{lang_name}，只输出翻译后的标题，不要引号、换行或多余内容：\n{raw_title}"
-        try:
-            translated_title = await llm.chat(user_prompt=title_prompt)
-            wiki_title = (translated_title or "").strip() or raw_title
-        except Exception:
-            wiki_title = raw_title
+    skip_translate = lang == "original"
+    if skip_translate:
+        worker.update_task_progress(25, "保留原文，不翻译...")
+        wiki_title = user_wiki_title or raw_title or "Untitled"
+        translated = content.strip()
+        if not translated:
+            return _err("NO_CONTENT", "未提取到正文", "该 URL 未能提取到正文内容")
     else:
-        wiki_title = "Untitled"
+        worker.update_task_progress(25, "正在翻译...")
+        from backend.services.llm.llm_service import LLMService
+        llm = LLMService()
+        lang_name = {"zh": "中文", "en": "英文", "ja": "日文"}.get(lang, "中文")
 
-    sys_prompt = (
-        f"将用户提供的内容翻译成{lang_name}，保持标题、列表、段落结构。"
-        "输出格式为 MediaWiki wikitext：一级标题用 == 标题 ==，二级用 === 标题 ===；"
-        "无序列表用 * 项，有序列表用 # 项；段落之间空一行。只输出转换后的内容，不要其他说明。"
-    )
-    if len(content) > URL_TO_WIKI_CHUNK_SIZE:
-        chunks = _chunk_text_by_paragraphs(content, max_chars=4000)
-        translated_parts = []
-        for i, chunk in enumerate(chunks):
-            worker.update_task_progress(25 + int(45 * (i + 1) / len(chunks)), f"翻译第 {i + 1}/{len(chunks)} 段...")
-            part = await llm.chat(system_prompt=sys_prompt, user_prompt=chunk)
-            translated_parts.append((part or "").strip())
-        translated = "\n\n".join(translated_parts)
-    else:
-        translated = await llm.chat(system_prompt=sys_prompt, user_prompt=content)
-        translated = (translated or "").strip()
-    if not translated:
-        return _err("TRANSLATE_FAILED", "翻译失败", "LLM 未返回有效内容")
+        # 页面标题：用户指定则用用户的；否则默认从 HTML title（或 URL 派生）获取，并按目标语言自动翻译
+        if user_wiki_title:
+            wiki_title = user_wiki_title
+        elif raw_title:
+            title_prompt = f"将以下标题翻译成{lang_name}，只输出翻译后的标题，不要引号、换行或多余内容：\n{raw_title}"
+            try:
+                translated_title = await llm.chat(user_prompt=title_prompt)
+                wiki_title = (translated_title or "").strip() or raw_title
+            except Exception:
+                wiki_title = raw_title
+        else:
+            wiki_title = "Untitled"
+
+        sys_prompt = (
+            f"将用户提供的内容翻译成{lang_name}，保持标题、列表、段落结构。"
+            "输出格式为 MediaWiki wikitext：一级标题用 == 标题 ==，二级用 === 标题 ===；"
+            "无序列表用 * 项，有序列表用 # 项；段落之间空一行。只输出转换后的内容，不要其他说明。"
+        )
+        if len(content) > URL_TO_WIKI_CHUNK_SIZE:
+            chunks = _chunk_text_by_paragraphs(content, max_chars=4000)
+            translated_parts = []
+            for i, chunk in enumerate(chunks):
+                worker.update_task_progress(25 + int(45 * (i + 1) / len(chunks)), f"翻译第 {i + 1}/{len(chunks)} 段...")
+                part = await llm.chat(system_prompt=sys_prompt, user_prompt=chunk)
+                translated_parts.append((part or "").strip())
+            translated = "\n\n".join(translated_parts)
+        else:
+            translated = await llm.chat(system_prompt=sys_prompt, user_prompt=content)
+            translated = (translated or "").strip()
+        if not translated:
+            return _err("TRANSLATE_FAILED", "翻译失败", "LLM 未返回有效内容")
 
     # 分类：前端传来的 categories + 执行时的日/周/月（按当天日期追加）
     categories = metadata.get("categories")
@@ -1112,10 +1300,426 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         return _err("MEDIAWIKI_WRITE_FAILED", "写入 Wiki 失败", write_result.error or "未知错误")
 
     worker.update_task_progress(100, "完成")
+    summary = f"已抓取并写入页面「{wiki_title}」" if skip_translate else f"已抓取并翻译写入页面「{wiki_title}」"
     return {
         "status": "success",
-        "summary": f"已抓取并翻译写入页面「{wiki_title}」",
+        "summary": summary,
         "data": {"url": url, "wiki_title": wiki_title},
+    }
+
+
+async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """PDF（URL 或本地路径）→ 按页拆分 → 转文字 → 逐块翻译 → 单页写入 MediaWiki；支持部分块失败。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+    url = (metadata.get("url") or "").strip()
+    file_path_raw = (metadata.get("file_path") or "").strip()
+    if not url and not file_path_raw:
+        return _err("MISSING_INPUT", "缺少输入", "请填写 PDF 的 url 或 file_path（二选一）")
+    if url and file_path_raw:
+        return _err("AMBIGUOUS_INPUT", "只能填一种来源", "请只填写 url 或 file_path 其一")
+    use_local = bool(file_path_raw)
+    if use_local:
+        fp = Path(file_path_raw).expanduser().resolve()
+        ok, err_msg = _validate_input_path_in_home(fp)
+        if not ok:
+            return _err("FILE_PATH_INVALID", "本地路径无效", err_msg or "路径须在用户主目录下且为已存在文件")
+        if fp.suffix.lower() != ".pdf":
+            return _err("FILE_PATH_INVALID", "非 PDF 文件", "file_path 须指向 .pdf 文件")
+        pdf_path = str(fp)
+        temp_path: Optional[str] = None
+        source_label = file_path_raw
+    else:
+        if not url.lower().endswith(".pdf"):
+            return _err("INVALID_URL", "URL 无效", "当前仅支持 PDF 链接（.pdf）")
+        if not url.startswith(("http://", "https://")):
+            return _err("INVALID_URL", "URL 无效", "仅支持 http 或 https 链接")
+        worker.update_task_progress(5, "正在下载 PDF...")
+        try:
+            temp_path, _size = await asyncio.to_thread(_download_pdf_to_temp, url)
+        except ValueError as e:
+            return _err("PDF_TOO_LARGE", "PDF 超过大小限制", str(e))
+        except Exception as e:
+            return _err(
+                "PDF_DOWNLOAD_FAILED",
+                "下载失败",
+                str(e),
+                details=traceback.format_exc(),
+            )
+        pdf_path = temp_path
+        source_label = url
+
+    try:
+        worker.update_task_progress(10, "正在解析 PDF...")
+        import pdfplumber
+
+        total_pages: int
+        with pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
+        max_pages = metadata.get("max_pages")
+        if max_pages is not None:
+            try:
+                max_pages = int(max_pages)
+            except (TypeError, ValueError):
+                max_pages = PDF_TO_WIKI_MAX_PAGES
+        else:
+            max_pages = PDF_TO_WIKI_MAX_PAGES
+        if total_pages > max_pages:
+            return _err(
+                "PDF_TOO_MANY_PAGES",
+                "页数超限",
+                f"PDF 共 {total_pages} 页，当前上限 {max_pages} 页；可设置 max_pages 或使用更大上限",
+            )
+
+        chunk_ranges: List[Tuple[int, int]] = []
+        p = 1
+        while p <= total_pages:
+            end = min(p + PDF_TO_WIKI_PAGES_PER_CHUNK - 1, total_pages)
+            chunk_ranges.append((p, end))
+            p = end + 1
+
+        user_wiki_title = (metadata.get("wiki_title") or "").strip()
+        if not user_wiki_title:
+            if use_local:
+                user_wiki_title = Path(pdf_path).stem or "PDF"
+            else:
+                from urllib.parse import unquote
+                raw = unquote((url.split("?")[0].split("/")[-1]) or "")
+                name = Path(raw)
+                user_wiki_title = (name.stem if name.suffix.lower() == ".pdf" else raw) or "PDF"
+        lang = (metadata.get("language") or "zh").strip().lower()
+        skip_translate = lang == "original"
+        lang_name = {"zh": "中文", "en": "英文", "ja": "日文"}.get(lang, "中文")
+        llm = None
+        sys_prompt = ""
+        if not skip_translate:
+            from backend.services.llm.llm_service import LLMService
+            llm = LLMService()
+            sys_prompt = (
+                f"将用户提供的内容翻译成{lang_name}，保持标题、列表、段落结构。"
+                "输出格式为 MediaWiki wikitext：一级标题用 == 标题 ==，二级用 === 标题 ===；"
+                "无序列表用 * 项，有序列表用 # 项；段落之间空一行。只输出转换后的内容，不要其他说明。"
+            )
+
+        translated_parts: List[str] = []
+        failed_chunks: List[Dict[str, Any]] = []
+        n = len(chunk_ranges)
+        for i, (p_from, p_to) in enumerate(chunk_ranges):
+            worker.update_task_progress(
+                15 + int(60 * (i + 1) / n),
+                f"第 {i + 1}/{n} 块（第 {p_from}-{p_to} 页）" + ("转文字..." if skip_translate else "转文字与翻译..."),
+            )
+            raw_text = ""
+            try:
+                raw_text = await asyncio.to_thread(
+                    _extract_text_from_pdf_page_range, pdf_path, p_from, p_to
+                )
+            except Exception as e:
+                failed_chunks.append({"chunk_index": i, "page_from": p_from, "page_to": p_to, "reason": f"提取失败: {e}"})
+                translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n（本段提取失败）")
+                continue
+            if not raw_text.strip():
+                translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n（本段无提取文本）")
+                continue
+            if skip_translate:
+                translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n{raw_text.strip()}")
+                continue
+            try:
+                if len(raw_text) > PDF_TO_WIKI_CHUNK_CHARS:
+                    sub_chunks = _chunk_text_by_paragraphs(raw_text, max_chars=4000)
+                    sub_parts = []
+                    for sc in sub_chunks:
+                        part = await llm.chat(system_prompt=sys_prompt, user_prompt=sc)
+                        sub_parts.append((part or "").strip())
+                    translated_parts.append("\n\n".join(sub_parts))
+                else:
+                    part = await llm.chat(system_prompt=sys_prompt, user_prompt=raw_text)
+                    translated_parts.append((part or "").strip())
+            except Exception as e:
+                failed_chunks.append({"chunk_index": i, "page_from": p_from, "page_to": p_to, "reason": f"翻译失败: {e}"})
+                translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n（本段翻译失败）")
+
+        full_translated = "\n\n".join(translated_parts)
+        if not full_translated.strip():
+            return _err("NO_CONTENT", "未提取到正文", "PDF 中未能提取到可翻译的文本")
+
+        categories = metadata.get("categories")
+        if isinstance(categories, list) and categories:
+            categories = [str(c).strip() for c in categories if str(c).strip()]
+        else:
+            categories = []
+        now = datetime.now()
+        iso_year, iso_week, _ = now.isocalendar()
+        date_cats = [
+            f"{now.year}年{now.month}月{now.day}日",
+            f"{iso_year}年第{iso_week}周",
+            f"{now.year}年{now.month}月",
+        ]
+        categories = list(categories) + date_cats
+
+        def _append_categories(wikitext: str, cats: List[str]) -> str:
+            if not cats:
+                return wikitext
+            existing = set(re.findall(r"\[\[Category:\s*([^\]\|]+)", wikitext, re.I))
+            out = wikitext.rstrip()
+            for cat in cats:
+                if cat and cat not in existing:
+                    out += f"\n\n[[Category:{cat}]]"
+                    existing.add(cat)
+            return out
+
+        if url:
+            original_link_line = f"'''原文链接'''：[{url} 原文]"
+        else:
+            original_link_line = f"'''来源'''：本地文件 {source_label}"
+
+        output_mode = (metadata.get("wiki_output_mode") or "single").strip().lower()
+        worker.update_task_progress(90, "正在写入 MediaWiki...")
+        from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
+        mw_tool = MediaWikiTool()
+        write_summary = f"由 pdf_to_wiki 任务写入：{(source_label[:50] + '…') if len(source_label) > 50 else source_label}"
+
+        if output_mode == "multi":
+            # 多子页面：先写各块子页 书名/第k部分，再写目录页 书名
+            wiki_pages: List[str] = []
+            for i in range(n):
+                sub_title = f"{user_wiki_title}/第{i + 1}部分"
+                part_content = _append_categories(translated_parts[i], categories)
+                try:
+                    wr = await asyncio.to_thread(
+                        mw_tool.execute,
+                        operation="edit",
+                        title=sub_title,
+                        content=part_content,
+                        summary=write_summary,
+                    )
+                except Exception as e:
+                    return _err("MEDIAWIKI_WRITE_FAILED", "写入子页失败", str(e), details=traceback.format_exc())
+                if not wr.success:
+                    return _err("MEDIAWIKI_WRITE_FAILED", "写入子页失败", wr.error or "未知错误")
+                wiki_pages.append(sub_title)
+            index_lines = [
+                original_link_line,
+                "",
+                "本页为目录，各子页见下方。",
+                "",
+            ]
+            for k in range(n):
+                index_lines.append(f"* [[{user_wiki_title}/第{k + 1}部分]]")
+            index_content = _append_categories("\n".join(index_lines), categories)
+            try:
+                wr = await asyncio.to_thread(
+                    mw_tool.execute,
+                    operation="edit",
+                    title=user_wiki_title,
+                    content=index_content,
+                    summary=write_summary,
+                )
+            except Exception as e:
+                return _err("MEDIAWIKI_WRITE_FAILED", "写入目录页失败", str(e), details=traceback.format_exc())
+            if not wr.success:
+                return _err("MEDIAWIKI_WRITE_FAILED", "写入目录页失败", wr.error or "未知错误")
+            wiki_pages.insert(0, user_wiki_title)
+            successful_chunks = n - len(failed_chunks)
+            status = "partial" if failed_chunks else "success"
+            if failed_chunks:
+                summary = f"已处理 {successful_chunks}/{n} 块并写入目录页「{user_wiki_title}」及 {n} 个子页，{len(failed_chunks)} 块失败"
+            else:
+                summary = f"已处理 PDF 并写入目录页「{user_wiki_title}」及 {n} 个子页"
+            if skip_translate:
+                summary += "（未翻译）"
+            worker.update_task_progress(100, "完成")
+            data = {
+                "wiki_title": user_wiki_title,
+                "wiki_pages": wiki_pages,
+                "total_pages": total_pages,
+                "total_chunks": n,
+                "successful_chunks": successful_chunks,
+            }
+            if url:
+                data["pdf_url"] = url
+            else:
+                data["file_path"] = source_label
+            if failed_chunks:
+                data["failed_chunks"] = failed_chunks
+            return {"status": status, "summary": summary, "data": data}
+        else:
+            # single：单页汇总
+            content_to_write = f"{original_link_line}\n\n{_append_categories(full_translated, categories)}"
+            try:
+                write_result = await asyncio.to_thread(
+                    mw_tool.execute,
+                    operation="edit",
+                    title=user_wiki_title,
+                    content=content_to_write,
+                    summary=write_summary,
+                )
+            except Exception as e:
+                return _err(
+                    "MEDIAWIKI_WRITE_FAILED",
+                    "写入 Wiki 失败",
+                    str(e),
+                    details=traceback.format_exc(),
+                )
+            if not write_result.success:
+                return _err(
+                    "MEDIAWIKI_WRITE_FAILED",
+                    "写入 Wiki 失败",
+                    write_result.error or "未知错误",
+                )
+            successful_chunks = n - len(failed_chunks)
+            status = "partial" if failed_chunks else "success"
+            if failed_chunks:
+                summary = f"已处理 {successful_chunks}/{n} 块并写入页面「{user_wiki_title}」，{len(failed_chunks)} 块失败"
+            else:
+                summary = f"已处理 PDF 并写入页面「{user_wiki_title}」"
+            if skip_translate:
+                summary += "（未翻译）"
+            worker.update_task_progress(100, "完成")
+            data = {
+                "wiki_title": user_wiki_title,
+                "total_pages": total_pages,
+                "total_chunks": n,
+                "successful_chunks": successful_chunks,
+            }
+            if url:
+                data["pdf_url"] = url
+            else:
+                data["file_path"] = source_label
+            if failed_chunks:
+                data["failed_chunks"] = failed_chunks
+            return {"status": status, "summary": summary, "data": data}
+    finally:
+        if temp_path and Path(temp_path).exists():
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _format_iso_datetime(iso_str: Optional[str]) -> str:
+    """将 ISO 时间格式化为 YYYY-MM-DD HH:MM 便于阅读。"""
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return iso_str[:16] if len(iso_str) >= 16 else iso_str
+
+
+async def process_wiki_directory_refresh_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """根据已完成的任务记录（url_to_wiki、pdf_to_wiki）生成并写入 Wiki 目录页。"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+    dir_title = (metadata.get("wiki_title") or "").strip() or "网文与PDF翻译目录"
+    limit = metadata.get("limit")
+    if limit is None:
+        limit = 300
+    try:
+        limit = int(limit)
+        if limit < 1 or limit > 1000:
+            limit = 300
+    except (TypeError, ValueError):
+        limit = 300
+
+    worker.update_task_progress(10, "正在查询任务记录...")
+    db = get_task_queue_db()
+    tasks = db.list_tasks(
+        status=TaskStatus.COMPLETED,
+        limit=limit,
+        include_result=True,
+        task_types=["url_to_wiki", "pdf_to_wiki"],
+    )
+    rows: List[Dict[str, Any]] = []
+    for t in tasks:
+        res = t.get("result")
+        if not isinstance(res, dict):
+            continue
+        data = res.get("data") or {}
+        wiki_title = data.get("wiki_title")
+        if not wiki_title or not str(wiki_title).strip():
+            continue
+        source = ""
+        if t.get("task_type") == "url_to_wiki":
+            url = data.get("url") or ""
+            source = f"[{url} 原文]" if url else "—"
+            type_label = "网文抓取"
+        else:
+            url = data.get("pdf_url") or ""
+            fp = data.get("file_path") or ""
+            if url:
+                source = f"[{url} PDF]"
+            elif fp:
+                source = f"本地 {fp}"
+            else:
+                source = "—"
+            type_label = "PDF转Wiki"
+        completed_at = _format_iso_datetime(t.get("completed_at"))
+        rows.append({
+            "wiki_title": str(wiki_title).strip(),
+            "source": source,
+            "completed_at": completed_at,
+            "type_label": type_label,
+        })
+        # pdf_to_wiki 多子页面时 data.wiki_pages 为列表，可在此展开多行（当前单页模式仅一条）
+        wiki_pages = data.get("wiki_pages")
+        if isinstance(wiki_pages, list) and len(wiki_pages) > 1:
+            for sub in wiki_pages[1:]:
+                if sub and str(sub).strip():
+                    rows.append({
+                        "wiki_title": str(sub).strip(),
+                        "source": f"（见 [[{wiki_title}]]）",
+                        "completed_at": completed_at,
+                        "type_label": type_label,
+                    })
+
+    worker.update_task_progress(50, "正在生成目录内容...")
+    intro = "本页由 hou-cli 根据任务记录自动生成，列出网文抓取与 PDF 转 Wiki 任务写入的页面。\n\n"
+    table_lines = [
+        "{| class=\"wikitable\"",
+        "|-",
+        "! 页面 !! 来源 !! 完成时间 !! 类型",
+    ]
+    for r in rows:
+        # 单元格内竖线用 &#124; 避免破坏表格
+        title_cell = f"[[{r['wiki_title']}]]".replace("|", "&#124;")
+        source_cell = (r["source"] or "—").replace("|", "&#124;")
+        table_lines.append("|-")
+        table_lines.append(f"| {title_cell} || {source_cell} || {r['completed_at']} || {r['type_label']}")
+    table_lines.append("|}")
+    content = intro + "\n".join(table_lines)
+    content += "\n\n[[Category:hou-cli]]"
+
+    worker.update_task_progress(80, "正在写入 Wiki...")
+    from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
+    mw_tool = MediaWikiTool()
+    try:
+        write_result = await asyncio.to_thread(
+            mw_tool.execute,
+            operation="edit",
+            title=dir_title,
+            content=content,
+            summary="由 wiki_directory_refresh 任务根据任务记录更新",
+        )
+    except Exception as e:
+        return _err(
+            "MEDIAWIKI_WRITE_FAILED",
+            "写入目录页失败",
+            str(e),
+            details=traceback.format_exc(),
+        )
+    if not write_result.success:
+        return _err(
+            "MEDIAWIKI_WRITE_FAILED",
+            "写入目录页失败",
+            write_result.error or "未知错误",
+        )
+    worker.update_task_progress(100, "完成")
+    return {
+        "status": "success",
+        "summary": f"已更新目录页「{dir_title}」，共 {len(rows)} 条",
+        "data": {"wiki_title": dir_title, "entry_count": len(rows)},
     }
 
 
@@ -1128,6 +1732,8 @@ def register_default_handlers():
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
     worker.register_handler("url_to_wiki", process_url_to_wiki_task)
+    worker.register_handler("pdf_to_wiki", process_pdf_to_wiki_task)
+    worker.register_handler("wiki_directory_refresh", process_wiki_directory_refresh_task)
     worker.register_handler("wechat_mp_draft", process_wechat_mp_draft_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 
@@ -1249,6 +1855,15 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
                         pass
                 if compare not in allowed:
                     return False, f"参数 {field_name} 取值无效，可选: {allowed}"
+
+    # pdf_to_wiki：url 与 file_path 二选一，至少填一个
+    if task_type == "pdf_to_wiki":
+        u = (metadata.get("url") or "").strip()
+        f = (metadata.get("file_path") or "").strip()
+        if not u and not f:
+            return False, "请填写 PDF 的 url 或 file_path（二选一）"
+        if u and f:
+            return False, "只能填写 url 或 file_path 其一"
 
     # weather_query 多选模式：至少勾选一种查询类型
     if task_type == "weather_query":

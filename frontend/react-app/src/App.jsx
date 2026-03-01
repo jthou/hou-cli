@@ -15,6 +15,8 @@ import SettingsBackend from './pages/SettingsBackend'
 import About from './pages/About'
 import WechatDraftPage from './pages/WechatDraftPage'
 import UrlToWiki from './pages/UrlToWiki'
+import PdfToWiki from './pages/PdfToWiki'
+import WikiDirectory from './pages/WikiDirectory'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -34,6 +36,8 @@ export default function App() {
               <Route path="/weather-query" element={<WeatherQuery />} />
               <Route path="/wechat-drafts" element={<WechatDraftPage />} />
               <Route path="/url-to-wiki" element={<UrlToWiki />} />
+              <Route path="/pdf-to-wiki" element={<PdfToWiki />} />
+              <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/tests" element={<SettingsTests />} />

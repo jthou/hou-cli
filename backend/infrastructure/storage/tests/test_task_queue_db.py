@@ -286,6 +286,18 @@ class TestTaskQueueDB:
         assert completed_no is not None
         assert "result" not in completed_no
 
+    def test_list_tasks_filter_by_task_types(self, temp_db):
+        """task_types 参数只返回指定类型的任务"""
+        a = temp_db.create_task("url_to_wiki", "网文1")
+        b = temp_db.create_task("pdf_to_wiki", "PDF1")
+        c = temp_db.create_task("weather_query", "天气1")
+        all_tasks = temp_db.list_tasks(limit=10)
+        assert len(all_tasks) >= 3
+        wiki_only = temp_db.list_tasks(limit=10, task_types=["url_to_wiki", "pdf_to_wiki"])
+        types = {t["task_type"] for t in wiki_only}
+        assert types <= {"url_to_wiki", "pdf_to_wiki"}
+        assert "weather_query" not in types
+
     def test_get_task_returns_full_result(self, temp_db):
         """get_task 返回的 task 包含完整 result 对象"""
         task_id = temp_db.create_task("test", "任务")
@@ -321,6 +333,52 @@ class TestTaskQueueDB:
         assert down is not None
         assert down.get("depends_on_task_id") == up_id
         assert down.get("input_bindings") == {"input_file": "result.data.output_file"}
+
+    def test_create_task_with_chain_fields(self, temp_db):
+        """创建带任务链字段的任务，get_task/list_tasks 均返回 parent_task_id/chain_id/chain_index/chain_total/is_chain_tail"""
+        parent_id = temp_db.create_task("test", "父任务")
+        chain_id = "chain-abc"
+        child_id = temp_db.create_task(
+            "test",
+            "子任务-1",
+            parent_task_id=parent_id,
+            chain_id=chain_id,
+            chain_index=0,
+            chain_total=3,
+            is_chain_tail=False,
+        )
+        tail_id = temp_db.create_task(
+            "test",
+            "子任务-尾",
+            parent_task_id=parent_id,
+            chain_id=chain_id,
+            chain_index=2,
+            chain_total=3,
+            is_chain_tail=True,
+        )
+
+        task = temp_db.get_task(child_id)
+        assert task["parent_task_id"] == parent_id
+        assert task["chain_id"] == chain_id
+        assert task["chain_index"] == 0
+        assert task["chain_total"] == 3
+        assert task["is_chain_tail"] is False
+
+        tail_task = temp_db.get_task(tail_id)
+        assert tail_task["parent_task_id"] == parent_id
+        assert tail_task["chain_id"] == chain_id
+        assert tail_task["chain_index"] == 2
+        assert tail_task["chain_total"] == 3
+        assert tail_task["is_chain_tail"] is True
+
+        tasks = temp_db.list_tasks()
+        child = next((t for t in tasks if t["task_id"] == child_id), None)
+        assert child is not None
+        assert child.get("parent_task_id") == parent_id
+        assert child.get("chain_id") == chain_id
+        assert child.get("chain_index") == 0
+        assert child.get("chain_total") == 3
+        assert child.get("is_chain_tail") is False
 
     def test_acquire_task_skips_dependent_until_upstream_completes(self, temp_db):
         """有依赖的任务仅在上游完成后才可被 acquire"""

@@ -2,6 +2,7 @@
 微信公众号 API 客户端（个人未认证账号可用：token、草稿列表/详情、新增/更新草稿）。
 不包含需认证的统计、发布接口。配置：WECHAT_MP_APP_ID、WECHAT_MP_APP_SECRET（.env）。
 正文 content 限制：少于 2 万字符、小于 1M（微信接口要求）。
+封面上传使用 requests 发 multipart，避免部分环境下 httpx 出现 SSL EOF。
 """
 import os
 import time
@@ -9,6 +10,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -102,24 +104,36 @@ class WeChatMPClient:
         files: Dict[str, tuple],
         params_extra: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """带 token 的 multipart POST（用于上传文件）。files: {"media": (filename, content, content_type)}"""
+        """带 token 的 multipart POST（用于上传文件）。用 requests 发请求，避免部分环境下 httpx 出现 SSL EOF。"""
         token = self._ensure_token()
         url = f"{BASE_URL}{path}"
         params = {"access_token": token, **(params_extra or {})}
-        try:
-            r = httpx.post(url, params=params, files=files, timeout=30.0)
-            r.raise_for_status()
-            data = r.json()
-        except httpx.HTTPStatusError as e:
-            raise WeChatMPClientError(f"请求失败: {e}") from e
-        except httpx.RequestError as e:
-            raise WeChatMPClientError(f"网络错误: {e}") from e
-        errcode = data.get("errcode")
-        if errcode and errcode != 0:
-            raise WeChatMPClientError(
-                f"接口错误: errcode={errcode}, errmsg={data.get('errmsg', '')}"
-            )
-        return data
+        timeout = 60
+        last_err: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                r = requests.post(
+                    url, params=params, files=files, timeout=timeout
+                )
+                r.raise_for_status()
+                data = r.json()
+            except requests.exceptions.HTTPError as e:
+                raise WeChatMPClientError(f"请求失败: {e}") from e
+            except requests.exceptions.RequestError as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(1.0 + attempt * 0.5)
+                    continue
+                hint = " 若公众号开启了 API IP 白名单，请确认本机出口 IP 已加入白名单（mp.weixin.qq.com → 开发 → 基本配置）。"
+                raise WeChatMPClientError(f"网络错误: {e}{hint}") from e
+            errcode = data.get("errcode")
+            if errcode and errcode != 0:
+                raise WeChatMPClientError(
+                    f"接口错误: errcode={errcode}, errmsg={data.get('errmsg', '')}"
+                )
+            return data
+        hint = " 若公众号开启了 API IP 白名单，请确认本机出口 IP 已加入白名单（mp.weixin.qq.com → 开发 → 基本配置）。"
+        raise WeChatMPClientError(f"网络错误: {last_err}{hint}") from last_err
 
     # ---------- 只读：草稿 ----------
     def get_draft_list(
@@ -245,7 +259,7 @@ class WeChatMPClient:
         })
 
     def upload_image_permanent(self, content: bytes, filename: str = "cover.jpg") -> Dict[str, Any]:
-        """上传图片为永久素材，用于草稿封面。返回含 media_id、url。图片需 ≤2MB，支持 BMP/PNG/JPEG/JPG/GIF。"""
+        """上传图片为永久素材，用于草稿封面。返回含 media_id、url。图片需 ≤2MB。仅支持 JPG/PNG（WebP 由上传接口层转为 PNG）。"""
         if len(content) > 2 * 1024 * 1024:
             raise WeChatMPClientError("封面图不能超过 2MB")
         ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else "jpg"
@@ -261,6 +275,20 @@ class WeChatMPClient:
         mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png" if ext == "png" else "image/gif" if ext == "gif" else "image/bmp" if ext == "bmp" else "image/jpeg"
         files = {"media": (filename or "image.jpg", content, mime)}
         return self._post_multipart("/cgi-bin/media/uploadimg", files)
+
+    def batchget_material(
+        self,
+        material_type: str,
+        offset: int = 0,
+        count: int = 20,
+    ) -> Dict[str, Any]:
+        """获取永久素材列表。material_type: image/voice/video/news。返回含 total_count、item_count、item。"""
+        count = min(20, max(1, count))
+        return self._post("/cgi-bin/material/batchget_material", {
+            "type": material_type,
+            "offset": offset,
+            "count": count,
+        })
 
     def get_material(self, media_id: str) -> tuple[bytes, str]:
         """获取永久素材（如图片），返回 (二进制内容, content_type)。图片类返回二进制，错误时返回 JSON 并抛 WeChatMPClientError。"""

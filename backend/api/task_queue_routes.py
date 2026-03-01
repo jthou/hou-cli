@@ -35,6 +35,14 @@ class TaskCreateRequest(BaseModel):
     pipeline_id: Optional[str] = None  # 同一编排的组号，前端按组展示
 
 
+class TaskPatchRequest(BaseModel):
+    """重新执行前可编辑的字段（类型不可改，其余均可）"""
+    metadata: Optional[Dict[str, Any]] = None
+    task_name: Optional[str] = None
+    priority: Optional[int] = None  # 1-4
+    max_retries: Optional[int] = None  # >= 0
+
+
 def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
     """根据任务类型和参数自动生成任务名称"""
     from datetime import datetime
@@ -79,6 +87,16 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         short = (u[:40] + "…" if len(u) > 40 else u) if u else "网文抓取"
         return f"网文抓取 {short} {ts}"
 
+    if task_type == "pdf_to_wiki":
+        u = meta.get("url", "")
+        short = (u[:40] + "…" if len(u) > 40 else u) if u else "PDF转Wiki"
+        return f"PDF 转 Wiki {short} {ts}"
+
+    if task_type == "wiki_directory_refresh":
+        wt = meta.get("wiki_title", "") or "网文与PDF翻译目录"
+        short = (wt[:30] + "…" if len(wt) > 30 else wt) if wt else "目录页"
+        return f"Wiki 目录刷新 {short} {ts}"
+
     if task_type == "wechat_mp_draft":
         t = meta.get("title", "")
         short = (t[:20] + "…" if len(t) > 20 else t) if t else "公众号草稿"
@@ -91,6 +109,8 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         "video_extract_audio": "视频提取音频",
         "mediawiki_write": "MediaWiki 写入",
         "url_to_wiki": "网文抓取",
+        "pdf_to_wiki": "PDF 转 Wiki",
+        "wiki_directory_refresh": "Wiki 目录页刷新",
         "wechat_mp_draft": "公众号草稿",
     }
     name = type_names.get(task_type, task_type)
@@ -482,6 +502,52 @@ async def restart_task(task_id: str):
         raise HTTPException(status_code=500, detail=f"重新开始失败: {str(e)}")
 
 
+@router.patch("/task-queue/tasks/{task_id}")
+async def patch_task(task_id: str, body: TaskPatchRequest):
+    """更新任务（类型不可改）：metadata、task_name、priority、max_retries。仅允许对已完成、已失败、已取消的任务操作。支持 8 位短 id。"""
+    try:
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        status = task.get("status")
+        if status not in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+            raise HTTPException(
+                status_code=400,
+                detail=f"仅支持对已完成、已失败或已取消的任务编辑，当前状态: {status}",
+            )
+        if body.metadata is None and body.task_name is None and body.priority is None and body.max_retries is None:
+            return {"success": True, "task_id": resolved_id, "message": "无变更"}
+        if body.priority is not None and body.priority not in (1, 2, 3, 4):
+            raise HTTPException(status_code=400, detail="priority 须为 1～4")
+        if body.max_retries is not None and (body.max_retries < 0 or body.max_retries > 99):
+            raise HTTPException(status_code=400, detail="max_retries 须为 0～99")
+        ok = task_queue_db.update_task_before_requeue(
+            resolved_id,
+            metadata=body.metadata,
+            task_name=body.task_name,
+            priority=body.priority,
+            max_retries=body.max_retries,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="更新失败（可能状态已变更）")
+        return {
+            "success": True,
+            "task_id": resolved_id,
+            "message": "已更新，可点击「重新执行」",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"更新任务失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+
+
 @router.post("/task-queue/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str):
     """取消任务"""
@@ -777,7 +843,7 @@ async def create_scheduled_task(request: ScheduledTaskCreateRequest):
 
         task_name = (request.task_name or "").strip()
         if not task_name:
-            type_names = {"weather_query": "天气查询", "video_download": "视频下载", "speech_to_text": "语音转文字", "video_extract_audio": "视频提取音频", "mediawiki_write": "MediaWiki 写入", "url_to_wiki": "网文抓取", "wechat_mp_draft": "公众号草稿"}
+            type_names = {"weather_query": "天气查询", "video_download": "视频下载", "speech_to_text": "语音转文字", "video_extract_audio": "视频提取音频", "mediawiki_write": "MediaWiki 写入", "url_to_wiki": "网文抓取", "pdf_to_wiki": "PDF 转 Wiki", "wiki_directory_refresh": "Wiki 目录页刷新", "wechat_mp_draft": "公众号草稿"}
             task_name = f"{type_names.get(request.task_type, request.task_type)}_定时"
 
         schedule_id = task_queue_db.create_scheduled_task(
