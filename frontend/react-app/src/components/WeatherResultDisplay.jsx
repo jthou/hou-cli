@@ -55,9 +55,15 @@ export default function WeatherResultDisplay({ result }) {
         </div>
       ) : null}
       {hasWarningData && (
-        <div>
-          {multiBlock && <div className="text-[#64748b] text-xs mb-1.5 font-medium">灾害预警</div>}
-          <WarningBlock warningList={warningList || []} compact={multiBlock} />
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/15 overflow-hidden">
+          {multiBlock && (
+            <div className="px-3 py-2 text-amber-400 text-sm font-semibold border-b border-amber-500/30 bg-amber-500/20">
+              灾害预警
+            </div>
+          )}
+          <div className="p-3">
+            <WarningBlock warningList={warningList || []} compact={multiBlock} />
+          </div>
         </div>
       )}
       {hasAirQuality && (

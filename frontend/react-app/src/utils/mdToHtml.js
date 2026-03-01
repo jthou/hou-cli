@@ -6,7 +6,7 @@
  */
 import { marked } from 'marked'
 import TurndownService from 'turndown'
-import { mdToWiki } from './wikiMdConvert'
+import { mdToWiki } from './wikiMdConvert.js'
 
 /** 任务类型：公众号草稿。凡提交该类型任务的 metadata 前，应对 content 做 MD→HTML。 */
 export const WECHAT_MP_DRAFT_TASK_TYPE = 'wechat_mp_draft'
@@ -30,6 +30,106 @@ export function mdToHtml(md) {
   if (!trimmed) return ''
   const out = marked.parse(trimmed)
   return typeof out === 'string' ? out : String(out)
+}
+
+/**
+ * 公众号正文内联样式（微信只保留内联 style，不支持 <style> 与 class 样式）。
+ * 单位用 px 更稳妥，参考：font-size/color/line-height/margin/padding 等均支持。
+ */
+const WECHAT_INLINE_STYLES = {
+  p: 'font-size:16px;line-height:1.6;color:#333333;margin:0 0 16px 0;',
+  h1: 'font-size:22px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
+  h2: 'font-size:19px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
+  h3: 'font-size:17px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
+  h4: 'font-size:16px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
+  blockquote: 'color:#57606a;font-size:15px;margin:0 0 16px 0;padding-left:12px;border-left:4px solid #d0d7de;line-height:1.6;',
+  ul: 'margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#333333;',
+  ol: 'margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#333333;',
+  li: 'margin-bottom:4px;',
+  code: 'background-color:#f5f5f5;color:#333333;font-size:14px;padding:2px 6px;border-radius:4px;',
+  pre: 'background-color:#f5f5f5;color:#333333;font-size:14px;line-height:1.5;margin:0 0 16px 0;padding:12px;border-radius:6px;overflow-x:auto;',
+  strong: 'font-weight:600;color:#333333;',
+  em: 'font-style:italic;color:#57606a;',
+  a: 'color:#0969da;text-decoration:none;',
+  hr: 'border:0;border-top:1px solid #e1e4e8;margin:24px 0;',
+  img: 'max-width:100%;height:auto;',
+}
+
+/** 无 DOM 时用正则给开标签注入 style（兜底，确保一定提交内联样式） */
+function addWechatInlineStylesFallback(html) {
+  let out = html
+  const tagStyleList = [
+    ['<p>', '<p style="' + WECHAT_INLINE_STYLES.p + '">'],
+    ['<h1>', '<h1 style="' + WECHAT_INLINE_STYLES.h1 + '">'],
+    ['<h2>', '<h2 style="' + WECHAT_INLINE_STYLES.h2 + '">'],
+    ['<h3>', '<h3 style="' + WECHAT_INLINE_STYLES.h3 + '">'],
+    ['<h4>', '<h4 style="' + WECHAT_INLINE_STYLES.h4 + '">'],
+    ['<blockquote>', '<blockquote style="' + WECHAT_INLINE_STYLES.blockquote + '">'],
+    ['<ul>', '<ul style="' + WECHAT_INLINE_STYLES.ul + '">'],
+    ['<ol>', '<ol style="' + WECHAT_INLINE_STYLES.ol + '">'],
+    ['<li>', '<li style="' + WECHAT_INLINE_STYLES.li + '">'],
+    ['<code>', '<code style="' + WECHAT_INLINE_STYLES.code + '">'],
+    ['<pre>', '<pre style="' + WECHAT_INLINE_STYLES.pre + '">'],
+    ['<strong>', '<strong style="' + WECHAT_INLINE_STYLES.strong + '">'],
+    ['<b>', '<b style="' + WECHAT_INLINE_STYLES.strong + '">'],
+    ['<em>', '<em style="' + WECHAT_INLINE_STYLES.em + '">'],
+    ['<i>', '<i style="' + WECHAT_INLINE_STYLES.em + '">'],
+    ['<hr>', '<hr style="' + WECHAT_INLINE_STYLES.hr + '">'],
+    ['<hr/>', '<hr style="' + WECHAT_INLINE_STYLES.hr + '" />'],
+  ]
+  tagStyleList.forEach(([open, replacement]) => {
+    out = out.split(open).join(replacement)
+  })
+  const aOpenRe = /<a(\s+)([^>]*?)href=/g
+  out = out.replace(aOpenRe, (m, space, attrs) => {
+    if (attrs.includes('style=')) return m
+    return '<a' + space + 'style="' + WECHAT_INLINE_STYLES.a + '" ' + attrs + 'href='
+  })
+  const imgRe = /<img(\s+)([^>]*?)>/g
+  out = out.replace(imgRe, (m, space, attrs) => {
+    if (attrs.includes('style=')) return m
+    return '<img' + space + 'style="' + WECHAT_INLINE_STYLES.img + '" ' + attrs + '>'
+  })
+  return out
+}
+
+/**
+ * 给 HTML 块级与行内标签加上公众号用内联样式（微信不解析 style 标签，只保留内联样式）。
+ * 优先用 DOMParser，无 DOM 时用正则兜底，确保提交的正文带 style。
+ * @param {string} html - 由 mdToHtml 得到的 HTML
+ * @returns {string} 带 style 的 HTML
+ */
+function addWechatInlineStyles(html) {
+  if (typeof document !== 'undefined' && typeof window !== 'undefined' && window.DOMParser) {
+    try {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(html, 'text/html')
+      const selectors = ['p', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'ol', 'li', 'code', 'pre', 'strong', 'b', 'em', 'i', 'a', 'hr', 'img']
+      selectors.forEach((tag) => {
+        const style = WECHAT_INLINE_STYLES[tag]
+        if (!style) return
+        doc.querySelectorAll(tag).forEach((el) => {
+          const cur = el.getAttribute('style') || ''
+          el.setAttribute('style', (cur ? cur + ';' : '') + style)
+        })
+      })
+      if (doc.body) return doc.body.innerHTML
+    } catch (_) {}
+  }
+  return addWechatInlineStylesFallback(html)
+}
+
+/**
+ * 转为带内联样式的 HTML，专供提交公众号草稿使用，便于公众号内展示与系统预览一致。
+ * @param {string} md - Markdown 文本
+ * @returns {string} 带 style 属性的 HTML
+ */
+export function mdToHtmlForWechat(md) {
+  if (md == null || typeof md !== 'string') return ''
+  const trimmed = md.trim()
+  if (!trimmed) return ''
+  const raw = mdToHtml(trimmed)
+  return addWechatInlineStyles(raw)
 }
 
 const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
@@ -62,7 +162,7 @@ export function prepareWechatDraftMetadata(metadata) {
   if (content == null || typeof content !== 'string') return { ...metadata }
   const trimmed = String(content).trim()
   if (!trimmed) return { ...metadata }
-  return { ...metadata, content: mdToHtml(trimmed) }
+  return { ...metadata, content: mdToHtmlForWechat(trimmed) }
 }
 
 /**
@@ -155,7 +255,7 @@ export async function prepareWechatDraftMetadataWithFormulaImages(metadata) {
   if (!trimmed) return { ...metadata }
 
   const { mdWithPlaceholders, formulaBodies } = extractFormulasFromMd(trimmed)
-  let html = mdToHtml(mdWithPlaceholders)
+  let html = mdToHtmlForWechat(mdWithPlaceholders)
 
   if (formulaBodies.length === 0) return { ...metadata, content: html }
 

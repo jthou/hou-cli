@@ -529,7 +529,7 @@ TASK_TYPES = {
             "digest": {
                 "type": "string",
                 "required": False,
-                "description": "摘要（不超过 128 字）"
+                "description": "摘要（不超过 120 字，超限接口报 45004）"
             },
             "thumb_media_id": {
                 "type": "string",

@@ -188,8 +188,9 @@ class WeChatMPClient:
         if author and len(author) > 16:
             author = author[:16]
         digest = (digest or "").strip()
-        if digest and len(digest) > 128:
-            digest = digest[:128]
+        # 微信图文摘要（digest）限制 120 字，超限会报 45004 description size out of limit
+        if digest and len(digest) > 120:
+            digest = digest[:120]
         article = {
             "article_type": "news",
             "title": title,
