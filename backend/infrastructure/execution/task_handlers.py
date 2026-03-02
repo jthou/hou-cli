@@ -570,8 +570,8 @@ TASK_TYPES = {
             "media_id": {
                 "type": "string",
                 "required": False,
-                "description": "草稿 media_id（operation=update 时必填）",
-                "placeholder": "从草稿列表或详情获取"
+                "description": "要更新的草稿（从当前草稿列表选择，operation=update 时必填，无需手动填写）",
+                "placeholder": ""
             },
         }
     },
@@ -1085,7 +1085,7 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
     media_id = (metadata.get("media_id") or "").strip() or None
 
     if operation == "update" and not media_id:
-        return _err("MISSING_MEDIA_ID", "更新草稿需要 media_id", "operation=update 时请填写 media_id（从草稿列表或详情获取）")
+        return _err("MISSING_MEDIA_ID", "更新草稿需要选择草稿", "请在表单中从当前草稿列表选择要更新的草稿")
 
     if operation == "add" and not thumb_media_id:
         return _err("MISSING_THUMB", "新增草稿需要封面图", "请先通过上传图文消息内图片接口获取 thumb_media_id 并填写")
@@ -1960,12 +1960,12 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
                         _tb(metadata.get("fetch_warning", True)), _tb(metadata.get("fetch_air_quality", True)))):
                 return False, "请至少勾选一种查询类型（实时天气、天气预报、预警、空气质量）"
 
-    # wechat_mp_draft：operation=update 时 media_id 必填
+    # wechat_mp_draft：operation=update 时须从当前草稿列表选择要更新的草稿
     if task_type == "wechat_mp_draft":
         op = (metadata.get("operation") or "").strip().lower()
         if op == "update":
             mid = (metadata.get("media_id") or "").strip()
             if not mid:
-                return False, "更新草稿时 media_id 为必填"
+                return False, "请从当前草稿列表选择要更新的草稿"
 
     return True, None

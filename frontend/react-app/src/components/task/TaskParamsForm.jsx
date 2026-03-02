@@ -57,12 +57,54 @@ export default function TaskParamsForm({
   }, [isWechatUpdate])
 
   const customFieldRender = (fieldKey, { value, onChange }) => {
-    if (fieldKey === 'content' && isWechatDraft)
+    if (fieldKey === 'content' && taskType === 'wechat_mp_draft')
       return <WechatDraftEditor value={value ?? ''} onChange={onChange} />
+    if (fieldKey === 'digest' && taskType === 'wechat_mp_draft') {
+      const DIGEST_MAX = 120
+      const text = (metadata?.digest ?? value ?? '').toString()
+      const len = text.length
+      const over = len > DIGEST_MAX
+      return (
+        <div className="space-y-1">
+          <label className="block text-sm text-[#94a3b8] mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
+          <textarea
+            value={text}
+            onChange={(e) => setMetadata((m) => ({ ...m, digest: e.target.value }))}
+            placeholder="选填，不超过 120 字"
+            rows={3}
+            className={`${inputCls} resize-y min-h-[72px]`}
+          />
+          <div className="flex items-center justify-between text-xs">
+            <span className={over ? 'text-amber-400' : 'text-[#64748b]'}>
+              {len} / {DIGEST_MAX} 字
+              {over && ' · 超过 120 字，接口可能报 45004'}
+            </span>
+          </div>
+        </div>
+      )
+    }
     if (fieldKey === 'media_id' && isWechatUpdate) {
       const mediaId = (metadata?.media_id ?? value ?? '').trim()
+      const title = (metadata?.title ?? '').toString().trim()
+      // 已有 media_id（从列表点击条目进入编辑）：只读展示，作为上下文输入
+      if (mediaId) {
+        return (
+          <div className="space-y-1">
+            <label className="block text-sm text-[#94a3b8]">要更新的草稿</label>
+            <p className="text-sm text-white py-2 px-3 rounded-lg bg-white/5 border border-border">
+              {title ? <span className="font-medium">{title}</span> : null}
+              {title && mediaId ? ' · ' : null}
+              <code className="text-cyan-300 text-xs break-all">{mediaId}</code>
+            </p>
+            <p className="text-xs text-[#64748b]">media_id 来自当前选中的草稿，无需选择或填写</p>
+          </div>
+        )
+      }
+      // 无 media_id（如从「创建任务」选更新草稿）：从草稿列表选择
       return (
         <div className="space-y-2">
+          <label className="block text-sm text-[#94a3b8] mb-1">选择要更新的草稿 *</label>
+          <p className="text-xs text-[#64748b] mb-1">从当前草稿列表选择</p>
           <select
             value={mediaId}
             onChange={(e) => {
@@ -73,13 +115,13 @@ export default function TaskParamsForm({
             className={inputCls}
             required
           >
-            <option value="">请选择要更新的草稿</option>
+            <option value="">请选择…</option>
             {draftList.map((item) => {
               const mid = item?.media_id ?? ''
-              const title = (item?.content?.news_item?.[0]?.title || mid?.slice(0, 16) || '无标题').slice(0, 28)
+              const itemTitle = (item?.content?.news_item?.[0]?.title || mid?.slice(0, 16) || '无标题').slice(0, 28)
               return (
                 <option key={mid} value={mid}>
-                  {title}{mid ? ` · ${mid.slice(0, 12)}` : ''}
+                  {itemTitle}{mid ? ` · ${mid.slice(0, 12)}` : ''}
                 </option>
               )
             })}

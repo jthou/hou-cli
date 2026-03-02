@@ -72,6 +72,22 @@ export default function WechatDraftPage() {
     setDraftsLoading(false)
   }, [])
 
+  /** 刷新列表并同步当前选中草稿的详情（正文、摘要、作者等） */
+  const refreshListAndDetail = useCallback(async () => {
+    await loadDrafts()
+    if (!selectedMediaId) return
+    setDetailLoading(true)
+    try {
+      const d = await WECHAT_MP_API.draftDetail(selectedMediaId)
+      if (d?.success && d?.draft) setDetail(d.draft)
+      else setDetail(null)
+    } catch {
+      setDetail(null)
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [loadDrafts, selectedMediaId])
+
   useEffect(() => {
     loadDrafts()
   }, [loadDrafts])
@@ -112,9 +128,10 @@ export default function WechatDraftPage() {
   const openEditForm = () => {
     if (!detail) return
     const news = detail?.news_item?.[0]
+    const mediaId = (selectedMediaId ?? detail?.media_id ?? '').toString().trim()
     setFormMetadata({
       operation: 'update',
-      media_id: detail?.media_id ?? '',
+      media_id: mediaId,
       title: news?.title ?? '',
       content: htmlToMd(news?.content ?? ''),
       author: news?.author ?? '',
@@ -180,28 +197,28 @@ export default function WechatDraftPage() {
     <div className="h-full flex flex-col overflow-hidden">
       <div className="shrink-0 px-6 py-4 border-b border-border flex items-center justify-between">
         <h1 className="text-xl font-semibold text-white">公众号草稿</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={loadDrafts}
-            className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5"
-            title="刷新列表"
-          >
-            ↻ 刷新
-          </button>
-          <button
-            onClick={openAddForm}
-            className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
-          >
-            + 新建草稿
-          </button>
-        </div>
+        <button
+          onClick={openAddForm}
+          className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
+        >
+          + 新建草稿
+        </button>
       </div>
 
       <div className="flex-1 flex min-h-0">
         {/* 左侧：草稿列表 */}
         <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-hidden">
-          <div className="px-3 py-2 border-b border-border text-xs text-[#64748b]">
-            点击条目在右侧预览
+          <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
+            <span className="text-xs text-[#64748b]">点击条目在右侧预览</span>
+            <button
+              type="button"
+              onClick={refreshListAndDetail}
+              disabled={draftsLoading}
+              className="shrink-0 p-1.5 rounded border border-border text-[#94a3b8] hover:text-white hover:bg-white/5 disabled:opacity-50"
+              title="从微信公众号同步最新草稿列表；若已选草稿则同步其正文、摘要、作者等详情"
+            >
+              ↻
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {draftsLoading ? (
@@ -285,20 +302,24 @@ export default function WechatDraftPage() {
                     <img
                       src={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(news.thumb_media_id)}`}
                       alt="封面"
-                      className="max-w-[280px] max-h-40 object-cover rounded border border-border"
+                      className="w-full h-auto object-cover rounded-lg border border-border"
                     />
                   </div>
                 )}
                 {news?.author && (
                   <div>
                     <div className="text-[#64748b] text-xs mb-1">作者</div>
-                    <div className="text-[#94a3b8]">{news.author}</div>
+                    <div className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm bg-[#f6f8fa] text-[#24292f]">
+                      {news.author}
+                    </div>
                   </div>
                 )}
                 {news?.digest && (
                   <div>
                     <div className="text-[#64748b] text-xs mb-1">摘要</div>
-                    <div className="text-[#94a3b8]">{news.digest}</div>
+                    <div className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm bg-[#f6f8fa] text-[#24292f]">
+                      {news.digest}
+                    </div>
                   </div>
                 )}
                 <div>
@@ -355,15 +376,57 @@ export default function WechatDraftPage() {
                 metadata={formMetadata}
                 setMetadata={setFormMetadata}
                 fieldIdPrefix="wechat-draft-form"
-                customFieldRender={(fieldKey, { value, onChange }) =>
-                  fieldKey === 'content' ? (
-                    <WechatDraftEditor
-                      value={value ?? ''}
-                      onChange={onChange}
-                      placeholder="支持 **加粗**、# 标题、列表、[链接](url)、![图片](url)"
-                    />
-                  ) : null
-                }
+                customFieldRender={(fieldKey, { value, onChange }) => {
+                  if (fieldKey === 'content')
+                    return (
+                      <WechatDraftEditor
+                        value={value ?? ''}
+                        onChange={onChange}
+                        placeholder="支持 **加粗**、# 标题、列表、[链接](url)、![图片](url)"
+                      />
+                    )
+                  if (fieldKey === 'media_id' && formModalMode === 'update') {
+                    const mid = (formMetadata?.media_id ?? value ?? '').toString().trim()
+                    const title = (formMetadata?.title ?? '').toString().trim()
+                    if (!mid) return null
+                    return (
+                      <div className="space-y-1">
+                        <label className="block text-sm text-[#94a3b8]">要更新的草稿</label>
+                        <p className="text-sm text-white py-2 px-3 rounded-lg bg-white/5 border border-border">
+                          {title ? <span className="font-medium">{title}</span> : null}
+                          {title && mid ? ' · ' : null}
+                          <code className="text-cyan-300 text-xs break-all">{mid}</code>
+                        </p>
+                        <p className="text-xs text-[#64748b]">media_id 来自当前选中的草稿</p>
+                      </div>
+                    )
+                  }
+                  if (fieldKey === 'digest') {
+                    const DIGEST_MAX = 120
+                    const text = (formMetadata?.digest ?? value ?? '').toString()
+                    const len = text.length
+                    const over = len > DIGEST_MAX
+                    return (
+                      <div className="space-y-1">
+                        <label className="block text-sm text-[#94a3b8] mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
+                        <textarea
+                          value={text}
+                          onChange={(e) => setFormMetadata((m) => ({ ...m, digest: e.target.value }))}
+                          placeholder="选填，不超过 120 字"
+                          rows={3}
+                          className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none resize-y min-h-[72px]"
+                        />
+                        <div className="text-xs">
+                          <span className={over ? 'text-amber-400' : 'text-[#64748b]'}>
+                            {len} / {DIGEST_MAX} 字
+                            {over && ' · 超过 120 字，接口可能报 45004'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  }
+                  return null
+                }}
               />
               <div>
                 <label className="block text-sm text-[#94a3b8] mb-1">封面{formModalMode === 'add' ? ' *' : ''}</label>

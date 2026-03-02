@@ -5,7 +5,7 @@ import TaskCard from '../components/TaskCard'
 import WechatDraftPreview from '../components/WechatDraftPreview'
 import { useToast } from '../components/ToastModal'
 import { STATUS_MAP, formatDateTime } from '../utils/taskConstants'
-import { prepareMetadataForSubmitAsync } from '../utils/mdToHtml'
+import { prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
 import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata, getDateCategoryStrings } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import TaskParamsForm from '../components/task/TaskParamsForm'
@@ -88,7 +88,7 @@ function WechatDraftsPanel({ drafts, loading, onRefresh, onShowDetail }) {
     <div className="space-y-3">
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-[#94a3b8]">公众号草稿箱（只读），点击查看详情，可「编辑」创建更新草稿任务。</p>
-        <button onClick={onRefresh} className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5" title="刷新">↻</button>
+        <button onClick={onRefresh} className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5" title="从微信公众号服务器同步最新草稿列表">↻</button>
       </div>
       {loading ? (
         <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
@@ -690,13 +690,14 @@ export default function TaskManagement() {
           onEdit={() => {
             const d = draftDetail.draft
             const news = d?.news_item?.[0]
+            const mediaId = (draftDetail.media_id ?? d?.media_id ?? '').toString().trim()
             setEditDraftPreFill({
               initialType: 'wechat_mp_draft',
               initialMetadata: {
                 operation: 'update',
-                media_id: d?.media_id ?? '',
+                media_id: mediaId,
                 title: news?.title ?? '',
-                content: news?.content ?? '',
+                content: htmlToMd(news?.content ?? ''),
                 author: news?.author ?? '',
                 digest: news?.digest ?? '',
                 content_source_url: news?.content_source_url ?? '',
@@ -1949,6 +1950,13 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
       const hasContentFile = metadata.content_file != null && String(metadata.content_file).trim()
       if (!hasContent && !hasContentFile) {
         toast.warning('请填写页面内容或内容文件路径（二选一）')
+        return
+      }
+    }
+    if (type === 'wechat_mp_draft' && (metadata?.operation || '').toString().toLowerCase() === 'update') {
+      const mid = (metadata?.media_id ?? '').toString().trim()
+      if (!mid) {
+        toast.warning('请从当前草稿列表选择要更新的草稿')
         return
       }
     }

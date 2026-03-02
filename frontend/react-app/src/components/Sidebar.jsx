@@ -2,19 +2,19 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import BackendStatus from './BackendStatus'
 
-// 分组：fetch=内容获取, publish=内容发布, orchestrate=编排, tools=工具, settings=设置
+// 分组：内容创作、常用工具、管道编排、设置
 const navItems = [
-  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'fetch' },
-  { path: '/video-extract-audio', icon: '🎧', label: '视频提取音频', group: 'fetch' },
-  { path: '/speech-to-text', icon: '🎤', label: '语音转文字', group: 'fetch' },
-  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'fetch' },
-  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF 转 Wiki', group: 'fetch' },
-  { path: '/wiki-directory', icon: '📚', label: 'Wiki 目录刷新', group: 'fetch' },
-  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'publish' },
-  { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'orchestrate' },
+  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'content' },
+  { path: '/article-writing', icon: '✍️', label: '写文章', group: 'content' },
+  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'tools' },
+  { path: '/video-extract-audio', icon: '🎧', label: '视频提取音频', group: 'tools' },
+  { path: '/speech-to-text', icon: '🎤', label: '语音转文字', group: 'tools' },
+  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'tools' },
+  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF 转 Wiki', group: 'tools' },
+  { path: '/wiki-directory', icon: '📚', label: 'Wiki 目录刷新', group: 'tools' },
   { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
   { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'tools' },
-  { path: '/article-writing', icon: '✍️', label: '写文章', group: 'tools' },
+  { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'pipeline' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/llm-audit', icon: '📜', label: 'LLM 对话审计', group: 'settings' },
@@ -24,14 +24,13 @@ const navItems = [
 ]
 
 const GROUP_META = {
-  fetch: { label: '内容获取', icon: '📥', defaultOpen: true },
-  publish: { label: '内容发布', icon: '📤', defaultOpen: true },
-  orchestrate: { label: '编排', icon: '📊', defaultOpen: true },
-  tools: { label: '工具', icon: '🔧', defaultOpen: true },
+  content: { label: '内容创作', icon: '✏️', defaultOpen: true },
+  tools: { label: '常用工具', icon: '🔧', defaultOpen: true },
+  pipeline: { label: '管道编排', icon: '🔀', defaultOpen: true },
   settings: { label: '设置', icon: '⚙️', defaultOpen: true },
 }
 
-const GROUP_ORDER = ['fetch', 'publish', 'orchestrate', 'tools', 'settings']
+const GROUP_ORDER = ['content', 'tools', 'pipeline', 'settings']
 
 export default function Sidebar({ open, onToggle }) {
   const [expanded, setExpanded] = useState(() =>
