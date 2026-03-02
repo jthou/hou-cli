@@ -1,5 +1,7 @@
 """会话管理相关路由"""
+from typing import Optional
 from fastapi import APIRouter
+from pydantic import BaseModel
 from backend.core.agent.orchestrator import Orchestrator
 from shared.debug_utils import debug_log
 
@@ -22,24 +24,63 @@ def get_orchestrator():
             raise
     return _orchestrator
 
+class CreateSessionRequest(BaseModel):
+    metadata: Optional[dict] = None
+
+
+class UpdateSessionRequest(BaseModel):
+    title: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
 @router.get("/sessions/list")
-async def list_sessions(limit: int = 10):
-    """列出最近的会话"""
+async def list_sessions(
+    limit: int = 10,
+    type: Optional[str] = None,
+    sort: Optional[str] = None,
+    order: Optional[str] = None,
+    offset: int = 0,
+):
+    """列出会话；type= 时过滤类型；sort=updated_at|created_at，order=asc|desc，offset/limit 分页，limit 最大 100。"""
+    limit = min(max(1, limit), 100)
+    offset = max(0, offset)
+    sort = sort if sort in ("updated_at", "created_at") else "updated_at"
+    order = order if order in ("asc", "desc") else "desc"
     try:
         orchestrator = get_orchestrator()
-        sessions = orchestrator.context_manager.list_sessions(limit=limit)
-        
-        # 获取每个会话的预览信息
+        if type:
+            fetch_limit = 200  # 先多取再按 type 过滤、再分页
+            sessions = orchestrator.context_manager.list_sessions(
+                limit=fetch_limit, sort=sort, order=order, offset=0
+            )
+            # type=article_writing 时同时包含未设置 type 的会话（兼容旧会话，避免“前面的会话没了”）
+            if type == "article_writing":
+                sessions = [
+                    s for s in sessions
+                    if (s.metadata or {}).get("type") == type or not (s.metadata or {}).get("type")
+                ]
+            else:
+                sessions = [s for s in sessions if (s.metadata or {}).get("type") == type]
+            sessions = sessions[offset : offset + limit]
+        else:
+            sessions = orchestrator.context_manager.list_sessions(
+                limit=limit, sort=sort, order=order, offset=offset
+            )
+
+        # 获取每个会话的预览信息，并补充 title（metadata.title 或 fallback preview）
         result = []
         for session in sessions:
             try:
                 preview = orchestrator.context_manager.get_session_preview(session.session_id)
+                meta = preview.get("metadata") or {}
+                preview["title"] = (meta.get("title") or preview.get("preview") or "").strip() or None
                 result.append(preview)
             except Exception as e:
-                # 如果获取预览失败，使用基本信息
+                meta = session.metadata or {}
                 result.append({
                     "session_id": session.session_id,
                     "preview": "",
+                    "title": (meta.get("title") or "").strip() or None,
                     "message_count": 0,
                     "created_at": session.created_at.isoformat(),
                     "updated_at": session.updated_at.isoformat(),
@@ -55,10 +96,10 @@ async def list_sessions(limit: int = 10):
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """删除指定会话"""
+    """删除指定会话（移除会话记录与目录，不可恢复）。"""
     try:
         orchestrator = get_orchestrator()
-        result = orchestrator.context_manager.clear_session(session_id)
+        result = orchestrator.context_manager.delete_session(session_id)
         
         if result:
             return {"success": True, "message": f"会话 {session_id} 已删除"}
@@ -103,7 +144,7 @@ async def search_sessions(keyword: str, limit: int = 10):
 
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
-    """清除会话的所有消息"""
+    """清除会话的所有消息与当前文章草稿（含 current_article.md），会话本身保留。"""
     try:
         debug_log(
             "清除会话消息",
@@ -207,21 +248,35 @@ async def get_session_detail(session_id: str):
         }
 
 @router.post("/sessions")
-async def create_session():
-    """创建新会话"""
+async def create_session(request: Optional[CreateSessionRequest] = None):
+    """创建新会话；可传 metadata，如 { \"type\": \"article_writing\" } 标记写文章会话"""
     try:
         orchestrator = get_orchestrator()
-        session_id = orchestrator.context_manager.create_session()
-        
-        return {
-            "success": True,
-            "session_id": session_id
-        }
+        metadata = getattr(request, "metadata", None) if request else None
+        session_id = orchestrator.context_manager.create_session(metadata=metadata)
+        return {"success": True, "session_id": session_id}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
+
+
+@router.patch("/sessions/{session_id}")
+async def update_session(session_id: str, request: UpdateSessionRequest):
+    """更新会话元数据（如 title）；body 中 title 会写入 metadata.title。"""
+    try:
+        orchestrator = get_orchestrator()
+        session = orchestrator.context_manager.get_session(session_id)
+        if not session:
+            return {"success": False, "error": f"会话不存在: {session_id}"}
+        updates = dict(request.metadata) if request.metadata else {}
+        if request.title is not None:
+            updates["title"] = request.title
+        if not updates:
+            return {"success": True, "session_id": session_id}
+        ok = orchestrator.context_manager.update_session_metadata(session_id, updates)
+        return {"success": ok, "session_id": session_id} if ok else {"success": False, "error": "更新失败"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 
 @router.post("/sessions/{session_id}/summary")
 async def generate_session_summary(session_id: str):

@@ -227,8 +227,15 @@ class DatabaseStorageBackend(StorageBackend):
         finally:
             conn.close()
     
-    def list_sessions(self, limit: Optional[int] = None) -> List[Session]:
-        """列出会话"""
+    def list_sessions(
+        self,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        offset: int = 0,
+        **kwargs: object,
+    ) -> List[Session]:
+        """列出会话（sort/order/offset 可选，当前实现按 updated_at 倒序）。"""
         conn = self._get_conn()
         cursor = conn.cursor()
         

@@ -33,7 +33,60 @@ class FileStorageBackend(StorageBackend):
     def _get_messages_file(self, session_id: str) -> Path:
         """获取消息文件"""
         return self._get_session_dir(session_id) / "messages.json"
-    
+
+    def _get_article_file(self, session_id: str) -> Path:
+        """获取当前文章草稿文件路径（写文章会话的右侧输出）"""
+        return self._get_session_dir(session_id) / "current_article.md"
+
+    def get_session_article(self, session_id: str) -> Optional[str]:
+        """读取会话的当前文章草稿（右侧预览内容），用于注入对话上下文。"""
+        path = self._get_article_file(session_id)
+        if not path.exists():
+            return None
+        try:
+            return path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+    def set_session_article(self, session_id: str, content: str) -> bool:
+        """保存会话的当前文章草稿；对话中会多次作为上下文使用。"""
+        try:
+            session_dir = self._get_session_dir(session_id)
+            session_dir.mkdir(parents=True, exist_ok=True)
+            self._get_article_file(session_id).write_text(content, encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
+    def _get_mw_sources_file(self, session_id: str) -> Path:
+        """写文章会话的参考 MediaWiki 页面列表（页面标题）"""
+        return self._get_session_dir(session_id) / "mw_sources.json"
+
+    def get_session_mw_sources(self, session_id: str) -> List[str]:
+        """读取会话的参考 MediaWiki 页面标题列表。"""
+        path = self._get_mw_sources_file(session_id)
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            titles = data.get("titles") if isinstance(data, dict) else []
+            return list(titles) if isinstance(titles, list) else []
+        except Exception:
+            return []
+
+    def set_session_mw_sources(self, session_id: str, titles: List[str]) -> bool:
+        """保存会话的参考 MediaWiki 页面标题列表。"""
+        try:
+            session_dir = self._get_session_dir(session_id)
+            session_dir.mkdir(parents=True, exist_ok=True)
+            self._get_mw_sources_file(session_id).write_text(
+                json.dumps({"titles": list(titles)}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            return True
+        except Exception:
+            return False
+
     def _load_sessions(self):
         """加载会话列表"""
         if self.sessions_file.exists():
@@ -143,17 +196,27 @@ class FileStorageBackend(StorageBackend):
         return False
     
     def clear_session(self, session_id: str) -> bool:
-        """清除会话"""
+        """清除会话内容：删除该会话下所有消息与当前文章草稿（session_dir），会话记录保留。"""
         session_dir = self._get_session_dir(session_id)
         if session_dir.exists():
             shutil.rmtree(session_dir)
-        
+        if session_id in self.sessions:
+            self.sessions[session_id].updated_at = datetime.now()
+            self._save_sessions()
+        return True
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话：移除会话目录并从会话列表中移除记录。"""
+        session_dir = self._get_session_dir(session_id)
+        dir_existed = session_dir.exists()
+        if dir_existed:
+            shutil.rmtree(session_dir)
         if session_id in self.sessions:
             del self.sessions[session_id]
             self._save_sessions()
-        
-        return True
-    
+            return True
+        return dir_existed
+
     def create_session(self, session: Session) -> bool:
         """创建会话"""
         self.sessions[session.session_id] = session
@@ -163,12 +226,32 @@ class FileStorageBackend(StorageBackend):
     def get_session(self, session_id: str) -> Optional[Session]:
         """获取会话"""
         return self.sessions.get(session_id)
-    
-    def list_sessions(self, limit: Optional[int] = None) -> List[Session]:
-        """列出会话"""
+
+    def update_session_metadata(self, session_id: str, updates: dict) -> bool:
+        """更新会话元数据（如 title）；updates 会合并进现有 metadata。"""
+        if session_id not in self.sessions:
+            return False
+        session = self.sessions[session_id]
+        session.metadata.update(updates)
+        session.updated_at = datetime.now()
+        self._save_sessions()
+        return True
+
+    def list_sessions(
+        self,
+        limit: Optional[int] = None,
+        sort: str = "updated_at",
+        order: str = "desc",
+        offset: int = 0,
+    ) -> List[Session]:
+        """列出会话；sort=updated_at|created_at，order=asc|desc，offset/limit 分页。"""
         sessions = list(self.sessions.values())
-        sessions.sort(key=lambda s: s.updated_at, reverse=True)
-        if limit:
+        key_attr = sort if sort in ("updated_at", "created_at") else "updated_at"
+        reverse = (order or "desc").lower() != "asc"
+        sessions.sort(key=lambda s: getattr(s, key_attr, s.updated_at), reverse=reverse)
+        if offset > 0:
+            sessions = sessions[offset:]
+        if limit is not None:
             sessions = sessions[:limit]
         return sessions
 

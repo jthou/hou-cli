@@ -206,15 +206,64 @@ class ContextManager:
         return self.retrieval.search(messages, query, top_k)
     
     def clear_session(self, session_id: str) -> bool:
-        """清除会话"""
+        """清除会话内容（消息与文章草稿），会话记录保留。"""
         return self.storage.clear_session(session_id)
-    
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话（移除记录与目录）。"""
+        if hasattr(self.storage, "delete_session"):
+            return self.storage.delete_session(session_id)
+        return self.storage.clear_session(session_id)
+
+    def get_current_article(self, session_id: str) -> Optional[str]:
+        """获取会话的当前文章草稿（写文章右侧输出），用于注入对话上下文。"""
+        if hasattr(self.storage, "get_session_article"):
+            return self.storage.get_session_article(session_id)
+        return None
+
+    def set_current_article(self, session_id: str, content: str) -> bool:
+        """保存会话的当前文章草稿；对话中会多次作为上下文使用。"""
+        if hasattr(self.storage, "set_session_article"):
+            return self.storage.set_session_article(session_id, content)
+        return False
+
+    def get_mw_source_titles(self, session_id: str) -> List[str]:
+        """获取会话的参考 MediaWiki 页面标题列表（写文章用）。"""
+        if hasattr(self.storage, "get_session_mw_sources"):
+            return self.storage.get_session_mw_sources(session_id)
+        return []
+
+    def set_mw_source_titles(self, session_id: str, titles: List[str]) -> bool:
+        """设置会话的参考 MediaWiki 页面标题列表。"""
+        if hasattr(self.storage, "set_session_mw_sources"):
+            return self.storage.set_session_mw_sources(session_id, titles)
+        return False
+
     def get_session(self, session_id: str) -> Optional[Session]:
         """获取会话"""
         return self.storage.get_session(session_id)
-    
-    def list_sessions(self, limit: Optional[int] = None) -> List[Session]:
-        """列出会话"""
+
+    def update_session_metadata(self, session_id: str, metadata_updates: Dict[str, Any]) -> bool:
+        """更新会话元数据（如 title）；updates 会合并进现有 metadata。"""
+        if hasattr(self.storage, "update_session_metadata"):
+            return self.storage.update_session_metadata(session_id, metadata_updates)
+        return False
+
+    def list_sessions(
+        self,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        offset: int = 0,
+    ) -> List[Session]:
+        """列出会话；sort=updated_at|created_at，order=asc|desc，offset/limit 分页。"""
+        if hasattr(self.storage, "list_sessions"):
+            return self.storage.list_sessions(
+                limit=limit,
+                sort=sort or "updated_at",
+                order=order or "desc",
+                offset=offset,
+            )
         return self.storage.list_sessions(limit)
     
     def get_session_preview(
@@ -239,7 +288,7 @@ class ContextManager:
         # 获取消息列表
         messages = self.storage.get_messages(session_id)
         
-        # 生成预览文本（第一条用户消息）
+        # 生成预览文本：优先首条用户消息；若过短（<15 字）则用首条助手回复前 100 字
         preview_text = ""
         if messages:
             first_user_msg = next(
@@ -247,9 +296,19 @@ class ContextManager:
                 None
             )
             if first_user_msg:
-                preview_text = first_user_msg.content
+                preview_text = (first_user_msg.content or "").strip()
                 if len(preview_text) > max_preview_length:
                     preview_text = preview_text[:max_preview_length] + "..."
+            if len(preview_text.strip()) < 15:
+                first_assistant = next(
+                    (msg for msg in messages if msg.role == MessageRole.ASSISTANT),
+                    None
+                )
+                if first_assistant and (first_assistant.content or "").strip():
+                    fallback = (first_assistant.content or "").strip()
+                    if len(fallback) > 100:
+                        fallback = fallback[:100] + "..."
+                    preview_text = fallback or preview_text
         
         return {
             "session_id": session_id,

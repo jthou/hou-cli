@@ -3,7 +3,7 @@ import os
 import asyncio
 import logging
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict, TYPE_CHECKING
+from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 from openai import AsyncOpenAI, PermissionDeniedError
 import httpx
 from dotenv import load_dotenv
@@ -302,19 +302,27 @@ class LLMService:
             return "reasoning" in model_lower or "think" in model_lower
         return False
     
-    async def chat(self, system_prompt: str = "", user_prompt: str = "", tools: Optional[list] = None, messages: Optional[list] = None):
+    async def chat(
+        self,
+        system_prompt: str = "",
+        user_prompt: str = "",
+        tools: Optional[list] = None,
+        messages: Optional[list] = None,
+        audit_meta: Optional[Dict[str, Any]] = None,
+    ):
         """
         聊天（非流式）
-        
+
         Args:
             system_prompt: 系统提示
             user_prompt: 用户提示
             tools: 工具定义列表（OpenAI Function Calling 格式）
             messages: 消息列表（如果提供，将忽略 system_prompt 和 user_prompt）
-            
+            audit_meta: 可选，审计用元数据（如 session_id），会写入 LLM 审计日志
+
         Returns:
             LLM 生成的回复（字符串）或包含工具调用的响应对象（message 对象）
-            
+
         Raises:
             httpx.HTTPStatusError: API 错误
             httpx.RequestError: 网络错误
@@ -324,7 +332,21 @@ class LLMService:
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": user_prompt})
-        
+
+        # 审计：记录请求（送入 LLM 的内容），audit_id 关联本次调用的请求与响应
+        audit_id = None
+        try:
+            from backend.services.llm.llm_audit import append_audit, _messages_summary, create_audit_id
+            audit_id = create_audit_id()
+            append_audit(
+                "request",
+                self.model,
+                _messages_summary(messages),
+                meta=dict(audit_meta or {}, has_tools=bool(tools), audit_id=audit_id),
+            )
+        except Exception as e:
+            logger.debug("LLM 审计写入请求记录失败: %s", e)
+
         # 调试输出：请求信息
         # 为了满足调试需求，记录完整的请求信息
         logger.debug(f"LLM Request Details - Model: {self.model}")
@@ -352,137 +374,52 @@ class LLMService:
         base_delay = 1.0  # 基础延迟（秒）
         max_delay = 10.0  # 最大延迟（秒）
         last_error = None
-        
-        for attempt in range(max_retries):
-            try:
-                response = await self.client.chat.completions.create(**request_params)
-                
-                # 处理思考过程（如果支持）
-                result = response.choices[0].message
-                content = result.content
-                
-                # 检查是否有工具调用
-                if hasattr(result, 'tool_calls') and result.tool_calls:
-                    # 返回包含工具调用的响应对象
-                    return result
-                
-                # 检查是否有思考过程（DeepSeek R1 格式）
-                # 注意：OpenAI SDK 可能不支持 reasoning_content，需要根据实际 API 响应调整
-                if self.supports_thinking and hasattr(result, 'reasoning_content'):
-                    thinking = result.reasoning_content
-                    if thinking:
-                        self.debug.log_llm_thinking(thinking)
-                
-                # 调试输出：响应信息
-                logger.debug(f"LLM Response Details - Model: {self.model}")
-                logger.debug(f"LLM Response Content: {content}")
-                self.debug.log_llm_response(content, self.model)
-                
-                return content
-                
-            except httpx.ReadTimeout as e:
-                # 读取超时：可能是响应太长或网络慢，增加延迟后重试
-                last_error = e
-                if attempt < max_retries - 1:
-                    delay = min(base_delay * (2 ** attempt), max_delay)
-                    logger.warning(
-                        f"请求超时（读取超时），等待 {delay:.1f} 秒后重试 "
-                        f"(尝试 {attempt + 1}/{max_retries}): {e}",
-                        exc_info=True
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"请求超时，重试次数耗尽: {e}", exc_info=True)
-                    raise
-                    
-            except httpx.HTTPStatusError as e:
-                # 401 错误（认证失败）：不重试
-                if e.response.status_code == 401:
-                    logger.error(f"API 认证失败 (401): {e}", exc_info=True)
-                    raise
-                
-                # 403 错误（权限不足/模型未启用）：不重试
-                if e.response.status_code == 403:
-                    logger.error(f"API 权限不足 (403): 模型可能未启用或权限不足: {e}", exc_info=True)
-                    raise
-                
-                # 429 错误（限流）：等待后重试（固定 2 秒，因为限流通常很快恢复）
-                if e.response.status_code == 429:
-                    if attempt < max_retries - 1:
-                        delay = 2.0
-                        logger.warning(
-                            f"API 限流 (429)，等待 {delay} 秒后重试 "
-                            f"(尝试 {attempt + 1}/{max_retries})"
-                        )
-                        await asyncio.sleep(delay)
-                        continue
-                    else:
-                        logger.error(f"API 限流 (429)，重试次数耗尽: {e}", exc_info=True)
-                        raise
-                
-                # 其他 HTTP 错误：指数退避重试
-                if attempt < max_retries - 1:
-                    # 指数退避：delay = base_delay * (2 ^ attempt)，但不超过 max_delay
-                    delay = min(base_delay * (2 ** attempt), max_delay)
-                    logger.warning(
-                        f"API 错误 {e.response.status_code}，等待 {delay:.1f} 秒后重试 "
-                        f"(尝试 {attempt + 1}/{max_retries}): {e}"
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    logger.error(
-                        f"API 错误 {e.response.status_code}，重试次数耗尽: {e}",
-                        exc_info=True
-                    )
-                    raise
-                    
-            except httpx.RequestError as e:
-                # 网络错误：指数退避重试
-                last_error = e
-                if attempt < max_retries - 1:
-                    # 指数退避：delay = base_delay * (2 ^ attempt)，但不超过 max_delay
-                    delay = min(base_delay * (2 ** attempt), max_delay)
-                    logger.warning(
-                        f"网络错误，等待 {delay:.1f} 秒后重试 "
-                        f"(尝试 {attempt + 1}/{max_retries}): {e}",
-                        exc_info=True
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    logger.error(f"网络错误，重试次数耗尽: {e}", exc_info=True)
-                    raise
-            
-            except PermissionDeniedError as e:
-                # OpenAI SDK 的权限错误（403）：不重试
-                logger.error(f"API 权限不足 (PermissionDeniedError): 模型可能未启用或权限不足: {e}", exc_info=True)
-                raise
-            except Exception as e:
-                # 处理 OpenAI SDK 的 APITimeoutError 和其他超时异常
-                error_str = str(e)
-                error_type = type(e).__name__
-                
-                # 检查是否是权限错误（403、PermissionDenied等）
-                if ("403" in error_str or 
-                    "PermissionDenied" in error_type or 
-                    "permission denied" in error_str.lower() or
-                    "not enabled" in error_str.lower() or
-                    "do not have access" in error_str.lower()):
-                    logger.error(f"API 权限不足: 模型可能未启用或权限不足: {e}", exc_info=True)
-                    raise
-                
-                # 检查是否是超时错误
-                if ("timeout" in error_str.lower() or 
-                    "timed out" in error_str.lower() or 
-                    "APITimeoutError" in error_type or
-                    "ReadTimeout" in error_type):
+
+        try:
+            for attempt in range(max_retries):
+                try:
+                    response = await self.client.chat.completions.create(**request_params)
+
+                    # 处理思考过程（如果支持）
+                    result = response.choices[0].message
+                    content = result.content
+
+                    # 审计：记录 LLM 输出（与请求同 audit_id）
+                    try:
+                        from backend.services.llm.llm_audit import append_audit, _response_summary
+                        meta = dict(audit_meta or {}, audit_id=audit_id)
+                        if getattr(response, "usage", None):
+                            meta["usage"] = {k: getattr(response.usage, k, None) for k in ("prompt_tokens", "completion_tokens", "total_tokens") if hasattr(response.usage, k)}
+                        append_audit("response", self.model, _response_summary(result, self.model), meta=meta)
+                    except Exception as e:
+                        logger.debug("LLM 审计写入响应记录失败: %s", e)
+
+                    # 检查是否有工具调用
+                    if hasattr(result, 'tool_calls') and result.tool_calls:
+                        # 返回包含工具调用的响应对象
+                        return result
+
+                    # 检查是否有思考过程（DeepSeek R1 格式）
+                    # 注意：OpenAI SDK 可能不支持 reasoning_content，需要根据实际 API 响应调整
+                    if self.supports_thinking and hasattr(result, 'reasoning_content'):
+                        thinking = result.reasoning_content
+                        if thinking:
+                            self.debug.log_llm_thinking(thinking)
+
+                    # 调试输出：响应信息
+                    logger.debug(f"LLM Response Details - Model: {self.model}")
+                    logger.debug(f"LLM Response Content: {content}")
+                    self.debug.log_llm_response(content, self.model)
+
+                    return content
+
+                except httpx.ReadTimeout as e:
+                    # 读取超时：可能是响应太长或网络慢，增加延迟后重试
                     last_error = e
                     if attempt < max_retries - 1:
                         delay = min(base_delay * (2 ** attempt), max_delay)
                         logger.warning(
-                            f"请求超时，等待 {delay:.1f} 秒后重试 "
+                            f"请求超时（读取超时），等待 {delay:.1f} 秒后重试 "
                             f"(尝试 {attempt + 1}/{max_retries}): {e}",
                             exc_info=True
                         )
@@ -491,27 +428,140 @@ class LLMService:
                     else:
                         logger.error(f"请求超时，重试次数耗尽: {e}", exc_info=True)
                         raise
-                else:
-                    # 其他未知错误，直接抛出
-                    logger.error(f"未知错误: {e}", exc_info=True)
+
+                except httpx.HTTPStatusError as e:
+                    # 401 错误（认证失败）：不重试
+                    if e.response.status_code == 401:
+                        logger.error(f"API 认证失败 (401): {e}", exc_info=True)
+                        raise
+
+                    # 403 错误（权限不足/模型未启用）：不重试
+                    if e.response.status_code == 403:
+                        logger.error(f"API 权限不足 (403): 模型可能未启用或权限不足: {e}", exc_info=True)
+                        raise
+
+                    # 429 错误（限流）：等待后重试（固定 2 秒，因为限流通常很快恢复）
+                    if e.response.status_code == 429:
+                        if attempt < max_retries - 1:
+                            delay = 2.0
+                            logger.warning(
+                                f"API 限流 (429)，等待 {delay} 秒后重试 "
+                                f"(尝试 {attempt + 1}/{max_retries})"
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"API 限流 (429)，重试次数耗尽: {e}", exc_info=True)
+                            raise
+
+                    # 其他 HTTP 错误：指数退避重试
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        logger.warning(
+                            f"API 错误 {e.response.status_code}，等待 {delay:.1f} 秒后重试 "
+                            f"(尝试 {attempt + 1}/{max_retries}): {e}"
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error(
+                            f"API 错误 {e.response.status_code}，重试次数耗尽: {e}",
+                            exc_info=True
+                        )
+                        raise
+
+                except httpx.RequestError as e:
+                    # 网络错误：指数退避重试
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        logger.warning(
+                            f"网络错误，等待 {delay:.1f} 秒后重试 "
+                            f"(尝试 {attempt + 1}/{max_retries}): {e}",
+                            exc_info=True
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"网络错误，重试次数耗尽: {e}", exc_info=True)
+                        raise
+
+                except PermissionDeniedError as e:
+                    # OpenAI SDK 的权限错误（403）：不重试
+                    logger.error(f"API 权限不足 (PermissionDeniedError): 模型可能未启用或权限不足: {e}", exc_info=True)
                     raise
-        
-        # 如果所有重试都失败
-        if last_error:
-            raise last_error
-    
-    async def stream_chat(self, system_prompt: str = "", user_prompt: str = "", timeout: int = 60) -> AsyncIterator[str]:
+                except Exception as e:
+                    # 处理 OpenAI SDK 的 APITimeoutError 和其他超时异常
+                    error_str = str(e)
+                    error_type = type(e).__name__
+
+                    # 检查是否是权限错误（403、PermissionDenied等）
+                    if ("403" in error_str or
+                        "PermissionDenied" in error_type or
+                        "permission denied" in error_str.lower() or
+                        "not enabled" in error_str.lower() or
+                        "do not have access" in error_str.lower()):
+                        logger.error(f"API 权限不足: 模型可能未启用或权限不足: {e}", exc_info=True)
+                        raise
+
+                    # 检查是否是超时错误
+                    if ("timeout" in error_str.lower() or
+                        "timed out" in error_str.lower() or
+                        "APITimeoutError" in error_type or
+                        "ReadTimeout" in error_type):
+                        last_error = e
+                        if attempt < max_retries - 1:
+                            delay = min(base_delay * (2 ** attempt), max_delay)
+                            logger.warning(
+                                f"请求超时，等待 {delay:.1f} 秒后重试 "
+                                f"(尝试 {attempt + 1}/{max_retries}): {e}",
+                                exc_info=True
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"请求超时，重试次数耗尽: {e}", exc_info=True)
+                            raise
+                    else:
+                        # 其他未知错误，直接抛出
+                        logger.error(f"未知错误: {e}", exc_info=True)
+                        raise
+
+            # 如果所有重试都失败
+            if last_error:
+                raise last_error
+        except Exception as e:
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit(
+                    "response_error",
+                    self.model,
+                    {"error": str(e), "error_type": type(e).__name__},
+                    meta=dict(audit_meta or {}, audit_id=audit_id),
+                )
+            except Exception:
+                pass
+            raise
+
+    async def stream_chat(
+        self,
+        system_prompt: str = "",
+        user_prompt: str = "",
+        timeout: int = 60,
+        audit_meta: Optional[Dict[str, Any]] = None,
+    ) -> AsyncIterator[str]:
         """
         流式聊天
-        
+
         Args:
             system_prompt: 系统提示
             user_prompt: 用户提示
             timeout: 超时时间（秒），默认 60 秒
-            
+            audit_meta: 可选，审计用元数据（如 session_id）
+
         Yields:
             流式数据块
-            
+
         Raises:
             asyncio.TimeoutError: 超时错误
         """
@@ -519,7 +569,20 @@ class LLMService:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
-        
+
+        audit_id = None
+        try:
+            from backend.services.llm.llm_audit import append_audit, _messages_summary, create_audit_id
+            audit_id = create_audit_id()
+            append_audit(
+                "request",
+                self.model,
+                _messages_summary(messages),
+                meta=dict(audit_meta or {}, audit_id=audit_id),
+            )
+        except Exception as e:
+            logger.debug("LLM 审计写入请求记录失败: %s", e)
+
         # 调试输出：请求信息
         self.debug.log_llm_request(system_prompt, user_prompt, self.model)
         
@@ -559,26 +622,70 @@ class LLMService:
                         content_chunks.append(content_chunk)
                         yield content_chunk
             except KeyboardInterrupt:
-                # 优雅处理中断
+                # 审计：流式中断时记录已产生的局部响应
+                try:
+                    from backend.services.llm.llm_audit import append_audit, _response_summary
+                    partial = "".join(content_chunks)
+                    append_audit(
+                        "response",
+                        self.model,
+                        _response_summary(partial, self.model),
+                        meta=dict(audit_meta or {}, audit_id=audit_id, stream_interrupted=True),
+                    )
+                except Exception:
+                    pass
                 logger.info("流式响应被用户中断")
                 return
             except Exception as e:
+                try:
+                    from backend.services.llm.llm_audit import append_audit, _response_summary
+                    partial = "".join(content_chunks)
+                    append_audit(
+                        "response_error",
+                        self.model,
+                        {"error": str(e), "error_type": type(e).__name__, "partial_length": len(partial), "partial_preview": _response_summary(partial, self.model).get("content_preview", "")[:2000]},
+                        meta=dict(audit_meta or {}, audit_id=audit_id),
+                    )
+                except Exception:
+                    pass
                 logger.error(f"流式响应处理错误: {e}")
                 raise
-            
+
             # 如果有思考过程，输出完整思考过程
             if thinking_chunks:
                 thinking = "".join(thinking_chunks)
                 self.debug.log_llm_thinking(thinking)
-            
-            # 调试输出：响应信息
+
+            # 审计：记录流式响应完整内容
             full_response = "".join(content_chunks)
+            try:
+                from backend.services.llm.llm_audit import append_audit, _response_summary
+                append_audit(
+                    "response",
+                    self.model,
+                    _response_summary(full_response, self.model),
+                    meta=dict(audit_meta or {}, audit_id=audit_id),
+                )
+            except Exception as e:
+                logger.debug("LLM 审计写入流式响应记录失败: %s", e)
+
+            # 调试输出：响应信息
             self.debug.log_llm_response(full_response, self.model)
-                
-        except asyncio.TimeoutError:
+
+        except asyncio.TimeoutError as e:
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit("response_error", self.model, {"error": str(e), "error_type": "TimeoutError"}, meta=dict(audit_meta or {}, audit_id=audit_id))
+            except Exception:
+                pass
             logger.error(f"流式响应超时（{timeout} 秒）")
             raise
         except httpx.HTTPStatusError as e:
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit("response_error", self.model, {"error": str(e), "error_type": "HTTPStatusError", "status": e.response.status_code}, meta=dict(audit_meta or {}, audit_id=audit_id))
+            except Exception:
+                pass
             # 401 错误（认证失败）：不重试
             if e.response.status_code == 401:
                 logger.error(f"API 认证失败 (401): {e}", exc_info=True)
@@ -594,13 +701,34 @@ class LLMService:
             logger.error(f"API 错误 {e.response.status_code}: {e}", exc_info=True)
             raise
         except PermissionDeniedError as e:
-            # OpenAI SDK 的权限错误（403）：不重试
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit("response_error", self.model, {"error": str(e), "error_type": "PermissionDeniedError"}, meta=dict(audit_meta or {}, audit_id=audit_id))
+            except Exception:
+                pass
             logger.error(f"API 权限不足 (PermissionDeniedError): 模型可能未启用或权限不足: {e}", exc_info=True)
             raise
         except httpx.RequestError as e:
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit("response_error", self.model, {"error": str(e), "error_type": "RequestError"}, meta=dict(audit_meta or {}, audit_id=audit_id))
+            except Exception:
+                pass
             logger.error(f"网络错误: {e}", exc_info=True)
             raise
-    
+        except Exception as e:
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit(
+                    "response_error",
+                    self.model,
+                    {"error": str(e), "error_type": type(e).__name__},
+                    meta=dict(audit_meta or {}, audit_id=audit_id),
+                )
+            except Exception:
+                pass
+            raise
+
     def supports_response_format(self) -> bool:
         """
         检查当前 LLM 是否支持 response_format 参数

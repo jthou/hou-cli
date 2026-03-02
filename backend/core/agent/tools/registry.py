@@ -66,6 +66,15 @@ class ToolRegistry:
             工具名称列表
         """
         return list(self._tools.keys())
+
+    def get_all_tools(self) -> List[Tool]:
+        """
+        获取所有已注册的工具实例
+        
+        Returns:
+            Tool 实例列表
+        """
+        return list(self._tools.values())
     
     def get_tools_for_llm(self) -> List[dict]:
         """

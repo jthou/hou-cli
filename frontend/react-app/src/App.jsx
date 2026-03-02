@@ -9,6 +9,7 @@ import VideoExtractAudio from './pages/VideoExtractAudio'
 import SpeechToText from './pages/SpeechToText'
 import WeatherQuery from './pages/WeatherQuery'
 import WebSearch from './pages/WebSearch'
+import ArticleWriting from './pages/ArticleWriting'
 import SettingsGeneral from './pages/SettingsGeneral'
 import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/speech-to-text" element={<SpeechToText />} />
               <Route path="/weather-query" element={<WeatherQuery />} />
               <Route path="/web-search" element={<WebSearch />} />
+              <Route path="/article-writing" element={<ArticleWriting />} />
               <Route path="/wechat-drafts" element={<WechatDraftPage />} />
               <Route path="/url-to-wiki" element={<UrlToWiki />} />
               <Route path="/pdf-to-wiki" element={<PdfToWiki />} />

@@ -1017,6 +1017,45 @@ Please return strictly in the following JSON format:
                     feedback += f"  ❌ 执行失败: {exec_result.get('error', 'Unknown error')}\n"
             feedback += "\n"
         return feedback
+
+    def _get_mw_reference_content(self, session_id: Optional[str]) -> str:
+        """获取写文章会话的参考 MediaWiki 页面内容并格式化为 prompt 片段。无 session 或未配置参考页时返回空字符串。"""
+        if not session_id:
+            return ""
+        titles = self.context_manager.get_mw_source_titles(session_id)
+        if not titles:
+            return ""
+        try:
+            from backend.services.mediawiki_client_service import MediaWikiClientService
+            client = MediaWikiClientService()
+            client.connect()
+        except Exception as e:
+            logger.warning("MediaWiki 客户端不可用，无法注入参考页面: %s", e)
+            return ""
+        max_per_page = 8000
+        max_total = 30000
+        total = 0
+        parts = []
+        for title in titles:
+            if total >= max_total:
+                parts.append(f"\n【页面《{title}》】\n（因总长度限制未拉取）")
+                continue
+            try:
+                page = client.get_page(title)
+                if not page or not getattr(page, "content", None):
+                    parts.append(f"\n【页面《{title}》】\n（无法获取或不存在）")
+                    continue
+                content = (page.content or "").strip()
+                if len(content) > max_per_page:
+                    content = content[:max_per_page] + "\n\n（内容已截断）"
+                total += len(content)
+                parts.append(f"\n【页面《{title}》】\n{content}")
+            except Exception as e:
+                logger.warning("拉取 MediaWiki 页面失败 title=%s: %s", title, e)
+                parts.append(f"\n【页面《{title}》】\n（拉取失败）")
+        if not parts:
+            return ""
+        return "【参考 MediaWiki 页面（用户在本会话中设置的参考文献）】" + "".join(parts) + "\n\n"
     
     async def process(self, task: str, context: Optional[Dict] = None) -> str:
         """处理任务，支持 SOP 和动态编排"""
@@ -1079,9 +1118,11 @@ Please return strictly in the following JSON format:
         session_id = context.get("session_id") if context else None
         self.debug.log_context_operation("获取会话ID", session_id or "new", {"provided": session_id is not None})
         
-        # 如果没有会话 ID，创建新会话
+        # 如果没有会话 ID，创建新会话（可选带 context_type，如 article_writing）
         if not session_id:
-            session_id = self.context_manager.create_session()
+            ctx_type = (context or {}).get("context_type")
+            metadata = {"type": ctx_type} if ctx_type else None
+            session_id = self.context_manager.create_session(metadata=metadata)
             self.debug.log_context_operation("创建新会话", session_id)
         
         # 获取历史消息（不压缩，保留完整历史）
@@ -1222,20 +1263,34 @@ Please return strictly in the following JSON format:
 - 根据风力等级选择合适的风力图标
 - 穿衣建议和带伞建议要基于实际的温度、天气状况和降水概率"""
         
+        # 写文章场景：注入参考 MediaWiki 页面 + 当前文章草稿（右侧预览），供模型在此基础上修改/续写
+        mw_reference = self._get_mw_reference_content(session_id)
+        if mw_reference:
+            self.debug.log_orchestrator_step("注入参考 MediaWiki 页面", {"length": len(mw_reference)})
+        current_article = self.context_manager.get_current_article(session_id) or ""
+        if current_article.strip():
+            self.debug.log_orchestrator_step("注入当前文章草稿", {"length": len(current_article)})
+
         # 构建 user_prompt（包含历史上下文）
         # 过滤掉 system 消息，只保留 user 和 assistant 消息
         filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
-        
+        task_with_article = (
+            f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}"
+            if current_article.strip()
+            else task
+        )
+        if mw_reference:
+            task_with_article = mw_reference + task_with_article
         if filtered_history:
             # 将历史消息格式化为对话形式，明确标注历史对话
             history_text = "\n".join([
                 f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
                 for msg in filtered_history
             ])
-            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
+            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task_with_article}"
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
         else:
-            user_prompt = task
+            user_prompt = task_with_article
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         
         # 获取工具定义（LLM Function Calling 格式）
@@ -1254,7 +1309,8 @@ Please return strictly in the following JSON format:
         response = await self._chat_with_tools(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            tools=tools if tools else None
+            tools=tools if tools else None,
+            session_id=session_id
         )
         self.debug.log_llm_response(response, selected_model)
         
@@ -1313,10 +1369,11 @@ Please return strictly in the following JSON format:
         self.context_manager.add_message(session_id, MessageRole.USER, task)
         self.context_manager.add_message(session_id, MessageRole.ASSISTANT, response)
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
-        
+        # 写文章会话仅有一个「输出文章」：不在此自动覆盖；由用户通过「写入右侧预览」指定，预览始终显示该文章。
+
         self.debug.log_orchestrator_step("任务处理完成", {"response_length": len(response)})
         return response
-    
+
     async def stream_process(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
         """
         流式处理任务
@@ -1388,9 +1445,11 @@ Please return strictly in the following JSON format:
         session_id = context.get("session_id") if context else None
         self.debug.log_context_operation("获取会话ID", session_id or "new", {"provided": session_id is not None})
         
-        # 如果没有会话 ID，创建新会话
+        # 如果没有会话 ID，创建新会话（可选带 context_type）
         if not session_id:
-            session_id = self.context_manager.create_session()
+            ctx_type = (context or {}).get("context_type")
+            metadata = {"type": ctx_type} if ctx_type else None
+            session_id = self.context_manager.create_session(metadata=metadata)
             debug_info = {
                 "type": "debug",
                 "category": "context",
@@ -1646,20 +1705,29 @@ Please return strictly in the following JSON format:
 - 根据风力等级选择合适的风力图标
 - 穿衣建议和带伞建议要基于实际的温度、天气状况和降水概率"""
         
+        # 写文章场景：注入参考 MediaWiki 页面 + 当前文章草稿（右侧预览）
+        mw_reference = self._get_mw_reference_content(session_id)
+        current_article = self.context_manager.get_current_article(session_id) or ""
+        task_with_article = (
+            f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}"
+            if current_article.strip()
+            else task
+        )
+        if mw_reference:
+            task_with_article = mw_reference + task_with_article
         # 构建 user_prompt（包含历史上下文）
         filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
-        
         if filtered_history:
             history_text = "\n".join([
                 f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
                 for msg in filtered_history
             ])
-            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
+            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task_with_article}"
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
         else:
-            user_prompt = task
+            user_prompt = task_with_article
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
-        
+
         # 4.5. 任务分解（阶段2：如果启用）
         execution_plan = None
         if self.task_decomposer and self.execution_planner:
@@ -2246,10 +2314,11 @@ Please return strictly in the following JSON format:
             # 没有工具，直接流式调用 LLM
             self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
             full_response = ""
-            
+            audit_meta = {"session_id": session_id} if session_id else None
             async for chunk in self.llm_service.stream_chat(
                 system_prompt=system_prompt,
-                user_prompt=user_prompt
+                user_prompt=user_prompt,
+                audit_meta=audit_meta,
             ):
                 full_response += chunk
                 yield chunk
@@ -2317,7 +2386,8 @@ Please return strictly in the following JSON format:
         self.context_manager.add_message(session_id, MessageRole.USER, task)
         self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_response)
         self.debug.log_context_operation("保存消息", session_id, {"user": True, "assistant": True})
-        
+        # 写文章会话仅有一个「输出文章」：不在此自动覆盖；由用户通过「写入右侧预览」指定，预览始终显示该文章。
+
         # 规划功能：对话完成后评估并记录到规划文件（方案2）
         if self.enable_planning and self.evaluator and planning_files:
             try:
@@ -2714,20 +2784,21 @@ Please return strictly in the following JSON format:
                 yield StreamMessageBuilder.build_debug(debug_info)
                 self.debug.log_orchestrator_step(f"工具调用循环第 {iteration} 轮", {})
                 
+                audit_meta = {"session_id": session_id} if session_id else None
                 try:
                     # 调用 LLM（使用 messages 而不是 system_prompt/user_prompt）
-                    response = await self.llm_service.chat(messages=messages, tools=tools)
+                    response = await self.llm_service.chat(messages=messages, tools=tools, audit_meta=audit_meta)
                 except Exception as e:
                     logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
                     yield f"抱歉，处理您的请求时出现错误：{str(e)}"
                     return
-                
+
                 # 检查响应类型
                 if isinstance(response, str):
                     # 普通文本回复，直接返回
                     yield response
                     return
-                
+
                 # 检查是否有工具调用
                 if hasattr(response, 'tool_calls') and response.tool_calls:
                     debug_info = {
@@ -3291,37 +3362,41 @@ Please return strictly in the following JSON format:
         self,
         system_prompt: str,
         user_prompt: str,
-        tools: Optional[list] = None
+        tools: Optional[list] = None,
+        session_id: Optional[str] = None
     ) -> str:
         """
         带工具调用的聊天（处理工具调用循环）
-        
+
         Args:
             system_prompt: 系统提示
             user_prompt: 用户提示
             tools: 工具定义列表
-            
+            session_id: 会话 ID（可选，用于审计日志）
+
         Returns:
             LLM 生成的最终回复
         """
         import json
-        
+
+        audit_meta = {"session_id": session_id} if session_id else None
+
         try:
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": user_prompt})
-            
+
             max_iterations = 5  # 最多 5 轮工具调用循环
             iteration = 0
-            
+
             while iteration < max_iterations:
                 iteration += 1
                 self.debug.log_orchestrator_step(f"工具调用循环第 {iteration} 轮", {})
-                
+
                 try:
                     # 调用 LLM（使用 messages 而不是 system_prompt/user_prompt）
-                    response = await self.llm_service.chat(messages=messages, tools=tools)
+                    response = await self.llm_service.chat(messages=messages, tools=tools, audit_meta=audit_meta)
                 except Exception as e:
                     logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
                     return f"抱歉，处理您的请求时出现错误：{str(e)}"

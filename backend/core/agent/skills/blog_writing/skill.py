@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""博客写作技能 - 基于用户输入的主题和草稿生成结构化文章"""
+"""博客写作技能 - 基于用户输入的主题和草稿生成结构化文章，支持写作画像（喜好、表述习惯、范文）"""
 
 from typing import Dict, Any, Optional
 from backend.core.agent.skills.base import Skill, SkillResult, SkillParameter
-from backend.core.agent.agents.writing_blog_agent import BlogWritingAgent
+from backend.core.agent.agents.article_writing_agent import get_article_writing_agent
 from backend.services.llm.llm_service import LLMService
 from backend.core.agent.tools.registry import ToolRegistry
 
 
 class BlogWritingSkill(Skill):
-    """博客写作技能 - 将BlogWritingAgent包装为技能"""
+    """博客写作技能 - 使用写文章 Agent（带写作画像：喜好、表述习惯、范文）"""
     
     def __init__(self):
         super().__init__(
             name="blog_writing",
             description=(
-                "基于用户提供的主题和草稿，自动生成结构化博客文章的技能。"
-                "能够梳理大纲、实现细节并生成适合发布到MediaWiki的文章。"
+                "基于用户提供的主题和草稿，自动生成结构化博客文章。"
+                "会记住并遵循用户的写作喜好、表述习惯与范文风格（见写作画像配置）。"
             ),
             version="1.0.0",
             category="writing",
@@ -87,8 +87,11 @@ class BlogWritingSkill(Skill):
             if tool_registry is None:
                 tool_registry = ToolRegistry()
             
-            # 创建BlogWritingAgent实例
-            blog_agent = BlogWritingAgent(llm_service, tool_registry)
+            # 使用写文章 Agent（加载写作画像：喜好、表述习惯、范文）
+            blog_agent = get_article_writing_agent(
+                llm_service=llm_service,
+                tool_registry=tool_registry,
+            )
             
             # 构造任务描述
             topic = parameters.get("topic", "")
