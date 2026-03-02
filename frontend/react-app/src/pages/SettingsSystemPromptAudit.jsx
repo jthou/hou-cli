@@ -70,6 +70,22 @@ export default function SettingsSystemPromptAudit() {
                 >
                   <h2 className="text-lg font-semibold text-white mb-2">{a.name}</h2>
                   <p className="text-xs text-[#64748b] mb-3">agent id: {a.id}</p>
+                  {Array.isArray(a.tools) && a.tools.length > 0 && (
+                    <div className="mb-4">
+                      <h3 className="text-sm font-medium text-[#94a3b8] mb-2">配备工具</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {a.tools.map((t) => (
+                          <span
+                            key={t}
+                            className="px-2.5 py-1 text-xs rounded-md bg-accent/15 text-accent border border-accent/30"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <h3 className="text-sm font-medium text-[#94a3b8] mb-2">系统提示</h3>
                   <pre className="whitespace-pre-wrap break-words text-sm text-[#94a3b8] bg-white/5 border border-border rounded-lg p-4 font-sans overflow-x-auto">
                     {a.prompt || ''}
                   </pre>

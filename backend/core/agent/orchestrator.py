@@ -52,6 +52,7 @@ from backend.core.agent.system_prompt_templates import (
     MODEL_SELECTOR_PROMPT,
     SHORT_CHAT_SYSTEM_PROMPT,
 )
+from backend.core.agent.agent_tools_registry import get_tools_for_llm_by_agent
 
 
 class UnifiedOrchestrator:
@@ -1123,8 +1124,8 @@ class SkillMatcher:
             user_prompt = task_with_article
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         
-        # 获取工具定义（LLM Function Calling 格式）
-        tools = self.tool_registry.get_tools_for_llm()
+        # 获取工具定义（按 chat agent 配备的工具过滤，与 agent_tools_registry 一致）
+        tools = get_tools_for_llm_by_agent("chat", self.tool_registry.get_tools_for_llm())
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools)})
         
         # 智能模型选择：使用推理模型分析任务，决定使用哪个模型
@@ -1978,8 +1979,8 @@ class SkillMatcher:
         }
         yield StreamMessageBuilder.build_debug(debug_info)
         
-        # 获取工具定义（LLM Function Calling 格式）
-        tools = self.tool_registry.get_tools_for_llm()
+        # 获取工具定义（按 article_writing agent 配备的工具过滤，与 agent_tools_registry 一致）
+        tools = get_tools_for_llm_by_agent("article_writing", self.tool_registry.get_tools_for_llm())
         tool_names = [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []
         debug_info = {
             "type": "debug",
