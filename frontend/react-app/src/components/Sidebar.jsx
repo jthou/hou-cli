@@ -17,6 +17,7 @@ const navItems = [
   { path: '/article-writing', icon: '✍️', label: '写文章', group: 'tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
+  { path: '/settings/llm-audit', icon: '📜', label: 'LLM 对话审计', group: 'settings' },
   { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },
   { path: '/settings/backend', icon: '🖥️', label: '后端服务', group: 'settings' },
   { path: '/about', icon: 'ℹ️', label: '关于', group: 'settings' },

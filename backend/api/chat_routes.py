@@ -63,6 +63,8 @@ async def chat(request: ChatRequest):
             data={"response_length": len(response) if response else 0}
         )
 
+        # 文章更新由用户点击「接受修改」控制，此处不再自动写入
+
         # 返回响应与当前文章（右侧预览用）
         result = {
             "response": response,
@@ -120,16 +122,12 @@ async def chat_stream(request: ChatRequest):
             
             debug_log("开始流式处理请求...")
             
-            # 使用 SSE 格式发送流式响应
             formatter = SSEFormatter()
-            
             async for chunk in orchestrator.stream_process(request.message, context=context):
                 if chunk:
                     yield formatter.format_chunk(chunk, "streaming")
             
-            # 发送结束标记
             yield formatter.format_done()
-            
             debug_log("流式响应完成")
         except Exception as e:
             error_trace = traceback.format_exc()
@@ -208,17 +206,60 @@ class SetArticleRequest(BaseModel):
 
 @router.put("/chat/article")
 async def set_chat_article(request: SetArticleRequest):
-    """将指定内容设为当前会话的文章草稿（用于「写入右侧预览」）。"""
+    """将指定内容设为当前会话的文章草稿（用于「写入右侧预览」），并记入版本历史。"""
     if not request.session_id:
         return {"article": None, "status": "error", "error": "缺少 session_id"}
     try:
         orchestrator = get_orchestrator()
         ok = orchestrator.context_manager.set_current_article(
-            request.session_id, request.content or ""
+            request.session_id, request.content or "", source="user"
         )
         article = orchestrator.context_manager.get_current_article(request.session_id) if ok else None
         return {"article": article, "status": "success" if ok else "error", "success": ok}
     except Exception as e:
         debug_log(f"set_chat_article failed: {e}", level="error")
         return {"article": None, "status": "error", "success": False, "error": str(e)}
+
+
+@router.get("/chat/article/revisions")
+async def get_article_revisions(session_id: Optional[str] = None, limit: int = 50, offset: int = 0):
+    """列出写文章会话的文章修改历史（版本列表）。"""
+    if not session_id:
+        return {"revisions": [], "status": "success"}
+    try:
+        orchestrator = get_orchestrator()
+        rows = orchestrator.context_manager.list_article_revisions(
+            session_id, limit=max(1, min(limit, 100)), offset=max(0, offset)
+        )
+        revisions = [
+            {"id": r[0], "content": r[1], "source": r[2], "created_at": r[3]}
+            for r in rows
+        ]
+        return {"revisions": revisions, "status": "success"}
+    except Exception as e:
+        debug_log(f"get_article_revisions failed: {e}", level="error")
+        return {"revisions": [], "status": "error", "error": str(e)}
+
+
+class RestoreArticleRequest(BaseModel):
+    session_id: str
+    revision_id: int
+
+
+@router.post("/chat/article/restore")
+async def restore_article_revision(request: RestoreArticleRequest):
+    """将指定版本恢复为当前文章。"""
+    if not request.session_id:
+        return {"article": None, "status": "error", "error": "缺少 session_id"}
+    try:
+        orchestrator = get_orchestrator()
+        content = orchestrator.context_manager.restore_article_revision(
+            request.revision_id, request.session_id
+        )
+        if content is None:
+            return {"article": None, "status": "error", "error": "版本不存在或不属于本会话"}
+        return {"article": content, "status": "success"}
+    except Exception as e:
+        debug_log(f"restore_article_revision failed: {e}", level="error")
+        return {"article": None, "status": "error", "error": str(e)}
 

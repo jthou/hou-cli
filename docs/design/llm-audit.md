@@ -2,13 +2,23 @@
 
 ## 目的
 
-对每次送入 LLM 的输入与 LLM 的输出做审计记录，便于排查问题、复现对话与合规留痕。
+对**每一次**送入 LLM 的输入与 LLM 的输出做审计记录，便于排查问题、复现对话与合规留痕。
 
-## 存储位置
+## 审计与写文章会话的区别
 
-- 目录：`{应用数据目录}/llm_audit/`（与 `get_app_data_dir()` 一致，和 contexts 等共用根目录）
-- 文件：按 UTC 日期分文件，`llm_audit_YYYY-MM-DD.jsonl`
-- 格式：每行一条 JSON，UTF-8 编码
+- **LLM 对话审计**：**全局、按时间顺序**记录所有 LLM 调用。不区分 session、不区分会话类型（写文章、任务、通用对话等），只要是 `LLMService.chat()` / `stream_chat()` 的调用都会按发生时间写入同一审计存储。用 `audit_id` 关联单次调用的请求与响应。
+- **写文章会话**：按 **session** 维度的业务数据（消息列表、current_article、参考页等），存于 contexts 下的各 session 目录。与审计是两套数据：审计是「每次 LLM 调用的时间线」，写文章是「每个会话的内容」。
+
+审计记录里的 `session_id`（若有）仅为**可选元数据**，表示该次调用所属会话，便于按会话筛选日志，**不会**把审计按 session 或类型拆分存储。
+
+## 存储方式：SQLite 数据库
+
+- **为何用数据库**：与项目内 sessions、task_queue 等一致，便于备份、索引与查询；分页、按日期/时间区间筛选由 SQL 完成，无需扫文件。
+- **位置**：`{应用数据目录}/databases/llm_audit.db`（通过 `StorageManager.get_sqlite_path("llm_audit.db")`，与其它 DB 同目录）。
+- **表结构**：`llm_audit (id INTEGER PRIMARY KEY, ts TEXT NOT NULL, record TEXT NOT NULL)`，`record` 为单条审计的完整 JSON；`ts` 为 UTC ISO8601，用于按日/区间查询与排序。
+- **索引**：`ts` 建索引，便于按时间范围查询与排序。
+
+**旧版 JSONL 迁移**：若存在旧目录 `{应用数据目录}/llm_audit/` 及其中的 `llm_audit_*.jsonl` 文件，在首次调用 `list_audit_dates()` 时会自动执行 `migrate_legacy_jsonl_to_db()`：将全部 JSONL 记录导入数据库，然后删除已迁移的 JSONL 文件及空目录。
 
 ## 记录类型（direction）
 
@@ -69,27 +79,17 @@
 
 - 审计逻辑：`backend/services/llm/llm_audit.py`  
   - `create_audit_id()`  
-  - `append_audit(direction, model, payload, meta=None)`
+  - `append_audit(direction, model, payload, meta=None)`（写入 SQLite）
+  - `list_audit_dates()`、`read_audit_records()`、`read_audit_records_range()`（从 DB 分页查询）
 - 调用点：`backend/services/llm/llm_service.py`  
   - `LLMService.chat()`：请求前写 request，成功写 response，异常写 response_error，均带 `audit_id`  
   - `LLMService.stream_chat()`：同上，并处理流式中断/异常时的局部响应与 `stream_interrupted`
-- 会话上下文：Orchestrator 调用 `chat` / `stream_chat` 时传入 `audit_meta={"session_id": session_id}`，故审计记录中可带 `session_id` 便于按会话检索。
+- 谁触发都会记：所有调用 `LLMService.chat()` / `stream_chat()` 的路径（Orchestrator 对话、写文章、技能、评估等）都会写入同一审计库，无类型过滤。若调用方有 session（如 Orchestrator 带 session_id），则把 `session_id` 放入 `audit_meta`，审计记录中可带 `session_id` 便于按会话检索，但**不**改变「全局按时间序」的存储方式。
 
 ## 使用方式
 
 - 审计写入失败仅打日志，不抛异常，不影响主流程。
-- 应用数据目录不可用时（如 `get_app_data_dir()` 失败），不写文件，仅 warning 日志。
+- 数据库不可用时（如 `get_storage_manager()` 或建表失败），不写记录，仅 warning 日志。
 - **关闭审计**：设置环境变量 `LLM_AUDIT_DISABLED=1`（或 `true`/`yes`），则不再写入任何审计记录，适用于生产环境或磁盘敏感场景。
 
-查询示例（按 audit_id 配对一次调用）：
-
-```bash
-# 某日日志中查找同一 audit_id 的 request 与 response
-grep '"audit_id":"<id>"' llm_audit_2025-02-27.jsonl
-```
-
-按会话查询：
-
-```bash
-grep '"session_id":"<session_id>"' llm_audit_2025-02-27.jsonl
-```
+查询：通过设置页「LLM 对话审计」按日期或时间区间、分页查看；或直接查 SQLite（按 `audit_id`、`session_id` 等筛选 `record` JSON）。

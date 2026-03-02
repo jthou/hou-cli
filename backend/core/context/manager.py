@@ -1,5 +1,5 @@
 """上下文管理器（统一接口）"""
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import uuid
 from backend.core.context.models import Message, MessageRole, Session
@@ -206,26 +206,84 @@ class ContextManager:
         return self.retrieval.search(messages, query, top_k)
     
     def clear_session(self, session_id: str) -> bool:
-        """清除会话内容（消息与文章草稿），会话记录保留。"""
+        """清除会话内容（消息、文章草稿及文章版本历史），会话记录保留。"""
+        ast = self._get_article_storage()
+        if ast:
+            ast.clear_session(session_id)
         return self.storage.clear_session(session_id)
 
     def delete_session(self, session_id: str) -> bool:
-        """删除会话（移除记录与目录）。"""
+        """删除会话（移除记录、目录及该会话的文章版本历史）。"""
+        ast = self._get_article_storage()
+        if ast:
+            ast.clear_session(session_id)
         if hasattr(self.storage, "delete_session"):
             return self.storage.delete_session(session_id)
         return self.storage.clear_session(session_id)
 
+    def _get_article_storage(self):
+        """懒加载文章版本存储（SQLite），用于当前文章 + 修改历史。"""
+        if getattr(self, "_article_storage", None) is not None:
+            return self._article_storage
+        try:
+            from backend.core.context.article_storage import ArticleRevisionStorage
+            self._article_storage = ArticleRevisionStorage()
+            return self._article_storage
+        except Exception:
+            self._article_storage = False
+            return None
+
     def get_current_article(self, session_id: str) -> Optional[str]:
-        """获取会话的当前文章草稿（写文章右侧输出），用于注入对话上下文。"""
+        """获取会话的当前文章草稿（写文章右侧输出），用于注入对话上下文。优先从版本库取，无则回退到原存储。"""
+        ast = self._get_article_storage()
+        if ast:
+            current = ast.get_current(session_id)
+            if current is not None:
+                return current
         if hasattr(self.storage, "get_session_article"):
             return self.storage.get_session_article(session_id)
         return None
 
-    def set_current_article(self, session_id: str, content: str) -> bool:
-        """保存会话的当前文章草稿；对话中会多次作为上下文使用。"""
+    def set_current_article(
+        self,
+        session_id: str,
+        content: str,
+        source: str = "user",
+    ) -> bool:
+        """
+        保存会话的当前文章草稿；对话中会多次作为上下文使用。
+        source: 'user'（用户点击写入/手动编辑）| 'agent'（助手输出自动写入）。
+        会写入版本历史，并同步到原存储（如有）。
+        """
+        ok = False
+        ast = self._get_article_storage()
+        if ast:
+            ok = ast.set_current(session_id, content or "", source)
         if hasattr(self.storage, "set_session_article"):
-            return self.storage.set_session_article(session_id, content)
-        return False
+            ok = self.storage.set_session_article(session_id, content or "") or ok
+        return ok
+
+    def list_article_revisions(
+        self,
+        session_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Tuple[int, str, str, str]]:
+        """列出该会话的文章修改历史，(id, content, source, created_at)。"""
+        ast = self._get_article_storage()
+        if not ast:
+            return []
+        return ast.list_revisions(session_id, limit=limit, offset=offset)
+
+    def restore_article_revision(self, revision_id: int, session_id: str) -> Optional[str]:
+        """将指定版本恢复为当前文章，返回恢复后的 content。"""
+        ast = self._get_article_storage()
+        if not ast:
+            return None
+        content = ast.restore_revision(revision_id, session_id)
+        if content is not None and hasattr(self.storage, "set_session_article"):
+            self.storage.set_session_article(session_id, content)
+        return content
 
     def get_mw_source_titles(self, session_id: str) -> List[str]:
         """获取会话的参考 MediaWiki 页面标题列表（写文章用）。"""

@@ -1,8 +1,10 @@
 /**
- * 写文章 - 与公众号草稿一致：左侧会话列表，中间对话，右侧文章预览。
+ * 写文章 - 与公众号草稿一致：左侧会话列表，中间对话，右侧文章预览（Markdown 预览与微信草稿一致）。
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useToast } from '../components/ToastModal'
+import MarkdownPreview from '../components/MarkdownPreview'
+import ChatInput from '../components/ChatInput'
 
 const ARTICLE_SESSION_TYPE = 'article_writing'
 const STORAGE_KEY_SELECTED_SESSION = 'article_writing_selected_session_id'
@@ -29,7 +31,31 @@ export default function ArticleWriting() {
   const [editDialogSearchResults, setEditDialogSearchResults] = useState([])
   const [editDialogSaving, setEditDialogSaving] = useState(false)
   const [listSort, setListSort] = useState('updated_at') // 'updated_at' | 'created_at'
+  const [revisions, setRevisions] = useState([])
+  const [showRevisions, setShowRevisions] = useState(false)
+  const [revisionsLoading, setRevisionsLoading] = useState(false)
+  /** 当前在预览的历史版本 id，null 表示预览当前文章 */
+  const [previewRevisionId, setPreviewRevisionId] = useState(null)
+  /** 流式输出时当前已接收的助手回复内容（未结束时累积显示） */
+  const [streamingContent, setStreamingContent] = useState('')
   const messagesEndRef = useRef(null)
+  const abortControllerRef = useRef(null)
+  const streamingContentRef = useRef('')
+
+  const loadRevisions = useCallback(() => {
+    if (!selectedSessionId) {
+      setRevisions([])
+      return
+    }
+    setRevisionsLoading(true)
+    fetch(`/api/chat/article/revisions?session_id=${encodeURIComponent(selectedSessionId)}&limit=30`)
+      .then((r) => r.json())
+      .then((d) => {
+        setRevisions(Array.isArray(d.revisions) ? d.revisions : [])
+      })
+      .catch(() => setRevisions([]))
+      .finally(() => setRevisionsLoading(false))
+  }, [selectedSessionId])
 
   const loadSessions = useCallback(() => {
     setSessionsLoading(true)
@@ -75,12 +101,14 @@ export default function ArticleWriting() {
     if (!selectedSessionId) {
       setMessages([])
       setArticle('')
+      setPreviewRevisionId(null)
       setDetailLoading(false)
       return
     }
     setDetailLoading(true)
     setMessages([])
     setArticle('')
+    setPreviewRevisionId(null)
     Promise.all([
       fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`).then((r) => r.json()),
       fetch(`/api/chat/article?session_id=${encodeURIComponent(selectedSessionId)}`).then((r) => r.json()),
@@ -97,14 +125,15 @@ export default function ArticleWriting() {
       })
       .catch(() => {})
       .finally(() => setDetailLoading(false))
-  }, [selectedSessionId])
+    loadRevisions()
+  }, [selectedSessionId, loadRevisions])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+  }, [messages, streamingContent])
 
   const handleNewSession = () => {
     fetch('/api/sessions', {
@@ -124,16 +153,24 @@ export default function ArticleWriting() {
       .catch((e) => toast?.error?.(e?.message || '创建会话失败'))
   }
 
+  const handleStop = () => {
+    abortControllerRef.current?.abort()
+  }
+
   const handleSubmit = async (e) => {
-    e.preventDefault()
+    e?.preventDefault?.()
     if (!selectedSessionId) return
     const text = (input || '').trim()
     if (!text) return
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
+    setStreamingContent('')
     setLoading(true)
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+    const isFirstMessage = messages.length === 0
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,42 +179,118 @@ export default function ArticleWriting() {
           current_article: article || undefined,
           context_type: 'article_writing',
         }),
+        signal: ac.signal,
       })
-      const contentType = res.headers.get('content-type') || ''
-      let data
-      try {
-        data = contentType.includes('application/json') ? await res.json() : { status: 'error', error: `服务器返回 ${res.status}` }
-      } catch (_) {
-        data = { status: 'error', error: `响应解析失败 (${res.status})` }
-      }
-      if (data.status === 'success' && data.response != null) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.response }])
-        if (data.article != null) setArticle(data.article)
-        // 首条用户消息时自动用其前 30 字作为会话标题
-        if (messages.length === 0 && text) {
-          fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: text.slice(0, 30).trim() || text.slice(0, 30) }),
-          })
-            .then((r) => r.json())
-            .then((d) => { if (d.success) loadSessions() })
-            .catch(() => {})
-        }
-      } else {
-        const err = data.error || '请求失败'
-        toast?.error?.(err) || console.error(err)
+      if (!res.ok) {
+        const err = res.statusText || `服务器返回 ${res.status}`
         setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
+        return
       }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullContent = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const block of parts) {
+          const dataLine = block.split('\n').find((l) => l.startsWith('data: '))
+          if (!dataLine) continue
+          try {
+            const obj = JSON.parse(dataLine.slice(6))
+            if (obj.status === 'streaming' && obj.content != null) {
+              const raw = obj.content
+              if (raw.startsWith('__DEBUG__:') || raw.startsWith('__TOOL__:') || raw.startsWith('__STATUS__:')) continue
+              fullContent += raw
+              streamingContentRef.current = fullContent
+              setStreamingContent(fullContent)
+            } else if (obj.status === 'done') {
+              setMessages((prev) => [...prev, { role: 'assistant', content: fullContent }])
+              setStreamingContent('')
+              streamingContentRef.current = ''
+              if (isFirstMessage && text) {
+                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ title: text.slice(0, 30).trim() || text.slice(0, 30) }),
+                })
+                  .then((r) => r.json())
+                  .then((d) => { if (d.success) loadSessions() })
+                  .catch(() => {})
+              }
+              fullContent = ''
+            } else if (obj.status === 'error') {
+              const err = obj.error || '请求失败'
+              toast?.error?.(err)
+              setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
+              setStreamingContent('')
+              streamingContentRef.current = ''
+              fullContent = ''
+            }
+          } catch (_) {}
+        }
+      }
+      if (buffer.trim()) {
+        try {
+          const dataLine = buffer.split('\n').find((l) => l.startsWith('data: '))
+          if (dataLine) {
+            const obj = JSON.parse(dataLine.slice(6))
+            if (obj.status === 'streaming' && obj.content != null) {
+              const raw = obj.content
+              if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__TOOL__:') && !raw.startsWith('__STATUS__:')) {
+                fullContent += raw
+                streamingContentRef.current = fullContent
+                setStreamingContent(fullContent)
+              }
+            }
+            if (obj.status === 'done') {
+              setMessages((prev) => [...prev, { role: 'assistant', content: fullContent }])
+              setStreamingContent('')
+              streamingContentRef.current = ''
+              if (isFirstMessage && text) {
+                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ title: text.slice(0, 30).trim() || text.slice(0, 30) }),
+                })
+                  .then((r) => r.json())
+                  .then((d) => { if (d.success) loadSessions() })
+                  .catch(() => {})
+              }
+            } else if (obj.status === 'error') {
+              const err = obj.error || '请求失败'
+              toast?.error?.(err)
+              setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
+              setStreamingContent('')
+              streamingContentRef.current = ''
+            }
+          }
+        } catch (_) {}
+        setStreamingContent('')
+      }
+      abortControllerRef.current = null
     } catch (err) {
+      abortControllerRef.current = null
+      if (err.name === 'AbortError') {
+        const stoppedContent = streamingContentRef.current
+        setMessages((prev) => [...prev, { role: 'assistant', content: stoppedContent ? `[已停止]\n\n${stoppedContent}` : '[已停止]' }])
+        setStreamingContent('')
+        streamingContentRef.current = ''
+        return
+      }
       const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
       const msg = isNetworkError
         ? '无法连接后端。请确认后端已启动（默认端口 8081）。'
         : (err?.message || '网络错误')
       toast?.error?.(msg) || console.error(err)
       setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${msg}` }])
+      setStreamingContent('')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const displayLabel = (s) => {
@@ -187,59 +300,64 @@ export default function ArticleWriting() {
     return p ? (p.length > 28 ? p.slice(0, 28) + '…' : p) : '新会话'
   }
 
-  const handleDeleteSession = (sessionId, e) => {
+  const handleDeleteSession = async (sessionId, e) => {
     e?.stopPropagation?.()
     if (!sessionId) return
-    if (!window.confirm('确定删除该会话？删除后不可恢复。')) return
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success) {
-          loadSessions()
-          if (selectedSessionId === sessionId) {
-            setSelectedSessionId(null)
-            setMessages([])
-            setArticle('')
-          }
-        } else {
-          toast?.error?.(d.error || '删除失败')
+    const ok = await toast?.confirm?.('确定删除该会话？删除后不可恢复。')
+    if (!ok) return
+    try {
+      const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+      const d = await r.json()
+      if (d.success) {
+        loadSessions()
+        if (selectedSessionId === sessionId) {
+          setSelectedSessionId(null)
+          setMessages([])
+          setArticle('')
         }
-      })
-      .catch((e) => toast?.error?.(e?.message || '删除失败'))
+      } else {
+        toast?.error?.(d.error || '删除失败')
+      }
+    } catch (err) {
+      toast?.error?.(err?.message || '删除失败')
+    }
   }
 
-  const handleClearSession = (sessionId, e) => {
+  const handleClearSession = async (sessionId, e) => {
     e?.stopPropagation?.()
     if (!sessionId) return
-    if (!window.confirm('确定清空该会话的消息与文章草稿？')) return
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clear`, { method: 'POST' })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success) {
-          if (selectedSessionId === sessionId) {
-            setMessages([])
-            setArticle('')
-            setDetailLoading(true)
-            Promise.all([
-              fetch(`/api/sessions/${encodeURIComponent(sessionId)}`).then((r) => r.json()),
-              fetch(`/api/chat/article?session_id=${encodeURIComponent(sessionId)}`).then((r) => r.json()),
+    const ok = await toast?.confirm?.('确定清空该会话的消息与文章草稿？')
+    if (!ok) return
+    try {
+      const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clear`, { method: 'POST' })
+      const d = await r.json()
+      if (d.success) {
+        if (selectedSessionId === sessionId) {
+          setMessages([])
+          setArticle('')
+          setDetailLoading(true)
+          try {
+            const [sessionRes, articleRes] = await Promise.all([
+              fetch(`/api/sessions/${encodeURIComponent(sessionId)}`).then((res) => res.json()),
+              fetch(`/api/chat/article?session_id=${encodeURIComponent(sessionId)}`).then((res) => res.json()),
             ])
-              .then(([sessionRes, articleRes]) => {
-                if (sessionRes.success && Array.isArray(sessionRes.messages)) {
-                  setMessages(sessionRes.messages.map((m) => ({ role: m.role, content: m.content })))
-                }
-                if (articleRes.status === 'success' && articleRes.article != null) {
-                  setArticle(articleRes.article)
-                }
-              })
-              .finally(() => setDetailLoading(false))
+            if (sessionRes.success && Array.isArray(sessionRes.messages)) {
+              setMessages(sessionRes.messages.map((m) => ({ role: m.role, content: m.content })))
+            }
+            if (articleRes.status === 'success' && articleRes.article != null) {
+              setArticle(articleRes.article)
+            }
+          } finally {
+            setDetailLoading(false)
           }
-          loadSessions()
-        } else {
-          toast?.error?.(d.error || '清空失败')
         }
-      })
-      .catch((e) => toast?.error?.(e?.message || '清空失败'))
+        loadSessions()
+      } else {
+        toast?.error?.(d.error || '清空失败')
+      }
+    } catch (err) {
+      toast?.error?.(err?.message || '清空失败')
+    }
   }
 
   const openEditDialog = (sessionId, currentTitle, e) => {
@@ -314,12 +432,55 @@ export default function ArticleWriting() {
       .then((d) => {
         if (d.status === 'success' && d.article != null) {
           setArticle(d.article)
-          toast?.info?.('已写入右侧预览') || toast?.success?.('已写入右侧预览')
+          loadRevisions()
         } else {
           toast?.error?.(d.error || '写入失败')
         }
       })
       .catch((e) => toast?.error?.(e?.message || '写入失败'))
+  }
+
+  const handleCopyContent = (content) => {
+    if (!content) return
+    navigator.clipboard.writeText(content).then(
+      () => toast?.info?.('已复制到剪贴板'),
+      () => toast?.error?.('复制失败')
+    )
+  }
+
+  const handleAddContentToInput = (content) => {
+    if (!content) return
+    setInput((prev) => (prev ? prev + '\n\n' + content : content))
+  }
+
+  /** 当前在预览区显示的内容：当前文章或选中的历史版本 */
+  const previewContent = useMemo(() => {
+    if (previewRevisionId == null) return article ?? ''
+    const rev = revisions.find((r) => r.id === previewRevisionId)
+    return rev?.content ?? article ?? ''
+  }, [article, previewRevisionId, revisions])
+
+  const handleCopyArticle = () => handleCopyContent(previewContent)
+  const handleAddArticleToInput = () => handleAddContentToInput(previewContent)
+
+  const handleRestoreRevision = (revisionId) => {
+    if (!selectedSessionId) return
+    fetch('/api/chat/article/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: selectedSessionId, revision_id: revisionId }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.status === 'success' && d.article != null) {
+          setArticle(d.article)
+          loadRevisions()
+          toast?.info?.('已恢复该版本')
+        } else {
+          toast?.error?.(d.error || '恢复失败')
+        }
+      })
+      .catch((e) => toast?.error?.(e?.message || '恢复失败'))
   }
 
   const saveEditDialog = () => {
@@ -474,67 +635,168 @@ export default function ArticleWriting() {
                         {m.content}
                       </div>
                       {m.role === 'assistant' && (
-                        <button
-                          type="button"
-                          onClick={() => handleWriteToPreview(m.content)}
-                          className="mt-1.5 text-xs text-[#94a3b8] hover:text-accent"
-                        >
-                          写入右侧预览
-                        </button>
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleWriteToPreview(m.content)}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-cyan-400 hover:bg-white/10"
+                          >
+                            接受修改
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyContent(m.content)}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                          >
+                            复制
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddContentToInput(m.content)}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                          >
+                            加入输入框
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
                 ))}
                 {loading && (
-                  <div className="flex justify-start">
-                    <div className="rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] bg-white/5 border border-border">
-                      thinking…
+                  <div className="flex justify-start items-center gap-3">
+                    <div className="max-w-[85%] flex flex-col items-start">
+                      <div
+                        className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap border border-border ${
+                          streamingContent ? 'bg-white/5 text-[#e2e8f0]' : 'text-[#94a3b8] bg-white/5'
+                        }`}
+                      >
+                        {streamingContent || 'thinking…'}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleStop}
+                          className="px-3 py-1.5 text-sm rounded-lg border border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                        >
+                          停止
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
-              <form
-                onSubmit={handleSubmit}
-                className="shrink-0 px-4 py-3 border-t border-border bg-surface"
-              >
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="输入消息，例如：帮我写一篇文章，主题是…"
-                    className="flex-1 rounded-lg bg-white/5 border border-border px-4 py-2.5 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                    disabled={loading}
-                  />
-                  <button
-                    type="submit"
-                    disabled={loading || !input.trim()}
-                    className="shrink-0 px-4 py-2.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    发送
-                  </button>
-                </div>
-              </form>
+              <ChatInput
+                value={input}
+                onChange={setInput}
+                onSubmit={() => handleSubmit({ preventDefault: () => {} })}
+                placeholder="输入消息，Enter 换行，Ctrl+Enter 发送"
+                disabled={loading}
+                submitLabel="发送"
+              />
             </>
           )}
         </div>
 
         {/* 右侧：文章预览 */}
         <div className="w-[560px] shrink-0 flex flex-col bg-white/[0.02] overflow-hidden">
-          <div className="shrink-0 px-4 py-3 border-b border-border">
+          <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
             <h2 className="text-sm font-medium text-[#94a3b8]">文章预览</h2>
+            <div className="flex items-center gap-2">
+              {previewContent && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCopyArticle}
+                    className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                  >
+                    复制
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddArticleToInput}
+                    className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                  >
+                    加入输入框
+                  </button>
+                </>
+              )}
+              {selectedSessionId && (
+                <button
+                  type="button"
+                  onClick={() => setShowRevisions((s) => !s)}
+                  className="text-xs text-[#64748b] hover:text-[#94a3b8]"
+                >
+                  {showRevisions ? '收起历史' : '历史版本'}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {article ? (
-              <div className="text-[#e2e8f0] text-sm whitespace-pre-wrap leading-relaxed font-serif">
-                {article}
+          {showRevisions && selectedSessionId && (
+            <div className="shrink-0 border-b border-border max-h-48 overflow-y-auto p-2 bg-black/20">
+              {revisionsLoading ? (
+                <p className="text-xs text-[#64748b]">加载中…</p>
+              ) : revisions.length === 0 ? (
+                <p className="text-xs text-[#64748b]">暂无版本记录</p>
+              ) : (
+                <ul className="space-y-1">
+                  {revisions.map((rev) => (
+                    <li
+                      key={rev.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setPreviewRevisionId(rev.id)}
+                      onKeyDown={(e) => e.key === 'Enter' && setPreviewRevisionId(rev.id)}
+                      className={`flex items-center justify-between gap-2 text-xs rounded px-2 py-1.5 cursor-pointer ${
+                        previewRevisionId === rev.id ? 'bg-cyan-500/20 border border-cyan-500/50' : 'hover:bg-white/10'
+                      }`}
+                    >
+                      <span className="text-[#94a3b8] truncate flex-1 min-w-0">
+                        {rev.created_at?.slice(0, 19).replace('T', ' ')} · {rev.source === 'agent' ? '助手' : '用户'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRestoreRevision(rev.id)
+                          setPreviewRevisionId(null)
+                        }}
+                        className="shrink-0 px-2 py-0.5 rounded text-cyan-400 hover:bg-white/10"
+                      >
+                        恢复
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 bg-[#f6f8fa]">
+            {previewRevisionId != null && (
+              <div className="shrink-0 flex items-center justify-between gap-2 rounded-lg px-3 py-2 bg-cyan-500/10 border border-cyan-500/30 text-sm">
+                <span className="text-cyan-300">
+                  正在查看历史版本 · {revisions.find((r) => r.id === previewRevisionId)?.created_at?.slice(0, 19).replace('T', ' ') ?? ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewRevisionId(null)}
+                  className="px-2 py-1 text-xs rounded border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                >
+                  返回当前
+                </button>
               </div>
-            ) : (
-              <p className="text-[#64748b] text-sm">
-                {selectedSessionId ? '对话中生成的大纲或正文会在此显示，并作为后续修改/续写的上下文。' : '选择会话后，此处显示该会话的文章草稿。'}
-              </p>
             )}
+            {previewContent ? (
+                <MarkdownPreview
+                  markdown={previewContent}
+                  className="p-4 min-h-[200px] w-full"
+                  theme="dark"
+                />
+              ) : (
+                <p className="text-[#64748b] text-sm">
+                  {selectedSessionId ? '点击对话中助手回复的「接受修改」可更新文章，并作为后续润色/续写的上下文。' : '选择会话后，此处显示该会话的文章草稿。'}
+                </p>
+              )}
           </div>
         </div>
       </div>

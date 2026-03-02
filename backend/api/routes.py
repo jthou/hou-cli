@@ -21,6 +21,7 @@ from backend.api.latex_routes import router as latex_router
 from backend.api.tool_routes import router as tool_router
 from backend.api.heartbeat_routes import router as heartbeat_router
 from backend.api.storage_routes import router as storage_router
+from backend.api.llm_audit_routes import router as llm_audit_router
 from backend.api.task_routes import router as task_router
 
 # 导入任务队列路由（添加错误处理）
@@ -49,6 +50,7 @@ router.include_router(latex_router, tags=["latex"])
 router.include_router(tool_router, tags=["tools"])
 router.include_router(heartbeat_router, tags=["monitoring"])
 router.include_router(storage_router, tags=["storage"])
+router.include_router(llm_audit_router, tags=["llm-audit"])
 router.include_router(task_router, tags=["tasks"])
 
 # 注册系统监控路由

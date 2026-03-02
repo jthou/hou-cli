@@ -124,3 +124,65 @@
 .wechat-draft-preview span {
   color: #24292f !important;
 }
+
+/* 深色主题：浅色背景 + 深色字，避免被页面黑色遮挡；不依赖全局变量 */
+.wechat-draft-preview--dark {
+  background-color: #f6f8fa !important;
+  color: #24292f !important;
+}
+
+.wechat-draft-preview--dark p,
+.wechat-draft-preview--dark h1,
+.wechat-draft-preview--dark h2,
+.wechat-draft-preview--dark h3,
+.wechat-draft-preview--dark h4,
+.wechat-draft-preview--dark strong,
+.wechat-draft-preview--dark b,
+.wechat-draft-preview--dark li,
+.wechat-draft-preview--dark div,
+.wechat-draft-preview--dark span {
+  color: #24292f !important;
+}
+
+.wechat-draft-preview--dark em,
+.wechat-draft-preview--dark i,
+.wechat-draft-preview--dark blockquote {
+  color: #57606a !important;
+}
+
+.wechat-draft-preview--dark a {
+  color: #0969da !important;
+}
+
+.wechat-draft-preview--dark code {
+  background-color: #eaeef2 !important;
+  color: #24292f !important;
+  border-color: #d0d7de !important;
+}
+
+.wechat-draft-preview--dark pre {
+  background-color: #eaeef2 !important;
+  color: #24292f !important;
+  border-color: #d0d7de !important;
+}
+
+.wechat-draft-preview--dark pre code {
+  background: none !important;
+}
+
+.wechat-draft-preview--dark h1,
+.wechat-draft-preview--dark h2 {
+  border-bottom-color: #d0d7de !important;
+}
+
+.wechat-draft-preview--dark blockquote {
+  border-left-color: #d0d7de !important;
+}
+
+.wechat-draft-preview--dark hr {
+  border-top-color: #d0d7de !important;
+}
+
+.wechat-draft-preview--dark img {
+  border-color: #d0d7de !important;
+}

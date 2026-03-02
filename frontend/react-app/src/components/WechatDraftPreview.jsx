@@ -8,11 +8,14 @@ import renderMathInElement from 'katex/contrib/auto-render'
 import 'katex/dist/katex.min.css'
 import './WechatDraftPreview.css'
 
-/** 根容器强制明亮风格，不被全局 color/background 覆盖 */
+/** 根容器明亮风格（公众号预览用），不被全局 color/background 覆盖 */
 const LIGHT_ROOT_STYLE = {
   backgroundColor: '#ffffff',
   color: '#24292f',
 }
+
+/** 深色主题时跟随应用主题，不强制白底 */
+const DARK_ROOT_STYLE = {}
 
 const KATEX_OPTIONS = {
   delimiters: [
@@ -26,10 +29,14 @@ const KATEX_OPTIONS = {
  * @param {Object} props
  * @param {string} [props.html] - 正文 HTML 字符串
  * @param {string} [props.className] - 容器额外类名
+ * @param {'light'|'dark'} [props.theme='light'] - light=白底深色字（公众号风格），dark=跟随应用主题
  */
-export default function WechatDraftPreview({ html = '', className = '' }) {
+export default function WechatDraftPreview({ html = '', className = '', theme = 'light' }) {
   const containerRef = useRef(null)
   const trimmed = typeof html === 'string' ? html.trim() : ''
+  const isDark = theme === 'dark'
+  const rootStyle = isDark ? DARK_ROOT_STYLE : LIGHT_ROOT_STYLE
+  const themeClass = isDark ? ' wechat-draft-preview--dark' : ''
 
   useEffect(() => {
     if (!containerRef.current || !trimmed) return
@@ -39,8 +46,8 @@ export default function WechatDraftPreview({ html = '', className = '' }) {
   if (!trimmed) {
     return (
       <div
-        className={`wechat-draft-preview wechat-draft-preview--empty ${className}`.trim()}
-        style={LIGHT_ROOT_STYLE}
+        className={`wechat-draft-preview wechat-draft-preview--empty${themeClass} ${className}`.trim()}
+        style={rootStyle}
       >
         <span className="wechat-draft-preview__placeholder">暂无正文</span>
       </div>
@@ -49,8 +56,8 @@ export default function WechatDraftPreview({ html = '', className = '' }) {
   return (
     <div
       ref={containerRef}
-      className={`wechat-draft-preview ${className}`.trim()}
-      style={LIGHT_ROOT_STYLE}
+      className={`wechat-draft-preview${themeClass} ${className}`.trim()}
+      style={rootStyle}
       dangerouslySetInnerHTML={{ __html: trimmed }}
     />
   )

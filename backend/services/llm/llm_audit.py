@@ -1,6 +1,6 @@
 """
 LLM 对话审计：记录每次送入 LLM 的输入与 LLM 的输出，便于审计与排查。
-日志按日写入 JSONL 文件，存于应用数据目录 llm_audit/ 下。
+记录存入 SQLite 数据库（与 sessions、task_queue 同目录），表 llm_audit。
 同一次调用的 request / response / response_error 通过 meta.audit_id 关联。
 
 可通过环境变量关闭：LLM_AUDIT_DISABLED=1 或 true/yes 时不写入任何记录。
@@ -11,9 +11,12 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+DB_NAME = "llm_audit.db"
+TABLE_NAME = "llm_audit"
 
 
 def _is_audit_disabled() -> bool:
@@ -33,22 +36,203 @@ MAX_CONTENT_LEN = 50000
 MAX_MESSAGE_PREVIEW_LEN = 8000
 
 
-def _get_audit_dir() -> Path:
+def _get_conn():
+    """获取 llm_audit 数据库连接并确保表存在。失败返回 None。"""
+    try:
+        from shared.storage_utils import get_storage_manager
+        conn = get_storage_manager().get_sqlite_connection(DB_NAME)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                record TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_audit_ts ON llm_audit(ts)")
+        conn.commit()
+        return conn
+    except Exception as e:
+        logger.warning("LLM 审计数据库不可用: %s", e)
+        return None
+
+
+def get_audit_dir() -> Optional[Path]:
+    """返回审计存储路径（数据库文件所在路径），供 API 展示。不可用时为 None。"""
+    try:
+        from shared.storage_utils import get_storage_manager
+        return get_storage_manager().get_sqlite_path(DB_NAME)
+    except Exception:
+        return None
+
+
+def _get_legacy_audit_dir() -> Optional[Path]:
+    """旧版审计目录（JSONL 文件），用于迁移。"""
     try:
         from shared.platform_utils import get_app_data_dir
-        d = get_app_data_dir() / "llm_audit"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return get_app_data_dir() / "llm_audit"
+    except Exception:
+        return None
+
+
+def migrate_legacy_jsonl_to_db() -> Tuple[int, Optional[str]]:
+    """
+    将旧版 llm_audit/ 下的 JSONL 文件迁移到 SQLite，迁移成功后删除这些文件及空目录。
+    返回 (迁移条数, 错误信息)，成功时错误为 None。
+    """
+    legacy_dir = _get_legacy_audit_dir()
+    if legacy_dir is None or not legacy_dir.is_dir():
+        return 0, None
+    files = sorted(legacy_dir.glob("llm_audit_*.jsonl"), key=lambda p: p.name)
+    if not files:
+        try:
+            legacy_dir.rmdir()
+        except OSError:
+            pass
+        return 0, None
+    conn = _get_conn()
+    if conn is None:
+        return 0, "数据库不可用"
+    inserted = 0
+    try:
+        for path in files:
+            if not path.is_file():
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        ts = record.get("ts") or ""
+                        conn.execute(
+                            "INSERT INTO llm_audit (ts, record) VALUES (?, ?)",
+                            (ts, json.dumps(record, ensure_ascii=False)),
+                        )
+                        inserted += 1
+                    except (json.JSONDecodeError, Exception) as e:
+                        logger.debug("跳过无效行 %s: %s", path.name, e)
+            path.unlink()
+        conn.commit()
+        try:
+            if legacy_dir.exists() and not any(legacy_dir.iterdir()):
+                legacy_dir.rmdir()
+        except OSError:
+            pass
+        return inserted, None
     except Exception as e:
-        logger.warning("LLM 审计目录不可用: %s", e)
-        return None
+        logger.warning("迁移审计 JSONL 失败: %s", e)
+        return inserted, str(e)
+    finally:
+        conn.close()
 
 
-def _today_file() -> Optional[Path]:
-    d = _get_audit_dir()
-    if d is None:
-        return None
-    return d / f"llm_audit_{datetime.utcnow().strftime('%Y-%m-%d')}.jsonl"
+def list_audit_dates() -> List[str]:
+    """列出已有审计记录的日期，格式 YYYY-MM-DD，降序（最新在前）。首次调用时会尝试迁移旧版 JSONL 并删除原文件。"""
+    migrate_legacy_jsonl_to_db()
+    conn = _get_conn()
+    if conn is None:
+        return []
+    try:
+        cur = conn.execute(
+            "SELECT DISTINCT substr(ts, 1, 10) AS d FROM llm_audit ORDER BY d DESC"
+        )
+        return [row[0] for row in cur.fetchall()]
+    except Exception as e:
+        logger.warning("列举审计日期失败: %s", e)
+        return []
+    finally:
+        conn.close()
+
+
+def read_audit_records(
+    date: str,
+    offset: int = 0,
+    limit: int = 20,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    读取指定日期的审计记录，按时间倒序（最新在前），分页。
+    返回 (records, total)。
+    """
+    conn = _get_conn()
+    if conn is None:
+        return [], 0
+    try:
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM llm_audit WHERE substr(ts, 1, 10) = ?",
+            (date,),
+        )
+        total = cur.fetchone()[0]
+        cur = conn.execute(
+            """
+            SELECT record FROM llm_audit
+            WHERE substr(ts, 1, 10) = ?
+            ORDER BY ts DESC
+            LIMIT ? OFFSET ?
+            """,
+            (date, limit, offset),
+        )
+        records = []
+        for row in cur.fetchall():
+            try:
+                records.append(json.loads(row[0]))
+            except json.JSONDecodeError:
+                continue
+        return records, total
+    except Exception as e:
+        logger.warning("读取审计记录失败: %s", e)
+        return [], 0
+    finally:
+        conn.close()
+
+
+def read_audit_records_range(
+    from_date: str,
+    to_date: str,
+    offset: int = 0,
+    limit: int = 20,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    读取时间区间内的审计记录（from_date 至 to_date 含），按 ts 倒序，分页。
+    返回 (records, total)。
+    """
+    if from_date > to_date:
+        from_date, to_date = to_date, from_date
+    conn = _get_conn()
+    if conn is None:
+        return [], 0
+    try:
+        cur = conn.execute(
+            """
+            SELECT COUNT(*) FROM llm_audit
+            WHERE substr(ts, 1, 10) BETWEEN ? AND ?
+            """,
+            (from_date, to_date),
+        )
+        total = cur.fetchone()[0]
+        cur = conn.execute(
+            """
+            SELECT record FROM llm_audit
+            WHERE substr(ts, 1, 10) BETWEEN ? AND ?
+            ORDER BY ts DESC
+            LIMIT ? OFFSET ?
+            """,
+            (from_date, to_date, limit, offset),
+        )
+        records = []
+        for row in cur.fetchall():
+            try:
+                records.append(json.loads(row[0]))
+            except json.JSONDecodeError:
+                continue
+        return records, total
+    except Exception as e:
+        logger.warning("读取审计记录失败: %s", e)
+        return [], 0
+    finally:
+        conn.close()
 
 
 def _truncate(s: str, max_len: int = MAX_CONTENT_LEN) -> str:
@@ -109,7 +293,7 @@ def append_audit(
     meta: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
-    追加一条 LLM 审计记录。失败仅打日志，不抛异常。
+    追加一条 LLM 审计记录到数据库。失败仅打日志，不抛异常。
     LLM_AUDIT_DISABLED=1 时不写入。
 
     Args:
@@ -120,18 +304,24 @@ def append_audit(
     """
     if _is_audit_disabled():
         return
-    path = _today_file()
-    if path is None:
+    conn = _get_conn()
+    if conn is None:
         return
+    ts = datetime.utcnow().isoformat() + "Z"
     record = {
-        "ts": datetime.utcnow().isoformat() + "Z",
+        "ts": ts,
         "direction": direction,
         "model": model,
         "payload": payload,
         **(meta or {}),
     }
     try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        conn.execute(
+            "INSERT INTO llm_audit (ts, record) VALUES (?, ?)",
+            (ts, json.dumps(record, ensure_ascii=False)),
+        )
+        conn.commit()
     except Exception as e:
         logger.warning("写入 LLM 审计日志失败: %s", e)
+    finally:
+        conn.close()

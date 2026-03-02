@@ -14,6 +14,7 @@ import SettingsGeneral from './pages/SettingsGeneral'
 import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
+import SettingsLlmAudit from './pages/SettingsLlmAudit'
 import About from './pages/About'
 import WechatDraftPage from './pages/WechatDraftPage'
 import UrlToWiki from './pages/UrlToWiki'
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
+              <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
               <Route path="/settings/tests" element={<SettingsTests />} />
               <Route path="/settings/backend" element={<SettingsBackend />} />
               <Route path="/about" element={<About />} />

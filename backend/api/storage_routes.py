@@ -72,10 +72,18 @@ async def get_storage_config():
         
         # 获取数据目录信息
         data_dir = storage_manager.get_data_dir()
-        
+        # LLM 审计使用独立 SQLite 库
+        try:
+            from backend.services.llm.llm_audit import get_audit_dir
+            audit_path = get_audit_dir()
+            llm_audit_db_path = str(audit_path) if audit_path else None
+        except Exception:
+            llm_audit_db_path = None
+
         return {
             "success": True,
             "data_dir": str(data_dir),
+            "llm_audit_db_path": llm_audit_db_path,
             "sqlite": {
                 "enabled": True,
                 "db_dir": str(db_dir),
