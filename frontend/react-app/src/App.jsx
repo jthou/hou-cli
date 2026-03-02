@@ -29,7 +29,7 @@ export default function App() {
       <BrowserRouter>
         <div className="flex h-screen w-full">
           <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
-          <main className="flex-1 flex flex-col min-w-0 bg-surface overflow-hidden">
+          <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface overflow-hidden">
             <Routes>
               <Route path="/" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />

@@ -1,10 +1,14 @@
 """聊天相关路由"""
+import subprocess
+import tempfile
 import traceback
+from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 from backend.core.agent.orchestrator import Orchestrator
 from backend.api.stream_sender import SSEFormatter
+from backend.core.article_patch import apply_unified_diff
 from shared.debug_utils import debug_log
 
 router = APIRouter()
@@ -244,6 +248,127 @@ async def get_article_revisions(session_id: Optional[str] = None, limit: int = 5
 class RestoreArticleRequest(BaseModel):
     session_id: str
     revision_id: int
+
+
+class ApplyPatchArticleRequest(BaseModel):
+    """应用 unified diff 到当前文章（LLM 输出 patch 时使用）。"""
+    session_id: str
+    patch: str  # unified diff 字符串
+
+
+class PatchArticleRequest(BaseModel):
+    """局部编辑：在锚点后插入内容。"""
+    session_id: str
+    op: str = "insert_after"  # 目前仅支持 insert_after
+    anchor: str  # 当前文章中首次出现的锚点文本
+    content: str  # 要插入的段落（支持多行 Markdown）
+
+
+@router.post("/chat/article/apply-patch")
+async def apply_patch_article(request: ApplyPatchArticleRequest):
+    """对当前文章应用 unified diff（patch）。用于「LLM 输出 patch」后的精确合并。"""
+    if not request.session_id:
+        return {"article": None, "status": "error", "error": "缺少 session_id"}
+    if not (request.patch or "").strip():
+        return {"article": None, "status": "error", "error": "patch 不能为空"}
+    try:
+        orchestrator = get_orchestrator()
+        current = orchestrator.context_manager.get_current_article(request.session_id)
+        if current is None:
+            current = ""
+        new_content = apply_unified_diff(current, request.patch.strip())
+        ok = orchestrator.context_manager.set_current_article(
+            request.session_id, new_content, source="user"
+        )
+        article = orchestrator.context_manager.get_current_article(request.session_id) if ok else None
+        return {"article": article, "status": "success" if ok else "error", "success": ok}
+    except ValueError as e:
+        return {"article": None, "status": "error", "success": False, "error": str(e)}
+    except Exception as e:
+        debug_log(f"apply_patch_article failed: {e}", level="error")
+        return {"article": None, "status": "error", "success": False, "error": str(e)}
+
+
+@router.post("/chat/article/patch")
+async def patch_article(request: PatchArticleRequest):
+    """在文章锚点首次出现位置之后插入一段内容，其余不变，并作为新版本入库。"""
+    if not request.session_id:
+        return {"article": None, "status": "error", "error": "缺少 session_id"}
+    if (request.anchor or "").strip() == "":
+        return {"article": None, "status": "error", "error": "锚点不能为空"}
+    if request.op != "insert_after":
+        return {"article": None, "status": "error", "error": f"不支持的操作: {request.op}"}
+    try:
+        orchestrator = get_orchestrator()
+        current = orchestrator.context_manager.get_current_article(request.session_id)
+        if current is None:
+            current = ""
+        idx = current.find(request.anchor)
+        if idx < 0:
+            return {"article": None, "status": "error", "error": "未在文章中找到该锚点，请检查锚点文本是否与文中一致"}
+        next_idx = current.find(request.anchor, idx + len(request.anchor))
+        if next_idx >= 0:
+            return {"article": None, "status": "error", "error": "该锚点在文中出现多处，请使用更长的唯一文本作为锚点"}
+        insert_pos = idx + len(request.anchor)
+        new_content = (
+            current[:insert_pos]
+            + "\n\n"
+            + (request.content or "").strip()
+            + "\n\n"
+            + current[insert_pos:]
+        )
+        ok = orchestrator.context_manager.set_current_article(
+            request.session_id, new_content, source="user"
+        )
+        article = orchestrator.context_manager.get_current_article(request.session_id) if ok else None
+        return {"article": article, "status": "success" if ok else "error", "success": ok}
+    except Exception as e:
+        debug_log(f"patch_article failed: {e}", level="error")
+        return {"article": None, "status": "error", "success": False, "error": str(e)}
+
+
+class MergeArticleRequest(BaseModel):
+    """3-way 合并：base 为共同祖先，ours 为当前版本，theirs 为待合并版本。"""
+    session_id: str
+    base: str
+    ours: str
+    theirs: str
+
+
+@router.post("/chat/article/merge")
+async def merge_article(request: MergeArticleRequest):
+    """对文章做 Git 风格 3-way 合并，返回合并结果（可能含冲突标记）。"""
+    if not request.session_id:
+        return {"content": None, "status": "error", "error": "缺少 session_id", "has_conflicts": False}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base_f = Path(tmp) / "base.md"
+            ours_f = Path(tmp) / "ours.md"
+            theirs_f = Path(tmp) / "theirs.md"
+            base_f.write_text(request.base or "", encoding="utf-8")
+            ours_f.write_text(request.ours or "", encoding="utf-8")
+            theirs_f.write_text(request.theirs or "", encoding="utf-8")
+            proc = subprocess.run(
+                ["git", "merge-file", "-p", str(ours_f), str(base_f), str(theirs_f)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=tmp,
+            )
+            merged = proc.stdout or ""
+            has_conflicts = proc.returncode == 1
+            return {
+                "content": merged,
+                "status": "success",
+                "has_conflicts": has_conflicts,
+            }
+    except FileNotFoundError:
+        return {"content": None, "status": "error", "error": "未找到 git，无法执行合并", "has_conflicts": False}
+    except subprocess.TimeoutExpired:
+        return {"content": None, "status": "error", "error": "合并超时", "has_conflicts": False}
+    except Exception as e:
+        debug_log(f"merge_article failed: {e}", level="error")
+        return {"content": None, "status": "error", "error": str(e), "has_conflicts": False}
 
 
 @router.post("/chat/article/restore")

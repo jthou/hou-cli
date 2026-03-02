@@ -1,8 +1,9 @@
 /**
  * 任务参数表单：与「创建任务」/「编辑后重新执行」共用同一套 UI，保证一致性。
  * 含：schema 驱动的 TaskMetadataFormFields、公众号草稿正文+封面上传、MediaWiki 选项、Wiki 分类提示等。
+ * 更新草稿时：media_id 用草稿列表选择，而非手输。
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
 import WikiTitlePreviewHint from './WikiTitlePreviewHint'
 import WechatDraftEditor from '../WechatDraftEditor'
@@ -36,13 +37,60 @@ export default function TaskParamsForm({
 }) {
   const toast = useToast()
   const [coverUploading, setCoverUploading] = useState(false)
+  const [draftList, setDraftList] = useState([])
+  const [draftsLoading, setDraftsLoading] = useState(false)
 
   const isWechatDraft = taskType === 'wechat_mp_draft' && (metadata?.operation === 'add' || !metadata?.operation)
-  const customFieldRender =
-    isWechatDraft
-      ? (fieldKey, { value, onChange }) =>
-          fieldKey === 'content' ? <WechatDraftEditor value={value ?? ''} onChange={onChange} /> : null
-      : null
+  const isWechatUpdate = taskType === 'wechat_mp_draft' && metadata?.operation === 'update'
+
+  useEffect(() => {
+    if (!isWechatUpdate) return
+    setDraftsLoading(true)
+    fetch('/api/wechat-mp/drafts?offset=0&count=50&no_content=1')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success && Array.isArray(d?.item)) setDraftList(d.item)
+        else setDraftList([])
+      })
+      .catch(() => setDraftList([]))
+      .finally(() => setDraftsLoading(false))
+  }, [isWechatUpdate])
+
+  const customFieldRender = (fieldKey, { value, onChange }) => {
+    if (fieldKey === 'content' && isWechatDraft)
+      return <WechatDraftEditor value={value ?? ''} onChange={onChange} />
+    if (fieldKey === 'media_id' && isWechatUpdate) {
+      const mediaId = (metadata?.media_id ?? value ?? '').trim()
+      return (
+        <div className="space-y-2">
+          <select
+            value={mediaId}
+            onChange={(e) => {
+              const v = e.target.value
+              setMetadata((m) => ({ ...m, media_id: v || undefined }))
+            }}
+            disabled={draftsLoading}
+            className={inputCls}
+            required
+          >
+            <option value="">请选择要更新的草稿</option>
+            {draftList.map((item) => {
+              const mid = item?.media_id ?? ''
+              const title = (item?.content?.news_item?.[0]?.title || mid?.slice(0, 16) || '无标题').slice(0, 28)
+              return (
+                <option key={mid} value={mid}>
+                  {title}{mid ? ` · ${mid.slice(0, 12)}` : ''}
+                </option>
+              )
+            })}
+          </select>
+          {draftsLoading && <p className="text-xs text-[#64748b]">加载草稿列表中…</p>}
+          {!draftsLoading && draftList.length === 0 && <p className="text-xs text-amber-400/90">暂无草稿，请先新建草稿或到公众号草稿页查看</p>}
+        </div>
+      )
+    }
+    return null
+  }
 
   return (
     <div className="space-y-4">

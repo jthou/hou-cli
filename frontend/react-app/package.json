@@ -10,6 +10,7 @@
     "verify:wechat-html": "node scripts/verify-wechat-html.mjs"
   },
   "dependencies": {
+    "diff": "^8.0.3",
     "katex": "^0.16.33",
     "marked": "^12.0.0",
     "react": "^18.2.0",

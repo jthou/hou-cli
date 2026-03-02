@@ -1274,8 +1274,13 @@ Please return strictly in the following JSON format:
         # 构建 user_prompt（包含历史上下文）
         # 过滤掉 system 消息，只保留 user 和 assistant 消息
         filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
+        _patch_instruction = (
+            "【重要】当用户要求对文章做局部修改（如插入一段、改某节）时，请只输出一个 unified diff（patch），"
+            "表示从当前文章到修改后文章的差异。将 diff 放在 ```patch 与 ``` 的代码块之间，不要输出修改后的整篇文章。"
+            "diff 的上下文行必须与当前文章完全一致。若用户只是讨论或询问，可正常回复。\n\n"
+        )
         task_with_article = (
-            f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}"
+            (_patch_instruction + f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}")
             if current_article.strip()
             else task
         )
@@ -1708,8 +1713,13 @@ Please return strictly in the following JSON format:
         # 写文章场景：注入参考 MediaWiki 页面 + 当前文章草稿（右侧预览）
         mw_reference = self._get_mw_reference_content(session_id)
         current_article = self.context_manager.get_current_article(session_id) or ""
+        _patch_instruction = (
+            "【重要】当用户要求对文章做局部修改（如插入一段、改某节）时，请只输出一个 unified diff（patch），"
+            "表示从当前文章到修改后文章的差异。将 diff 放在 ```patch 与 ``` 的代码块之间，不要输出修改后的整篇文章。"
+            "diff 的上下文行必须与当前文章完全一致。若用户只是讨论或询问，可正常回复。\n\n"
+        )
         task_with_article = (
-            f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}"
+            (_patch_instruction + f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}")
             if current_article.strip()
             else task
         )
