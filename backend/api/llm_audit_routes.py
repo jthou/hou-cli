@@ -76,3 +76,14 @@ async def list_llm_audit_records(
             "offset": offset,
             "limit": limit,
         }
+
+
+@router.get("/settings/system-prompt-audit/prompts")
+async def list_system_prompts_for_audit():
+    """返回按 agent 划分的所有系统提示，供系统提示词审计页展示。"""
+    try:
+        from backend.core.agent.system_prompt_registry import get_all_system_prompts
+        agents = get_all_system_prompts()
+        return {"success": True, "agents": agents}
+    except Exception as e:
+        return {"success": False, "error": str(e), "agents": []}
