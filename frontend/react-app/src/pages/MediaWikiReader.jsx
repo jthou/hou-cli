@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import WikiPreview from '../components/WikiPreview'
 
 export default function MediaWikiReader() {
   const [termsInput, setTermsInput] = useState('')
@@ -158,23 +159,42 @@ export default function MediaWikiReader() {
                       {group.pages.map((page, idx) => (
                         <li
                           key={`${page.title}-${idx}`}
-                          className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2 border border-border/60 rounded-lg bg-black/20 px-3 py-2"
+                          className="border border-border/60 rounded-lg bg-black/20 px-3 py-2"
                         >
-                          <div className="flex flex-col min-w-0">
-                            <a
-                              href={page.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-accent hover:underline break-all"
-                            >
-                              {page.title || page.url}
-                            </a>
-                            <span className="text-xs text-muted mt-0.5 truncate">
-                              {Array.isArray(page.categories) && page.categories.length
-                                ? `分类：${page.categories.join(' / ')}`
-                                : '无分类'}
+                          <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
+                            <div className="flex flex-col min-w-0">
+                              <a
+                                href={page.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-accent hover:underline break-all"
+                              >
+                                {page.title || page.url}
+                              </a>
+                              <span className="text-xs text-muted mt-0.5 truncate">
+                                {Array.isArray(page.categories) && page.categories.length
+                                  ? `分类：${page.categories.join(' / ')}`
+                                  : '无分类'}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted shrink-0">
+                              {page.url}
                             </span>
                           </div>
+                          {page.content && (
+                            <details className="mt-2 text-xs">
+                              <summary className="cursor-pointer text-muted hover:text-fg">
+                                预览页面内容
+                              </summary>
+                              <div className="mt-1 border border-border/60 rounded bg-white/5 p-2">
+                                <WikiPreview
+                                  wikiText={page.content}
+                                  className="min-h-[120px]"
+                                  theme="dark"
+                                />
+                              </div>
+                            </details>
+                          )}
                         </li>
                       ))}
                     </ul>

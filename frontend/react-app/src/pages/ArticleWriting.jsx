@@ -2,6 +2,7 @@
  * 写文章 - 与公众号草稿一致：左侧会话列表，中间对话，右侧文章预览（Markdown 预览与微信草稿一致）。
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import MarkdownPreview from '../components/MarkdownPreview'
 import ChatInput from '../components/ChatInput'
@@ -24,6 +25,8 @@ const STORAGE_KEY_SELECTED_SESSION = 'article_writing_selected_session_id'
 
 export default function ArticleWriting() {
   const toast = useToast()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState(() => {
@@ -127,6 +130,48 @@ export default function ArticleWriting() {
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
+
+  /** 接收来自 url_to_wiki 等「发送到写文章」的 initialMarkdown，创建新会话并填入 */
+  useEffect(() => {
+    const state = location.state
+    const initialMarkdown = state?.initialMarkdown
+    if (!initialMarkdown || typeof initialMarkdown !== 'string' || !initialMarkdown.trim()) return
+    navigate(location.pathname + location.search, { replace: true, state: {} })
+    fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metadata: { type: ARTICLE_SESSION_TYPE } }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.success || !d.session_id) {
+          toast?.error?.(d.error || '创建会话失败')
+          return
+        }
+        const sessionId = d.session_id
+        const suggestTitle = (location.search && new URLSearchParams(location.search).get('suggest_title')) || state?.suggestTitle
+        const title = (suggestTitle || '').trim().slice(0, 50) || '来自网文抓取的草稿'
+        return fetch('/api/chat/article', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, content: initialMarkdown.trim() }),
+        })
+          .then((r) => r.json())
+          .then(() => {
+            loadSessions()
+            setSelectedSessionId(sessionId)
+            if (title && title !== '来自网文抓取的草稿') {
+              fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title }),
+              }).then((r) => r.json()).then((res) => { if (res.success) loadSessions() })
+            }
+          })
+      })
+      .catch((e) => toast?.error?.(e?.message || '创建会话失败'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在有 initialMarkdown 时执行一次
+  }, [])
 
   useEffect(() => {
     if (sessions.length === 0) return

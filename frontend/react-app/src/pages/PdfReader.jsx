@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useToast } from '../components/ToastModal'
-import { mdToWiki } from '../utils/wikiMdConvert'
+import MarkdownPreview from '../components/MarkdownPreview'
 
 export default function PdfReader() {
   const toast = useToast()
@@ -15,10 +15,6 @@ export default function PdfReader() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
 
-  const [mwDialogOpen, setMwDialogOpen] = useState(false)
-  const [mwTitle, setMwTitle] = useState('')
-  const [mwSummary, setMwSummary] = useState('')
-  const [mwSubmitting, setMwSubmitting] = useState(false)
   const [mergedPages, setMergedPages] = useState([]) // { page, text }[]
   const [useCurrentPageContext, setUseCurrentPageContext] = useState(true)
   const [useMergedContext, setUseMergedContext] = useState(false)
@@ -96,42 +92,6 @@ export default function PdfReader() {
 
   const handleClearMergedPages = () => {
     setMergedPages([])
-  }
-
-  const submitMediaWikiOutput = async () => {
-    const title = (mwTitle || '').trim()
-    if (!title) {
-      toast?.warning?.('请输入页面标题')
-      return
-    }
-    const baseText = mergedPagesSorted.length > 0
-      ? mergedPreviewText.trim()
-      : (pageText || '').trim()
-    if (!baseText) {
-      toast?.warning?.('当前没有可写入的合并文本')
-      return
-    }
-    setMwSubmitting(true)
-    try {
-      const wikitext = mdToWiki(baseText)
-      const res = await fetch(`/api/mediawiki/pages/${encodeURIComponent(title)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: wikitext, summary: (mwSummary || '').trim() || undefined }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.success) {
-        toast?.info?.('已将 PDF 文本写入 MediaWiki')
-        setMwDialogOpen(false)
-        setMwTitle('')
-        setMwSummary('')
-      } else {
-        toast?.error?.(data.detail || data.message || '写入失败')
-      }
-    } catch (e) {
-      toast?.error?.(e?.message || '写入失败')
-    }
-    setMwSubmitting(false)
   }
 
   const handleFileChange = async (e) => {
@@ -528,9 +488,28 @@ export default function PdfReader() {
           )}
         </div>
 
-        {/* 右侧：对话窗口 + 输出 */}
+        {/* 右侧：合并预览 + 对话窗口 */}
         <div className="w-1/2 overflow-y-auto p-6 flex flex-col">
           <h2 className="text-sm font-semibold text-white mb-3">基于 PDF 的问答</h2>
+
+          {mergedPagesSorted.length > 0 && (
+            <section className="mb-4 border border-border rounded-lg bg-white/5 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-white">合并预览（发送到写文章的草稿）</h3>
+                <span className="text-[11px] text-muted">
+                  共 {mergedPagesSorted.length} 页 · 约 {mergedPreviewText.length} 字
+                </span>
+              </div>
+              <div className="max-h-40 overflow-auto border border-border/60 rounded bg-black/20 p-2">
+                <MarkdownPreview
+                  markdown={mergedPreviewText}
+                  className="min-h-[120px]"
+                  theme="dark"
+                />
+              </div>
+            </section>
+          )}
+
           <div className="flex-1 border border-border rounded-lg bg-white/5 p-3 overflow-y-auto space-y-2 text-xs">
             {messages.length === 0 && (
               <p className="text-muted">

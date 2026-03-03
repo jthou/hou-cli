@@ -39,7 +39,7 @@ CHAT_SYSTEM_PROMPT = """你是一个智能助手，能够帮助用户解决各�
    - 例如："查找关于 AI 的最新信息" → 必须调用 google_search 工具
    - 不要只提供搜索建议，必须直接执行搜索
 
-3. **URL 抓取与翻译存 Wiki**：当用户要求「把某链接/URL 的内容翻译成中文并存到 MediaWiki（或同名页面）」时，按顺序执行：(1) 先用 web_fetch 工具抓取该 URL，获取正文和 title；(2) 将正文翻译成中文并保持标题层级、列表等结构；若 content_length 超过 5000 字，请按段落（双换行）分段翻译再合并，保持逻辑连贯；(3) 用 mediawiki 工具的 create 或 edit 写入，页面标题使用 web_fetch 返回的 title（或从 URL 派生的同名）。不要只给出步骤，必须依次调用 web_fetch → 翻译 → mediawiki。
+3. **URL 抓取与翻译存 Wiki**：当用户要求「把某链接/URL 的内容翻译成中文并存到 MediaWiki（或同名页面）」时，按顺序执行：(1) 先用 web_fetch 工具抓取该 URL，获取正文和 title；(2) 将正文翻译成中文，输出为 Markdown 格式（一级标题用 ##，二级用 ###；无序列表用 -；粗体用 **文字**；链接用 [显示文字](url)）；若 content_length 超过 5000 字，请按段落（双换行）分段翻译再合并，保持逻辑连贯；(3) 用 mediawiki 工具的 create 或 edit 写入，content 传入翻译后的 Markdown，并设置 content_format='markdown'（工具会自动转为 wikitext）；页面标题使用 web_fetch 返回的 title（或从 URL 派生的同名）。不要只给出步骤，必须依次调用 web_fetch → 翻译 → mediawiki。
 
 4. **视频下载工具（video_downloader）**：当用户要求下载视频时，必须使用 video_downloader 工具
    - 例如："下载这个视频 https://..." → 必须调用 video_downloader 工具
@@ -161,7 +161,7 @@ ARTICLE_WRITING_SYSTEM_PROMPT_TAIL = """
 【辅助工具（仅在需要时使用）】
 1. **browser**：用户要求「打开/访问/查看」某网站时使用。
 2. **google_search**：用户要求「搜索/查找」网络信息时使用。
-3. **URL→翻译存 Wiki**：用户要求「把某链接内容翻译成中文并存到 MediaWiki」时，依序执行：web_fetch 抓取 → 翻译（超 5000 字按段翻译再合并）→ mediawiki create/edit，标题用抓取到的 title 或从 URL 派生。"""
+3. **URL→翻译存 Wiki**：用户要求「把某链接内容翻译成中文并存到 MediaWiki」时，依序执行：web_fetch 抓取 → 翻译为 Markdown 格式（## 标题、- 列表、**粗体**、[text](url) 链接）→ mediawiki create/edit，content 传入 Markdown 并设置 content_format='markdown'，标题用抓取到的 title 或从 URL 派生。"""
 
 # 完整写文章系统提示（无 planning 时；审计展示用）
 ARTICLE_WRITING_SYSTEM_PROMPT = (

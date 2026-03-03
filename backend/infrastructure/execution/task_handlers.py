@@ -1306,6 +1306,7 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         translated = content.strip()
         if not translated:
             return _err("NO_CONTENT", "未提取到正文", "该 URL 未能提取到正文内容")
+        # 原文作为 Markdown 草稿（多为纯文本，md_to_wiki 会原样保留非 Markdown 部分）
     else:
         worker.update_task_progress(25, "正在翻译...")
         from backend.services.llm.llm_service import LLMService
@@ -1327,8 +1328,9 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
 
         sys_prompt = (
             f"将用户提供的内容翻译成{lang_name}，保持标题、列表、段落结构。"
-            "输出格式为 MediaWiki wikitext：一级标题用 == 标题 ==，二级用 === 标题 ===；"
-            "无序列表用 * 项，有序列表用 # 项；段落之间空一行。只输出转换后的内容，不要其他说明。"
+            "输出格式为 Markdown：一级标题用 ## 标题，二级用 ### 标题；"
+            "无序列表用 - 或 * 项，有序列表用 1. 项；粗体用 **文字**；链接用 [显示文字](url)。"
+            "段落之间空一行。只输出转换后的内容，不要其他说明。"
         )
         if len(content) > URL_TO_WIKI_CHUNK_SIZE:
             chunks = _chunk_text_by_paragraphs(content, max_chars=4000)
@@ -1344,7 +1346,11 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         if not translated:
             return _err("TRANSLATE_FAILED", "翻译失败", "LLM 未返回有效内容")
 
-    # 分类：前端传来的 categories + 执行时的日/周/月（按当天日期追加）
+    # 在正文开头加入原文链接（Markdown 格式）
+    original_link_line = f"**原文链接**：[原文]({url})"
+    markdown = f"{original_link_line}\n\n{translated}"
+
+    # 分类：前端传来的 categories + 执行时的日/周/月（写入 Wiki 时追加到 wikitext）
     categories = metadata.get("categories")
     if isinstance(categories, list) and categories:
         categories = [str(c).strip() for c in categories if str(c).strip()]
@@ -1358,19 +1364,6 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         f"{now.year}年{now.month}月",
     ]
     categories = list(categories) + date_cats
-    if categories:
-        existing = set(re.findall(r"\[\[Category:\s*([^\]\|]+)", translated, re.I))
-        for cat in categories:
-            if cat and cat not in existing:
-                translated = translated.rstrip() + f"\n\n[[Category:{cat}]]"
-                existing.add(cat)
-
-    # 在正文开头加入原文链接（MediaWiki 外链格式 [url 显示文字]）
-    original_link_line = f"'''原文链接'''：[{url} 原文]"
-    content_to_write = f"{original_link_line}\n\n{translated}"
-
-    # 统一生成 Markdown 风格草稿（当前使用 Wiki 语法文本作为草稿内容），供后续写文章或 mediawiki_write 使用
-    markdown = content_to_write
 
     auto_write = bool(metadata.get("auto_write", True))
     if not auto_write:
@@ -1382,6 +1375,15 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     worker.update_task_progress(85, "正在写入 MediaWiki...")
+    from backend.utils.md_to_wiki import md_to_wiki
+    wikitext = md_to_wiki(markdown)
+    if categories:
+        existing = set(re.findall(r"\[\[Category:\s*([^\]\|]+)", wikitext, re.I))
+        for cat in categories:
+            if cat and cat not in existing:
+                wikitext = wikitext.rstrip() + f"\n\n[[Category:{cat}]]"
+                existing.add(cat)
+
     from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
     mw_tool = MediaWikiTool()
     try:
@@ -1389,7 +1391,7 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
             mw_tool.execute,
             operation="edit",
             title=wiki_title,
-            content=content_to_write,
+            content=wikitext,
             summary=f"由 url_to_wiki 任务写入：{url[:50]}…",
         )
     except Exception as e:
@@ -1495,8 +1497,9 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
             llm = LLMService()
             sys_prompt = (
                 f"将用户提供的内容翻译成{lang_name}，保持标题、列表、段落结构。"
-                "输出格式为 MediaWiki wikitext：一级标题用 == 标题 ==，二级用 === 标题 ===；"
-                "无序列表用 * 项，有序列表用 # 项；段落之间空一行。只输出转换后的内容，不要其他说明。"
+                "输出格式为 Markdown：一级标题用 ## 标题，二级用 ### 标题；"
+                "无序列表用 - 或 * 项，有序列表用 1. 项；粗体用 **文字**；链接用 [显示文字](url)。"
+                "段落之间空一行。只输出转换后的内容，不要其他说明。"
             )
 
         translated_parts: List[str] = []
@@ -1567,10 +1570,11 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
             return out
 
         if url:
-            original_link_line = f"'''原文链接'''：[{url} 原文]"
+            original_link_line_md = f"**原文链接**：[原文]({url})"
         else:
-            original_link_line = f"'''来源'''：本地文件 {source_label}"
+            original_link_line_md = f"**来源**：本地文件 {source_label}"
 
+        from backend.utils.md_to_wiki import md_to_wiki
         output_mode = (metadata.get("wiki_output_mode") or "single").strip().lower()
         worker.update_task_progress(90, "正在写入 MediaWiki...")
         from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
@@ -1582,7 +1586,8 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
             wiki_pages: List[str] = []
             for i in range(n):
                 sub_title = f"{user_wiki_title}/第{i + 1}部分"
-                part_content = _append_categories(translated_parts[i], categories)
+                part_wikitext = md_to_wiki(translated_parts[i])
+                part_content = _append_categories(part_wikitext, categories)
                 try:
                     wr = await asyncio.to_thread(
                         mw_tool.execute,
@@ -1597,14 +1602,15 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
                     return _err("MEDIAWIKI_WRITE_FAILED", "写入子页失败", wr.error or "未知错误")
                 wiki_pages.append(sub_title)
             index_lines = [
-                original_link_line,
+                original_link_line_md,
                 "",
                 "本页为目录，各子页见下方。",
                 "",
             ]
             for k in range(n):
-                index_lines.append(f"* [[{user_wiki_title}/第{k + 1}部分]]")
-            index_content = _append_categories("\n".join(index_lines), categories)
+                index_lines.append(f"- [第{k + 1}部分]({user_wiki_title}/第{k + 1}部分)")
+            index_wikitext = md_to_wiki("\n".join(index_lines))
+            index_content = _append_categories(index_wikitext, categories)
             try:
                 wr = await asyncio.to_thread(
                     mw_tool.execute,
@@ -1642,8 +1648,10 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
                 data["failed_chunks"] = failed_chunks
             return {"status": status, "summary": summary, "data": data}
         else:
-            # single：单页汇总
-            content_to_write = f"{original_link_line}\n\n{_append_categories(full_translated, categories)}"
+            # single：单页汇总（Markdown → wikitext）
+            markdown_content = f"{original_link_line_md}\n\n{full_translated}"
+            wikitext_content = md_to_wiki(markdown_content)
+            content_to_write = _append_categories(wikitext_content, categories)
             try:
                 write_result = await asyncio.to_thread(
                     mw_tool.execute,

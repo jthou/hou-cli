@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/ToastModal'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
-import WechatDraftPreview from '../components/WechatDraftPreview'
+import HtmlPreview from '../components/HtmlPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import WechatOutboundIpHint from '../components/WechatOutboundIpHint'
 import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
@@ -324,7 +324,7 @@ export default function WechatDraftPage() {
                 )}
                 <div>
                   <div className="text-muted text-xs mb-1">正文</div>
-                  <WechatDraftPreview
+                  <HtmlPreview
                     html={news?.content ?? ''}
                     className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm"
                   />

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import TaskDetailModal from '../components/task/TaskDetailModal'
 import TaskCard from '../components/TaskCard'
-import WechatDraftPreview from '../components/WechatDraftPreview'
+import HtmlPreview from '../components/HtmlPreview'
 import { useToast } from '../components/ToastModal'
 import { STATUS_MAP, formatDateTime } from '../utils/taskConstants'
 import { prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
@@ -171,7 +171,7 @@ function DraftDetailModal({ draftDetail, onClose, onEdit }) {
               <div>
                 <div className="text-muted text-xs mb-1">正文</div>
                 <div className="max-h-60 overflow-y-auto rounded bg-white/5 p-3">
-                  <WechatDraftPreview html={news?.content ?? ''} />
+                  <HtmlPreview html={news?.content ?? ''} />
                 </div>
               </div>
               <div className="pt-4 border-t border-border flex justify-end">

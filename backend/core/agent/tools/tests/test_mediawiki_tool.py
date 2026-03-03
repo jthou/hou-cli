@@ -23,14 +23,15 @@ class TestMediaWikiTool:
         """测试工具初始化"""
         assert tool.name == "mediawiki"
         assert tool.description is not None
-        # operation/query/title/content/summary/limit/terms/per_term_limit
-        assert len(tool.parameters) == 8
+        # operation/query/title/content/content_format/summary/limit/terms/per_term_limit
+        assert len(tool.parameters) == 9
 
         param_names = [p.name for p in tool.parameters]
         assert "operation" in param_names
         assert "query" in param_names
         assert "title" in param_names
         assert "content" in param_names
+        assert "content_format" in param_names
         assert "summary" in param_names
         assert "limit" in param_names
         assert "terms" in param_names

@@ -1,4 +1,5 @@
 export { default as TaskFormPage } from './TaskFormPage'
+export { default as TaskTypePage } from './TaskTypePage'
 export { default as TaskMetadataFormFields } from './TaskMetadataFormFields'
 export { default as TaskParamsForm } from './TaskParamsForm'
 export { default as ScheduleConfigFields } from './ScheduleConfigFields'

@@ -47,8 +47,21 @@ class MediaWikiTool(Tool):
             ToolParameter(
                 name="content",
                 type="string",
-                description="页面内容（operation='edit'、'create' 时必需，wikitext 格式）",
+                description=(
+                    "页面内容（operation='edit'、'create' 时必需）。"
+                    "wikitext 或 Markdown；若 content_format='markdown' 则自动转为 wikitext"
+                ),
                 required=False
+            ),
+            ToolParameter(
+                name="content_format",
+                type="string",
+                description=(
+                    "content 的格式：'wikitext'（默认）或 'markdown'。"
+                    "为 'markdown' 时会在写入前自动转为 MediaWiki wikitext"
+                ),
+                required=False,
+                enum=["wikitext", "markdown"]
             ),
             ToolParameter(
                 name="summary",
@@ -401,10 +414,14 @@ class MediaWikiTool(Tool):
                 success=False,
                 error="edit 操作需要 content 参数"
             )
-        
+
+        if kwargs.get("content_format") == "markdown":
+            from backend.utils.md_to_wiki import md_to_wiki
+            content = md_to_wiki(str(content))
+
         # 自动添加 [[Category:hou-cli]] 分类
         content = self._ensure_category(content, "hou-cli")
-        
+
         summary = kwargs.get("summary", "由 AI 助手编辑")
         success = client.edit_page(title, content, summary=summary)
         
@@ -444,10 +461,14 @@ class MediaWikiTool(Tool):
                 success=False,
                 error="create 操作需要 content 参数"
             )
-        
+
+        if kwargs.get("content_format") == "markdown":
+            from backend.utils.md_to_wiki import md_to_wiki
+            content = md_to_wiki(str(content))
+
         # 自动添加 [[Category:hou-cli]] 分类
         content = self._ensure_category(content, "hou-cli")
-        
+
         summary = kwargs.get("summary", "由 AI 助手创建")
         success = client.create_page(title, content, summary=summary)
         

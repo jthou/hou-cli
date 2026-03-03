@@ -2,12 +2,83 @@
  * 任务执行结果展示组件
  * 按 task_type 统一渲染，供任务详情弹窗、任务卡片、执行记录等复用，保持展示一致。
  */
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import WeatherResultDisplay from './WeatherResultDisplay'
+import UrlToWikiInline from './task/UrlToWikiInline'
+import WebSearchResultItem from './task/WebSearchResultItem'
+import MarkdownDraftActions from './task/MarkdownDraftActions'
 import { getMediaWikiPageUrl } from '../config/mediawiki'
 
+/** 已抓取 URL 的映射：url -> { taskId, wikiTitle, wroteToWiki, markdown } */
+function useScrapedUrlMap(searchResultUrls) {
+  const [scrapedMap, setScrapedMap] = useState({})
+  useEffect(() => {
+    if (!searchResultUrls?.length) return
+    const params = new URLSearchParams({
+      status: 'completed',
+      task_type: 'url_to_wiki',
+      limit: '200',
+      include_result: 'true',
+    })
+    fetch(`/api/task-queue/tasks?${params}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.success || !Array.isArray(d.tasks)) return
+        const urlSet = new Set(searchResultUrls.map((u) => (u || '').trim()).filter(Boolean))
+        const map = {}
+        for (const t of d.tasks) {
+          const url = t.result?.data?.url || t.metadata?.url
+          if (!url || !urlSet.has(url)) continue
+          if (map[url]) continue
+          map[url] = {
+            taskId: t.task_id,
+            wikiTitle: t.result?.data?.wiki_title,
+            wroteToWiki: !!t.result?.data?.wrote_to_wiki,
+            markdown: t.result?.data?.markdown || '',
+          }
+        }
+        setScrapedMap(map)
+      })
+      .catch(() => {})
+  }, [searchResultUrls?.join(',')])
+  return scrapedMap
+}
+
+function WebSearchResults({ result, urlToWikiConfig, setUrlToWikiConfig }) {
+  const res = result.result
+  const list = res?.results || []
+  const urls = list.map((item) => item?.link).filter(Boolean)
+  const scrapedMap = useScrapedUrlMap(urls)
+
+  return (
+    <>
+      <div className="space-y-3 text-sm">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        <ul className="space-y-3">
+          {list.map((item, i) => (
+            <WebSearchResultItem
+              key={i}
+              item={item}
+              scrapedInfo={item?.link ? scrapedMap[item.link] : null}
+              onUrlToWiki={(url, title) => setUrlToWikiConfig({ url, title })}
+            />
+          ))}
+        </ul>
+      </div>
+      {urlToWikiConfig && (
+        <UrlToWikiInline
+          defaultUrl={urlToWikiConfig.url}
+          defaultWikiTitle={urlToWikiConfig.title}
+          onClose={() => setUrlToWikiConfig(null)}
+          onCreated={() => setUrlToWikiConfig(null)}
+        />
+      )}
+    </>
+  )
+}
+
 export default function TaskResultDisplay({ taskType, result }) {
-  const navigate = useNavigate()
+  const [urlToWikiConfig, setUrlToWikiConfig] = useState(null)
   const isSuccess = result?.status === 'success'
   const isError = result?.status === 'error'
   const hasDaily = Array.isArray(result?.daily) || (result?.result && Array.isArray(result?.result?.daily))
@@ -146,41 +217,12 @@ export default function TaskResultDisplay({ taskType, result }) {
           </p>
         )}
         {d.markdown && (
-          <details className="text-xs space-y-1">
-            <summary className="cursor-pointer text-muted hover:text-fg">
-              查看 Markdown 草稿与后续操作
-            </summary>
-            <pre className="mt-1 p-2 bg-black/40 border border-border/60 rounded whitespace-pre-wrap break-all text-[11px] text-muted">
-              {d.markdown}
-            </pre>
-            <div className="flex flex-wrap gap-2 mt-2">
-              <button
-                type="button"
-                className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
-                onClick={() => {
-                  navigator.clipboard
-                    ?.writeText(d.markdown)
-                    .catch(() => {})
-                }}
-              >
-                复制 Markdown
-              </button>
-              <button
-                type="button"
-                className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
-                onClick={() => {
-                  const params = new URLSearchParams()
-                  if (d.url) params.set('source_url', d.url)
-                  if (d.wiki_title) params.set('suggest_title', d.wiki_title)
-                  navigate(`/article-writing?${params.toString()}`, {
-                    state: { initialMarkdown: d.markdown, sourceType: 'url_to_wiki' },
-                  })
-                }}
-              >
-                发送到写文章
-              </button>
-            </div>
-          </details>
+          <MarkdownDraftActions
+            markdown={d.markdown}
+            sourceUrl={d.url}
+            suggestTitle={d.wiki_title}
+            sourceType="url_to_wiki"
+          />
         )}
       </div>
     )
@@ -271,48 +313,12 @@ export default function TaskResultDisplay({ taskType, result }) {
   }
 
   if (taskType === 'web_search' && result.result?.results) {
-    const res = result.result
-    const list = res.results || []
     return (
-      <div className="space-y-3 text-sm">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        <ul className="space-y-3">
-          {list.map((item, i) => (
-            <li key={i} className="border-b border-border/50 pb-3 last:border-0">
-              <a
-                href={item.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-fg hover:text-accent hover:underline font-medium block"
-              >
-                {item.title || item.link}
-              </a>
-              {item.display_link && (
-                <p className="text-muted text-xs mt-0.5">{item.display_link}</p>
-              )}
-              {item.snippet && (
-                <p className="text-muted mt-1 text-xs leading-relaxed">{item.snippet}</p>
-              )}
-              {item.link && (
-                <div className="mt-1">
-                  <button
-                    type="button"
-                    className="px-2 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
-                    onClick={() => {
-                      const params = new URLSearchParams()
-                      params.set('url', item.link)
-                      if (item.title) params.set('suggest_title', item.title)
-                      navigate(`/url-to-wiki?${params.toString()}`)
-                    }}
-                  >
-                    网文抓取（生成草稿）
-                  </button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
+      <WebSearchResults
+        result={result}
+        urlToWikiConfig={urlToWikiConfig}
+        setUrlToWikiConfig={setUrlToWikiConfig}
+      />
     )
   }
 
