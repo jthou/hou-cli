@@ -9,8 +9,16 @@ import WebSearchResultItem from './task/WebSearchResultItem'
 import MarkdownDraftActions from './task/MarkdownDraftActions'
 import { getMediaWikiPageUrl } from '../config/mediawiki'
 
-/** 已抓取 URL 的映射：url -> { taskId, wikiTitle, wroteToWiki, markdown } */
-function useScrapedUrlMap(searchResultUrls) {
+/** URL 规范化：去尾斜杠、trim，用于匹配同一页面不同写法 */
+function normalizeUrl(url) {
+  if (!url || typeof url !== 'string') return ''
+  let s = url.trim()
+  if (s.endsWith('/') && s.length > 1) s = s.slice(0, -1)
+  return s
+}
+
+/** 已抓取 URL 的映射：key 为规范化 URL；同一 URL 取最新任务 */
+function useScrapedUrlMap(searchResultUrls, refreshTrigger = 0) {
   const [scrapedMap, setScrapedMap] = useState({})
   useEffect(() => {
     if (!searchResultUrls?.length) return
@@ -24,13 +32,20 @@ function useScrapedUrlMap(searchResultUrls) {
       .then((r) => r.json())
       .then((d) => {
         if (!d.success || !Array.isArray(d.tasks)) return
-        const urlSet = new Set(searchResultUrls.map((u) => (u || '').trim()).filter(Boolean))
+        const urlSet = new Set(searchResultUrls.map((u) => normalizeUrl(u)).filter(Boolean))
+        const sorted = [...d.tasks].sort((a, b) => {
+          const ta = a.completed_at || a.created_at || a.queued_at || ''
+          const tb = b.completed_at || b.created_at || b.queued_at || ''
+          return (tb || '').localeCompare(ta || '')
+        })
         const map = {}
-        for (const t of d.tasks) {
+        for (const t of sorted) {
           const url = t.result?.data?.url || t.metadata?.url
-          if (!url || !urlSet.has(url)) continue
-          if (map[url]) continue
-          map[url] = {
+          if (!url) continue
+          const key = normalizeUrl(url)
+          if (!key || !urlSet.has(key)) continue
+          if (map[key]) continue
+          map[key] = {
             taskId: t.task_id,
             wikiTitle: t.result?.data?.wiki_title,
             wroteToWiki: !!t.result?.data?.wrote_to_wiki,
@@ -40,27 +55,53 @@ function useScrapedUrlMap(searchResultUrls) {
         setScrapedMap(map)
       })
       .catch(() => {})
-  }, [searchResultUrls?.join(',')])
+  }, [searchResultUrls?.join(','), refreshTrigger])
   return scrapedMap
 }
 
+/** 本次会话通过「写入 MediaWiki」刚写入的：url -> { wikiTitle, taskId } */
 function WebSearchResults({ result, urlToWikiConfig, setUrlToWikiConfig }) {
   const res = result.result
   const list = res?.results || []
   const urls = list.map((item) => item?.link).filter(Boolean)
-  const scrapedMap = useScrapedUrlMap(urls)
+  const [sessionWroteMap, setSessionWroteMap] = useState({})
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const scrapedMap = useScrapedUrlMap(urls, refreshTrigger)
+
+  const handleWriteSuccess = (url, { title, taskId }) => {
+    const key = normalizeUrl(url)
+    if (key) setSessionWroteMap((m) => ({ ...m, [key]: { wikiTitle: title, taskId } }))
+  }
+
+  const mergeScrapedInfo = (url, base) => {
+    const wrote = sessionWroteMap[normalizeUrl(url)]
+    if (!wrote) return base
+    return { ...(base || {}), wikiTitle: wrote.wikiTitle, wroteToWiki: true }
+  }
+
+  const handleRefreshScraped = () => setRefreshTrigger((t) => t + 1)
 
   return (
     <>
       <div className="space-y-3 text-sm">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          {result.summary && <p className="text-green-400">{result.summary}</p>}
+          <button
+            type="button"
+            onClick={handleRefreshScraped}
+            className="px-2 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
+          >
+            刷新已抓取状态
+          </button>
+        </div>
         <ul className="space-y-3">
           {list.map((item, i) => (
             <WebSearchResultItem
               key={i}
               item={item}
-              scrapedInfo={item?.link ? scrapedMap[item.link] : null}
+              scrapedInfo={item?.link ? mergeScrapedInfo(item.link, scrapedMap[normalizeUrl(item.link)]) : null}
               onUrlToWiki={(url, title) => setUrlToWikiConfig({ url, title })}
+              onWriteSuccess={handleWriteSuccess}
             />
           ))}
         </ul>
@@ -70,7 +111,10 @@ function WebSearchResults({ result, urlToWikiConfig, setUrlToWikiConfig }) {
           defaultUrl={urlToWikiConfig.url}
           defaultWikiTitle={urlToWikiConfig.title}
           onClose={() => setUrlToWikiConfig(null)}
-          onCreated={() => setUrlToWikiConfig(null)}
+          onCreated={(taskId) => {
+            setUrlToWikiConfig(null)
+            setRefreshTrigger((t) => t + 1)
+          }}
         />
       )}
     </>

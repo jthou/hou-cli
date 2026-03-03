@@ -5,7 +5,7 @@
 import { getMediaWikiPageUrl } from '../../config/mediawiki'
 import MarkdownDraftActions from './MarkdownDraftActions'
 
-export default function WebSearchResultItem({ item, scrapedInfo, onUrlToWiki }) {
+export default function WebSearchResultItem({ item, scrapedInfo, onUrlToWiki, onWriteSuccess }) {
   const wikiPageUrl = scrapedInfo?.wikiTitle ? getMediaWikiPageUrl(scrapedInfo.wikiTitle) : null
   const hasMarkdown = scrapedInfo?.markdown && typeof scrapedInfo.markdown === 'string'
 
@@ -68,6 +68,7 @@ export default function WebSearchResultItem({ item, scrapedInfo, onUrlToWiki }) 
               suggestTitle={scrapedInfo.wikiTitle}
               sourceType="url_to_wiki"
               summaryText="查看抓取内容"
+              onWriteSuccess={(payload) => item.link && onWriteSuccess?.(item.link, payload)}
             />
           )}
         </div>

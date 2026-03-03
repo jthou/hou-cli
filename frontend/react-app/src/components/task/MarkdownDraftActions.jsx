@@ -4,7 +4,7 @@
  * 内容按需渲染：首次展开时才挂载 MarkdownPreview，避免大量结果时性能问题。
  */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import MarkdownPreview from '../MarkdownPreview'
 import { useToast } from '../ToastModal'
 import { mdToWiki } from '../../utils/wikiMdConvert'
@@ -21,6 +21,7 @@ export default function MarkdownDraftActions({
   const toast = useToast()
   const [hasEverOpened, setHasEverOpened] = useState(false)
   const [mwSubmitting, setMwSubmitting] = useState(false)
+  const [lastCreatedTaskId, setLastCreatedTaskId] = useState(null)
 
   const handleToggle = (e) => {
     if (e.target.open && !hasEverOpened) setHasEverOpened(true)
@@ -36,20 +37,30 @@ export default function MarkdownDraftActions({
     setMwSubmitting(true)
     try {
       const wikitext = mdToWiki(markdown)
-      const res = await fetch(`/api/mediawiki/pages/${encodeURIComponent(title)}`, {
+      const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: wikitext, summary: '从抓取内容写入' }),
+        body: JSON.stringify({
+          task_type: 'mediawiki_write',
+          priority: 2,
+          max_retries: 3,
+          metadata: {
+            title,
+            content: wikitext,
+            summary: sourceUrl ? `从抓取内容写入: ${sourceUrl}` : '从抓取内容写入',
+          },
+        }),
       })
       const data = await res.json().catch(() => ({}))
-      if (res.ok && data.success) {
-        toast?.info?.('已写入 MediaWiki')
-        onWriteSuccess?.(title)
+      if (res.ok && data.task_id) {
+        setLastCreatedTaskId(data.task_id)
+        toast?.info?.(`已创建 MediaWiki 写入任务 ${data.task_id.slice(0, 8)}…`)
+        onWriteSuccess?.({ sourceUrl, title, taskId: data.task_id })
       } else {
-        throw new Error(data.detail || data.message || '写入失败')
+        throw new Error(data.detail || data.message || '创建任务失败')
       }
     } catch (e) {
-      toast?.error?.(e?.message || '写入失败')
+      toast?.error?.(e?.message || '创建任务失败')
     }
     setMwSubmitting(false)
   }
@@ -102,8 +113,17 @@ export default function MarkdownDraftActions({
           onClick={handleWriteToWiki}
           disabled={mwSubmitting}
         >
-          {mwSubmitting ? '写入中…' : '写入 MediaWiki'}
+          {mwSubmitting ? '创建中…' : '写入 MediaWiki'}
         </button>
+        {lastCreatedTaskId && (
+          <Link
+            to="/tasks"
+            state={{ detailTaskId: lastCreatedTaskId }}
+            className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
+          >
+            查看任务
+          </Link>
+        )}
       </div>
         </>
       )}
