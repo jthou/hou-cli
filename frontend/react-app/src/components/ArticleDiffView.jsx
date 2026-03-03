@@ -14,7 +14,7 @@ function LinePart({ lines, type }) {
     <div className={`${bg} ${border} pl-2 py-0.5 font-mono text-xs`}>
       {lines.map((line, i) => (
         <div key={i} className="whitespace-pre-wrap break-words">
-          <span className="select-none text-[#64748b] mr-2">{prefix}</span>
+          <span className="select-none text-muted mr-2">{prefix}</span>
           {line === '' ? '\u00a0' : line}
         </div>
       ))}
@@ -35,7 +35,7 @@ export default function ArticleDiffView({ oldText = '', newText = '', className 
 
   return (
     <div className={`rounded overflow-hidden border border-border ${className}`}>
-      <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-black/20 text-xs text-[#94a3b8]">
+      <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-black/20 text-xs text-muted">
         <span><span className="inline-block w-3 h-3 rounded bg-red-500/50 mr-1" />删除（当前有）</span>
         <span><span className="inline-block w-3 h-3 rounded bg-emerald-500/50 mr-1" />新增（该版本有）</span>
       </div>

@@ -32,6 +32,16 @@ FETCH_TIMEOUT = 30.0
 # 危险协议
 FORBIDDEN_SCHEMES = ("file", "javascript", "data", "ftp")
 
+# 请求头：模拟浏览器，降低知乎等站点 403 概率
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
 # 频率限制：记录最近请求时间戳（进程内）
 _rate_limit_timestamps: deque = deque(maxlen=1000)
 
@@ -245,7 +255,11 @@ class WebFetchTool(Tool):
         sem.acquire()
         try:
             try:
-                with httpx.Client(timeout=FETCH_TIMEOUT, follow_redirects=True) as client:
+                with httpx.Client(
+                    timeout=FETCH_TIMEOUT,
+                    follow_redirects=True,
+                    headers=DEFAULT_HEADERS,
+                ) as client:
                     resp = client.get(url)
                     resp.raise_for_status()
                     html = resp.text

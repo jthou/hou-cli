@@ -83,7 +83,7 @@ export default function TaskCard({
           )}
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-[#94a3b8] mb-3">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted mb-3">
         <span>类型: {task.task_type}</span>
         <span>创建: {formatDateTime(task.created_at)}</span>
         {task.started_at && <span>开始: {formatDateTime(task.started_at)}</span>}
@@ -95,7 +95,7 @@ export default function TaskCard({
             <div className="flex-1 h-1.5 bg-white/10 rounded overflow-hidden">
               <div className="h-full bg-cyan-500 rounded" style={{ width: `${task.progress ?? 0}%` }} />
             </div>
-            <span className="text-xs text-[#94a3b8] w-9 text-right">{(task.progress ?? 0)}%</span>
+            <span className="text-xs text-muted w-9 text-right">{(task.progress ?? 0)}%</span>
           </div>
           {task.message && <p className="text-xs text-cyan-400/90 mt-1 truncate" title={task.message}>{task.message}</p>}
         </div>
@@ -119,7 +119,7 @@ export default function TaskCard({
         {!inRunsModal && (
           <button
             onClick={() => onShowDetail?.(task.task_id)}
-            className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/5"
+            className="px-3 py-1.5 text-sm border border-border rounded-lg text-muted hover:text-fg hover:bg-white/5"
           >
             查看详情
           </button>

@@ -3,7 +3,8 @@ import { useState, useEffect } from 'react'
 const DARK_STORAGE_KEY = 'hou-cli-dark-mode'
 
 function getDarkFromStorage() {
-  return localStorage.getItem(DARK_STORAGE_KEY) !== '0'
+  // 默认浅色；仅当存储为 '1' 时视为深色
+  return localStorage.getItem(DARK_STORAGE_KEY) === '1'
 }
 
 export default function SettingsGeneral() {

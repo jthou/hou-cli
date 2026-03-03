@@ -768,6 +768,24 @@ class UnifiedOrchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
 
+        # 注册 KanbanBoard 看板工具（基于 MediaWiki 扩展）
+        try:
+            from backend.core.agent.tools.builtin.kanban_tool import KanbanBoardTool
+
+            kanban_tool = KanbanBoardTool()
+            self.tool_registry.register(kanban_tool)
+            self.debug.log_orchestrator_step(
+                "注册工具", {"kanban_board_tool": "registered"}
+            )
+            logger.info("KanbanBoard tool registered successfully")
+        except Exception as e:
+            error_msg = (
+                "Failed to register KanbanBoard tool: "
+                f"{str(e)}. KanbanBoard tool will not be available."
+            )
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+
         # 注册 Web Fetch 工具（抓取 URL 正文，用于翻译→Wiki 等流程）
         try:
             from backend.core.agent.tools.builtin.web_fetch_tool import WebFetchTool

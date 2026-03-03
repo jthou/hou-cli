@@ -209,12 +209,12 @@ export default function WechatDraftPage() {
         {/* 左侧：草稿列表 */}
         <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-hidden">
           <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
-            <span className="text-xs text-[#64748b]">点击条目在右侧预览</span>
+            <span className="text-xs text-muted">点击条目在右侧预览</span>
             <button
               type="button"
               onClick={refreshListAndDetail}
               disabled={draftsLoading}
-              className="shrink-0 p-1.5 rounded border border-border text-[#94a3b8] hover:text-white hover:bg-white/5 disabled:opacity-50"
+              className="shrink-0 p-1.5 rounded border border-border text-muted hover:text-fg hover:bg-white/5 disabled:opacity-50"
               title="从微信公众号同步最新草稿列表；若已选草稿则同步其正文、摘要、作者等详情"
             >
               ↻
@@ -222,21 +222,21 @@ export default function WechatDraftPage() {
           </div>
           <div className="flex-1 overflow-y-auto p-2">
             {draftsLoading ? (
-              <div className="py-8 text-center text-[#94a3b8] text-sm">加载中...</div>
+              <div className="py-8 text-center text-muted text-sm">加载中...</div>
             ) : draftsError ? (
               <div className="py-6 px-3 text-center">
                 <p className="text-sm text-red-400/90 mb-2">加载失败</p>
-                <p className="text-xs text-[#64748b] break-words">{draftsError}</p>
+                <p className="text-xs text-muted break-words">{draftsError}</p>
                 <button
                   type="button"
                   onClick={loadDrafts}
-                  className="mt-3 px-3 py-1.5 text-xs border border-border rounded text-[#94a3b8] hover:text-white"
+                  className="mt-3 px-3 py-1.5 text-xs border border-border rounded text-muted hover:text-fg"
                 >
                   重试
                 </button>
               </div>
             ) : !drafts.length ? (
-              <div className="py-8 text-center text-[#64748b] text-sm">暂无草稿</div>
+              <div className="py-8 text-center text-muted text-sm">暂无草稿</div>
             ) : (
               <div className="space-y-1">
                 {drafts.map((item) => {
@@ -251,11 +251,11 @@ export default function WechatDraftPage() {
                       className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
                         isSelected
                           ? 'bg-accent/20 text-accent border border-accent/40'
-                          : 'text-[#94a3b8] hover:bg-white/5 hover:text-white border border-transparent'
+                          : 'text-muted hover:bg-white/5 hover:text-fg border border-transparent'
                       }`}
                     >
                       <div className="font-medium truncate">{title}</div>
-                      <div className="text-xs text-[#64748b] truncate mt-0.5">
+                      <div className="text-xs text-muted truncate mt-0.5">
                         {item?.media_id}
                       </div>
                     </button>
@@ -270,11 +270,11 @@ export default function WechatDraftPage() {
         <div className="flex-1 flex min-w-0 overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white/[0.02]">
           {!selectedMediaId ? (
-            <div className="flex-1 flex items-center justify-center text-[#64748b] text-sm">
+            <div className="flex-1 flex items-center justify-center text-muted text-sm">
               请在左侧选择一篇草稿查看预览
             </div>
           ) : detailLoading ? (
-            <div className="flex-1 flex items-center justify-center text-[#94a3b8] text-sm">
+            <div className="flex-1 flex items-center justify-center text-muted text-sm">
               加载中...
             </div>
           ) : !detail ? (
@@ -298,7 +298,7 @@ export default function WechatDraftPage() {
                 </div>
                 {news?.thumb_media_id && (
                   <div>
-                    <div className="text-[#64748b] text-xs mb-1">封面</div>
+                    <div className="text-muted text-xs mb-1">封面</div>
                     <img
                       src={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(news.thumb_media_id)}`}
                       alt="封面"
@@ -308,7 +308,7 @@ export default function WechatDraftPage() {
                 )}
                 {news?.author && (
                   <div>
-                    <div className="text-[#64748b] text-xs mb-1">作者</div>
+                    <div className="text-muted text-xs mb-1">作者</div>
                     <div className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm bg-[#f6f8fa] text-[#24292f]">
                       {news.author}
                     </div>
@@ -316,20 +316,20 @@ export default function WechatDraftPage() {
                 )}
                 {news?.digest && (
                   <div>
-                    <div className="text-[#64748b] text-xs mb-1">摘要</div>
+                    <div className="text-muted text-xs mb-1">摘要</div>
                     <div className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm bg-[#f6f8fa] text-[#24292f]">
                       {news.digest}
                     </div>
                   </div>
                 )}
                 <div>
-                  <div className="text-[#64748b] text-xs mb-1">正文</div>
+                  <div className="text-muted text-xs mb-1">正文</div>
                   <WechatDraftPreview
                     html={news?.content ?? ''}
                     className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm"
                   />
                 </div>
-                <div className="text-xs text-[#64748b]">
+                <div className="text-xs text-muted">
                   media_id: <code className="text-cyan-400/90">{detail?.media_id}</code>
                 </div>
               </div>
@@ -363,7 +363,7 @@ export default function WechatDraftPage() {
               <button
                 type="button"
                 onClick={closeForm}
-                className="text-[#94a3b8] hover:text-white text-2xl leading-none"
+                className="text-muted hover:text-fg text-2xl leading-none"
               >
                 ×
               </button>
@@ -391,13 +391,13 @@ export default function WechatDraftPage() {
                     if (!mid) return null
                     return (
                       <div className="space-y-1">
-                        <label className="block text-sm text-[#94a3b8]">要更新的草稿</label>
+                        <label className="block text-sm text-muted">要更新的草稿</label>
                         <p className="text-sm text-white py-2 px-3 rounded-lg bg-white/5 border border-border">
                           {title ? <span className="font-medium">{title}</span> : null}
                           {title && mid ? ' · ' : null}
                           <code className="text-cyan-300 text-xs break-all">{mid}</code>
                         </p>
-                        <p className="text-xs text-[#64748b]">media_id 来自当前选中的草稿</p>
+                        <p className="text-xs text-muted">media_id 来自当前选中的草稿</p>
                       </div>
                     )
                   }
@@ -408,7 +408,7 @@ export default function WechatDraftPage() {
                     const over = len > DIGEST_MAX
                     return (
                       <div className="space-y-1">
-                        <label className="block text-sm text-[#94a3b8] mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
+                        <label className="block text-sm text-muted mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
                         <textarea
                           value={text}
                           onChange={(e) => setFormMetadata((m) => ({ ...m, digest: e.target.value }))}
@@ -417,7 +417,7 @@ export default function WechatDraftPage() {
                           className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none resize-y min-h-[72px]"
                         />
                         <div className="text-xs">
-                          <span className={over ? 'text-amber-400' : 'text-[#64748b]'}>
+                          <span className={over ? 'text-amber-400' : 'text-muted'}>
                             {len} / {DIGEST_MAX} 字
                             {over && ' · 超过 120 字，接口可能报 45004'}
                           </span>
@@ -429,11 +429,11 @@ export default function WechatDraftPage() {
                 }}
               />
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">封面{formModalMode === 'add' ? ' *' : ''}</label>
+                <label className="block text-sm text-muted mb-1">封面{formModalMode === 'add' ? ' *' : ''}</label>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  className="w-full text-sm text-[#94a3b8] file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
+                  className="w-full text-sm text-muted file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
                   disabled={coverUploading}
                   onChange={async (e) => {
                     const file = e.target.files?.[0]
@@ -454,7 +454,7 @@ export default function WechatDraftPage() {
                 />
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <WechatMaterialImagePicker onSelect={(mediaId) => setFormMetadata((m) => ({ ...m, thumb_media_id: mediaId }))} />
-                  <span className="text-xs text-[#64748b]">或填写 media_id：</span>
+                  <span className="text-xs text-muted">或填写 media_id：</span>
                   <input
                     type="text"
                     value={formMetadata?.thumb_media_id ?? ''}
@@ -482,7 +482,7 @@ export default function WechatDraftPage() {
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white"
+                  className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-fg"
                 >
                   取消
                 </button>

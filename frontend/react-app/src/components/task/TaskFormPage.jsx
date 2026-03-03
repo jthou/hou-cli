@@ -3,7 +3,7 @@
  * 与 TaskManagement 的 CreateTaskModal 表单逻辑保持一致
  */
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useToast } from '../ToastModal'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
 import WikiTitlePreviewHint from './WikiTitlePreviewHint'
@@ -22,6 +22,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
   const [metadata, setMetadata] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState(null)
+  const location = useLocation()
 
   const typeInfo = taskTypes.find(t => t.type === taskType) || null
   const schema = typeInfo?.metadata_schema || {}
@@ -37,13 +38,27 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
         setTaskTypes(types)
         const info = types.find(t => t.type === taskType)
         let meta = getDefaultMetadata(info?.metadata_schema)
-        if (taskType === 'url_to_wiki' && Array.isArray(meta.categories)) {
-          meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
+        if (taskType === 'url_to_wiki') {
+          if (Array.isArray(meta.categories)) {
+            meta = { ...meta, categories: [...meta.categories, ...getDateCategoryStrings()] }
+          }
+          // 默认先生成 Markdown 草稿，不直接写入 MediaWiki
+          meta = { ...meta, auto_write: false }
+          // 若通过 URL 携带了参数，则用于预填
+          const search = new URLSearchParams(location.search)
+          const urlFromQuery = (search.get('url') || search.get('source_url') || '').trim()
+          const titleFromQuery = (search.get('wiki_title') || search.get('suggest_title') || '').trim()
+          if (urlFromQuery) {
+            meta = { ...meta, url: urlFromQuery }
+          }
+          if (titleFromQuery) {
+            meta = { ...meta, wiki_title: titleFromQuery }
+          }
         }
         setMetadata(meta)
       })
       .catch(() => setTaskTypes([]))
-  }, [taskType])
+  }, [taskType, location.search])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -85,9 +100,9 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
 
       <div className={`flex-1 overflow-hidden flex ${rightContent ? 'flex-row' : 'flex-col'}`}>
         <div className={`flex-1 overflow-y-auto p-6 ${rightContent ? 'max-w-2xl shrink-0' : 'max-w-2xl'}`}>
-        <p className="text-[#94a3b8] mb-6">
+        <p className="text-muted mb-6">
           {description}
-          <Link to="/" className="text-accent hover:underline ml-1">任务管理</Link>
+          <Link to="/tasks" className="text-accent hover:underline ml-1">任务管理</Link>
           中查看进度。
         </p>
 
@@ -109,7 +124,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
                 onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
                 className="text-accent focus:ring-accent rounded"
               />
-              <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+              <span className="text-sm text-muted">正文为 Markdown（提交时转为 Wiki 语法）</span>
             </label>
           )}
           {taskType === 'url_to_wiki' && (
@@ -131,7 +146,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
           <div className={`mt-6 p-4 rounded-lg ${result.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
             {result.success ? (
               <p>
-                任务已创建：<Link to="/" className="underline">{result.taskId}</Link>
+                任务已创建：<Link to="/tasks" className="underline">{result.taskId}</Link>
                 ，请在任务管理中查看结果。
               </p>
             ) : (

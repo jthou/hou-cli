@@ -67,7 +67,7 @@ export default function WechatDraftEditor({ value = '', onChange, placeholder = 
     <div className={`grid grid-cols-1 md:grid-cols-2 gap-5 min-h-[360px] ${className}`.trim()}>
       <div className="flex flex-col min-h-[320px]">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-[#64748b]">正文（Markdown）</span>
+          <span className="text-xs text-muted">正文（Markdown）</span>
           <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
@@ -81,7 +81,7 @@ export default function WechatDraftEditor({ value = '', onChange, placeholder = 
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="text-xs px-2 py-1 rounded border border-border bg-white/5 text-[#94a3b8] hover:border-accent hover:text-accent disabled:opacity-50"
+              className="text-xs px-2 py-1 rounded border border-border bg-white/5 text-muted hover:border-accent hover:text-accent disabled:opacity-50"
             >
               {uploading ? '上传中…' : '插入图片'}
             </button>
@@ -99,7 +99,7 @@ export default function WechatDraftEditor({ value = '', onChange, placeholder = 
         />
       </div>
       <div className="flex flex-col min-h-[320px]">
-        <div className="text-xs text-[#64748b] mb-1">预览（公众号效果）</div>
+        <div className="text-xs text-muted mb-1">预览（公众号效果）</div>
         <MarkdownPreview
           markdown={value}
           className="rounded-lg p-4 border-2 border-[#d0d7de] shadow-sm flex-1 min-h-[300px]"

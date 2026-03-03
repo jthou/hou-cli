@@ -20,14 +20,22 @@ class MediaWikiTool(Tool):
             ToolParameter(
                 name="operation",
                 type="string",
-                description="操作类型：'search'（搜索）、'read'（读取）、'edit'（编辑）、'create'（创建）、'info'（获取信息）",
+                description=(
+                    "操作类型："
+                    "'search'（搜索）、"
+                    "'read'（读取）、"
+                    "'edit'（编辑）、"
+                    "'create'（创建）、"
+                    "'info'（获取信息）、"
+                    "'search_read'（按关键词搜索并批量读取多篇文章内容）"
+                ),
                 required=True,
-                enum=["search", "read", "edit", "create", "info"]
+                enum=["search", "read", "edit", "create", "info", "search_read"]
             ),
             ToolParameter(
                 name="query",
                 type="string",
-                description="搜索关键词（operation='search' 时必需）",
+                description="搜索关键词（operation='search' 时必需；operation='search_read' 时若未提供 terms 也可作为关键词列表使用）",
                 required=False
             ),
             ToolParameter(
@@ -55,17 +63,38 @@ class MediaWikiTool(Tool):
                 required=False,
                 default=10
             ),
+            ToolParameter(
+                name="terms",
+                type="string",
+                description=(
+                    "以逗号或空格分隔的关键词列表（operation='search_read' 时可选；"
+                    "例如 '网文抓取, hou-cli, 2026年3月3日'）。"
+                    "若未提供则会回退使用 query。"
+                ),
+                required=False,
+            ),
+            ToolParameter(
+                name="per_term_limit",
+                type="integer",
+                description=(
+                    "每个关键词抓取的文章数上限（operation='search_read' 时可选，默认 5，最大 20）。"
+                ),
+                required=False,
+                default=5,
+            ),
         ]
         
         super().__init__(
             name="mediawiki",
             description=(
-                "访问和操作 MediaWiki 网站。可以搜索页面、读取页面内容、编辑现有页面、创建新页面。"
+                "访问和操作 MediaWiki 网站。可以搜索页面、读取页面内容、编辑现有页面、创建新页面，"
+                "也可以对多个关键词批量搜索并读取多篇文章内容。"
                 "\n使用示例："
                 "- 搜索：operation='search', query='关键词'"
                 "- 读取：operation='read', title='页面标题'"
                 "- 编辑：operation='edit', title='页面标题', content='新内容'"
                 "- 创建：operation='create', title='页面标题', content='内容'"
+                "- 批量搜索并读取：operation='search_read', terms='网文抓取, hou-cli', per_term_limit=5"
                 "\n重要提示："
                 "当输出 MediaWiki 页面列表时，请使用 format_page_link() 或 format_page_list_with_links() 函数"
                 "为每个页面标题添加可点击的链接。这些函数可以从 backend.services.mediawiki.utils 导入。"
@@ -153,7 +182,7 @@ class MediaWikiTool(Tool):
                     success=False,
                     error="operation 参数是必需的"
                 )
-            
+
             client = self._get_client()
             
             if operation == "search":
@@ -166,6 +195,8 @@ class MediaWikiTool(Tool):
                 return self._handle_create(client, kwargs)
             elif operation == "info":
                 return self._handle_info(client, kwargs)
+            elif operation == "search_read":
+                return self._handle_search_read(client, kwargs)
             else:
                 return ToolResult(
                     success=False,
@@ -220,6 +251,98 @@ class MediaWikiTool(Tool):
                 "results": formatted_results,
                 "summary": f"找到 {len(results)} 个相关页面（点击标题可在浏览器中打开）"
             }
+        )
+
+    def _handle_search_read(
+        self,
+        client: MediaWikiClientService,
+        kwargs: Dict[str, Any],
+    ) -> ToolResult:
+        """
+        处理批量搜索并读取内容的操作：
+        - 输入一个或多个关键词（terms / query）
+        - 对每个关键词搜索若干篇文章
+        - 直接返回这些文章的完整内容，便于在 prompt 中引用
+        """
+        # 兼容两种入参：terms（推荐）或 query
+        raw_terms = kwargs.get("terms") or kwargs.get("query")
+        if not raw_terms:
+            return ToolResult(
+                success=False,
+                error="search_read 操作需要 terms 或 query 参数（以逗号或空格分隔的关键词列表）",
+            )
+
+        # 以逗号或空白分隔关键词，并去重保持顺序
+        parts = re.split(r"[,\s]+", str(raw_terms))
+        terms: list[str] = []
+        seen = set()
+        for p in parts:
+            t = p.strip()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            terms.append(t)
+
+        if not terms:
+            return ToolResult(
+                success=False,
+                error="解析 terms 失败：请提供至少一个非空关键词（用逗号或空格分隔）。",
+            )
+
+        # 每个关键词最多抓取多少篇文章
+        per_term_limit = kwargs.get("per_term_limit", 5)
+        try:
+            per_term_limit = int(per_term_limit)
+        except (TypeError, ValueError):
+            per_term_limit = 5
+        if per_term_limit < 1:
+            per_term_limit = 1
+        if per_term_limit > 20:
+            per_term_limit = 20
+
+        results: list[dict[str, Any]] = []
+        total_pages = 0
+
+        for term in terms:
+            search_results = client.search_pages(term, limit=per_term_limit)
+            pages: list[dict[str, Any]] = []
+            for r in search_results:
+                page = client.get_page(r.title)
+                if not page:
+                    continue
+                pages.append(
+                    {
+                        "title": page.title,
+                        "title_link": format_page_link(page.title, link_text=page.title),
+                        "url": page.url,
+                        "categories": page.categories,
+                        "content": page.content,
+                    }
+                )
+
+            results.append(
+                {
+                    "term": term,
+                    "requested_limit": per_term_limit,
+                    "count": len(pages),
+                    "pages": pages,
+                }
+            )
+            total_pages += len(pages)
+
+        return ToolResult(
+            success=True,
+            data={
+                "operation": "search_read",
+                "terms": terms,
+                "per_term_limit": per_term_limit,
+                "total_pages": total_pages,
+                "results": results,
+                "summary": (
+                    f"按 {len(terms)} 个关键词共抓取到 {total_pages} 篇 MediaWiki 文章的完整内容；"
+                    "results[*].pages[*].content 即为对应页面的 wikitext 内容。"
+                ),
+            },
         )
     
     def _handle_read(

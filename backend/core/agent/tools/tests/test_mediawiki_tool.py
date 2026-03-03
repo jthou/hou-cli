@@ -23,7 +23,8 @@ class TestMediaWikiTool:
         """测试工具初始化"""
         assert tool.name == "mediawiki"
         assert tool.description is not None
-        assert len(tool.parameters) == 6
+        # operation/query/title/content/summary/limit/terms/per_term_limit
+        assert len(tool.parameters) == 8
 
         param_names = [p.name for p in tool.parameters]
         assert "operation" in param_names
@@ -32,6 +33,8 @@ class TestMediaWikiTool:
         assert "content" in param_names
         assert "summary" in param_names
         assert "limit" in param_names
+        assert "terms" in param_names
+        assert "per_term_limit" in param_names
 
     def test_missing_operation(self, tool):
         """测试缺少 operation 参数"""

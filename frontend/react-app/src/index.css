@@ -2,22 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 浅色模式（默认变量，无 .dark 时） */
+/* 浅色模式（默认变量，无 .dark 时） - 主文字深色、次要文字可读，避免灰蒙蒙 */
 :root {
-  --color-bg: #f0f0f0;
+  --color-bg: #f6f8fa;
   --color-surface: #ffffff;
-  --color-border: #e0e0e0;
-  --color-fg: #1a1a1a;
-  --color-muted: #64748b;
+  --color-border: #d0d7de;
+  --color-fg: #0d1117;
+  --color-muted: #424a53;
+  --color-accent: #0969da;
+  --color-accent-hover: #0550ae;
 }
 
-/* 深色模式 */
+/* 深色模式 - 对齐 GitHub Primer Dark */
 html.dark {
-  --color-bg: #1e1e1e;
-  --color-surface: #252526;
-  --color-border: #3e3e42;
-  --color-fg: #cccccc;
-  --color-muted: #94a3b8;
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-border: #30363d;
+  --color-fg: #e6edf3;
+  --color-muted: #7d8590;
+  --color-accent: #2f81f7;
+  --color-accent-hover: #1f6feb;
 }
 
 /* 浅色模式下将原 text-white 显示为深色字，保证可读 */

@@ -407,7 +407,7 @@ TASK_TYPES = {
     },
     "url_to_wiki": {
         "name": "网文抓取",
-        "description": "抓取指定 URL 正文，翻译成中文后写入 MediaWiki 同名页面",
+        "description": "抓取指定 URL 正文，翻译成中文后生成 Markdown 草稿，可按需写入 MediaWiki",
         "metadata_schema": {
             "url": {
                 "type": "string",
@@ -439,6 +439,12 @@ TASK_TYPES = {
                 "description": "Wiki 分类",
                 "placeholder": "输入标签后回车添加",
                 "default": ["网文抓取", "hou-cli"]
+            },
+            "auto_write": {
+                "type": "boolean",
+                "required": False,
+                "description": "自动写入 MediaWiki（关闭则仅生成 Markdown 草稿）",
+                "default": True
             },
         }
     },
@@ -1261,7 +1267,7 @@ def _chunk_text_by_paragraphs(text: str, max_chars: int = 4000) -> List[str]:
 
 
 async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
-    """抓取 URL 正文 → 翻译成中文 → 写入 MediaWiki 同名页面。"""
+    """抓取 URL 正文 → 翻译成中文 → 生成 Markdown 草稿；可选自动写入 MediaWiki。"""
     metadata = task_info.get("metadata", {})
     worker = get_task_worker()
     url = (metadata.get("url") or "").strip()
@@ -1363,6 +1369,18 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     original_link_line = f"'''原文链接'''：[{url} 原文]"
     content_to_write = f"{original_link_line}\n\n{translated}"
 
+    # 统一生成 Markdown 风格草稿（当前使用 Wiki 语法文本作为草稿内容），供后续写文章或 mediawiki_write 使用
+    markdown = content_to_write
+
+    auto_write = bool(metadata.get("auto_write", True))
+    if not auto_write:
+        worker.update_task_progress(100, "已生成 Markdown 草稿（未写入 MediaWiki）")
+        return {
+            "status": "success",
+            "summary": "已抓取并生成 Markdown 草稿（未写入 MediaWiki）",
+            "data": {"url": url, "wiki_title": wiki_title, "markdown": markdown, "wrote_to_wiki": False},
+        }
+
     worker.update_task_progress(85, "正在写入 MediaWiki...")
     from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
     mw_tool = MediaWikiTool()
@@ -1384,7 +1402,7 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "status": "success",
         "summary": summary,
-        "data": {"url": url, "wiki_title": wiki_title},
+        "data": {"url": url, "wiki_title": wiki_title, "markdown": markdown, "wrote_to_wiki": True},
     }
 
 

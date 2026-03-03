@@ -18,54 +18,54 @@ function RecordCard({ record }) {
   const label = DIRECTION_LABEL[direction] ?? direction
 
   const renderPayload = () => {
-    if (!payload || typeof payload !== 'object') return <pre className="text-xs text-[#94a3b8] whitespace-pre-wrap">{String(payload)}</pre>
+    if (!payload || typeof payload !== 'object') return <pre className="text-xs text-muted whitespace-pre-wrap">{String(payload)}</pre>
     if (payload.message_count != null && payload.messages) {
       return (
         <div className="space-y-2">
-          <p className="text-xs text-[#64748b]">消息数: {payload.message_count}</p>
+          <p className="text-xs text-muted">消息数: {payload.message_count}</p>
           {payload.messages.map((m, i) => (
             <div key={i} className="bg-black/20 rounded p-2 text-sm">
               <span className="text-cyan-400 font-medium">[{m.role}]</span>
-              <span className="text-[#64748b] ml-1">长度 {m.content_length}</span>
-              <pre className="mt-1 text-[#94a3b8] whitespace-pre-wrap break-words">{m.content_preview || ''}</pre>
+              <span className="text-muted ml-1">长度 {m.content_length}</span>
+              <pre className="mt-1 text-muted whitespace-pre-wrap break-words">{m.content_preview || ''}</pre>
             </div>
           ))}
         </div>
       )
     }
     if (payload.content_preview != null) {
-      return <pre className="text-sm text-[#94a3b8] whitespace-pre-wrap break-words bg-black/20 rounded p-3">{payload.content_preview}</pre>
+      return <pre className="text-sm text-muted whitespace-pre-wrap break-words bg-black/20 rounded p-3">{payload.content_preview}</pre>
     }
     if (payload.error != null) {
       return (
         <div className="text-sm">
           <p className="text-red-400 font-medium">{payload.error_type || 'Error'}</p>
-          <pre className="text-[#94a3b8] whitespace-pre-wrap mt-1 bg-black/20 rounded p-2">{payload.error}</pre>
-          {payload.partial_preview && <p className="text-xs text-[#64748b] mt-2">局部输出: {payload.partial_preview.slice(0, 200)}...</p>}
+          <pre className="text-muted whitespace-pre-wrap mt-1 bg-black/20 rounded p-2">{payload.error}</pre>
+          {payload.partial_preview && <p className="text-xs text-muted mt-2">局部输出: {payload.partial_preview.slice(0, 200)}...</p>}
         </div>
       )
     }
     if (payload.type === 'tool_calls' && payload.names) {
-      return <p className="text-sm text-[#94a3b8]">工具调用: {payload.names.join(', ')}</p>
+      return <p className="text-sm text-muted">工具调用: {payload.names.join(', ')}</p>
     }
-    return <pre className="text-xs text-[#94a3b8] whitespace-pre-wrap break-words">{JSON.stringify(payload, null, 2)}</pre>
+    return <pre className="text-xs text-muted whitespace-pre-wrap break-words">{JSON.stringify(payload, null, 2)}</pre>
   }
 
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-white/5">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-border">
         <span className={`text-xs font-medium px-2 py-0.5 rounded ${dirClass}`}>{label}</span>
-        <span className="text-xs text-[#64748b]">{ts}</span>
-        <span className="text-xs text-[#94a3b8]">{model}</span>
-        {audit_id && <span className="text-xs text-[#64748b]">audit_id: {audit_id}</span>}
+        <span className="text-xs text-muted">{ts}</span>
+        <span className="text-xs text-muted">{model}</span>
+        {audit_id && <span className="text-xs text-muted">audit_id: {audit_id}</span>}
         {session_id && <span className="text-xs text-violet-400">session: {session_id.slice(0, 8)}…</span>}
       </div>
       <div className="p-4 text-sm">
         {renderPayload()}
         {Object.keys(rest).length > 0 && (
           <details className="mt-2">
-            <summary className="text-xs text-[#64748b] cursor-pointer">其他字段</summary>
-            <pre className="text-xs text-[#64748b] mt-1 whitespace-pre-wrap">{JSON.stringify(rest, null, 2)}</pre>
+            <summary className="text-xs text-muted cursor-pointer">其他字段</summary>
+            <pre className="text-xs text-muted mt-1 whitespace-pre-wrap">{JSON.stringify(rest, null, 2)}</pre>
           </details>
         )}
       </div>
@@ -137,7 +137,7 @@ export default function SettingsLlmAudit() {
     <div className="flex flex-col h-full">
       <header className="shrink-0 px-6 py-4 border-b border-border">
         <h1 className="text-xl font-semibold text-white">LLM 对话审计</h1>
-        <p className="text-[#94a3b8] text-sm mt-1">所有 LLM 调用的输入与输出，按时间倒序。</p>
+        <p className="text-muted text-sm mt-1">所有 LLM 调用的输入与输出，按时间倒序。</p>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
@@ -145,14 +145,14 @@ export default function SettingsLlmAudit() {
           <div className="flex items-center gap-2">
             <h2 className="text-base font-medium text-white">全部记录</h2>
             {total > 0 && (
-              <span className="text-sm text-[#64748b]">共 {total} 条</span>
+              <span className="text-sm text-muted">共 {total} 条</span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowFilter((s) => !s)}
-              className="text-sm text-[#94a3b8] hover:text-white"
+              className="text-sm text-muted hover:text-fg"
             >
               {showFilter ? '收起筛选' : '按日期筛选'}
             </button>
@@ -180,7 +180,7 @@ export default function SettingsLlmAudit() {
               onChange={(e) => { setFromDate(e.target.value); setPage(1) }}
               className="bg-black/20 border border-border rounded px-3 py-1.5 text-sm text-white [color-scheme:dark]"
             />
-            <span className="text-[#64748b]">～</span>
+            <span className="text-muted">～</span>
             <input
               type="date"
               value={toDate}
@@ -191,12 +191,12 @@ export default function SettingsLlmAudit() {
         )}
 
         {error && <p className="text-amber-400 text-sm mb-3">{error}</p>}
-        {loading && <p className="text-[#64748b] text-sm mb-3">加载中…</p>}
+        {loading && <p className="text-muted text-sm mb-3">加载中…</p>}
 
         {!loading && (
           <>
             {records.length === 0 ? (
-              <p className="text-[#64748b] text-sm py-8">暂无审计记录，进行对话后会在此显示。</p>
+              <p className="text-muted text-sm py-8">暂无审计记录，进行对话后会在此显示。</p>
             ) : (
               <div className="space-y-4">
                 {records.map((rec, i) => (
@@ -206,13 +206,13 @@ export default function SettingsLlmAudit() {
             )}
             {total > 0 && (
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
-                <span className="text-sm text-[#64748b]">第 {page} / {totalPages} 页</span>
+                <span className="text-sm text-muted">第 {page} / {totalPages} 页</span>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     disabled={page <= 1}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-sm border border-border rounded-lg text-muted hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     上一页
                   </button>
@@ -220,7 +220,7 @@ export default function SettingsLlmAudit() {
                     type="button"
                     disabled={page >= totalPages}
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-3 py-1.5 text-sm border border-border rounded-lg text-[#94a3b8] hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-sm border border-border rounded-lg text-muted hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     下一页
                   </button>
@@ -230,8 +230,8 @@ export default function SettingsLlmAudit() {
           </>
         )}
 
-        <details className="mt-8 text-sm text-[#64748b]">
-          <summary className="cursor-pointer hover:text-[#94a3b8]">存储与关闭审计</summary>
+        <details className="mt-8 text-sm text-muted">
+          <summary className="cursor-pointer hover:text-muted">存储与关闭审计</summary>
           <p className="mt-2">
             审计数据：<code className="bg-white/5 px-1 rounded">databases/llm_audit.db</code>。设置环境变量 <code className="bg-white/5 px-1 rounded">LLM_AUDIT_DISABLED=1</code> 可关闭写入。
           </p>

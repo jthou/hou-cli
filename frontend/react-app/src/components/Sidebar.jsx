@@ -4,16 +4,20 @@ import BackendStatus from './BackendStatus'
 
 // 分组：内容创作、常用工具、管道编排、设置
 const navItems = [
+  { path: '/tasks', icon: '📋', label: '任务管理', group: 'content' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'content' },
   { path: '/article-writing', icon: '✍️', label: '写文章', group: 'content' },
+  { path: '/mediawiki-reader', icon: '📖', label: 'MediaWiki 阅读', group: 'content' },
   { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'tools' },
   { path: '/video-extract-audio', icon: '🎧', label: '视频提取音频', group: 'tools' },
   { path: '/speech-to-text', icon: '🎤', label: '语音转文字', group: 'tools' },
   { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'tools' },
   { path: '/pdf-to-wiki', icon: '📄', label: 'PDF 转 Wiki', group: 'tools' },
+  { path: '/pdf-reader', icon: '📘', label: 'PDF 阅读', group: 'tools' },
   { path: '/wiki-directory', icon: '📚', label: 'Wiki 目录刷新', group: 'tools' },
   { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
   { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'tools' },
+  { path: '/settings/kanban', icon: '🗂️', label: '看板管理', group: 'settings' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'pipeline' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
@@ -70,19 +74,19 @@ export default function Sidebar({ open, onToggle }) {
               to="/"
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
+                  isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
                 }`
               }
             >
-              <span>📋</span>
-              <span>任务管理</span>
+              <span>🏠</span>
+              <span>首页</span>
             </NavLink>
           </li>
           {itemsByGroup.map(({ id, meta, items }) => (
             <li key={id}>
               <button
                 onClick={() => toggleGroup(id)}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-[#94a3b8] hover:bg-white/5 hover:text-white transition-colors"
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-muted hover:bg-white/5 hover:text-fg transition-colors"
               >
                 <span className="flex items-center gap-3">
                   <span>{meta?.icon ?? '•'}</span>
@@ -98,7 +102,7 @@ export default function Sidebar({ open, onToggle }) {
                         to={item.path}
                         className={({ isActive }) =>
                           `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                            isActive ? 'bg-accent/20 text-accent' : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
+                            isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
                           }`
                         }
                       >

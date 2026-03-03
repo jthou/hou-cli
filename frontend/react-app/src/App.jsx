@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ToastProvider } from './components/ToastModal'
 import Sidebar from './components/Sidebar'
+import Home from './pages/Home'
 import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
@@ -16,11 +17,14 @@ import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
 import SettingsLlmAudit from './pages/SettingsLlmAudit'
 import SettingsSystemPromptAudit from './pages/SettingsSystemPromptAudit'
+import SettingsKanban from './pages/SettingsKanban'
 import About from './pages/About'
 import WechatDraftPage from './pages/WechatDraftPage'
 import UrlToWiki from './pages/UrlToWiki'
 import PdfToWiki from './pages/PdfToWiki'
+import PdfReader from './pages/PdfReader'
 import WikiDirectory from './pages/WikiDirectory'
+import MediaWikiReader from './pages/MediaWikiReader'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -32,7 +36,8 @@ export default function App() {
           <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
           <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface overflow-hidden">
             <Routes>
-              <Route path="/" element={<TaskManagement />} />
+              <Route path="/" element={<Home />} />
+              <Route path="/tasks" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />
               <Route path="/video-extract-audio" element={<VideoExtractAudio />} />
@@ -43,11 +48,14 @@ export default function App() {
               <Route path="/wechat-drafts" element={<WechatDraftPage />} />
               <Route path="/url-to-wiki" element={<UrlToWiki />} />
               <Route path="/pdf-to-wiki" element={<PdfToWiki />} />
+              <Route path="/pdf-reader" element={<PdfReader />} />
+              <Route path="/mediawiki-reader" element={<MediaWikiReader />} />
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
               <Route path="/settings/system-prompt-audit" element={<SettingsSystemPromptAudit />} />
+              <Route path="/settings/kanban" element={<SettingsKanban />} />
               <Route path="/settings/tests" element={<SettingsTests />} />
               <Route path="/settings/backend" element={<SettingsBackend />} />
               <Route path="/about" element={<About />} />

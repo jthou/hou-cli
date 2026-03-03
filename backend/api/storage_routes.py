@@ -1,10 +1,14 @@
 """存储配置相关路由"""
-from pathlib import Path
+
 from fastapi import APIRouter
+
 from shared.debug_utils import debug_log
 from shared.storage_utils import get_storage_manager
+from shared.platform_utils import get_default_output_dir, get_temp_root_dir
+
 
 router = APIRouter()
+
 
 @router.get("/storage/config")
 async def get_storage_config():
@@ -70,8 +74,11 @@ async def get_storage_config():
             except Exception as e:
                 debug_log(f"Failed to calculate ChromaDB size: {str(e)}", level="warning")
         
-        # 获取数据目录信息
+        # 获取数据目录信息（应用数据目录）
         data_dir = storage_manager.get_data_dir()
+        # 项目统一输出目录与临时目录（跨功能统一使用）
+        default_output_dir = get_default_output_dir()
+        temp_root_dir = get_temp_root_dir()
         # LLM 审计使用独立 SQLite 库
         try:
             from backend.services.llm.llm_audit import get_audit_dir
@@ -82,6 +89,13 @@ async def get_storage_config():
 
         return {
             "success": True,
+            # 核心路径：项目数据目录 / 默认输出目录 / 临时目录
+            "paths": {
+                "data_dir": str(data_dir),
+                "default_output_dir": str(default_output_dir),
+                "temp_root_dir": str(temp_root_dir),
+            },
+            # 兼容旧字段，仍保留 data_dir 顶层字段
             "data_dir": str(data_dir),
             "llm_audit_db_path": llm_audit_db_path,
             "sqlite": {

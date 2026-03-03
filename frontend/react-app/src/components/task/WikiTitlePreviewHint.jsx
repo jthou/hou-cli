@@ -18,7 +18,7 @@ export default function WikiTitlePreviewHint({ taskType, metadata }) {
           <span className="text-amber-300/90">疑似哈希或随机串，建议在上方「Wiki 页面标题」填写可读名称，避免目录中出现难以识别的标题。</span>
         </p>
       ) : (
-        <p className="text-[#94a3b8]">
+        <p className="text-muted">
           留空时将使用标题：<strong className="break-all">{derived}</strong>
         </p>
       )}

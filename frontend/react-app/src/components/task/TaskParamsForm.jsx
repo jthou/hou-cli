@@ -12,7 +12,7 @@ import WechatMaterialImagePicker from '../WechatMaterialImagePicker'
 import { useToast } from '../ToastModal'
 
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
-const labelCls = 'block text-sm text-[#94a3b8] mb-1'
+const labelCls = 'block text-sm text-muted mb-1'
 
 export default function TaskParamsForm({
   taskType,
@@ -66,7 +66,7 @@ export default function TaskParamsForm({
       const over = len > DIGEST_MAX
       return (
         <div className="space-y-1">
-          <label className="block text-sm text-[#94a3b8] mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
+          <label className="block text-sm text-muted mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
           <textarea
             value={text}
             onChange={(e) => setMetadata((m) => ({ ...m, digest: e.target.value }))}
@@ -75,7 +75,7 @@ export default function TaskParamsForm({
             className={`${inputCls} resize-y min-h-[72px]`}
           />
           <div className="flex items-center justify-between text-xs">
-            <span className={over ? 'text-amber-400' : 'text-[#64748b]'}>
+            <span className={over ? 'text-amber-400' : 'text-muted'}>
               {len} / {DIGEST_MAX} 字
               {over && ' · 超过 120 字，接口可能报 45004'}
             </span>
@@ -90,21 +90,21 @@ export default function TaskParamsForm({
       if (mediaId) {
         return (
           <div className="space-y-1">
-            <label className="block text-sm text-[#94a3b8]">要更新的草稿</label>
+            <label className="block text-sm text-muted">要更新的草稿</label>
             <p className="text-sm text-white py-2 px-3 rounded-lg bg-white/5 border border-border">
               {title ? <span className="font-medium">{title}</span> : null}
               {title && mediaId ? ' · ' : null}
               <code className="text-cyan-300 text-xs break-all">{mediaId}</code>
             </p>
-            <p className="text-xs text-[#64748b]">media_id 来自当前选中的草稿，无需选择或填写</p>
+            <p className="text-xs text-muted">media_id 来自当前选中的草稿，无需选择或填写</p>
           </div>
         )
       }
       // 无 media_id（如从「创建任务」选更新草稿）：从草稿列表选择
       return (
         <div className="space-y-2">
-          <label className="block text-sm text-[#94a3b8] mb-1">选择要更新的草稿 *</label>
-          <p className="text-xs text-[#64748b] mb-1">从当前草稿列表选择</p>
+          <label className="block text-sm text-muted mb-1">选择要更新的草稿 *</label>
+          <p className="text-xs text-muted mb-1">从当前草稿列表选择</p>
           <select
             value={mediaId}
             onChange={(e) => {
@@ -126,7 +126,7 @@ export default function TaskParamsForm({
               )
             })}
           </select>
-          {draftsLoading && <p className="text-xs text-[#64748b]">加载草稿列表中…</p>}
+          {draftsLoading && <p className="text-xs text-muted">加载草稿列表中…</p>}
           {!draftsLoading && draftList.length === 0 && <p className="text-xs text-amber-400/90">暂无草稿，请先新建草稿或到公众号草稿页查看</p>}
         </div>
       )
@@ -155,7 +155,7 @@ export default function TaskParamsForm({
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-            className="w-full text-sm text-[#94a3b8] file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
+            className="w-full text-sm text-muted file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
             disabled={coverUploading}
             onChange={async (e) => {
               const file = e.target.files?.[0]
@@ -176,7 +176,7 @@ export default function TaskParamsForm({
           />
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <WechatMaterialImagePicker onSelect={(mediaId) => setMetadata(m => ({ ...m, thumb_media_id: mediaId }))} />
-            <span className="text-xs text-[#64748b]">或填写 media_id：</span>
+            <span className="text-xs text-muted">或填写 media_id：</span>
             <input
               type="text"
               value={metadata?.thumb_media_id ?? ''}
@@ -209,7 +209,7 @@ export default function TaskParamsForm({
             onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
             className="text-accent focus:ring-accent rounded"
           />
-          <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+          <span className="text-sm text-muted">正文为 Markdown（提交时转为 Wiki 语法）</span>
         </label>
       )}
 

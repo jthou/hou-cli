@@ -4,7 +4,8 @@ import App from './App'
 import './index.css'
 
 const DARK_STORAGE_KEY = 'hou-cli-dark-mode'
-const isDark = () => localStorage.getItem(DARK_STORAGE_KEY) !== '0'
+// 默认使用浅色（GitHub Light）；只有存储为 '1' 时才启用深色
+const isDark = () => localStorage.getItem(DARK_STORAGE_KEY) === '1'
 if (isDark()) document.documentElement.classList.add('dark')
 else document.documentElement.classList.remove('dark')
 

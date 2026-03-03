@@ -10,8 +10,8 @@ export default {
       colors: {
         bg: 'var(--color-bg)',
         surface: 'var(--color-surface)',
-        accent: '#007acc',
-        'accent-hover': '#005a9e',
+        accent: 'var(--color-accent)',
+        'accent-hover': 'var(--color-accent-hover)',
         border: 'var(--color-border)',
         fg: 'var(--color-fg)',
         muted: 'var(--color-muted)',

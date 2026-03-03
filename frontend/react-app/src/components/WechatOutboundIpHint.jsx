@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from 'react'
 
-const labelCls = 'block text-sm text-[#94a3b8] mb-1'
+const labelCls = 'block text-sm text-muted mb-1'
 const valueCls = 'text-[#e2e8f0] font-mono text-sm'
 
 export default function WechatOutboundIpHint() {
@@ -51,7 +51,7 @@ export default function WechatOutboundIpHint() {
     return (
       <div className="mt-2">
         <span className={labelCls}>本机出口 IP（白名单备用）</span>
-        <p className={`${valueCls} text-[#64748b]`}>获取中…</p>
+        <p className={`${valueCls} text-muted`}>获取中…</p>
       </div>
     )
   }
@@ -73,7 +73,7 @@ export default function WechatOutboundIpHint() {
         <button
           type="button"
           onClick={handleCopy}
-          className="px-2 py-1 text-xs rounded bg-white/10 text-[#94a3b8] hover:text-white hover:bg-white/15"
+          className="px-2 py-1 text-xs rounded bg-white/10 text-muted hover:text-fg hover:bg-white/15"
         >
           {copied ? '已复制' : '复制'}
         </button>

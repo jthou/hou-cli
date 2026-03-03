@@ -23,13 +23,13 @@ export default function CurrentWeatherBlock({ cur }) {
         <span className="text-3xl font-light text-white">
           {getWeatherIcon(cur.icon)} {cur.temp ?? '-'}°
         </span>
-        <span className="text-lg text-[#94a3b8]">{cur.text ?? ''}</span>
+        <span className="text-lg text-muted">{cur.text ?? ''}</span>
       </div>
       {/* 详情网格（官网：体感、湿度、风向、能见度、降水、气压、观测） */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
         {items.map((item, i) => (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[#64748b] shrink-0">{item.label}</span>
+            <span className="text-muted shrink-0">{item.label}</span>
             <span className="text-white">{item.value}</span>
           </div>
         ))}

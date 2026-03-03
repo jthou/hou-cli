@@ -27,6 +27,7 @@ const TYPE_ACCENT = {
 const OFFSET = 24
 const CARD_MAX_W = 380
 const CARD_MIN_W = 280
+const AUTO_CLOSE_MS = 2000
 
 function clampPosition (x, y, cardW, cardH) {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 800
@@ -40,9 +41,8 @@ function clampPosition (x, y, cardW, cardH) {
   return { left, top }
 }
 
-function ToastModal({ type, title, message, confirmText, cancelText, onConfirm, onCancel, position }) {
+function ToastModal({ type, title, message, onConfirm, position }) {
   const accent = TYPE_ACCENT[type] || TYPE_ACCENT.info
-  const isConfirm = type === 'confirm'
   const displayTitle = title ?? TITLES[type]
 
   const place = (() => {
@@ -53,15 +53,22 @@ function ToastModal({ type, title, message, confirmText, cancelText, onConfirm, 
 
   const style = { left: place.left, top: place.top, maxWidth: CARD_MAX_W, minWidth: CARD_MIN_W }
 
+  // 所有提示 2 秒后自动关闭，无需点击确认
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onConfirm()
+    }, AUTO_CLOSE_MS)
+    return () => clearTimeout(timer)
+  }, [onConfirm])
+
   return (
-    <div className="fixed inset-0 z-[100] bg-black/50" onClick={onCancel} aria-hidden="false">
+    <div className="fixed inset-0 z-[100] pointer-events-none">
       <div
-        role="dialog"
+        role="status"
         aria-labelledby="toast-title"
         aria-describedby="toast-message"
         style={style}
-        className="fixed z-[101] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden"
-        onClick={e => e.stopPropagation()}
+        className="fixed z-[101] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden pointer-events-auto"
       >
         <div className="flex items-start gap-4 p-5">
           <span className={`shrink-0 w-10 h-10 flex items-center justify-center rounded-lg border-l-4 ${accent} bg-white/5 text-xl`}>
@@ -69,36 +76,8 @@ function ToastModal({ type, title, message, confirmText, cancelText, onConfirm, 
           </span>
           <div className="flex-1 min-w-0">
             <h3 id="toast-title" className="text-base font-semibold text-white mb-1">{displayTitle}</h3>
-            <p id="toast-message" className="text-sm text-[#94a3b8] whitespace-pre-wrap">{message}</p>
+            <p id="toast-message" className="text-sm text-muted whitespace-pre-wrap">{message}</p>
           </div>
-        </div>
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-          {isConfirm ? (
-            <>
-              <button
-                type="button"
-                onClick={onCancel}
-                className="px-4 py-2 text-sm border border-border rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/5"
-              >
-                {cancelText || '取消'}
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:opacity-90"
-              >
-                {confirmText || '确定'}
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={onConfirm}
-              className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:opacity-90"
-            >
-              {confirmText || '确定'}
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -150,10 +129,7 @@ export function ToastProvider({ children }) {
           type={toast.type}
           title={toast.title}
           message={toast.message}
-          confirmText={toast.confirmText}
-          cancelText={toast.cancelText}
           onConfirm={handleConfirm}
-          onCancel={handleCancel}
           position={toast.position}
         />
       )}

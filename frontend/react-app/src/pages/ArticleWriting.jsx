@@ -70,9 +70,30 @@ export default function ArticleWriting() {
   const [wechatOutputSchema, setWechatOutputSchema] = useState({})
   const [wechatOutputMetadata, setWechatOutputMetadata] = useState({})
   const [wechatOutputSubmitting, setWechatOutputSubmitting] = useState(false)
+  const [referenceBlocks, setReferenceBlocks] = useState([])
+  const [referencePanelOpen, setReferencePanelOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const streamingContentRef = useRef('')
+
+  const handleAddReferenceBlock = () => {
+    setReferencePanelOpen(true)
+    setReferenceBlocks((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: '', content: '' },
+    ])
+  }
+
+  const handleUpdateReferenceBlock = (id, field, value) => {
+    setReferenceBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, [field]: value } : b))
+    )
+  }
+
+  const handleRemoveReferenceBlock = (id) => {
+    setReferenceBlocks((prev) => prev.filter((b) => b.id !== id))
+  }
 
   const loadRevisions = useCallback(() => {
     if (!selectedSessionId) {
@@ -127,6 +148,11 @@ export default function ArticleWriting() {
         sessionStorage.removeItem(STORAGE_KEY_SELECTED_SESSION)
       }
     } catch (_) {}
+  }, [selectedSessionId])
+
+  useEffect(() => {
+    setReferenceBlocks([])
+    setReferencePanelOpen(false)
   }, [selectedSessionId])
 
   useEffect(() => {
@@ -194,6 +220,24 @@ export default function ArticleWriting() {
     if (!selectedSessionId) return
     const text = (input || '').trim()
     if (!text) return
+
+    const trimmedBlocks = referenceBlocks
+      .map((b) => ({ ...b, content: (b.content || '').trim() }))
+      .filter((b) => b.content)
+
+    const referenceContext =
+      trimmedBlocks.length === 0
+        ? ''
+        : `以下是用户提供的参考资料，请在回答时充分利用，并根据用户的最新指令进行综合判断：\n\n${trimmedBlocks
+            .map((b, idx) => {
+              const title = (b.title || '').trim()
+              const header = title ? `【参考${idx + 1}：${title}】` : `【参考${idx + 1}】`
+              return `${header}\n${b.content}`
+            })
+            .join('\n\n')}\n\n---\n\n`
+
+    const messageForModel = referenceContext ? `${referenceContext}${text}` : text
+
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
@@ -206,7 +250,7 @@ export default function ArticleWriting() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: messageForModel,
           session_id: selectedSessionId,
           current_article: article || undefined,
           context_type: 'article_writing',
@@ -754,111 +798,153 @@ export default function ArticleWriting() {
     <div className="flex flex-col h-full min-h-0">
       <header className="shrink-0 px-6 py-4 border-b border-border">
         <h1 className="text-xl font-semibold text-white">写文章</h1>
-        <p className="text-sm text-[#94a3b8] mt-1">
+        <p className="text-sm text-muted mt-1">
           左侧为写文章会话列表，中间对话、右侧为文章预览；会遵循写作画像。
         </p>
       </header>
 
       <div className="flex-1 flex min-h-0">
         {/* 左侧：写文章会话列表（与公众号草稿左侧一致） */}
-        <div className="w-72 shrink-0 border-r border-border flex flex-col bg-white/[0.02] overflow-hidden">
-          <div className="shrink-0 p-3 border-b border-border space-y-2">
-            <button
-              type="button"
-              onClick={handleNewSession}
-              className="w-full py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
-            >
-              新建会话
-            </button>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[#64748b]">排序：</span>
-              <select
-                value={listSort}
-                onChange={(e) => setListSort(e.target.value)}
-                className="flex-1 min-w-0 rounded border border-border bg-white/5 text-[#e2e8f0] text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
+        <div
+          className={`shrink-0 border-r border-border bg-white/[0.02] overflow-hidden transition-all duration-200 ${
+            sidebarCollapsed ? 'w-8' : 'w-72 flex flex-col'
+          }`}
+        >
+          {sidebarCollapsed ? (
+            <div className="h-full flex flex-col items-center justify-start pt-3">
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed(false)}
+                className="px-1.5 py-1 rounded border border-border text-[11px] text-muted hover:bg-white/5"
+                title="展开写文章会话列表"
               >
-                <option value="updated_at">最近更新</option>
-                <option value="created_at">最近创建</option>
-              </select>
+                展开
+              </button>
             </div>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {sessionsLoading ? (
-              <div className="p-4 text-center text-[#64748b] text-sm">加载中…</div>
-            ) : sessions.length === 0 ? (
-              <div className="p-4 text-[#64748b] text-sm">暂无写文章会话，点击上方新建</div>
-            ) : (
-              <ul className="p-2 space-y-1">
-                {sessions.map((s) => (
-                  <li key={s.session_id} className="group flex items-center gap-1 rounded-lg overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSessionId(s.session_id)}
-                      className={`flex-1 min-w-0 text-left px-3 py-2.5 rounded-lg text-sm truncate transition-colors ${
-                        selectedSessionId === s.session_id
-                          ? 'bg-accent/20 text-accent'
-                          : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'
-                      }`}
-                      title={s.title || s.preview || s.session_id}
-                    >
-                      {displayLabel(s)}
-                    </button>
-                    <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={(e) => openEditDialog(s.session_id, s.title || s.preview, e)}
-                        className="p-1.5 rounded text-[#94a3b8] hover:bg-white/10 hover:text-white"
-                        title="编辑会话（重命名与参考文章）"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleClearSession(s.session_id, e)}
-                        className="p-1.5 rounded text-[#94a3b8] hover:bg-white/10 hover:text-white"
-                        title="清空消息与文章草稿"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteSession(s.session_id, e)}
-                        className="p-1.5 rounded text-[#94a3b8] hover:bg-red-500/20 hover:text-red-400"
-                        title="删除会话"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          ) : (
+            <>
+              <div className="shrink-0 p-3 border-b border-border space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleNewSession}
+                    className="flex-1 py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
+                  >
+                    新建会话
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarCollapsed(true)}
+                    className="px-2 py-2 rounded-lg border border-border text-xs text-muted hover:text-fg hover:bg-white/5"
+                    title="收起写文章会话列表"
+                  >
+                    收起
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted">排序：</span>
+                  <select
+                    value={listSort}
+                    onChange={(e) => setListSort(e.target.value)}
+                    className="flex-1 min-w-0 rounded border border-border bg-white/5 text-[#e2e8f0] text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="updated_at">最近更新</option>
+                    <option value="created_at">最近创建</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {sessionsLoading ? (
+                  <div className="p-4 text-center text-muted text-sm">加载中…</div>
+                ) : sessions.length === 0 ? (
+                  <div className="p-4 text-muted text-sm">暂无写文章会话，点击上方新建</div>
+                ) : (
+                  <ul className="p-2 space-y-1">
+                    {sessions.map((s) => (
+                      <li key={s.session_id} className="group flex items-center gap-1 rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSessionId(s.session_id)}
+                          className={`flex-1 min-w-0 text-left px-3 py-2.5 rounded-lg text-sm truncate transition-colors ${
+                            selectedSessionId === s.session_id
+                              ? 'bg-accent/20 text-accent'
+                              : 'text-muted hover:bg-white/5 hover:text-fg'
+                          }`}
+                          title={s.title || s.preview || s.session_id}
+                        >
+                          {displayLabel(s)}
+                        </button>
+                        <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={(e) => openEditDialog(s.session_id, s.title || s.preview, e)}
+                            className="p-1.5 rounded text-muted hover:bg-white/10 hover:text-fg"
+                            title="编辑会话（重命名与参考文章）"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleClearSession(s.session_id, e)}
+                            className="p-1.5 rounded text-muted hover:bg-white/10 hover:text-fg"
+                            title="清空消息与文章草稿"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteSession(s.session_id, e)}
+                            className="p-1.5 rounded text-muted hover:bg-red-500/20 hover:text-red-400"
+                            title="删除会话"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* 中间：对话 */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 border-r border-border">
           {!selectedSessionId ? (
-            <div className="flex-1 flex items-center justify-center text-[#64748b] text-sm">
+            <div className="flex-1 flex items-center justify-center text-muted text-sm">
               请在左侧选择或新建一个写文章会话
             </div>
           ) : detailLoading ? (
-            <div className="flex-1 flex items-center justify-center text-[#94a3b8] text-sm">
+            <div className="flex-1 flex items-center justify-center text-muted text-sm">
               加载中…
             </div>
           ) : (
             <>
               <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
                 {messages.length === 0 && (
-                  <div className="text-[#64748b] text-sm rounded-lg bg-white/5 p-4 border border-border">
-                    <p className="font-medium text-[#94a3b8] mb-2">示例开场：</p>
-                    <ul className="list-disc list-inside space-y-1 text-[#94a3b8]">
+                  <div className="text-muted text-sm rounded-lg bg-white/5 p-4 border border-border">
+                    <p className="font-medium text-muted mb-2">示例开场：</p>
+                    <ul className="list-disc list-inside space-y-1 text-muted">
                       <li>帮我写一篇文章，主题是「如何用 Python 做数据分析」</li>
                       <li>我想写一篇技术教程，读者是初学者，长度中等</li>
                     </ul>
                   </div>
                 )}
-                {messages.map((m, i) => (
+                {messages.map((m, i) => {
+                  const isHistorySummary =
+                    m.role === 'assistant' &&
+                    typeof m.content === 'string' &&
+                    m.content.trim().startsWith('我们之前的对话内容如下')
+
+                  return (
                   <div
                     key={i}
                     className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -868,7 +954,9 @@ export default function ArticleWriting() {
                         className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap ${
                           m.role === 'user'
                             ? 'bg-accent/20 text-accent'
-                            : 'bg-white/5 text-[#e2e8f0] border border-border'
+                            : isHistorySummary
+                              ? 'bg-accent/5 text-fg border border-accent/40'
+                              : 'bg-white/5 text-fg border border-border'
                         }`}
                       >
                         {m.content}
@@ -895,14 +983,14 @@ export default function ArticleWriting() {
                           <button
                             type="button"
                             onClick={() => handleCopyContent(m.content)}
-                            className="px-2.5 py-1 text-xs rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             复制
                           </button>
                           <button
                             type="button"
                             onClick={() => handleAddContentToInput(m.content)}
-                            className="px-2.5 py-1 text-xs rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             加入输入框
                           </button>
@@ -910,13 +998,14 @@ export default function ArticleWriting() {
                       )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
                 {loading && (
                   <div className="flex justify-start items-center gap-3">
                     <div className="max-w-[85%] flex flex-col items-start">
                       <div
                         className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap border border-border ${
-                          streamingContent ? 'bg-white/5 text-[#e2e8f0]' : 'text-[#94a3b8] bg-white/5'
+                          streamingContent ? 'bg-white/5 text-fg' : 'text-muted bg-white/5'
                         }`}
                       >
                         {streamingContent || 'thinking…'}
@@ -935,6 +1024,78 @@ export default function ArticleWriting() {
                 )}
                 <div ref={messagesEndRef} />
               </div>
+              <div className="border-t border-border px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => setReferencePanelOpen((v) => !v)}
+                  className="text-xs text-muted hover:text-fg flex items-center gap-1"
+                >
+                  <span>{referencePanelOpen ? '收起参考信息' : '参考信息（可选）'}</span>
+                  {referenceBlocks.filter((b) => (b.content || '').trim()).length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-white/10 text-[11px] text-muted">
+                      {referenceBlocks.filter((b) => (b.content || '').trim()).length}
+                    </span>
+                  )}
+                </button>
+                {referencePanelOpen && (
+                  <div className="mt-2 space-y-2">
+                    {referenceBlocks.length === 0 && (
+                      <p className="text-[11px] text-muted">
+                        可以在这里粘贴多段资料作为上下文，助手回答时会一并参考，但不会单独显示为消息。
+                      </p>
+                    )}
+                    {referenceBlocks.map((block, idx) => (
+                      <div
+                        key={block.id}
+                        className="rounded-lg border border-border bg-white/5 px-3 py-2 space-y-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted shrink-0">
+                            参考 {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={block.title}
+                            onChange={(e) =>
+                              handleUpdateReferenceBlock(block.id, 'title', e.target.value)
+                            }
+                            placeholder="可选：给这段资料起个标题"
+                            className="flex-1 min-w-0 px-2 py-1 rounded bg-transparent border border-border/60 text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-accent"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveReferenceBlock(block.id)}
+                            className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-red-400 hover:border-red-400/60"
+                          >
+                            删除
+                          </button>
+                        </div>
+                        <textarea
+                          rows={3}
+                          value={block.content}
+                          onChange={(e) =>
+                            handleUpdateReferenceBlock(block.id, 'content', e.target.value)
+                          }
+                          placeholder="在这里粘贴这段参考资料文本（支持多段）。"
+                          className="w-full px-2 py-1.5 rounded bg-black/20 border border-border text-xs text-white placeholder-[#64748b] resize-y focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAddReferenceBlock}
+                        className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+                      >
+                        + 新增参考块
+                      </button>
+                      <p className="text-[11px] text-muted text-right">
+                        参考信息会自动加入每次请求的隐藏上下文，无需在输入框里重复粘贴。
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
               <ChatInput
                 value={input}
                 onChange={setInput}
@@ -950,7 +1111,7 @@ export default function ArticleWriting() {
         {/* 右侧：文章预览 */}
         <div className="w-[560px] shrink-0 flex flex-col min-h-0 bg-white/[0.02] overflow-hidden">
           <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-            <h2 className="text-sm font-medium text-[#94a3b8]">文章预览</h2>
+            <h2 className="text-sm font-medium text-muted">文章预览</h2>
             <div className="flex items-center gap-2">
               {previewContent && !editMode && (
                 <>
@@ -964,14 +1125,14 @@ export default function ArticleWriting() {
                   <button
                     type="button"
                     onClick={handleCopyArticle}
-                    className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                    className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10"
                   >
                     复制
                   </button>
                   <button
                     type="button"
                     onClick={handleAddArticleToInput}
-                    className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                    className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10"
                   >
                     加入输入框
                   </button>
@@ -989,7 +1150,7 @@ export default function ArticleWriting() {
                   <button
                     type="button"
                     onClick={exitEditMode}
-                    className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                    className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10"
                   >
                     取消
                   </button>
@@ -999,7 +1160,7 @@ export default function ArticleWriting() {
                 <button
                   type="button"
                   onClick={() => { setPatchAnchor(''); setPatchContent(''); setPatchDialogOpen(true) }}
-                  className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10"
+                  className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10"
                 >
                   局部插入
                 </button>
@@ -1008,7 +1169,7 @@ export default function ArticleWriting() {
                 <button
                   type="button"
                   onClick={() => setShowRevisions((s) => !s)}
-                  className="text-xs text-[#64748b] hover:text-[#94a3b8]"
+                  className="text-xs text-muted hover:text-muted"
                 >
                   {showRevisions ? '收起历史' : '历史版本'}
                 </button>
@@ -1018,9 +1179,9 @@ export default function ArticleWriting() {
           {showRevisions && selectedSessionId && (
             <div className="shrink-0 border-b border-border max-h-48 overflow-y-auto p-2 bg-black/20">
               {revisionsLoading ? (
-                <p className="text-xs text-[#64748b]">加载中…</p>
+                <p className="text-xs text-muted">加载中…</p>
               ) : revisions.length === 0 ? (
-                <p className="text-xs text-[#64748b]">暂无版本记录</p>
+                <p className="text-xs text-muted">暂无版本记录</p>
               ) : (
                 <ul className="space-y-1">
                   {revisions.map((rev) => (
@@ -1034,7 +1195,7 @@ export default function ArticleWriting() {
                         previewRevisionId === rev.id ? 'bg-cyan-500/20 border border-cyan-500/50' : 'hover:bg-white/10'
                       }`}
                     >
-                      <span className="text-[#94a3b8] truncate flex-1 min-w-0">
+                      <span className="text-muted truncate flex-1 min-w-0">
                         {rev.created_at?.slice(0, 19).replace('T', ' ')} · {rev.source === 'agent' ? '助手' : '用户'}
                       </span>
                       <button
@@ -1061,7 +1222,7 @@ export default function ArticleWriting() {
                   正在查看历史版本 · {revisions.find((r) => r.id === previewRevisionId)?.created_at?.slice(0, 19).replace('T', ' ') ?? ''}
                 </span>
                 <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-xs text-[#94a3b8] cursor-pointer">
+                  <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer">
                     <input
                       type="checkbox"
                       checked={showDiffView}
@@ -1103,7 +1264,7 @@ export default function ArticleWriting() {
                   theme="dark"
                 />
               ) : (
-                <p className="text-[#64748b] text-sm">
+                <p className="text-muted text-sm">
                   {selectedSessionId ? '点击对话中助手回复的「接受修改」可更新文章，并作为后续润色/续写的上下文。' : '选择会话后，此处显示该会话的文章草稿。'}
                 </p>
               )}
@@ -1113,14 +1274,14 @@ export default function ArticleWriting() {
               <button
                 type="button"
                 onClick={() => { setOutputDialog('mediawiki'); setMwTitle(''); setMwSummary('') }}
-                className="text-sm px-4 py-2 rounded-lg border border-border text-[#94a3b8] hover:bg-white/10 hover:text-white"
+                className="text-sm px-4 py-2 rounded-lg border border-border text-muted hover:bg-white/10 hover:text-fg"
               >
                 发布到 MediaWiki
               </button>
               <button
                 type="button"
                 onClick={() => setOutputDialog('wechat')}
-                className="text-sm px-4 py-2 rounded-lg border border-border text-[#94a3b8] hover:bg-white/10 hover:text-white"
+                className="text-sm px-4 py-2 rounded-lg border border-border text-muted hover:bg-white/10 hover:text-fg"
               >
                 同步到公众号草稿
               </button>
@@ -1144,14 +1305,14 @@ export default function ArticleWriting() {
               <button
                 type="button"
                 onClick={closeEditDialog}
-                className="text-[#94a3b8] hover:text-white text-2xl leading-none"
+                className="text-muted hover:text-fg text-2xl leading-none"
               >
                 ×
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">会话标题</label>
+                <label className="block text-sm text-muted mb-1">会话标题</label>
                 <input
                   type="text"
                   value={editDialog.title}
@@ -1161,8 +1322,8 @@ export default function ArticleWriting() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-2">参考文章（MediaWiki）</label>
-                <p className="text-xs text-[#64748b] mb-2">添加 MediaWiki 页面标题，生成文章时会读取这些页面内容作为参考。</p>
+                <label className="block text-sm text-muted mb-2">参考文章（MediaWiki）</label>
+                <p className="text-xs text-muted mb-2">添加 MediaWiki 页面标题，生成文章时会读取这些页面内容作为参考。</p>
                 <div className="flex gap-2 mb-2">
                   <input
                     type="text"
@@ -1199,7 +1360,7 @@ export default function ArticleWriting() {
                 </div>
                 {editDialogSearchResults.length > 0 && (
                   <div className="mb-2 p-2 rounded-lg bg-white/5 border border-border max-h-32 overflow-y-auto">
-                    <p className="text-xs text-[#94a3b8] mb-1">点击添加：</p>
+                    <p className="text-xs text-muted mb-1">点击添加：</p>
                     <ul className="space-y-1">
                       {editDialogSearchResults.map((tit) => (
                         <li key={tit}>
@@ -1222,7 +1383,7 @@ export default function ArticleWriting() {
                       <button
                         type="button"
                         onClick={() => removeMwTitle(idx)}
-                        className="shrink-0 p-1 rounded text-[#94a3b8] hover:bg-white/10 hover:text-red-400"
+                        className="shrink-0 p-1 rounded text-muted hover:bg-white/10 hover:text-red-400"
                         title="移除"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -1231,7 +1392,7 @@ export default function ArticleWriting() {
                   ))}
                 </ul>
                 {(editDialog.mwTitles || []).length === 0 && (
-                  <p className="text-xs text-[#64748b]">暂无参考页面，可输入标题添加或搜索后选择。</p>
+                  <p className="text-xs text-muted">暂无参考页面，可输入标题添加或搜索后选择。</p>
                 )}
               </div>
             </div>
@@ -1239,7 +1400,7 @@ export default function ArticleWriting() {
               <button
                 type="button"
                 onClick={closeEditDialog}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white"
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg"
               >
                 取消
               </button>
@@ -1271,22 +1432,22 @@ export default function ArticleWriting() {
               <button
                 type="button"
                 onClick={() => setPatchDialogOpen(false)}
-                className="text-[#94a3b8] hover:text-white text-2xl leading-none"
+                className="text-muted hover:text-fg text-2xl leading-none"
               >
                 ×
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
-              <p className="text-xs text-[#94a3b8]">在文章中找到「锚点」首次出现的位置，在其后插入下面填写的内容，其余不变。</p>
+              <p className="text-xs text-muted">在文章中找到「锚点」首次出现的位置，在其后插入下面填写的内容，其余不变。</p>
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">锚点（文中唯一出现的文本，将在此之后插入）</label>
+                <label className="block text-sm text-muted mb-1">锚点（文中唯一出现的文本，将在此之后插入）</label>
                 {(article || '')
                   .split('\n')
                   .map((l) => l.trim())
                   .filter((l) => /^#{1,6}\s+.+/.test(l))
                   .length > 0 && (
                   <div className="mb-2">
-                    <span className="text-xs text-[#64748b] mr-2">快捷选择：</span>
+                    <span className="text-xs text-muted mr-2">快捷选择：</span>
                     <div className="flex flex-wrap gap-1.5 mt-1">
                       {(article || '')
                         .split('\n')
@@ -1297,7 +1458,7 @@ export default function ArticleWriting() {
                             key={i}
                             type="button"
                             onClick={() => setPatchAnchor(line)}
-                            className="text-xs px-2 py-1 rounded border border-border text-[#94a3b8] hover:bg-white/10 hover:border-cyan-500/50 max-w-full truncate"
+                            className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10 hover:border-cyan-500/50 max-w-full truncate"
                             title={line}
                           >
                             {line.length > 28 ? line.slice(0, 26) + '…' : line}
@@ -1315,7 +1476,7 @@ export default function ArticleWriting() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">要插入的段落（支持 Markdown）</label>
+                <label className="block text-sm text-muted mb-1">要插入的段落（支持 Markdown）</label>
                 <textarea
                   value={patchContent}
                   onChange={(e) => setPatchContent(e.target.value)}
@@ -1329,7 +1490,7 @@ export default function ArticleWriting() {
               <button
                 type="button"
                 onClick={() => setPatchDialogOpen(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white"
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg"
               >
                 取消
               </button>
@@ -1358,12 +1519,12 @@ export default function ArticleWriting() {
           >
             <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-border">
               <h3 className="text-lg font-semibold text-white">发布到 MediaWiki</h3>
-              <button type="button" onClick={() => setOutputDialog(null)} className="text-[#94a3b8] hover:text-white text-2xl leading-none">×</button>
+              <button type="button" onClick={() => setOutputDialog(null)} className="text-muted hover:text-fg text-2xl leading-none">×</button>
             </div>
             <div className="p-5 space-y-4">
-              <p className="text-xs text-[#64748b]">将当前文章以 Wikitext 发布到指定页面，不存在则创建。</p>
+              <p className="text-xs text-muted">将当前文章以 Wikitext 发布到指定页面，不存在则创建。</p>
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">页面标题 *</label>
+                <label className="block text-sm text-muted mb-1">页面标题 *</label>
                 <input
                   type="text"
                   value={mwTitle}
@@ -1373,7 +1534,7 @@ export default function ArticleWriting() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-[#94a3b8] mb-1">编辑摘要（选填）</label>
+                <label className="block text-sm text-muted mb-1">编辑摘要（选填）</label>
                 <input
                   type="text"
                   value={mwSummary}
@@ -1384,7 +1545,7 @@ export default function ArticleWriting() {
               </div>
             </div>
             <div className="shrink-0 flex gap-3 px-5 py-4 border-t border-border bg-surface">
-              <button type="button" onClick={() => setOutputDialog(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white">取消</button>
+              <button type="button" onClick={() => setOutputDialog(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg">取消</button>
               <button type="button" onClick={submitMediaWikiOutput} disabled={mwSubmitting || !mwTitle.trim()} className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50">{mwSubmitting ? '发布中…' : '发布'}</button>
             </div>
           </div>
@@ -1403,11 +1564,11 @@ export default function ArticleWriting() {
           >
             <div className="shrink-0 flex justify-between items-center px-6 py-4 border-b border-border">
               <h3 className="text-lg font-semibold text-white">同步到公众号草稿</h3>
-              <button type="button" onClick={() => setOutputDialog(null)} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+              <button type="button" onClick={() => setOutputDialog(null)} className="text-2xl text-muted hover:text-fg">&times;</button>
             </div>
             <form onSubmit={submitWechatOutputTask} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
-                <p className="text-xs text-[#64748b]">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。请填写标题与封面。</p>
+                <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。请填写标题与封面。</p>
                 <TaskParamsForm
                   taskType="wechat_mp_draft"
                   schema={wechatOutputSchemaForForm}
@@ -1418,7 +1579,7 @@ export default function ArticleWriting() {
                 />
               </div>
               <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">
-                <button type="button" onClick={() => setOutputDialog(null)} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
+                <button type="button" onClick={() => setOutputDialog(null)} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-fg">取消</button>
                 <button
                   type="submit"
                   disabled={wechatOutputSubmitting || !(wechatOutputMetadata?.title || '').trim() || !(wechatOutputMetadata?.thumb_media_id || '').trim()}

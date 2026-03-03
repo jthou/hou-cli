@@ -5,8 +5,8 @@ export default function About() {
         <h1 className="text-xl font-semibold text-white">关于</h1>
       </header>
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl">
-        <p className="text-[#94a3b8] mb-4">Hou CLI 是一个基于 LLM 的智能助手系统。</p>
-        <p className="text-sm text-[#64748b]">版本: 1.0.0</p>
+        <p className="text-muted mb-4">Hou CLI 是一个基于 LLM 的智能助手系统。</p>
+        <p className="text-sm text-muted">版本: 1.0.0</p>
       </div>
     </div>
   )

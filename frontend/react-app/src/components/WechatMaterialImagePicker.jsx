@@ -49,7 +49,7 @@ export default function WechatMaterialImagePicker({ onSelect }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-3 py-1.5 text-sm rounded border border-border text-[#94a3b8] hover:text-white hover:border-accent"
+        className="px-3 py-1.5 text-sm rounded border border-border text-muted hover:text-fg hover:border-accent"
       >
         从素材库选择
       </button>
@@ -68,18 +68,18 @@ export default function WechatMaterialImagePicker({ onSelect }) {
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-[#94a3b8] hover:text-white text-xl leading-none"
+                className="text-muted hover:text-fg text-xl leading-none"
               >
                 ×
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4">
               {loading && items.length === 0 ? (
-                <p className="text-[#64748b] text-sm">加载中…</p>
+                <p className="text-muted text-sm">加载中…</p>
               ) : error ? (
                 <p className="text-amber-400/90 text-sm">{error}</p>
               ) : items.length === 0 ? (
-                <p className="text-[#64748b] text-sm">暂无图片素材，请先上传</p>
+                <p className="text-muted text-sm">暂无图片素材，请先上传</p>
               ) : (
                 <>
                   <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
@@ -95,7 +95,7 @@ export default function WechatMaterialImagePicker({ onSelect }) {
                           alt={it.name || it.media_id}
                           className="w-full aspect-square object-cover"
                         />
-                        <p className="text-xs text-[#64748b] truncate px-1 py-0.5" title={it.media_id}>
+                        <p className="text-xs text-muted truncate px-1 py-0.5" title={it.media_id}>
                           {it.name || it.media_id}
                         </p>
                       </button>
@@ -107,7 +107,7 @@ export default function WechatMaterialImagePicker({ onSelect }) {
                         type="button"
                         onClick={loadMore}
                         disabled={loading}
-                        className="px-3 py-1.5 text-sm rounded border border-border text-[#94a3b8] hover:text-white disabled:opacity-50"
+                        className="px-3 py-1.5 text-sm rounded border border-border text-muted hover:text-fg disabled:opacity-50"
                       >
                         {loading ? '加载中…' : '加载更多'}
                       </button>

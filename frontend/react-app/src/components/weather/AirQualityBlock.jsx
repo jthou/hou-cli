@@ -23,8 +23,8 @@ export default function AirQualityBlock({ airQuality, standalone = false }) {
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
           {items.map((item, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              {item.label && <span className="text-[#64748b] text-sm">{item.label}</span>}
-              <span className={item.highlight ? 'text-white font-medium' : 'text-[#94a3b8]'}>{item.value}</span>
+              {item.label && <span className="text-muted text-sm">{item.label}</span>}
+              <span className={item.highlight ? 'text-fg font-medium' : 'text-muted'}>{item.value}</span>
             </span>
           ))}
         </div>
@@ -34,7 +34,7 @@ export default function AirQualityBlock({ airQuality, standalone = false }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
       {items.map((item, i) => (
-        <span key={i} className={item.highlight ? 'text-white font-medium' : 'text-[#94a3b8]'}>
+        <span key={i} className={item.highlight ? 'text-fg font-medium' : 'text-muted'}>
           {item.label ? `${item.label} ${item.value}` : item.value}
         </span>
       ))}

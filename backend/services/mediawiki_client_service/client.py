@@ -407,10 +407,10 @@ class MediaWikiClientService:
     
     def get_page_info(self, title: str) -> Optional[Dict[str, Any]]:
         """获取页面信息
-        
+
         Args:
             title: 页面标题
-            
+
         Returns:
             Optional[Dict]: 页面信息字典
         """
@@ -425,4 +425,88 @@ class MediaWikiClientService:
                 "url": page.url
             }
         return None
+
+    # -------------------------------------------------------------------------
+    # 看板 API（KanbanBoard 扩展：action=kanban）
+    # -------------------------------------------------------------------------
+
+    def _kanban_api(self, kanban_action: str, **kwargs: Any) -> Dict[str, Any]:
+        """调用看板扩展 API。需已 connect() 且已登录。"""
+        self._ensure_connected()
+        result = self.site.api(
+            "kanban", kanban_action=kanban_action, **kwargs
+        )
+        if "error" in result:
+            raise MediaWikiClientError(
+                result.get("error", {}).get("info", str(result))
+            )
+        return result
+
+    def kanban_get_boards(
+        self, filter_status: str = "active"
+    ) -> List[Dict[str, Any]]:
+        """获取看板列表。filter_status: active|hidden|archived|deleted|all"""
+        data = self._kanban_api("getboards", filter_status=filter_status)
+        return data.get("boards", [])
+
+    def kanban_get_board(self, board_id: int) -> Dict[str, Any]:
+        """获取单个看板详情（含列、任务、里程碑）。"""
+        data = self._kanban_api("getboard", board_id=board_id)
+        board = data.get("board")
+        if not board:
+            raise MediaWikiClientError("Board not found or no permission")
+        return board
+
+    def kanban_create_task(
+        self,
+        board_id: int,
+        column_id: int,
+        title: str,
+        description: str = "",
+        priority: str = "medium",
+        due_date: Optional[str] = None,
+    ) -> int:
+        """在看板指定列创建任务。priority: low|medium|high|urgent。返回 task_id。"""
+        data = self._kanban_api(
+            "createtask",
+            board_id=board_id,
+            column_id=column_id,
+            title=title.strip(),
+            description=(description or "").strip(),
+            priority=priority,
+            due_date=due_date or "",
+        )
+        tid = data.get("task_id")
+        if tid is None:
+            raise MediaWikiClientError(
+                data.get("message", "Failed to create task")
+            )
+        return int(tid)
+
+    def kanban_update_task(
+        self,
+        task_id: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        priority: Optional[str] = None,
+        status_id: Optional[int] = None,
+        due_date: Optional[str] = None,
+    ) -> None:
+        """更新任务。status_id 为列 ID，传入则移动任务到该列。"""
+        kwargs: Dict[str, Any] = {"task_id": task_id}
+        if title is not None:
+            kwargs["title"] = title.strip()
+        if description is not None:
+            kwargs["description"] = description.strip()
+        if priority is not None:
+            kwargs["priority"] = priority
+        if status_id is not None:
+            kwargs["status_id"] = status_id
+        if due_date is not None:
+            kwargs["due_date"] = due_date
+        self._kanban_api("updatetask", **kwargs)
+
+    def kanban_delete_task(self, board_id: int, task_id: int) -> None:
+        """删除任务。"""
+        self._kanban_api("deletetask", board_id=board_id, task_id=task_id)
 

@@ -8,7 +8,14 @@ import TaskCard from './TaskCard'
 
 const STATUS_LABEL = { queued: '排队', running: '进行中', completed: '已完成' }
 
-export default function TaskListByTypePanel({ taskType, title, emptyText, pipelineOnly = false }) {
+export default function TaskListByTypePanel({
+  taskType,
+  title,
+  emptyText,
+  pipelineOnly = false,
+  onShowDetail,
+  refreshTrigger,
+}) {
   const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -30,6 +37,11 @@ export default function TaskListByTypePanel({ taskType, title, emptyText, pipeli
     fetchTasks()
   }, [taskType, pipelineOnly])
 
+  useEffect(() => {
+    if (refreshTrigger === undefined) return
+    fetchTasks()
+  }, [refreshTrigger])
+
   const byStatus = {
     running: tasks.filter(t => t.status === 'running'),
     queued: tasks.filter(t => t.status === 'queued'),
@@ -38,14 +50,14 @@ export default function TaskListByTypePanel({ taskType, title, emptyText, pipeli
 
   if (loading) {
     return (
-      <div className="p-4 text-sm text-[#94a3b8]">
+      <div className="p-4 text-sm text-muted">
         加载中…
       </div>
     )
   }
   if (tasks.length === 0) {
     return (
-      <div className="p-4 text-sm text-[#94a3b8]">
+      <div className="p-4 text-sm text-muted">
         {emptyText || `暂无${title}`}
       </div>
     )
@@ -59,7 +71,7 @@ export default function TaskListByTypePanel({ taskType, title, emptyText, pipeli
           type="button"
           onClick={fetchTasks}
           disabled={loading}
-          className="text-xs text-[#94a3b8] hover:text-white disabled:opacity-50"
+          className="text-xs text-muted hover:text-fg disabled:opacity-50"
         >
           刷新
         </button>
@@ -69,7 +81,7 @@ export default function TaskListByTypePanel({ taskType, title, emptyText, pipeli
         if (!list.length) return null
         return (
           <div key={status}>
-            <h4 className="text-xs font-medium text-[#64748b] mb-2 px-1">
+            <h4 className="text-xs font-medium text-muted mb-2 px-1">
               {STATUS_LABEL[status]}（{list.length}）
             </h4>
             <ul className="space-y-3">
@@ -78,7 +90,11 @@ export default function TaskListByTypePanel({ taskType, title, emptyText, pipeli
                   <TaskCard
                     task={t}
                     onRefresh={fetchTasks}
-                    onShowDetail={(taskId) => navigate('/', { state: { detailTaskId: taskId } })}
+                    onShowDetail={
+                      onShowDetail
+                        ? (taskId) => onShowDetail(taskId)
+                        : (taskId) => navigate('/tasks', { state: { detailTaskId: taskId } })
+                    }
                     recycleBin={false}
                     inRunsModal={false}
                   />

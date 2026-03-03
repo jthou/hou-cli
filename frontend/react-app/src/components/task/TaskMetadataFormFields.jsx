@@ -6,7 +6,7 @@ import { useRef, useState } from 'react'
 import { useToast } from '../ToastModal'
 
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
-const labelCls = 'block text-sm text-[#94a3b8] mb-1'
+const labelCls = 'block text-sm text-muted mb-1'
 
 function ArrayFieldWithChips({ fieldKey, fieldIdPrefix, label, required, items, onItemsChange, placeholder }) {
   const [inputValue, setInputValue] = useState('')
@@ -27,13 +27,13 @@ function ArrayFieldWithChips({ fieldKey, fieldIdPrefix, label, required, items, 
         {items.map((item, i) => (
           <span
             key={`${item}-${i}`}
-            className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full bg-cyan-500/20 text-cyan-200 text-sm border border-cyan-500/40"
+            className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full text-sm bg-cyan-500/20 text-cyan-700 border border-cyan-500/40 dark:text-cyan-200 dark:border-cyan-500/40"
           >
             <span>{item}</span>
             <button
               type="button"
               onClick={() => onItemsChange(items.filter((_, idx) => idx !== i))}
-              className="w-5 h-5 flex items-center justify-center rounded-full text-cyan-400/80 hover:text-white hover:bg-cyan-500/50 transition-colors flex-shrink-0"
+              className="w-5 h-5 flex items-center justify-center rounded-full text-cyan-600 hover:text-fg hover:bg-cyan-500/30 dark:text-cyan-400/80 dark:hover:bg-cyan-500/50 transition-colors flex-shrink-0"
               title="删除"
               aria-label="删除"
             >
@@ -54,7 +54,7 @@ function ArrayFieldWithChips({ fieldKey, fieldIdPrefix, label, required, items, 
           <button
             type="button"
             onClick={addItem}
-            className="px-2.5 py-1.5 rounded-full text-sm border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20 hover:text-cyan-200 whitespace-nowrap"
+            className="px-2.5 py-1.5 rounded-full text-sm border border-cyan-500/50 text-cyan-600 hover:bg-cyan-500/20 hover:text-cyan-800 dark:text-cyan-400 dark:hover:text-cyan-200 dark:hover:bg-cyan-500/20 whitespace-nowrap"
           >
             添加
           </button>
@@ -150,7 +150,7 @@ export default function TaskMetadataFormFields({
                 onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.checked }))}
                 className="rounded border-border bg-white/5 text-accent focus:ring-accent"
               />
-              <label htmlFor={`${fieldIdPrefix}-${fieldKey}`} className="text-sm text-[#94a3b8] cursor-pointer">{label}{required ? ' *' : ''}</label>
+              <label htmlFor={`${fieldIdPrefix}-${fieldKey}`} className="text-sm text-muted cursor-pointer">{label}{required ? ' *' : ''}</label>
             </div>
           )
         }
@@ -210,7 +210,7 @@ export default function TaskMetadataFormFields({
                   <button
                     type="button"
                     onClick={() => fileInputRefs.current[fieldKey]?.click()}
-                    className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:border-accent whitespace-nowrap"
+                    className="px-3 py-2 rounded-lg border border-border text-muted hover:text-fg hover:border-accent whitespace-nowrap"
                   >
                     选择文件
                   </button>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
-import TaskResultDisplay from '../components/TaskResultDisplay'
+import TaskDetailModal from '../components/task/TaskDetailModal'
 import TaskCard from '../components/TaskCard'
 import WechatDraftPreview from '../components/WechatDraftPreview'
 import { useToast } from '../components/ToastModal'
@@ -83,17 +83,40 @@ function formatTimeUntil(nextRunTime) {
   return `${formatDateTime(nextRunTime)}`
 }
 
+/** 距离上次执行的时间差描述（用于定时任务卡片「上次」） */
+function formatTimeSince(lastRunTime) {
+  if (!lastRunTime) return ''
+  const last = new Date(lastRunTime)
+  if (isNaN(last)) return ''
+  const now = Date.now()
+  const diffMs = now - last.getTime()
+  if (diffMs <= 0) return '刚刚'
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  const diffHour = Math.floor(diffMin / 60)
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin} 分钟前`
+  if (diffHour < 24) {
+    const h = diffHour
+    const m = diffMin % 60
+    return m === 0 ? `${h} 小时前` : `${h} 小时 ${m} 分钟前`
+  }
+  if (diffDay < 7) return `${diffDay} 天前`
+  return formatDateTime(lastRunTime)
+}
+
 function WechatDraftsPanel({ drafts, loading, onRefresh, onShowDetail }) {
   return (
     <div className="space-y-3">
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-[#94a3b8]">公众号草稿箱（只读），点击查看详情，可「编辑」创建更新草稿任务。</p>
-        <button onClick={onRefresh} className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5" title="从微信公众号服务器同步最新草稿列表">↻</button>
+        <p className="text-sm text-muted">公众号草稿箱（只读），点击查看详情，可「编辑」创建更新草稿任务。</p>
+        <button onClick={onRefresh} className="px-3 py-2 border border-border rounded-lg text-sm text-muted hover:text-white hover:bg-white/5" title="从微信公众号服务器同步最新草稿列表">↻</button>
       </div>
       {loading ? (
-        <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+        <div className="py-12 text-center text-muted">加载中...</div>
       ) : !drafts.length ? (
-        <div className="py-12 text-center text-[#94a3b8]">暂无草稿</div>
+        <div className="py-12 text-center text-muted">暂无草稿</div>
       ) : (
         <div className="space-y-2">
           {drafts.map((item) => {
@@ -105,7 +128,7 @@ function WechatDraftsPanel({ drafts, loading, onRefresh, onShowDetail }) {
                 className="px-4 py-3 rounded-lg border border-border bg-white/[0.02] hover:bg-white/5 cursor-pointer text-left"
               >
                 <div className="font-medium text-white">{title}</div>
-                <div className="text-xs text-[#64748b] mt-1">media_id: {item?.media_id}</div>
+                <div className="text-xs text-muted mt-1">media_id: {item?.media_id}</div>
               </div>
             )
           })}
@@ -123,30 +146,30 @@ function DraftDetailModal({ draftDetail, onClose, onEdit }) {
       <div className="bg-surface border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-white">草稿详情</h2>
-          <button onClick={onClose} className="text-[#94a3b8] hover:text-white">✕</button>
+          <button onClick={onClose} className="text-muted hover:text-white">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 text-sm">
-          {loading && <p className="text-[#94a3b8]">加载中...</p>}
+          {loading && <p className="text-muted">加载中...</p>}
           {!loading && draft && (
             <div className="space-y-4">
               <div>
-                <div className="text-[#64748b] text-xs mb-1">标题</div>
+                <div className="text-muted text-xs mb-1">标题</div>
                 <div className="text-white">{news?.title ?? '-'}</div>
               </div>
               {news?.author && (
                 <div>
-                  <div className="text-[#64748b] text-xs mb-1">作者</div>
-                  <div className="text-[#94a3b8]">{news.author}</div>
+                  <div className="text-muted text-xs mb-1">作者</div>
+                  <div className="text-muted">{news.author}</div>
                 </div>
               )}
               {news?.digest && (
                 <div>
-                  <div className="text-[#64748b] text-xs mb-1">摘要</div>
-                  <div className="text-[#94a3b8]">{news.digest}</div>
+                  <div className="text-muted text-xs mb-1">摘要</div>
+                  <div className="text-muted">{news.digest}</div>
                 </div>
               )}
               <div>
-                <div className="text-[#64748b] text-xs mb-1">正文</div>
+                <div className="text-muted text-xs mb-1">正文</div>
                 <div className="max-h-60 overflow-y-auto rounded bg-white/5 p-3">
                   <WechatDraftPreview html={news?.content ?? ''} />
                 </div>
@@ -264,10 +287,13 @@ export default function TaskManagement() {
   }, [loadHeartbeat])
 
   useEffect(() => {
-    if (tab === 'tasks') loadTasks()
-    else if (tab === 'deleted') loadDeletedTasks()
-    else if (tab === 'wechat-drafts') loadDrafts()
-    else loadScheduledTasks()
+    if (tab === 'tasks') {
+      loadTasks()
+    } else if (tab === 'deleted') {
+      loadDeletedTasks()
+    } else {
+      loadScheduledTasks()
+    }
   }, [tab, loadTasks, loadDeletedTasks, loadScheduledTasks])
 
   useEffect(() => {
@@ -327,7 +353,7 @@ export default function TaskManagement() {
 
       <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto w-full">
         {/* 心跳条 */}
-        <div className="flex items-center gap-2 px-4 py-2 mb-6 text-xs bg-cyan-500/5 border border-cyan-500/15 rounded-lg text-[#94a3b8]">
+        <div className="flex items-center gap-2 px-4 py-2 mb-6 text-xs bg-cyan-500/5 border border-cyan-500/15 rounded-lg text-muted">
           <span className={`w-2 h-2 rounded-full ${heartbeat?.is_running ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="font-medium text-white">{heartbeat?.is_running ? '运行中' : '已停止'}</span>
           <span>·</span>
@@ -354,7 +380,7 @@ export default function TaskManagement() {
             <button
               onClick={() => setTab('tasks')}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
-                tab === 'tasks' ? 'bg-accent text-white' : 'text-[#94a3b8] hover:text-white'
+                tab === 'tasks' ? 'bg-accent text-white' : 'text-muted hover:text-white'
               }`}
             >
               普通任务
@@ -362,7 +388,7 @@ export default function TaskManagement() {
             <button
               onClick={() => setTab('scheduled')}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
-                tab === 'scheduled' ? 'bg-accent text-white' : 'text-[#94a3b8] hover:text-white'
+                tab === 'scheduled' ? 'bg-accent text-white' : 'text-muted hover:text-white'
               }`}
             >
               定时任务
@@ -370,18 +396,10 @@ export default function TaskManagement() {
             <button
               onClick={() => setTab('deleted')}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
-                tab === 'deleted' ? 'bg-accent text-white' : 'text-[#94a3b8] hover:text-white'
+                tab === 'deleted' ? 'bg-accent text-white' : 'text-muted hover:text-white'
               }`}
             >
               已删除
-            </button>
-            <button
-              onClick={() => setTab('wechat-drafts')}
-              className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
-                tab === 'wechat-drafts' ? 'bg-accent text-white' : 'text-[#94a3b8] hover:text-white'
-              }`}
-            >
-              公众号草稿
             </button>
           </div>
           <div className="flex gap-2">
@@ -395,7 +413,7 @@ export default function TaskManagement() {
                 </button>
                 <button
                   onClick={() => setShowPipelineModal(true)}
-                  className="px-3 py-2 text-[#94a3b8] hover:text-white text-sm"
+                  className="px-3 py-2 text-muted hover:text-white text-sm"
                   title="快捷：视频提音频 → 语音转文字"
                 >
                   快捷模板
@@ -405,45 +423,24 @@ export default function TaskManagement() {
             {tab !== 'deleted' && (
               <button
                 onClick={() => {
-                  if (tab === 'wechat-drafts') {
-                    setEditDraftPreFill({ initialType: 'wechat_mp_draft', initialMetadata: { operation: 'add' }, initialName: '' })
-                  } else {
-                    setEditDraftPreFill(null)
-                  }
+                  setEditDraftPreFill(null)
                   setShowCreateModal(true)
                 }}
                 className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
               >
-                + {tab === 'tasks' ? '创建普通任务' : tab === 'wechat-drafts' ? '新建草稿' : '创建定时任务'}
+                + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
               </button>
             )}
           </div>
         </div>
 
-        {tab === 'wechat-drafts' ? (
-          <WechatDraftsPanel
-            drafts={drafts}
-            loading={draftsLoading}
-            onRefresh={loadDrafts}
-            onShowDetail={(item) => {
-              const mediaId = item?.media_id
-              if (!mediaId) return
-              setDraftDetail({ media_id: mediaId, loading: true })
-              WECHAT_MP_API.draftDetail(mediaId)
-                .then(d => {
-                  if (d.success && d.draft) setDraftDetail({ media_id: mediaId, draft: d.draft })
-                  else setDraftDetail(null)
-                })
-                .catch(() => setDraftDetail(null))
-            }}
-          />
-        ) : tab === 'deleted' ? (
+        {tab === 'deleted' ? (
           <>
             <div className="mb-4 flex items-center justify-between">
-              <p className="text-sm text-[#94a3b8]">回收站：可恢复任务到普通列表，或彻底删除。</p>
+              <p className="text-sm text-muted">回收站：可恢复任务到普通列表，或彻底删除。</p>
               <button
                 onClick={loadDeletedTasks}
-                className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5"
+                className="px-3 py-2 border border-border rounded-lg text-sm text-muted hover:text-white hover:bg-white/5"
                 title="刷新"
               >
                 ↻
@@ -451,9 +448,9 @@ export default function TaskManagement() {
             </div>
             <div className="space-y-6">
               {loading ? (
-                <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+                <div className="py-12 text-center text-muted">加载中...</div>
               ) : pipelineGroups.length === 0 && ungroupedTasks.length === 0 ? (
-                <div className="py-12 text-center text-[#94a3b8]">暂无已删除任务</div>
+                <div className="py-12 text-center text-muted">暂无已删除任务</div>
               ) : (
                 <>
                   {pipelineGroups.map(({ pipelineId, tasks: groupTasks }) => (
@@ -463,7 +460,7 @@ export default function TaskManagement() {
                     >
                       <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center gap-2">
                         <span className="text-cyan-400 font-medium">{`管道 #${pipelineId.slice(0, 8)}`}</span>
-                        <span className="text-xs text-[#64748b]">{groupTasks.length} 个任务</span>
+                        <span className="text-xs text-muted">{groupTasks.length} 个任务</span>
                       </div>
                       <div className="p-3 space-y-3">
                         {groupTasks.map(task => (
@@ -513,7 +510,7 @@ export default function TaskManagement() {
                   className="p-4 bg-white/5 border border-border rounded-xl flex flex-col gap-1 hover:border-cyan-500/30 transition-colors"
                 >
                   <span className={`text-2xl font-bold ${cls}`}>{value}</span>
-                  <span className="text-xs text-[#94a3b8]">{label}</span>
+                  <span className="text-xs text-muted">{label}</span>
                 </div>
               ))}
             </div>
@@ -541,7 +538,7 @@ export default function TaskManagement() {
               </select>
               <button
                 onClick={loadTasks}
-                className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 transition-colors"
+                className="px-3 py-2 border border-border rounded-lg text-sm text-muted hover:text-white hover:bg-white/5 transition-colors"
                 title="刷新"
               >
                 ↻
@@ -561,7 +558,7 @@ export default function TaskManagement() {
                     toast.error('清理失败: ' + e.message)
                   }
                 }}
-                className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 transition-colors"
+                className="px-3 py-2 border border-border rounded-lg text-sm text-muted hover:text-white hover:bg-white/5 transition-colors"
               >
                 清理超时
               </button>
@@ -570,9 +567,9 @@ export default function TaskManagement() {
             {/* 任务列表：有 pipeline_id 的按组大框展示，无 pipeline_id 的单独列出不套框 */}
             <div className="space-y-6">
               {loading ? (
-                <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+                <div className="py-12 text-center text-muted">加载中...</div>
               ) : pipelineGroups.length === 0 && ungroupedTasks.length === 0 ? (
-                <div className="py-12 text-center text-[#94a3b8]">暂无任务</div>
+                <div className="py-12 text-center text-muted">暂无任务</div>
               ) : (
                 <>
                   {pipelineGroups.map(({ pipelineId, tasks: groupTasks }) => (
@@ -584,7 +581,7 @@ export default function TaskManagement() {
                         <span className="text-cyan-400 font-medium">
                           {`管道 #${pipelineId.slice(0, 8)}`}
                         </span>
-                        <span className="text-xs text-[#64748b]">
+                        <span className="text-xs text-muted">
                           {groupTasks.length} 个任务
                         </span>
                       </div>
@@ -621,11 +618,11 @@ export default function TaskManagement() {
         ) : (
           <div className="space-y-3">
             <div className="mb-4 flex items-center justify-between">
-              <p className="text-sm text-[#94a3b8]">定时任务到期后由心跳创建普通任务入队执行。</p>
-              <button onClick={loadScheduledTasks} className="px-3 py-2 border border-border rounded-lg text-sm text-[#94a3b8] hover:text-white hover:bg-white/5" title="刷新">↻</button>
+              <p className="text-sm text-muted">定时任务到期后由心跳创建普通任务入队执行。</p>
+              <button onClick={loadScheduledTasks} className="px-3 py-2 border border-border rounded-lg text-sm text-muted hover:text-white hover:bg-white/5" title="刷新">↻</button>
             </div>
             {scheduledTasks.length === 0 ? (
-              <div className="py-12 text-center text-[#94a3b8]">暂无定时任务</div>
+              <div className="py-12 text-center text-muted">暂无定时任务</div>
             ) : (
               scheduledTasks.map(t => (
                 <ScheduledTaskCard
@@ -762,319 +759,6 @@ export default function TaskManagement() {
   )
 }
 
-function TaskDetailModal({ taskId, taskTypes = [], onClose, onRefresh, onGoToSchedule, onEditBeforeRestart }) {
-  const toast = useToast()
-  const [task, setTask] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState(null)
-  const [restarting, setRestarting] = useState(false)
-  const [requeueing, setRequeueing] = useState(false)
-  const [patchingResult, setPatchingResult] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [queueStatus, setQueueStatus] = useState(null)
-
-  useEffect(() => {
-    if (!taskId) return
-    setLoading(true)
-    setErr(null)
-    setQueueStatus(null)
-    TASK_API.get(taskId)
-      .then(d => {
-        if (d.success && d.task) setTask(d.task)
-        else setErr(d.detail || '加载失败')
-      })
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false))
-  }, [taskId])
-
-  useEffect(() => {
-    if (!taskId || !task || task.status !== 'queued' || !task.depends_on_task_id) return
-    fetch(`/api/task-queue/tasks/${taskId}/queue-status`)
-      .then(r => r.json())
-      .then(d => d.success && setQueueStatus(d))
-      .catch(() => {})
-  }, [taskId, task?.status, task?.depends_on_task_id])
-
-  // 运行中时定期刷新任务，以便更新进度与进度说明
-  useEffect(() => {
-    if (!taskId || !task || task.status !== 'running') return
-    const t = setInterval(() => {
-      TASK_API.get(taskId)
-        .then(d => { if (d.success && d.task) setTask(d.task) })
-        .catch(() => {})
-    }, 2500)
-    return () => clearInterval(t)
-  }, [taskId, task?.status])
-
-  if (!taskId) return null
-  const status = task ? (STATUS_MAP[task.status] || { text: task.status, cls: '' }) : null
-
-  return (
-    <>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
-          <h2 className="text-lg font-semibold text-white">任务详情</h2>
-          <button onClick={onClose} className="text-[#94a3b8] hover:text-white">✕</button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 text-sm">
-          {loading && <p className="text-[#94a3b8]">加载中...</p>}
-          {err && <p className="text-red-400">{err}</p>}
-          {!loading && !err && task && (
-            <div className="space-y-4">
-              {/* 执行结果优先展示 */}
-              {task.result != null && task.status === 'completed' && (
-                <div>
-                  <div className="text-[#64748b] text-xs mb-2">执行结果</div>
-                  <TaskResultDisplay taskType={task.task_type} result={task.result} />
-                </div>
-              )}
-              {(task.error || task.error_message) && (
-                <div className="p-3 bg-red-500/10 rounded-lg text-red-400">
-                  <strong>错误：</strong> {task.error || task.error_message}
-                </div>
-              )}
-              {task.status === 'queued' && task.depends_on_task_id && (
-                <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
-                  <div className="text-amber-400/90 text-xs font-medium mb-1">衔接诊断（为何仍待执行）</div>
-                  {queueStatus ? (
-                    <>
-                      <p className="text-sm text-amber-200/90">{queueStatus.message}</p>
-                      {queueStatus.upstream && (
-                        <p className="text-xs text-[#94a3b8] mt-2">
-                          上游 #{queueStatus.upstream.task_id?.slice(0, 8)}：状态={queueStatus.upstream.status}，result 非空={String(queueStatus.upstream.has_result)}
-                          {queueStatus.upstream.missing_bindings?.length ? `，绑定缺失: ${queueStatus.upstream.missing_bindings.join(', ')}` : ''}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-sm text-[#94a3b8]">加载中...</p>
-                  )}
-                </div>
-              )}
-              {task.status === 'running' && (
-                <div className="p-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10">
-                  <div className="text-cyan-400/90 text-xs font-medium mb-2">当前进度</div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="flex-1 h-2 bg-white/10 rounded overflow-hidden">
-                      <div className="h-full bg-cyan-500 rounded transition-all" style={{ width: `${task.progress ?? 0}%` }} />
-                    </div>
-                    <span className="text-xs text-cyan-300 w-10 text-right">{(task.progress ?? 0)}%</span>
-                  </div>
-                  {task.message && (
-                    <p className="text-sm text-cyan-200/90">{task.message}</p>
-                  )}
-                </div>
-              )}
-              {/* 任务信息仅供参考，放在执行结果后 */}
-              <div className="pt-4 border-t border-border">
-                <div className="text-[#64748b] text-xs mb-2">任务信息（仅供参考）</div>
-                <div className="space-y-1.5 text-[#94a3b8] text-xs">
-                  {(task.depends_on_task_id || (task.input_bindings && Object.keys(task.input_bindings).length > 0)) && (
-                    <>
-                      {task.depends_on_task_id && (
-                        <div><span className="text-[#64748b]">依赖任务 </span><code className="text-cyan-400">{task.depends_on_task_id}</code></div>
-                      )}
-                      {task.input_bindings && Object.keys(task.input_bindings).length > 0 && (
-                        <div>
-                          <span className="text-[#64748b]">输入绑定 </span>
-                          {Object.entries(task.input_bindings).map(([k, v]) => (
-                            <span key={k} className="block ml-2">{k} ← {v}</span>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {task.resolved_metadata && Object.keys(task.resolved_metadata).length > 0 && (
-                    <div>
-                      <span className="text-[#64748b]">解析后 metadata </span>
-                      {Object.entries(task.resolved_metadata).map(([k, v]) => (
-                        <span key={k} className="block ml-2">{k} = {typeof v === 'string' ? v : JSON.stringify(v)}</span>
-                      ))}
-                    </div>
-                  )}
-                  {task.created_by_schedule_id && (
-                    <div>
-                      <span className="text-[#64748b]">来自定时任务 </span>
-                      {onGoToSchedule ? (
-                        <button
-                          type="button"
-                          onClick={() => onGoToSchedule(task.created_by_schedule_id)}
-                          className="text-cyan-400 hover:text-cyan-300 hover:underline focus:outline-none"
-                        >
-                          #{task.created_by_schedule_id.slice(0, 8)}
-                        </button>
-                      ) : (
-                        <code className="text-cyan-400">#{task.created_by_schedule_id.slice(0, 8)}</code>
-                      )}
-                    </div>
-                  )}
-                  <div><span className="text-[#64748b]">任务名称 </span>{task.task_name || '未命名'}</div>
-                  <div><span className="text-[#64748b]">类型 </span>{task.task_type}</div>
-                  <div><span className="text-[#64748b]">状态 </span><span className={status?.cls}>{status?.text}</span></div>
-                  <div><span className="text-[#64748b]">创建 </span>{formatDateTime(task.created_at)}</div>
-                  {task.started_at && <div><span className="text-[#64748b]">开始 </span>{formatDateTime(task.started_at)}</div>}
-                  {task.completed_at && (
-                    <div><span className="text-[#64748b]">完成 </span>{formatDateTime(task.completed_at)}{task.duration != null && <span className="ml-2">耗时 {Number(task.duration).toFixed(1)}s</span>}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-        {!loading && task && task.status !== 'running' && (
-          <div className="shrink-0 px-6 py-4 border-t border-border flex flex-wrap gap-2 justify-end">
-            {task.status === 'completed' && task.result?.data?.output_dir && !task.result?.data?.output_file && (
-              <button
-                disabled={patchingResult}
-                onClick={async () => {
-                  setPatchingResult(true)
-                  try {
-                    const res = await fetch(`/api/task-queue/tasks/${task.task_id}/patch-result-output-file`, { method: 'PATCH' }).then(r => r.json())
-                    if (res.success) {
-                      const updated = await TASK_API.get(task.task_id)
-                      if (updated.success && updated.task) setTask(updated.task)
-                      if (onRefresh) onRefresh()
-                    } else {
-                      toast.error(res.detail || res.message || '补全失败')
-                    }
-                  } catch (e) {
-                    toast.error('补全失败: ' + (e.message || String(e)))
-                  }
-                  setPatchingResult(false)
-                }}
-                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
-              >
-                {patchingResult ? '补全中...' : '补全 result（供下游衔接）'}
-              </button>
-            )}
-            {task.status === 'failed' && task.depends_on_task_id && (
-              <button
-                disabled={requeueing}
-                onClick={async () => {
-                  setRequeueing(true)
-                  try {
-                    const res = await fetch(`/api/task-queue/tasks/${task.task_id}/requeue`, { method: 'POST' }).then(r => r.json())
-                    if (res.success) {
-                      if (onRefresh) onRefresh()
-                      onClose()
-                    } else {
-                      toast.error(res.detail || res.message || '重新入队失败')
-                    }
-                  } catch (e) {
-                    toast.error('重新入队失败: ' + (e.message || String(e)))
-                  }
-                  setRequeueing(false)
-                }}
-                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
-                title="用上游最新 result 再执行一次（上游若已补全 result 请先补全）"
-              >
-                {requeueing ? '入队中...' : '重新入队'}
-              </button>
-            )}
-            {['failed', 'completed'].includes(task.status) && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onEditBeforeRestart?.(task)}
-                  className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
-                  title="复用新建任务 UI 修改参数后重新执行"
-                >
-                  编辑后重新执行
-                </button>
-                <button
-                  disabled={restarting}
-                  onClick={async () => {
-                    setRestarting(true)
-                    try {
-                      const res = await TASK_API.restart(task.task_id)
-                      if (res.success) {
-                        if (onRefresh) onRefresh()
-                        else onClose()
-                      } else {
-                        toast.error(res.detail || res.message || '重置失败')
-                      }
-                    } catch (e) {
-                      toast.error('重置失败: ' + e.message)
-                    }
-                    setRestarting(false)
-                  }}
-                  className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
-                  title="将任务重新加入队列，可再次执行"
-                >
-                  {restarting ? '重新执行中...' : '重新执行'}
-                </button>
-              </>
-            )}
-            {task.deleted_at ? (
-              <>
-                <button
-                  disabled={deleting}
-                  onClick={async () => {
-                    setDeleting(true)
-                    try {
-                      const res = await TASK_API.restore(task.task_id)
-                      if (res.success) { if (onRefresh) onRefresh(); onClose() }
-                      else toast.error(res.detail || res.message || '恢复失败')
-                    } catch (e) { toast.error('恢复失败: ' + (e.message || String(e))) }
-                    setDeleting(false)
-                  }}
-                  className="px-4 py-2 text-sm border border-green-500/50 rounded-lg text-green-400 hover:bg-green-500/10 disabled:opacity-50"
-                >
-                  {deleting ? '恢复中...' : '恢复'}
-                </button>
-                <button
-                  disabled={deleting}
-                  onClick={async () => {
-                    const ok = await toast.confirm('确定彻底删除？不可恢复。')
-                    if (!ok) return
-                    setDeleting(true)
-                    try {
-                      const res = await TASK_API.delete(task.task_id)
-                      if (res.success) { if (onRefresh) onRefresh(); onClose() }
-                      else toast.error(res.detail || res.message || '彻底删除失败')
-                    } catch (e) { toast.error('彻底删除失败: ' + (e.message || String(e))) }
-                    setDeleting(false)
-                  }}
-                  className="px-4 py-2 text-sm border border-red-500/50 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50"
-                >
-                  {deleting ? '删除中...' : '彻底删除'}
-                </button>
-              </>
-            ) : (
-              <button
-                disabled={deleting}
-                onClick={async () => {
-                  const ok = await toast.confirm('移入回收站？可在「已删除」Tab 中恢复或彻底删除。')
-                  if (!ok) return
-                  setDeleting(true)
-                  try {
-                    const res = await TASK_API.softDelete(task.task_id)
-                    if (res.success) {
-                      if (onRefresh) onRefresh()
-                      onClose()
-                    } else {
-                      toast.error(res.detail || res.message || '移入回收站失败')
-                    }
-                  } catch (e) {
-                    toast.error('移入回收站失败: ' + (e.message || String(e)))
-                  }
-                  setDeleting(false)
-                }}
-                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
-                title="移入回收站，可恢复"
-              >
-                {deleting ? '删除中...' : '删除'}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-    </>
-  )
-}
-
 /**
  * 创建管道（先选链路，再填任务细节）
  * Step 1: 选择管道模板
@@ -1158,12 +842,12 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
           <h3 className="text-lg font-semibold text-white">
             {step === 'choose' ? '创建管道 - 选择链路' : `填写参数 - ${template?.name || ''}`}
           </h3>
-          <button type="button" onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+          <button type="button" onClick={onClose} className="text-2xl text-muted hover:text-white">&times;</button>
         </div>
 
         {step === 'choose' && (
           <div className="px-6 pb-6 space-y-3">
-            <p className="text-sm text-[#94a3b8] mb-4">先选择一条管道链路，下一步只需填写该链路需要的输入参数。</p>
+            <p className="text-sm text-muted mb-4">先选择一条管道链路，下一步只需填写该链路需要的输入参数。</p>
             {PIPELINE_TEMPLATES.map(t => (
               <button
                 key={t.id}
@@ -1172,7 +856,7 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
                 className="w-full text-left p-4 rounded-xl border border-border bg-white/5 hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-colors"
               >
                 <div className="font-medium text-white">{t.name}</div>
-                <div className="text-sm text-[#94a3b8] mt-1">{t.description}</div>
+                <div className="text-sm text-muted mt-1">{t.description}</div>
               </button>
             ))}
           </div>
@@ -1180,10 +864,10 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
 
         {step === 'fill' && template && (
           <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
-            <p className="text-sm text-[#94a3b8]">以下仅需填写<strong className="text-white">第一步</strong>的输入；后续步骤的输入将按链路自动绑定。</p>
+            <p className="text-sm text-muted">以下仅需填写<strong className="text-white">第一步</strong>的输入；后续步骤的输入将按链路自动绑定。</p>
             {fields.map(field => (
               <div key={field.id}>
-                <label className="block text-sm text-[#94a3b8] mb-1">
+                <label className="block text-sm text-muted mb-1">
                   {field.label}{field.required ? ' *' : ''}
                 </label>
                 {field.type === 'file' ? (
@@ -1206,7 +890,7 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploading}
-                      className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white whitespace-nowrap disabled:opacity-50"
+                      className="px-3 py-2 rounded-lg border border-border text-muted hover:text-white whitespace-nowrap disabled:opacity-50"
                     >
                       {uploading ? '上传中…' : '上传'}
                     </button>
@@ -1223,10 +907,10 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
               </div>
             ))}
             <div className="flex gap-3 pt-2">
-              <button type="button" onClick={handleBack} className="px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+              <button type="button" onClick={handleBack} className="px-4 py-2 border border-border rounded-lg text-muted hover:text-white">
                 上一步
               </button>
-              <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+              <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-white">
                 取消
               </button>
               <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">
@@ -1311,12 +995,12 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
       <div className="bg-surface border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-white">管道：视频提音频 → 语音转文字</h3>
-          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+          <button onClick={onClose} className="text-2xl text-muted hover:text-white">&times;</button>
         </div>
-        <p className="text-sm text-[#94a3b8] mb-4">将依次创建两个任务，第二步自动使用第一步的输出音频作为输入。</p>
+        <p className="text-sm text-muted mb-4">将依次创建两个任务，第二步自动使用第一步的输出音频作为输入。</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">视频文件路径（第一步输入）*</label>
+            <label className="block text-sm text-muted mb-1">视频文件路径（第一步输入）*</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -1330,14 +1014,14 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="px-3 py-2 rounded-lg border border-border text-[#94a3b8] hover:text-white whitespace-nowrap disabled:opacity-50"
+                className="px-3 py-2 rounded-lg border border-border text-muted hover:text-white whitespace-nowrap disabled:opacity-50"
               >
                 {uploading ? '上传中…' : '上传'}
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">第一步任务名称（可选）</label>
+            <label className="block text-sm text-muted mb-1">第一步任务名称（可选）</label>
             <input
               type="text"
               value={name1}
@@ -1347,7 +1031,7 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
             />
           </div>
           <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">第二步任务名称（可选）</label>
+            <label className="block text-sm text-muted mb-1">第二步任务名称（可选）</label>
             <input
               type="text"
               value={name2}
@@ -1357,7 +1041,7 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
             />
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-white">
               取消
             </button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">
@@ -1399,15 +1083,15 @@ function ScheduledTaskRunsModal({ scheduleId, taskName, nextRunTime, onClose, on
             {taskName || '定时任务'} 执行记录
           </h2>
           <div className="flex gap-2">
-            <button onClick={loadRuns} disabled={loading} className="px-3 py-1.5 rounded-lg border border-border text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 disabled:opacity-50" title="刷新">↻</button>
-            <button onClick={onClose} className="text-[#94a3b8] hover:text-white text-2xl leading-none">×</button>
+            <button onClick={loadRuns} disabled={loading} className="px-3 py-1.5 rounded-lg border border-border text-sm text-muted hover:text-white hover:bg-white/5 disabled:opacity-50" title="刷新">↻</button>
+            <button onClick={onClose} className="text-muted hover:text-white text-2xl leading-none">×</button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
-            <div className="py-12 text-center text-[#94a3b8]">加载中...</div>
+            <div className="py-12 text-center text-muted">加载中...</div>
           ) : tasks.length === 0 ? (
-            <div className="py-12 text-center text-[#94a3b8] space-y-2">
+            <div className="py-12 text-center text-muted space-y-2">
               <p>暂无执行记录</p>
               <p className="text-xs">定时任务到期后由心跳创建任务，执行记录会显示在此处。</p>
               {nextRunTime && (
@@ -1497,14 +1181,14 @@ function ScheduledTaskCard({ task, onRefresh, onViewRuns, onEdit }) {
       <div className="flex justify-between items-start gap-4">
         <div className="flex-1 min-w-0">
           <span className="font-medium text-white">{task.task_name || '未命名'}</span>
-          <span className="text-sm text-[#64748b] ml-2">#{task.schedule_id?.slice(0, 8)}</span>
+          <span className="text-sm text-muted ml-2">#{task.schedule_id?.slice(0, 8)}</span>
           <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${task.is_active ? 'bg-green-500/15 text-green-400' : 'bg-slate-500/20 text-slate-400'}`}>
             {task.is_active ? '激活' : '已禁用'}
           </span>
         </div>
         <div className="flex gap-2 shrink-0">
           {onEdit && (
-            <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-border text-[#94a3b8] hover:text-white hover:bg-white/5 text-sm">
+            <button onClick={onEdit} className="px-3 py-1.5 rounded-lg border border-border text-muted hover:text-white hover:bg-white/5 text-sm">
               编辑
             </button>
           )}
@@ -1516,7 +1200,7 @@ function ScheduledTaskCard({ task, onRefresh, onViewRuns, onEdit }) {
           <button onClick={handleRunNow} disabled={running} className="px-3 py-1.5 rounded-lg border border-green-500/50 text-green-400 hover:bg-green-500/10 text-sm disabled:opacity-50">
             {running ? '执行中...' : '立即执行'}
           </button>
-          <button onClick={handleToggle} disabled={toggling} className="px-3 py-1.5 rounded-lg border border-border text-sm text-[#94a3b8] hover:text-white hover:bg-white/5 disabled:opacity-50">
+          <button onClick={handleToggle} disabled={toggling} className="px-3 py-1.5 rounded-lg border border-border text-sm text-muted hover:text-white hover:bg-white/5 disabled:opacity-50">
             {toggling ? '...' : task.is_active ? '禁用' : '启用'}
           </button>
           <button onClick={handleDelete} disabled={deleting} className="px-3 py-1.5 rounded-lg border border-red-500/50 text-amber-400 hover:bg-red-500/10 disabled:opacity-50"
@@ -1525,21 +1209,27 @@ function ScheduledTaskCard({ task, onRefresh, onViewRuns, onEdit }) {
           </button>
         </div>
       </div>
-      <div className="mt-3 text-sm text-[#94a3b8]">
+      <div className="mt-3 text-sm text-muted">
         {task.task_type} · {scheduleLabel}
       </div>
-      <div className="mt-2 flex flex-wrap gap-4 text-xs text-[#64748b]">
+      <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted">
         <span>下次: {formatDateTime(task.next_run_time)}</span>
         {task.is_active && task.next_run_time && (
           <span className="text-cyan-400/90">{formatTimeUntil(task.next_run_time)}</span>
         )}
-        {task.last_run_time && <span>上次: {formatDateTime(task.last_run_time)}</span>}
+        {task.last_run_time && (
+          <span>
+            上次: {formatDateTime(task.last_run_time)}
+            {' '}
+            <span className="text-cyan-400/90">（{formatTimeSince(task.last_run_time)}）</span>
+          </span>
+        )}
         {task.consecutive_errors > 0 && (
           <span className="text-amber-400">连续失败 {task.consecutive_errors} 次</span>
         )}
       </div>
       {task.last_error && (
-        <div className="mt-2 text-xs text-[#64748b] truncate max-w-full" title={task.last_error}>
+        <div className="mt-2 text-xs text-muted truncate max-w-full" title={task.last_error}>
           错误: {task.last_error}
         </div>
       )}
@@ -1627,16 +1317,16 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
       <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-white">编辑定时任务</h3>
-          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+          <button onClick={onClose} className="text-2xl text-muted hover:text-white">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">任务类型</label>
-            <input type="text" value={type} readOnly disabled className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-[#64748b] cursor-not-allowed" />
+            <label className="block text-sm text-muted mb-1">任务类型</label>
+            <input type="text" value={type} readOnly disabled className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-muted cursor-not-allowed" />
           </div>
           {Object.keys(schema).length > 0 && (
             <div className="pt-2 border-t border-border">
-              <div className="text-sm font-medium text-[#94a3b8] mb-3">任务参数（城市、查询类型等）</div>
+              <div className="text-sm font-medium text-muted mb-3">任务参数（城市、查询类型等）</div>
               <TaskMetadataFormFields
                 schema={schema}
                 metadata={metadata}
@@ -1654,7 +1344,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
                     onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
                     className="text-accent focus:ring-accent rounded"
                   />
-                  <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+                  <span className="text-sm text-muted">正文为 Markdown（提交时转为 Wiki 语法）</span>
                 </label>
               )}
               {(type === 'url_to_wiki' || type === 'pdf_to_wiki') && (
@@ -1678,7 +1368,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
             onCronTzChange={setCronTz}
           />
           <div className="flex gap-3 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-white">取消</button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
           </div>
         </form>
@@ -1772,11 +1462,11 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
       <div className="bg-surface border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold text-white">创建定时任务</h3>
-          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+          <button onClick={onClose} className="text-2xl text-muted hover:text-white">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">任务类型 *</label>
+            <label className="block text-sm text-muted mb-1">任务类型 *</label>
             <select
               value={type}
               onChange={e => setTypeAndResetMetadata(e.target.value)}
@@ -1806,7 +1496,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
                 onChange={e => setMetadata(m => ({ ...m, _contentIsMarkdown: e.target.checked }))}
                 className="text-accent focus:ring-accent rounded"
               />
-              <span className="text-sm text-[#94a3b8]">正文为 Markdown（提交时转为 Wiki 语法）</span>
+              <span className="text-sm text-muted">正文为 Markdown（提交时转为 Wiki 语法）</span>
             </label>
           )}
           {(type === 'url_to_wiki' || type === 'pdf_to_wiki') && (
@@ -1828,7 +1518,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
             onCronTzChange={setCronTz}
           />
           <div className="flex gap-3 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">取消</button>
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-white">取消</button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">{submitting ? '创建中...' : '创建'}</button>
           </div>
         </form>
@@ -2019,14 +1709,14 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
       >
         <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
           <h3 className="text-lg font-semibold text-white">{isEditMode ? '编辑后重新执行' : '创建新任务'}</h3>
-          <button onClick={onClose} className="text-2xl text-[#94a3b8] hover:text-white">&times;</button>
+          <button onClick={onClose} className="text-2xl text-muted hover:text-white">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
           <div>
-            <label className="block text-sm text-[#94a3b8] mb-1">任务类型 *</label>
+            <label className="block text-sm text-muted mb-1">任务类型 *</label>
             {isEditMode ? (
-              <input type="text" readOnly value={typeInfo ? `${typeInfo.name} - ${typeInfo.description}` : type} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-[#64748b] cursor-not-allowed" />
+              <input type="text" readOnly value={typeInfo ? `${typeInfo.name} - ${typeInfo.description}` : type} className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-muted cursor-not-allowed" />
             ) : (
             <select
               value={type}
@@ -2053,7 +1743,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
           </div>
           {type && !isEditMode && (
             <div>
-              <label className="block text-sm text-[#94a3b8] mb-2">输入来源</label>
+              <label className="block text-sm text-muted mb-2">输入来源</label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -2079,7 +1769,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
               {inputSource === 'from_task' && (
                 <div className="mt-3 p-3 bg-white/5 border border-border rounded-lg space-y-3">
                   <div>
-                    <label className="block text-xs text-[#64748b] mb-1">
+                    <label className="block text-xs text-muted mb-1">
                       选择已完成任务
                       {linkableUpstreams.linkable_task_types?.length > 0 && (
                         <span className="ml-2 text-cyan-400/90">（仅显示可链接类型）</span>
@@ -2099,10 +1789,10 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
                     </select>
                   </div>
                   <div>
-                    <div className="text-xs text-[#64748b] mb-2">字段映射（本任务字段 ← 上游 result 路径）</div>
+                    <div className="text-xs text-muted mb-2">字段映射（本任务字段 ← 上游 result 路径）</div>
                     {Object.keys(schema).map(fieldKey => (
                       <div key={fieldKey} className="flex items-center gap-2 mb-2">
-                        <span className="text-[#94a3b8] text-sm w-28 shrink-0">{schema[fieldKey]?.description || fieldKey}</span>
+                        <span className="text-muted text-sm w-28 shrink-0">{schema[fieldKey]?.description || fieldKey}</span>
                         <input
                           type="text"
                           value={inputBindings[fieldKey] ?? ''}
@@ -2139,7 +1829,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
           )}
           </div>
           <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-[#94a3b8] hover:text-white">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-white">
               取消
             </button>
             <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50">

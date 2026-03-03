@@ -31,18 +31,18 @@ export default function SettingsSystemPromptAudit() {
     <div className="flex flex-col h-full">
       <header className="shrink-0 px-6 py-4 border-b border-border">
         <h1 className="text-xl font-semibold text-white">系统提示词审计</h1>
-        <p className="text-[#94a3b8] text-sm mt-1">按 agent 展示当前使用的系统提示，便于核对与审计。</p>
+        <p className="text-muted text-sm mt-1">按 agent 展示当前使用的系统提示，便于核对与审计。</p>
       </header>
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {loading && (
-          <div className="p-6 text-[#94a3b8]">加载中…</div>
+          <div className="p-6 text-muted">加载中…</div>
         )}
         {error && (
           <div className="p-6 text-red-400">{error}</div>
         )}
         {!loading && !error && agents.length === 0 && (
-          <div className="p-6 text-[#94a3b8]">暂无系统提示数据</div>
+          <div className="p-6 text-muted">暂无系统提示数据</div>
         )}
         {!loading && !error && agents.length > 0 && (
           <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -55,7 +55,7 @@ export default function SettingsSystemPromptAudit() {
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
                     expandedId === a.id
                       ? 'bg-accent/20 text-accent border border-accent/40'
-                      : 'text-[#94a3b8] hover:bg-white/5 hover:text-white border border-transparent'
+                      : 'text-muted hover:bg-white/5 hover:text-fg border border-transparent'
                   }`}
                 >
                   {a.name}
@@ -69,10 +69,10 @@ export default function SettingsSystemPromptAudit() {
                   className={expandedId === a.id ? '' : 'hidden'}
                 >
                   <h2 className="text-lg font-semibold text-white mb-2">{a.name}</h2>
-                  <p className="text-xs text-[#64748b] mb-3">agent id: {a.id}</p>
+                  <p className="text-xs text-muted mb-3">agent id: {a.id}</p>
                   {Array.isArray(a.tools) && a.tools.length > 0 && (
                     <div className="mb-4">
-                      <h3 className="text-sm font-medium text-[#94a3b8] mb-2">配备工具</h3>
+                      <h3 className="text-sm font-medium text-muted mb-2">配备工具</h3>
                       <div className="flex flex-wrap gap-2">
                         {a.tools.map((t) => (
                           <span
@@ -85,8 +85,8 @@ export default function SettingsSystemPromptAudit() {
                       </div>
                     </div>
                   )}
-                  <h3 className="text-sm font-medium text-[#94a3b8] mb-2">系统提示</h3>
-                  <pre className="whitespace-pre-wrap break-words text-sm text-[#94a3b8] bg-white/5 border border-border rounded-lg p-4 font-sans overflow-x-auto">
+                  <h3 className="text-sm font-medium text-muted mb-2">系统提示</h3>
+                  <pre className="whitespace-pre-wrap break-words text-sm text-muted bg-white/5 border border-border rounded-lg p-4 font-sans overflow-x-auto">
                     {a.prompt || ''}
                   </pre>
                 </div>

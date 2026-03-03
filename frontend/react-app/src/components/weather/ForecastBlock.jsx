@@ -28,15 +28,15 @@ export default function ForecastBlock({ daily }) {
         const { text, isToday } = formatForecastDate(d.date ?? d.fxDate)
         return (
         <div key={i} className={`flex flex-col items-center gap-1 py-3 px-4 min-w-[100px] shrink-0 rounded-xl border ${isToday ? 'bg-accent/10 border-accent/50' : 'bg-white/5 border-white/10'}`}>
-          <span className={`text-xs ${isToday ? 'text-accent font-medium' : 'text-[#64748b]'}`}>{text}</span>
+          <span className={`text-xs ${isToday ? 'text-accent font-medium' : 'text-muted'}`}>{text}</span>
           <span className="text-2xl">{getWeatherIcon(d.icon_day)}</span>
           <span className="text-white text-sm font-medium">{d.text_day ?? '-'}</span>
           <span className="text-cyan-300 font-medium">{d.temp_min ?? '-'}° ~ {d.temp_max ?? '-'}°</span>
           {(d.sunrise || d.sunset) && (
-            <span className="text-xs text-[#64748b]">日出{d.sunrise ?? '-'} 日落{d.sunset ?? '-'}</span>
+            <span className="text-xs text-muted">日出{d.sunrise ?? '-'} 日落{d.sunset ?? '-'}</span>
           )}
           {d.uv_index != null && d.uv_index !== '' && (
-            <span className="text-xs text-[#64748b]">紫外线 {d.uv_index}</span>
+            <span className="text-xs text-muted">紫外线 {d.uv_index}</span>
           )}
         </div>
         )

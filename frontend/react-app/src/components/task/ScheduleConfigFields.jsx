@@ -73,7 +73,7 @@ export default function ScheduleConfigFields({
               style={{ width: '4rem' }}
               aria-label="小时"
             />
-            <span className="text-[#94a3b8]">时</span>
+            <span className="text-muted">时</span>
             <input
               type="number"
               min={0}
@@ -83,7 +83,7 @@ export default function ScheduleConfigFields({
               style={{ width: '4rem' }}
               aria-label="分钟"
             />
-            <span className="text-[#94a3b8]">分</span>
+            <span className="text-muted">分</span>
             <input
               type="number"
               min={0}
@@ -93,7 +93,7 @@ export default function ScheduleConfigFields({
               style={{ width: '4rem' }}
               aria-label="秒"
             />
-            <span className="text-[#94a3b8]">秒</span>
+            <span className="text-muted">秒</span>
           </div>
         </div>
       )}

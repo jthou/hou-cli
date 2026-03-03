@@ -29,35 +29,35 @@ export default function WeatherResultDisplay({ result }) {
   const airStandalone = !hasCur && !hasDaily && (!hasWarningData || warningList.length === 0)
 
   return (
-    <div className="space-y-4 text-[#94a3b8]">
+    <div className="space-y-4 text-muted">
       {result.summary && <p className="text-green-400 text-sm">{result.summary}</p>}
       {hasCur && (
         <div className="p-4 rounded-xl bg-white/5 border border-white/10">
           <CurrentWeatherBlock cur={cur} />
           {hasAirQuality && (airQuality.aqi != null || airQuality.category) && (
             <div className="mt-3 pt-3 border-t border-white/10 flex items-center gap-2 text-sm">
-              <span className="text-[#64748b]">AQI</span>
+              <span className="text-muted">AQI</span>
               <span className="text-white font-medium">{airQuality.aqi ?? '-'}</span>
-              {airQuality.category && <span className="text-[#94a3b8]">{airQuality.category}</span>}
+              {airQuality.category && <span className="text-muted">{airQuality.category}</span>}
             </div>
           )}
         </div>
       )}
       {hasDaily ? (
         <div>
-          <div className="text-[#64748b] text-xs mb-1.5 font-medium">未来预报</div>
+          <div className="text-muted text-xs mb-1.5 font-medium">未来预报</div>
           <ForecastBlock daily={daily} />
         </div>
       ) : Array.isArray(daily) && daily.length === 0 ? (
         <div>
-          <div className="text-[#64748b] text-xs mb-1.5 font-medium">预报</div>
-          <p className="text-[#64748b] text-sm">暂无预报数据（若应为多日预报，请重新执行任务）</p>
+          <div className="text-muted text-xs mb-1.5 font-medium">预报</div>
+          <p className="text-muted text-sm">暂无预报数据（若应为多日预报，请重新执行任务）</p>
         </div>
       ) : null}
       {hasWarningData && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/15 overflow-hidden">
+        <div className="rounded-xl border border-amber-600 bg-amber-600/20 overflow-hidden">
           {multiBlock && (
-            <div className="px-3 py-2 text-amber-400 text-sm font-semibold border-b border-amber-500/30 bg-amber-500/20">
+            <div className="px-3 py-2 text-white text-sm font-semibold border-b border-amber-400 bg-amber-600">
               灾害预警
             </div>
           )}
@@ -68,11 +68,11 @@ export default function WeatherResultDisplay({ result }) {
       )}
       {hasAirQuality && (
         <div>
-          {multiBlock && <div className="text-[#64748b] text-xs mb-1.5 font-medium">空气质量</div>}
+          {multiBlock && <div className="text-muted text-xs mb-1.5 font-medium">空气质量</div>}
           <AirQualityBlock airQuality={airQuality} standalone={airStandalone} />
         </div>
       )}
-      {updateTime && <div className="text-[#64748b] text-xs">更新: {formatUpdateTime(updateTime)}</div>}
+      {updateTime && <div className="text-muted text-xs">更新: {formatUpdateTime(updateTime)}</div>}
     </div>
   )
 }
