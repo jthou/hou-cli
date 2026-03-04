@@ -5,10 +5,11 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import MarkdownPreview from '../components/MarkdownPreview'
+import MarkdownActionButtons from '../components/MarkdownActionButtons'
 import ChatInput from '../components/ChatInput'
 import ArticleDiffView from '../components/ArticleDiffView'
-import { mdToWiki } from '../utils/wikiMdConvert'
 import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../utils/mdToHtml'
+import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 
@@ -66,9 +67,6 @@ export default function ArticleWriting() {
   const [patchSubmitting, setPatchSubmitting] = useState(false)
   /** 输出弹窗：'mediawiki' | 'wechat' | null */
   const [outputDialog, setOutputDialog] = useState(null)
-  const [mwTitle, setMwTitle] = useState('')
-  const [mwSummary, setMwSummary] = useState('')
-  const [mwSubmitting, setMwSubmitting] = useState(false)
   /** 同步到公众号草稿：复用 TaskParamsForm，schema 来自 task-types，metadata 含 content（当前文章 Markdown，提交时转公众号 HTML） */
   const [wechatOutputSchema, setWechatOutputSchema] = useState({})
   const [wechatOutputMetadata, setWechatOutputMetadata] = useState({})
@@ -603,39 +601,6 @@ export default function ArticleWriting() {
       })
   }
 
-  const submitMediaWikiOutput = async () => {
-    const title = (mwTitle || '').trim()
-    if (!title) {
-      toast?.warning?.('请输入页面标题')
-      return
-    }
-    if (!previewContent) {
-      toast?.warning?.('当前无文章内容')
-      return
-    }
-    setMwSubmitting(true)
-    try {
-      const wikitext = mdToWiki(previewContent)
-      const res = await fetch(`/api/mediawiki/pages/${encodeURIComponent(title)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: wikitext, summary: (mwSummary || '').trim() || undefined }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.success) {
-        toast?.info?.('已发布到 MediaWiki')
-        setOutputDialog(null)
-        setMwTitle('')
-        setMwSummary('')
-      } else {
-        toast?.error?.(data.detail || data.message || '发布失败')
-      }
-    } catch (e) {
-      toast?.error?.(e?.message || '发布失败')
-    }
-    setMwSubmitting(false)
-  }
-
   const submitWechatOutputTask = async (e) => {
     e?.preventDefault?.()
     const title = (wechatOutputMetadata?.title || '').trim()
@@ -666,10 +631,10 @@ export default function ArticleWriting() {
         toast?.info?.('任务已创建，草稿将同步到公众号草稿箱')
         setOutputDialog(null)
       } else {
-        toast?.error?.(data.detail || data.message || '创建任务失败')
+        toast?.error?.(formatWechatMpError('创建任务失败', new Error(data.detail || data.message || '创建任务失败')))
       }
     } catch (err) {
-      toast?.error?.(err?.message || '创建任务失败')
+      toast?.error?.(formatWechatMpError('创建任务失败', err))
     }
     setWechatOutputSubmitting(false)
   }
@@ -755,9 +720,6 @@ export default function ArticleWriting() {
     const { operation: _o, ...rest } = wechatOutputSchema
     return rest
   }, [wechatOutputSchema])
-
-  const handleCopyArticle = () => handleCopyContent(previewContent)
-  const handleAddArticleToInput = () => handleAddContentToInput(previewContent)
 
   const handlePatchSubmit = async () => {
     if (!selectedSessionId || !patchAnchor.trim()) return
@@ -1159,29 +1121,13 @@ export default function ArticleWriting() {
             <h2 className="text-sm font-medium text-muted">文章预览</h2>
             <div className="flex items-center gap-2">
               {previewContent && !editMode && (
-                <>
-                  <button
-                    type="button"
-                    onClick={enterEditMode}
-                    className="text-xs px-2 py-1 rounded border border-border text-cyan-400 hover:bg-cyan-500/10"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyArticle}
-                    className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10"
-                  >
-                    复制
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAddArticleToInput}
-                    className="text-xs px-2 py-1 rounded border border-border text-muted hover:bg-white/10"
-                  >
-                    加入输入框
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={enterEditMode}
+                  className="text-xs px-2 py-1 rounded border border-border text-cyan-400 hover:bg-cyan-500/10"
+                >
+                  编辑
+                </button>
               )}
               {editMode && (
                 <>
@@ -1316,20 +1262,20 @@ export default function ArticleWriting() {
           </div>
           {previewContent && (
             <div className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-center gap-3 bg-black/20">
-              <button
-                type="button"
-                onClick={() => { setOutputDialog('mediawiki'); setMwTitle(''); setMwSummary('') }}
-                className="text-sm px-4 py-2 rounded-lg border border-border text-muted hover:bg-white/10 hover:text-fg"
-              >
-                发布到 MediaWiki
-              </button>
-              <button
-                type="button"
-                onClick={() => setOutputDialog('wechat')}
-                className="text-sm px-4 py-2 rounded-lg border border-border text-muted hover:bg-white/10 hover:text-fg"
-              >
-                同步到公众号草稿
-              </button>
+              <MarkdownActionButtons
+                content={previewContent}
+                onSendToArticle={handleAddContentToInput}
+                sendToArticleLabel="加入输入框"
+                extra={
+                  <button
+                    type="button"
+                    onClick={() => setOutputDialog('wechat')}
+                    className="px-4 py-2 rounded-lg border border-border text-muted hover:bg-white/10 hover:text-fg text-sm"
+                  >
+                    同步到公众号草稿
+                  </button>
+                }
+              />
             </div>
           )}
         </div>
@@ -1547,51 +1493,6 @@ export default function ArticleWriting() {
               >
                 {patchSubmitting ? '插入中…' : '插入'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 输出：发布到 MediaWiki */}
-      {outputDialog === 'mediawiki' && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setOutputDialog(null)}
-        >
-          <div
-            className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-border">
-              <h3 className="text-lg font-semibold text-white">发布到 MediaWiki</h3>
-              <button type="button" onClick={() => setOutputDialog(null)} className="text-muted hover:text-fg text-2xl leading-none">×</button>
-            </div>
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-muted">将当前文章以 Wikitext 发布到指定页面，不存在则创建。</p>
-              <div>
-                <label className="block text-sm text-muted mb-1">页面标题 *</label>
-                <input
-                  type="text"
-                  value={mwTitle}
-                  onChange={(e) => setMwTitle(e.target.value)}
-                  placeholder="MediaWiki 页面标题"
-                  className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-muted mb-1">编辑摘要（选填）</label>
-                <input
-                  type="text"
-                  value={mwSummary}
-                  onChange={(e) => setMwSummary(e.target.value)}
-                  placeholder="本次修改说明"
-                  className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-            </div>
-            <div className="shrink-0 flex gap-3 px-5 py-4 border-t border-border bg-surface">
-              <button type="button" onClick={() => setOutputDialog(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg">取消</button>
-              <button type="button" onClick={submitMediaWikiOutput} disabled={mwSubmitting || !mwTitle.trim()} className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50">{mwSubmitting ? '发布中…' : '发布'}</button>
             </div>
           </div>
         </div>

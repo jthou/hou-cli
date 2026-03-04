@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { htmlToMd } from '../utils/mdToHtml'
-import { mdToWiki } from '../utils/wikiMdConvert'
 import MarkdownPreview from '../components/MarkdownPreview'
+import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
 import { useToast } from '../components/ToastModal'
 
 const REQUEST_ID_PREFIX = 'web-reader-'
@@ -11,29 +11,26 @@ export default function WebReader() {
   const navigate = useNavigate()
   const toast = useToast()
   const [urlInput, setUrlInput] = useState('')
+  const [enlargedImageIndex, setEnlargedImageIndex] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [loadingOcr, setLoadingOcr] = useState(false)
   const [extensionReady, setExtensionReady] = useState(false)
   const [viewMode, setViewMode] = useState('markdown') // 'text' | 'html' | 'markdown'
-  const [mdViewMode, setMdViewMode] = useState('preview') // 'preview' | 'edit'（截图场景下右侧 Markdown 的展示模式）
-  const [mdContent, setMdContent] = useState('') // 可编辑的 Markdown 内容（截图场景）
-  const [mwDialogOpen, setMwDialogOpen] = useState(false)
-  const [mwTitle, setMwTitle] = useState('')
-  const [mwSummary, setMwSummary] = useState('')
-  const [mwSubmitting, setMwSubmitting] = useState(false)
   const timeoutRef = useRef(null)
   const ocrRequestedRef = useRef(null)
 
-  const buildStyledHtml = (d) => {
-    const base = d.baseUrl || d.url || ''
-    const styles = [
-      ...(d.stylesheets || []).map((href) => `<link rel="stylesheet" href="${href.replace(/"/g, '&quot;')}">`),
-      ...(d.inlineStyles || []).map((s) => `<style>${s}</style>`),
-    ].join('\n')
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><base href="${base.replace(/"/g, '&quot;')}">${styles}</head><body style="margin:1em;max-width:800px;margin-left:auto;margin-right:auto;">${d.html || ''}</body></html>`
-  }
+  useEffect(() => {
+    if (enlargedImageIndex == null || !data?.screenshots?.length) return
+    const handler = (e) => {
+      if (e.key === 'Escape') setEnlargedImageIndex(null)
+      if (e.key === 'ArrowLeft' && enlargedImageIndex > 0) setEnlargedImageIndex((i) => i - 1)
+      if (e.key === 'ArrowRight' && enlargedImageIndex < data.screenshots.length - 1) setEnlargedImageIndex((i) => i + 1)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [enlargedImageIndex, data?.screenshots?.length])
 
   /** 左侧 iframe 用：完整页面或正文，注入链接点击拦截 */
   const buildHtmlForPreviewIframe = (d) => {
@@ -155,11 +152,6 @@ export default function WebReader() {
   }, [doRead])
 
   useEffect(() => {
-    const md = data?.markdown ?? ''
-    setMdContent(md)
-  }, [data?.markdown])
-
-  useEffect(() => {
     const images = data?.screenshots || []
     if (!images.length || !data?.pendingOcr || ocrRequestedRef.current === images[0]) return
     ocrRequestedRef.current = images[0]
@@ -192,47 +184,14 @@ export default function WebReader() {
       .finally(() => setLoadingOcr(false))
   }, [data?.screenshots, data?.pendingOcr])
 
-  const handleAddToArticle = () => {
-    const content = (mdViewMode === 'edit' ? mdContent : data?.markdown) ?? ''
-    if (!content.trim()) {
-      toast?.warning?.('当前无内容可加入')
-      return
-    }
-    navigate('/article-writing', { state: { initialMarkdown: content.trim() } })
-  }
-
-  const submitMediaWiki = async () => {
-    const title = (mwTitle || '').trim()
-    if (!title) {
-      toast?.warning?.('请输入页面标题')
-      return
-    }
-    const content = (mdViewMode === 'edit' ? mdContent : data?.markdown) ?? ''
-    if (!content.trim()) {
-      toast?.warning?.('当前无内容可发布')
-      return
-    }
-    setMwSubmitting(true)
+  const handlePasteFromClipboard = async () => {
     try {
-      const wikitext = mdToWiki(content.trim())
-      const res = await fetch(`/api/mediawiki/pages/${encodeURIComponent(title)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: wikitext, summary: (mwSummary || '').trim() || undefined }),
-      })
-      const resData = await res.json().catch(() => ({}))
-      if (res.ok && resData.success) {
-        toast?.info?.('已发布到 MediaWiki')
-        setMwDialogOpen(false)
-        setMwTitle('')
-        setMwSummary('')
-      } else {
-        toast?.error?.(resData.detail || resData.message || '发布失败')
-      }
+      const text = await navigator.clipboard.readText()
+      if (text?.trim()) setUrlInput(text.trim())
+      else toast?.warning?.('剪贴板为空')
     } catch (e) {
-      toast?.error?.(e?.message || '发布失败')
+      toast?.error?.('读取剪贴板失败：' + (e?.message || '请检查权限'))
     }
-    setMwSubmitting(false)
   }
 
   const handleRead = (e) => {
@@ -271,6 +230,14 @@ export default function WebReader() {
                 className="flex-1 min-w-0 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none text-sm"
               />
               <button
+                type="button"
+                onClick={handlePasteFromClipboard}
+                title="从剪贴板获取 URL"
+                className="px-3 py-2 border border-border rounded-lg text-muted hover:text-fg hover:bg-white/5 text-sm shrink-0"
+              >
+                粘贴
+              </button>
+              <button
                 type="submit"
                 disabled={loading || loadingOcr || !extensionReady}
                 className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 text-sm shrink-0"
@@ -306,7 +273,11 @@ export default function WebReader() {
                     key={i}
                     src={src}
                     alt={`页面截图 ${i + 1}`}
-                    className="w-full max-w-full h-auto object-contain bg-white rounded block"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setEnlargedImageIndex(i)}
+                    onKeyDown={(e) => e.key === 'Enter' && setEnlargedImageIndex(i)}
+                    className="w-full max-w-full h-auto object-contain bg-white rounded block cursor-pointer hover:ring-2 hover:ring-accent/50 transition-shadow"
                   />
                 ))}
                 {data?.pendingOcr && (
@@ -367,24 +338,7 @@ export default function WebReader() {
                     {data.url}
                   </a>
                 </div>
-                {data.screenshots?.length ? (
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setMdViewMode('preview')}
-                      className={`px-3 py-1.5 rounded-lg text-sm ${mdViewMode === 'preview' ? 'bg-accent text-white' : 'bg-white/5 text-muted hover:text-white'}`}
-                    >
-                      预览
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMdViewMode('edit')}
-                      className={`px-3 py-1.5 rounded-lg text-sm ${mdViewMode === 'edit' ? 'bg-accent text-white' : 'bg-white/5 text-muted hover:text-white'}`}
-                    >
-                      编辑
-                    </button>
-                  </div>
-                ) : (
+                {!data.screenshots?.length && (
                   <div className="flex gap-2 shrink-0">
                     <button
                       type="button"
@@ -400,13 +354,6 @@ export default function WebReader() {
                     >
                       纯文本
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('html')}
-                      className={`px-3 py-1.5 rounded-lg text-sm ${viewMode === 'html' ? 'bg-accent text-white' : 'bg-white/5 text-muted hover:text-white'}`}
-                    >
-                      原文样式
-                    </button>
                   </div>
                 )}
               </div>
@@ -416,54 +363,30 @@ export default function WebReader() {
                     正在识别文字…
                   </div>
                 ) : data.screenshots?.length ? (
-                  <>
-                    <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col">
-                      {mdViewMode === 'edit' ? (
-                        <textarea
-                          value={mdContent}
-                          onChange={(e) => setMdContent(e.target.value)}
-                          placeholder="在此编辑 Markdown 内容…"
-                          className="flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed"
-                          spellCheck={false}
-                        />
-                      ) : (
-                        <MarkdownPreview markdown={mdContent || ''} className="min-h-full" theme="dark" />
-                      )}
-                    </div>
-                    <div className="shrink-0 flex gap-3 px-4 py-3 border-t border-border bg-white/[0.02]">
-                      <button
-                        type="button"
-                        onClick={handleAddToArticle}
-                        className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
-                      >
-                        加入写文章
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setMwTitle(''); setMwSummary(''); setMwDialogOpen(true) }}
-                        className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90"
-                      >
-                        写入 MediaWiki
-                      </button>
-                    </div>
-                  </>
-                ) : viewMode === 'markdown' ? (
-                  <div className="h-full overflow-y-auto p-4">
-                    <MarkdownPreview markdown={data.markdown || ''} className="min-h-full" theme="dark" />
+                  <div className="flex-1 min-h-0 p-4 flex flex-col">
+                    <MarkdownEditorPreview
+                      content={data.markdown || ''}
+                      onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v } : null))}
+                      editable
+                      theme="dark"
+                      onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
+                      sendToArticleLabel="加入写文章"
+                    />
                   </div>
-                ) : viewMode === 'text' ? (
+                ) : viewMode === 'markdown' ? (
+                  <div className="flex-1 min-h-0 p-4 flex flex-col">
+                    <MarkdownEditorPreview
+                      content={data.markdown || ''}
+                      editable={false}
+                      theme="dark"
+                      onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
+                      sendToArticleLabel="加入写文章"
+                    />
+                  </div>
+                ) : (
                   <div className="p-4 text-sm text-muted leading-relaxed whitespace-pre-wrap overflow-y-auto h-full">
                     {data.content || '无内容'}
                   </div>
-                ) : data.html ? (
-                  <iframe
-                    title="原文样式"
-                    srcDoc={buildStyledHtml(data)}
-                    sandbox="allow-same-origin"
-                    className="w-full h-full min-h-[400px] border-0 bg-white"
-                  />
-                ) : (
-                  <div className="p-4 text-sm text-muted">无 HTML 内容，请使用纯文本或 Markdown 预览模式</div>
                 )}
               </div>
             </div>
@@ -471,48 +394,46 @@ export default function WebReader() {
         </div>
       </div>
 
-      {/* 发布到 MediaWiki 弹窗 */}
-      {mwDialogOpen && (
+      {enlargedImageIndex != null && data?.screenshots?.[enlargedImageIndex] && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setMwDialogOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setEnlargedImageIndex(null)}
         >
-          <div
-            className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setEnlargedImageIndex(null) }}
+            className="absolute right-4 top-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl leading-none"
+            title="关闭"
           >
-            <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-border">
-              <h3 className="text-lg font-semibold text-white">发布到 MediaWiki</h3>
-              <button type="button" onClick={() => setMwDialogOpen(false)} className="text-muted hover:text-fg text-2xl leading-none">×</button>
-            </div>
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-muted">将 Markdown 转为 Wikitext 后发布到指定页面，不存在则创建。</p>
-              <div>
-                <label className="block text-sm text-muted mb-1">页面标题 *</label>
-                <input
-                  type="text"
-                  value={mwTitle}
-                  onChange={(e) => setMwTitle(e.target.value)}
-                  placeholder="MediaWiki 页面标题"
-                  className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-muted mb-1">编辑摘要（选填）</label>
-                <input
-                  type="text"
-                  value={mwSummary}
-                  onChange={(e) => setMwSummary(e.target.value)}
-                  placeholder="本次修改说明"
-                  className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-            </div>
-            <div className="shrink-0 flex gap-3 px-5 py-4 border-t border-border bg-surface">
-              <button type="button" onClick={() => setMwDialogOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg">取消</button>
-              <button type="button" onClick={submitMediaWiki} disabled={mwSubmitting || !mwTitle.trim()} className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50">{mwSubmitting ? '发布中…' : '发布'}</button>
-            </div>
-          </div>
+            ×
+          </button>
+          {enlargedImageIndex > 0 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setEnlargedImageIndex((i) => i - 1) }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm"
+            >
+              上一张
+            </button>
+          )}
+          <img
+            src={data.screenshots[enlargedImageIndex]}
+            alt={`截图 ${enlargedImageIndex + 1}`}
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          {enlargedImageIndex < data.screenshots.length - 1 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setEnlargedImageIndex((i) => i + 1) }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm"
+            >
+              下一张
+            </button>
+          )}
+          <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-sm text-white/70">
+            {enlargedImageIndex + 1} / {data.screenshots.length} · Esc 或点击空白关闭
+          </span>
         </div>
       )}
     </div>

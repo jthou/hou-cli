@@ -3,6 +3,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/ToastModal'
+import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import HtmlPreview from '../components/HtmlPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
@@ -446,7 +447,7 @@ export default function WechatDraftPage() {
                         toast.info('封面上传成功')
                       } else throw new Error(data.detail || '上传失败')
                     } catch (err) {
-                      toast.error('封面上传失败: ' + (err?.message || String(err)))
+                      toast.error(formatWechatMpError('封面上传失败', err))
                     }
                     setCoverUploading(false)
                     e.target.value = ''

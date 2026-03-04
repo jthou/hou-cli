@@ -193,6 +193,33 @@ function mdLinksToWiki(md) {
 }
 
 /**
+ * > xxx → <blockquote>xxx</blockquote>
+ * 支持多行连续引用，合并为一个 blockquote
+ */
+function mdBlockquoteToWiki(md) {
+  const lines = md.split('\n')
+  const out = []
+  let blockquoteLines = []
+  const flushBlockquote = () => {
+    if (blockquoteLines.length) {
+      const content = blockquoteLines.map((l) => l.replace(/^>\s*/, '')).join('\n')
+      out.push(`<blockquote>${content}</blockquote>`)
+      blockquoteLines = []
+    }
+  }
+  for (const line of lines) {
+    if (/^>\s*/.test(line)) {
+      blockquoteLines.push(line)
+    } else {
+      flushBlockquote()
+      out.push(line)
+    }
+  }
+  flushBlockquote()
+  return out.join('\n')
+}
+
+/**
  * - item → * item; 1. /2. /3. item → # item
  */
 function mdListsToWiki(md) {
@@ -230,5 +257,6 @@ export function mdToWiki(md) {
   s = mdLinksToWiki(s)
   s = mdEmphasisToWiki(s)
   s = mdListsToWiki(s)
+  s = mdBlockquoteToWiki(s)
   return mdRestoreMathPlaceholders(s, mathList)
 }

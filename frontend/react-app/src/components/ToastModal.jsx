@@ -27,7 +27,7 @@ const TYPE_ACCENT = {
 const OFFSET = 24
 const CARD_MAX_W = 380
 const CARD_MIN_W = 280
-const AUTO_CLOSE_MS = 2000
+const AUTO_CLOSE_MS = 2500  // info 自动关闭；error/warning 不自动关闭，需用户点击
 
 function clampPosition (x, y, cardW, cardH) {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 800
@@ -54,12 +54,13 @@ function ToastModal({ type, title, message, onConfirm, onCancel, position }) {
 
   const style = { left: place.left, top: place.top, maxWidth: CARD_MAX_W, minWidth: CARD_MIN_W }
 
-  // 仅 info/warning/error 自动关闭；confirm 需用户点击
+  // info 自动关闭；error/warning 不自动关闭，需用户点击；confirm 需用户点击
+  const isAutoClose = type === 'info' || type === 'success'
   useEffect(() => {
-    if (isConfirm) return
+    if (!isAutoClose) return
     const timer = setTimeout(() => onConfirm(), AUTO_CLOSE_MS)
     return () => clearTimeout(timer)
-  }, [isConfirm, onConfirm])
+  }, [isAutoClose, onConfirm])
 
   return (
     <div className="fixed inset-0 z-[100] pointer-events-none">
@@ -77,22 +78,34 @@ function ToastModal({ type, title, message, onConfirm, onCancel, position }) {
           <div className="flex-1 min-w-0">
             <h3 id="toast-title" className="text-base font-semibold text-white mb-1">{displayTitle}</h3>
             <p id="toast-message" className="text-sm text-muted whitespace-pre-wrap">{message}</p>
-            {isConfirm && (
+            {(isConfirm || type === 'error' || type === 'warning') && (
               <div className="flex gap-2 mt-4">
-                <button
-                  type="button"
-                  onClick={() => onConfirm()}
-                  className="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
-                >
-                  确认
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onCancel?.()}
-                  className="px-4 py-2 rounded-lg border border-border hover:bg-white/5 text-muted text-sm"
-                >
-                  取消
-                </button>
+                {isConfirm ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onConfirm()}
+                      className="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
+                    >
+                      确认
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCancel?.()}
+                      className="px-4 py-2 rounded-lg border border-border hover:bg-white/5 text-muted text-sm"
+                    >
+                      取消
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onConfirm()}
+                    className="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
+                  >
+                    关闭
+                  </button>
+                )}
               </div>
             )}
           </div>

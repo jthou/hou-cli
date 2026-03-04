@@ -88,6 +88,33 @@ function scrollToPosition(offsetY) {
   }
 }
 
+/** 微信读书专用：尝试查找实际滚动容器（正文可能在 overflow 的 div 内），失败则用 document */
+function scrollToPositionWeread(offsetY) {
+  let el = document.scrollingElement || document.documentElement
+  try {
+    const sel = '[class*="reader"], [class*="chapter"], [class*="content"], [class*="book"], [id*="reader"], main'
+    const list = document.querySelectorAll(sel)
+    let maxSh = el.scrollHeight
+    for (let i = 0; i < Math.min(list.length, 30); i++) {
+      const c = list[i]
+      if (!c || !c.scrollHeight) continue
+      const s = window.getComputedStyle(c)
+      const oy = s.overflowY || s.overflow
+      if ((oy === 'auto' || oy === 'scroll') && c.scrollHeight > c.clientHeight + 100 && c.scrollHeight > maxSh) {
+        el = c
+        maxSh = c.scrollHeight
+      }
+    }
+  } catch (_) {}
+  el.scrollTop = Math.max(0, offsetY)
+  return {
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 20,
+  }
+}
+
 /** 微信读书：长页面分屏截图，OCR 由前端分批完成 */
 async function fetchWereadScreenshot(url, createdByUs, tabId) {
   await chrome.tabs.update(tabId, { active: true })
@@ -99,7 +126,7 @@ async function fetchWereadScreenshot(url, createdByUs, tabId) {
 
   for (let i = 0; i < MAX_SCREENSHOTS; i++) {
     const [scrollRes] = await chrome.scripting
-      .executeScript({ target: { tabId }, func: scrollToPosition, args: [offsetY] })
+      .executeScript({ target: { tabId }, func: scrollToPositionWeread, args: [offsetY] })
       .catch(() => [{}])
     const info = scrollRes?.result
 

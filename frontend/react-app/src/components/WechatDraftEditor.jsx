@@ -4,6 +4,7 @@
  */
 import { useRef, useState } from 'react'
 import MarkdownPreview from './MarkdownPreview'
+import { formatWechatMpError } from '../utils/wechatMpError'
 
 const inputCls =
   'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none font-mono text-sm resize-y min-h-[320px]'
@@ -52,12 +53,12 @@ export default function WechatDraftEditor({ value = '', onChange, placeholder = 
       const res = await fetch('/api/wechat-mp/upload-article-image', { method: 'POST', body: form })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data?.url) {
-        setUploadError(data?.detail || data?.message || '上传失败')
+        setUploadError(formatWechatMpError('正文图片上传失败', new Error(data?.detail || data?.message || '上传失败')))
         return
       }
       insertImageMarkdown(data.url)
     } catch (err) {
-      setUploadError(err?.message || '上传失败')
+      setUploadError(formatWechatMpError('正文图片上传失败', err))
     } finally {
       setUploading(false)
     }

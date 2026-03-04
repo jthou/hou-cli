@@ -10,6 +10,7 @@ import WechatDraftEditor from '../WechatDraftEditor'
 import WechatOutboundIpHint from '../WechatOutboundIpHint'
 import WechatMaterialImagePicker from '../WechatMaterialImagePicker'
 import { useToast } from '../ToastModal'
+import { formatWechatMpError } from '../../utils/wechatMpError'
 
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
 const labelCls = 'block text-sm text-muted mb-1'
@@ -168,7 +169,7 @@ export default function TaskParamsForm({
                   toast.info('封面上传成功')
                 } else throw new Error(data?.detail || '上传失败')
               } catch (err) {
-                toast.error('封面上传失败: ' + (err?.message || String(err)))
+                toast.error(formatWechatMpError('封面上传失败', err))
               }
               setCoverUploading(false)
               e.target.value = ''
