@@ -17,6 +17,7 @@ import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
 import SettingsLlmAudit from './pages/SettingsLlmAudit'
 import SettingsSystemPromptAudit from './pages/SettingsSystemPromptAudit'
+import SettingsModelConfigAudit from './pages/SettingsModelConfigAudit'
 import SettingsKanban from './pages/SettingsKanban'
 import About from './pages/About'
 import WechatDraftPage from './pages/WechatDraftPage'
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
               <Route path="/settings/system-prompt-audit" element={<SettingsSystemPromptAudit />} />
+              <Route path="/settings/model-config-audit" element={<SettingsModelConfigAudit />} />
               <Route path="/settings/kanban" element={<SettingsKanban />} />
               <Route path="/settings/tests" element={<SettingsTests />} />
               <Route path="/settings/backend" element={<SettingsBackend />} />
