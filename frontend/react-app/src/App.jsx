@@ -26,6 +26,7 @@ import PdfToWiki from './pages/PdfToWiki'
 import PdfReader from './pages/PdfReader'
 import WikiDirectory from './pages/WikiDirectory'
 import MediaWikiReader from './pages/MediaWikiReader'
+import WebReader from './pages/WebReader'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/pdf-to-wiki" element={<PdfToWiki />} />
               <Route path="/pdf-reader" element={<PdfReader />} />
               <Route path="/mediawiki-reader" element={<MediaWikiReader />} />
+              <Route path="/web-reader" element={<WebReader />} />
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />

@@ -8,6 +8,7 @@ const navItems = [
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'content' },
   { path: '/article-writing', icon: '✍️', label: '写文章', group: 'content' },
   { path: '/mediawiki-reader', icon: '📖', label: 'MediaWiki 阅读', group: 'content' },
+  { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'content' },
   { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'tools' },
   { path: '/video-extract-audio', icon: '🎧', label: '视频提取音频', group: 'tools' },
   { path: '/speech-to-text', icon: '🎤', label: '语音转文字', group: 'tools' },

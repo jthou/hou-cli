@@ -24,6 +24,7 @@ from backend.api.kanban_routes import router as kanban_router
 from backend.api.heartbeat_routes import router as heartbeat_router
 from backend.api.storage_routes import router as storage_router
 from backend.api.pdf_routes import router as pdf_router
+from backend.api.web_reader_routes import router as web_reader_router
 from backend.api.llm_audit_routes import router as llm_audit_router
 from backend.api.model_config_routes import router as model_config_router
 from backend.api.task_routes import router as task_router
@@ -59,6 +60,7 @@ router.include_router(model_config_router, tags=["model-config"])
 router.include_router(task_router, tags=["tasks"])
 router.include_router(kanban_router, tags=["kanban"])
 router.include_router(pdf_router, tags=["pdf"])
+router.include_router(web_reader_router)
 
 # 注册系统监控路由
 try:
