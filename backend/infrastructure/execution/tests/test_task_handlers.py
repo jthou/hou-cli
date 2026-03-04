@@ -247,8 +247,15 @@ class TestVideoDownloadUrlValidation:
         assert ok is False
         assert "不能为空" in err
 
-    def test_no_scheme_fails(self):
+    def test_no_scheme_video_domain_auto_prepend(self):
+        """常见视频域名（如 b23.tv）缺少协议时自动补全 https://"""
         ok, err = _validate_video_download_url("b23.tv/xxx")
+        assert ok is True
+        assert err is None
+
+    def test_no_scheme_unknown_domain_fails(self):
+        """非视频域名且过短（如 x.y）不补全"""
+        ok, err = _validate_video_download_url("x.y")
         assert ok is False
         assert "http" in err or "https" in err
 

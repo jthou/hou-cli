@@ -213,6 +213,7 @@ export default function TaskManagement() {
   const [draftDetail, setDraftDetail] = useState(null)
   const [editDraftPreFill, setEditDraftPreFill] = useState(null)
   const [createModalEditTask, setCreateModalEditTask] = useState(null)
+  const [editPipelineGroup, setEditPipelineGroup] = useState(null) // { pipelineId, tasks }
 
   const location = useLocation()
   useEffect(() => {
@@ -287,7 +288,7 @@ export default function TaskManagement() {
   }, [loadHeartbeat])
 
   useEffect(() => {
-    if (tab === 'tasks') {
+    if (tab === 'tasks' || tab === 'pipeline') {
       loadTasks()
     } else if (tab === 'deleted') {
       loadDeletedTasks()
@@ -297,21 +298,13 @@ export default function TaskManagement() {
   }, [tab, loadTasks, loadDeletedTasks, loadScheduledTasks])
 
   useEffect(() => {
-    if (showCreateModal || editScheduleTask) {
+    if (showCreateModal || editScheduleTask || editPipelineGroup) {
       fetch('/api/task-queue/task-types')
         .then(r => r.json())
         .then(d => setTaskTypes(d.task_types || []))
         .catch(() => setTaskTypes([]))
     }
-  }, [showCreateModal, editScheduleTask])
-
-  const stats = {
-    total: tasks.length,
-    pending: tasks.filter(t => t.status === 'queued').length,
-    running: tasks.filter(t => t.status === 'running').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
-    failed: tasks.filter(t => t.status === 'failed').length,
-  }
+  }, [showCreateModal, editScheduleTask, editPipelineGroup])
 
   const filteredTasks = tasks.filter(t => {
     if (!search) return true
@@ -344,6 +337,17 @@ export default function TaskManagement() {
     ungrouped.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
     return { pipelineGroups, ungroupedTasks: ungrouped }
   })()
+
+  const tasksForStats = tab === 'tasks' ? ungroupedTasks : tab === 'pipeline'
+    ? pipelineGroups.flatMap(g => g.tasks)
+    : tasks
+  const stats = {
+    total: tasksForStats.length,
+    pending: tasksForStats.filter(t => t.status === 'queued').length,
+    running: tasksForStats.filter(t => t.status === 'running').length,
+    completed: tasksForStats.filter(t => t.status === 'completed').length,
+    failed: tasksForStats.filter(t => t.status === 'failed').length,
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -386,6 +390,14 @@ export default function TaskManagement() {
               普通任务
             </button>
             <button
+              onClick={() => setTab('pipeline')}
+              className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
+                tab === 'pipeline' ? 'bg-accent text-white' : 'text-muted hover:text-white'
+              }`}
+            >
+              组合任务
+            </button>
+            <button
               onClick={() => setTab('scheduled')}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
                 tab === 'scheduled' ? 'bg-accent text-white' : 'text-muted hover:text-white'
@@ -403,7 +415,7 @@ export default function TaskManagement() {
             </button>
           </div>
           <div className="flex gap-2">
-            {tab === 'tasks' && (
+            {(tab === 'tasks' || tab === 'pipeline') && (
               <>
                 <button
                   onClick={() => setShowCreatePipelineModal(true)}
@@ -424,11 +436,12 @@ export default function TaskManagement() {
               <button
                 onClick={() => {
                   setEditDraftPreFill(null)
-                  setShowCreateModal(true)
+                  if (tab === 'pipeline') setShowCreatePipelineModal(true)
+                  else setShowCreateModal(true)
                 }}
                 className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
               >
-                + {tab === 'tasks' ? '创建普通任务' : '创建定时任务'}
+                + {tab === 'tasks' ? '创建普通任务' : tab === 'pipeline' ? '创建管道' : '创建定时任务'}
               </button>
             )}
           </div>
@@ -458,9 +471,17 @@ export default function TaskManagement() {
                       key={pipelineId}
                       className="rounded-xl border border-border bg-white/[0.02] overflow-hidden"
                     >
-                      <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center gap-2">
-                        <span className="text-cyan-400 font-medium">{`管道 #${pipelineId.slice(0, 8)}`}</span>
-                        <span className="text-xs text-muted">{groupTasks.length} 个任务</span>
+                      <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-cyan-400 font-medium">{`管道 #${pipelineId.slice(0, 8)}`}</span>
+                          <span className="text-xs text-muted">{groupTasks.length} 个任务</span>
+                        </div>
+                        <button
+                          onClick={() => setEditPipelineGroup({ pipelineId, tasks: groupTasks })}
+                          className="px-3 py-1 rounded border border-border text-xs text-muted hover:text-white hover:bg-white/5"
+                        >
+                          编辑管道
+                        </button>
                       </div>
                       <div className="p-3 space-y-3">
                         {groupTasks.map(task => (
@@ -494,7 +515,7 @@ export default function TaskManagement() {
               )}
             </div>
           </>
-        ) : tab === 'tasks' ? (
+        ) : tab === 'tasks' || tab === 'pipeline' ? (
           <>
             {/* 统计卡片 */}
             <div className="grid grid-cols-5 gap-4 mb-6">
@@ -564,26 +585,34 @@ export default function TaskManagement() {
               </button>
             </div>
 
-            {/* 任务列表：有 pipeline_id 的按组大框展示，无 pipeline_id 的单独列出不套框 */}
+            {/* 任务列表：普通任务仅展示无 pipeline_id 的；组合任务仅展示管道组 */}
             <div className="space-y-6">
               {loading ? (
                 <div className="py-12 text-center text-muted">加载中...</div>
-              ) : pipelineGroups.length === 0 && ungroupedTasks.length === 0 ? (
-                <div className="py-12 text-center text-muted">暂无任务</div>
-              ) : (
-                <>
-                  {pipelineGroups.map(({ pipelineId, tasks: groupTasks }) => (
+              ) : tab === 'pipeline' ? (
+                pipelineGroups.length === 0 ? (
+                  <div className="py-12 text-center text-muted">暂无组合任务，点击「创建管道」添加</div>
+                ) : (
+                  pipelineGroups.map(({ pipelineId, tasks: groupTasks }) => (
                     <div
                       key={pipelineId}
                       className="rounded-xl border border-border bg-white/[0.02] overflow-hidden"
                     >
-                      <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center gap-2">
-                        <span className="text-cyan-400 font-medium">
-                          {`管道 #${pipelineId.slice(0, 8)}`}
-                        </span>
-                        <span className="text-xs text-muted">
-                          {groupTasks.length} 个任务
-                        </span>
+                      <div className="px-4 py-2.5 border-b border-border bg-white/5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-cyan-400 font-medium">
+                            {`管道 #${pipelineId.slice(0, 8)}`}
+                          </span>
+                          <span className="text-xs text-muted">
+                            {groupTasks.length} 个任务
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setEditPipelineGroup({ pipelineId, tasks: groupTasks })}
+                          className="px-3 py-1 rounded border border-border text-xs text-muted hover:text-white hover:bg-white/5"
+                        >
+                          编辑管道
+                        </button>
                       </div>
                       <div className="p-3 space-y-3">
                         {groupTasks.map(task => (
@@ -597,21 +626,24 @@ export default function TaskManagement() {
                         ))}
                       </div>
                     </div>
-                  ))}
-                  {ungroupedTasks.length > 0 && (
-                    <div className="space-y-3">
-                      {ungroupedTasks.map(task => (
-                        <TaskCard
-                          key={task.task_id}
-                          task={task}
-                          onRefresh={loadTasks}
-                          onShowDetail={setDetailTaskId}
-                          onGoToSchedule={handleGoToSchedule}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
+                  ))
+                )
+              ) : (
+                ungroupedTasks.length === 0 ? (
+                  <div className="py-12 text-center text-muted">暂无普通任务</div>
+                ) : (
+                  <div className="space-y-3">
+                    {ungroupedTasks.map(task => (
+                      <TaskCard
+                        key={task.task_id}
+                        task={task}
+                        onRefresh={loadTasks}
+                        onShowDetail={setDetailTaskId}
+                        onGoToSchedule={handleGoToSchedule}
+                      />
+                    ))}
+                  </div>
+                )
               )}
             </div>
           </>
@@ -726,6 +758,18 @@ export default function TaskManagement() {
           }}
         />
       )}
+      {editPipelineGroup && (
+        <EditPipelineModal
+          pipelineId={editPipelineGroup.pipelineId}
+          tasks={editPipelineGroup.tasks}
+          taskTypes={taskTypes}
+          onClose={() => setEditPipelineGroup(null)}
+          onSuccess={() => {
+            setEditPipelineGroup(null)
+            loadTasks()
+          }}
+        />
+      )}
       {detailTaskId && (
         <TaskDetailModal
           taskId={detailTaskId}
@@ -739,8 +783,17 @@ export default function TaskManagement() {
           }}
           onGoToSchedule={handleGoToSchedule}
           onEditBeforeRestart={(task) => {
-            setCreateModalEditTask(task)
-            setShowCreateModal(true)
+            const pid = (task.pipeline_id || '').trim()
+            if (pid) {
+              // 管道任务：整体编辑，而非单独编辑
+              const groupTasks = (tasks || [])
+                .filter(t => (t.pipeline_id || '').trim() === pid)
+                .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+              setEditPipelineGroup({ pipelineId: pid, tasks: groupTasks })
+            } else {
+              setCreateModalEditTask(task)
+              setShowCreateModal(true)
+            }
             setDetailTaskId(null)
           }}
         />
@@ -755,6 +808,137 @@ export default function TaskManagement() {
           refreshTrigger={runsModalRefreshTrigger}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * 编辑管道：整体编辑管道内所有任务的参数，保存后可选全部重新执行
+ */
+function EditPipelineModal({ pipelineId, tasks, taskTypes, onClose, onSuccess }) {
+  const toast = useToast()
+  const [taskEdits, setTaskEdits] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [restartAfterSave, setRestartAfterSave] = useState(false)
+
+  useEffect(() => {
+    const edits = {}
+    for (const t of tasks) {
+      edits[t.task_id] = {
+        task_name: t.task_name || '',
+        metadata: { ...(t.metadata || {}) },
+      }
+    }
+    setTaskEdits(edits)
+  }, [tasks])
+
+  const sortedTasks = [...tasks].sort((a, b) => {
+    const aDep = a.depends_on_task_id || ''
+    const bDep = b.depends_on_task_id || ''
+    if (!aDep && bDep) return -1
+    if (aDep && !bDep) return 1
+    return (a.created_at || '').localeCompare(b.created_at || '')
+  })
+
+  const setTaskEdit = (taskId, field, value) => {
+    setTaskEdits(prev => ({
+      ...prev,
+      [taskId]: { ...prev[taskId], [field]: value },
+    }))
+  }
+
+  const handleSave = async () => {
+    setSubmitting(true)
+    try {
+      for (const task of tasks) {
+        const edit = taskEdits[task.task_id]
+        if (!edit) continue
+        let meta = await prepareMetadataForSubmitAsync(task.task_type, edit.metadata)
+        const res = await TASK_API.patch(task.task_id, {
+          task_name: (edit.task_name || '').trim() || undefined,
+          metadata: meta,
+        })
+        if (!res.success) throw new Error(res.detail || res.message || '保存失败')
+      }
+      if (restartAfterSave) {
+        for (const task of sortedTasks) {
+          await TASK_API.restart(task.task_id)
+        }
+        toast.info('已保存并全部重新执行')
+      } else {
+        toast.info('已保存')
+      }
+      onSuccess()
+    } catch (e) {
+      toast.error(e?.message || '保存失败')
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center shrink-0 px-6 py-4 border-b border-border">
+          <h3 className="text-lg font-semibold text-white">编辑管道 #{pipelineId?.slice(0, 8)}</h3>
+          <button onClick={onClose} className="text-muted hover:text-white">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {sortedTasks.map((task, idx) => {
+            const typeInfo = taskTypes.find(t => t.type === task.task_type)
+            const schema = typeInfo?.metadata_schema || {}
+            const edit = taskEdits[task.task_id]
+            if (!edit) return null
+            const isInputFile = task.task_type === 'speech_to_text' || task.task_type === 'video_extract_audio'
+            const inputAccept = task.task_type === 'speech_to_text' ? '.mp3,.wav,.m4a,.flac,.ogg,.webm,audio/*' : '.mp4,.mkv,.avi,.mov,.webm,video/*'
+            const fileUploadFields = isInputFile ? { input_file: inputAccept } : {}
+            return (
+              <details key={task.task_id} open={idx === 0} className="rounded-lg border border-border bg-white/[0.02] overflow-hidden">
+                <summary className="px-4 py-3 cursor-pointer hover:bg-white/5 flex items-center justify-between">
+                  <span className="font-medium text-white">步骤 {idx + 1}：{task.task_type}</span>
+                  <span className="text-xs text-muted">#{task.task_id?.slice(0, 8)}</span>
+                </summary>
+                <div className="px-4 pb-4 pt-1 space-y-3">
+                  <div>
+                    <label className="block text-sm text-muted mb-1">任务名称</label>
+                    <input
+                      type="text"
+                      value={edit.task_name}
+                      onChange={e => setTaskEdit(task.task_id, 'task_name', e.target.value)}
+                      className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none"
+                      placeholder="留空自动生成"
+                    />
+                  </div>
+                  <TaskMetadataFormFields
+                    schema={schema}
+                    metadata={edit.metadata}
+                    setMetadata={m => setTaskEdit(task.task_id, 'metadata', m)}
+                    fieldIdPrefix={`pipe-edit-${task.task_id}`}
+                    isInputFileTask={isInputFile}
+                    fileUploadFields={fileUploadFields}
+                  />
+                </div>
+              </details>
+            )
+          })}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={restartAfterSave}
+              onChange={e => setRestartAfterSave(e.target.checked)}
+              className="rounded text-accent"
+            />
+            <span className="text-sm text-muted">保存后全部重新执行</span>
+          </label>
+        </div>
+        <div className="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-border">
+          <button onClick={onClose} className="px-4 py-2 border border-border rounded-lg text-muted hover:text-white">
+            取消
+          </button>
+          <button onClick={handleSave} disabled={submitting} className="px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg disabled:opacity-50">
+            {submitting ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

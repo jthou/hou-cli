@@ -298,6 +298,14 @@ class TestTaskQueueDB:
         assert types <= {"url_to_wiki", "pdf_to_wiki"}
         assert "weather_query" not in types
 
+    def test_list_tasks_includes_metadata(self, temp_db):
+        """list_tasks 返回每个任务的 metadata，供编辑管道等场景读入原有设置"""
+        task_id = temp_db.create_task("video_download", "下载", metadata={"url": "https://bilibili.com/v/123", "quality": "best"})
+        tasks = temp_db.list_tasks()
+        t = next((x for x in tasks if x["task_id"] == task_id), None)
+        assert t is not None
+        assert t.get("metadata") == {"url": "https://bilibili.com/v/123", "quality": "best"}
+
     def test_get_task_returns_full_result(self, temp_db):
         """get_task 返回的 task 包含完整 result 对象"""
         task_id = temp_db.create_task("test", "任务")

@@ -917,6 +917,7 @@ class TaskQueueDB:
                 SELECT task_id, task_type, task_name, status, priority,
                        worker_id, created_at, started_at, completed_at,
                        duration, progress, message, error, retry_count, result,
+                       metadata,
                        depends_on_task_id, input_bindings, pipeline_id, deleted_at,
                        created_by_schedule_id,
                        parent_task_id, chain_id, chain_index, chain_total, is_chain_tail
@@ -986,25 +987,27 @@ class TaskQueueDB:
                 }
                 if result_obj is not None:
                     t["result"] = result_obj
-                if len(row) > 16:
-                    t["depends_on_task_id"] = row[15]
-                    t["input_bindings"] = json.loads(row[16]) if row[16] else None
+                if len(row) > 15:
+                    t["metadata"] = json.loads(row[15]) if row[15] else {}
                 if len(row) > 17:
-                    t["pipeline_id"] = row[17]
+                    t["depends_on_task_id"] = row[16]
+                    t["input_bindings"] = json.loads(row[17]) if row[17] else None
                 if len(row) > 18:
-                    t["deleted_at"] = row[18]
+                    t["pipeline_id"] = row[18]
                 if len(row) > 19:
-                    t["created_by_schedule_id"] = row[19]
+                    t["deleted_at"] = row[19]
                 if len(row) > 20:
-                    t["parent_task_id"] = row[20]
+                    t["created_by_schedule_id"] = row[20]
                 if len(row) > 21:
-                    t["chain_id"] = row[21]
+                    t["parent_task_id"] = row[21]
                 if len(row) > 22:
-                    t["chain_index"] = row[22]
+                    t["chain_id"] = row[22]
                 if len(row) > 23:
-                    t["chain_total"] = row[23]
+                    t["chain_index"] = row[23]
                 if len(row) > 24:
-                    t["is_chain_tail"] = bool(row[24])
+                    t["chain_total"] = row[24]
+                if len(row) > 25:
+                    t["is_chain_tail"] = bool(row[25])
                 tasks.append(t)
             
             return tasks

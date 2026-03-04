@@ -304,9 +304,9 @@ export default function TaskDetailModal({
                   type="button"
                   onClick={() => onEditBeforeRestart?.(task)}
                   className="px-4 py-2 text-sm border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500/10"
-                  title="复用新建任务 UI 修改参数后重新执行"
+                  title={task.pipeline_id ? '整体编辑管道内所有任务后重新执行' : '复用新建任务 UI 修改参数后重新执行'}
                 >
-                  编辑后重新执行
+                  {task.pipeline_id ? '编辑管道' : '编辑后重新执行'}
                 </button>
                 <button
                   disabled={restarting}

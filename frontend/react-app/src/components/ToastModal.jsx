@@ -41,30 +41,30 @@ function clampPosition (x, y, cardW, cardH) {
   return { left, top }
 }
 
-function ToastModal({ type, title, message, onConfirm, position }) {
+function ToastModal({ type, title, message, onConfirm, onCancel, position }) {
   const accent = TYPE_ACCENT[type] || TYPE_ACCENT.info
   const displayTitle = title ?? TITLES[type]
+  const isConfirm = type === 'confirm'
 
   const place = (() => {
     const x = position?.x ?? (typeof window !== 'undefined' ? window.innerWidth / 2 - CARD_MAX_W / 2 : 0)
     const y = position?.y ?? (typeof window !== 'undefined' ? window.innerHeight / 2 - 100 : 0)
-    return clampPosition(x, y, CARD_MAX_W, 220)
+    return clampPosition(x, y, CARD_MAX_W, 260)
   })()
 
   const style = { left: place.left, top: place.top, maxWidth: CARD_MAX_W, minWidth: CARD_MIN_W }
 
-  // 所有提示 2 秒后自动关闭，无需点击确认
+  // 仅 info/warning/error 自动关闭；confirm 需用户点击
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onConfirm()
-    }, AUTO_CLOSE_MS)
+    if (isConfirm) return
+    const timer = setTimeout(() => onConfirm(), AUTO_CLOSE_MS)
     return () => clearTimeout(timer)
-  }, [onConfirm])
+  }, [isConfirm, onConfirm])
 
   return (
     <div className="fixed inset-0 z-[100] pointer-events-none">
       <div
-        role="status"
+        role={isConfirm ? 'alertdialog' : 'status'}
         aria-labelledby="toast-title"
         aria-describedby="toast-message"
         style={style}
@@ -77,6 +77,24 @@ function ToastModal({ type, title, message, onConfirm, position }) {
           <div className="flex-1 min-w-0">
             <h3 id="toast-title" className="text-base font-semibold text-white mb-1">{displayTitle}</h3>
             <p id="toast-message" className="text-sm text-muted whitespace-pre-wrap">{message}</p>
+            {isConfirm && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => onConfirm()}
+                  className="px-4 py-2 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
+                >
+                  确认
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCancel?.()}
+                  className="px-4 py-2 rounded-lg border border-border hover:bg-white/5 text-muted text-sm"
+                >
+                  取消
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -130,6 +148,7 @@ export function ToastProvider({ children }) {
           title={toast.title}
           message={toast.message}
           onConfirm={handleConfirm}
+          onCancel={handleCancel}
           position={toast.position}
         />
       )}

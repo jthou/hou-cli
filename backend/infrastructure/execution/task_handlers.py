@@ -47,6 +47,29 @@ def _validate_output_path_in_home(output_path: Path) -> Tuple[bool, Optional[str
     return True, None
 
 
+def _normalize_video_url(url: str) -> str:
+    """若 URL 缺少协议或格式有误，尝试补全 https://"""
+    url = (url or "").strip()
+    if not url:
+        return url
+    # 修正常见笔误：https// -> https://
+    if url.startswith("https//"):
+        url = "https://" + url[6:]
+    elif url.startswith("http//"):
+        url = "http://" + url[5:]
+    if url.startswith(("http://", "https://")):
+        return url
+    lower = url.lower()
+    video_domains = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv", "vimeo.com", "twitch.tv")
+    if any(d in lower for d in video_domains) or lower.startswith("www."):
+        return "https://" + url
+    # 兜底：形似域名（含点、无空格、非本地）则补全
+    if "." in url and " " not in url and len(url) > 6:
+        if not any(x in lower for x in ("localhost", "127.0.0.1", "192.168.", "10.")):
+            return "https://" + url
+    return url
+
+
 def _validate_video_download_url(url: str) -> Tuple[bool, Optional[str]]:
     """校验视频下载 URL：仅允许 http(s)，禁止内网/本地地址以降低 SSRF 风险。
 
@@ -56,6 +79,7 @@ def _validate_video_download_url(url: str) -> Tuple[bool, Optional[str]]:
     url = (url or "").strip()
     if not url:
         return False, "URL 不能为空"
+    url = _normalize_video_url(url)
     if not url.startswith(("http://", "https://")):
         return False, "仅支持 http 或 https 链接，请填写完整链接（如 https://...）"
     try:
@@ -795,7 +819,7 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
     metadata = task_info.get("metadata", {})
     worker = get_task_worker()
 
-    url = (metadata.get("url") or "").strip()
+    url = _normalize_video_url((metadata.get("url") or "").strip())
     if not url:
         raise ValueError("url 参数是必需的")
     ok, err = _validate_video_download_url(url)

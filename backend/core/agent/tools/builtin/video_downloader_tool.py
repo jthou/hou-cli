@@ -978,25 +978,26 @@ class VideoDownloaderTool(Tool):
                 data=result.data
             )
         else:
-            # 尝试降级
-            if preferred == 'auto':
-                fallback_downloaders = [
-                    YouGetDownloader(),
-                    YtDlpDownloader(),
-                ]
-                
-                for fallback in fallback_downloaders:
-                    if fallback.is_available() and fallback != downloader:
-                        logger.info(f"Trying fallback downloader: {fallback.__class__.__name__}")
-                        fallback_result = fallback.download(url, output_dir, **downloader_options)
-                        if fallback_result.success:
-                            return ToolResult(
-                                success=True,
-                                data=fallback_result.data
-                            )
-            
-            return ToolResult(
-                success=False,
-                error=result.error or "Download failed"
-            )
+            # 尝试降级：YouTube/Bilibili 等平台失败时，用另一工具重试（不限 preferred）
+            platform = _detect_platform(url)
+            fallback_downloaders = [
+                YouGetDownloader(),
+                YtDlpDownloader(),
+            ]
+            errors = [result.error or "Download failed"]
+            for fallback in fallback_downloaders:
+                if (
+                    fallback.is_available()
+                    and type(fallback) != type(downloader)
+                    and (preferred == "auto" or platform in ("youtube", "bilibili"))
+                ):
+                    logger.info(f"尝试备用下载器: {fallback.__class__.__name__}")
+                    if self.progress_callback:
+                        fallback.set_progress_callback(self.progress_callback)
+                    fallback_result = fallback.download(url, output_dir, **downloader_options)
+                    if fallback_result.success:
+                        return ToolResult(success=True, data=fallback_result.data)
+                    errors.append(f"{fallback.__class__.__name__}: {fallback_result.error or '未知错误'}")
+            err_msg = errors[0] if len(errors) == 1 else f"{errors[0]}\n\n已尝试备用工具仍失败: {'; '.join(errors[1:])}"
+            return ToolResult(success=False, error=err_msg)
 
