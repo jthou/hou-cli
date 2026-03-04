@@ -50,6 +50,11 @@ Thumbs.db
 node_modules/
 frontend/react-app/node_modules/
 frontend/web/dist/
+# npm link 等产生的占位符（hou-cli-web、vite 等）
+hou-cli-web@*
+vite
+# 误创建的重复目录
+frontend-react-app/
 
 # Project specific
 .backend.pid

@@ -1,8 +1,10 @@
 /**
  * Markdown 操作按钮：复制、发送到写文章、写入 MediaWiki
  * 供 MarkdownEditorPreview、ArticleWriting 等复用
+ * 写入 MediaWiki 与同步到公众号草稿均通过任务队列，可在任务管理中审计。
  */
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { mdToWiki } from '../utils/wikiMdConvert'
 import { useToast } from './ToastModal'
 
@@ -26,6 +28,7 @@ export default function MarkdownActionButtons({
   className = '',
 }) {
   const toast = useToast()
+  const navigate = useNavigate()
   const [mwDialogOpen, setMwDialogOpen] = useState(false)
   const [mwTitle, setMwTitle] = useState('')
   const [mwSummary, setMwSummary] = useState('')
@@ -87,35 +90,34 @@ export default function MarkdownActionButtons({
     }
     setMwSubmitting(true)
     try {
-      let finalWikitext = toPublish
-      if (mwMode === 'append') {
-        const getRes = await fetch(`/api/mediawiki/pages/${encodeURIComponent(title)}`)
-        const getData = await getRes.json().catch(() => ({}))
-        if (!getRes.ok || !getData.success) {
-          toast?.warning?.('页面不存在，请使用新建')
-          setMwSubmitting(false)
-          return
-        }
-        const existing = (getData.page?.content || '').trim()
-        finalWikitext = existing ? existing + '\n\n' + toPublish : toPublish
-      }
-      const res = await fetch(`/api/mediawiki/pages/${encodeURIComponent(title)}`, {
+      const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: finalWikitext, summary: (mwSummary || '').trim() || undefined }),
+        body: JSON.stringify({
+          task_type: 'mediawiki_write',
+          priority: 2,
+          max_retries: 3,
+          metadata: {
+            title,
+            content: toPublish,
+            summary: (mwSummary || '').trim() || undefined,
+            operation: mwMode === 'append' ? 'append' : 'edit',
+          },
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
-        toast?.info?.(mwMode === 'append' ? '已追加到 MediaWiki' : '已发布到 MediaWiki')
+        toast?.info?.('任务已创建，可在任务管理中查看执行状态')
         setMwDialogOpen(false)
         setMwTitle('')
         setMwSummary('')
         setMwMode('create')
+        navigate('/tasks', { state: data.task_id ? { detailTaskId: data.task_id } : {} })
       } else {
-        toast?.error?.(data.detail || data.message || '发布失败')
+        toast?.error?.(data.detail || data.message || '创建任务失败')
       }
     } catch (e) {
-      toast?.error?.(e?.message || '发布失败')
+      toast?.error?.(e?.message || '创建任务失败')
     }
     setMwSubmitting(false)
   }
@@ -161,7 +163,10 @@ export default function MarkdownActionButtons({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 flex justify-between items-center px-6 py-4 border-b border-border">
-              <h3 className="text-lg font-semibold text-white">写入 MediaWiki</h3>
+              <div>
+                <h3 className="text-lg font-semibold text-white">写入 MediaWiki</h3>
+                <p className="text-xs text-muted mt-0.5">创建任务后由任务队列执行，可在任务管理中审计</p>
+              </div>
               <button type="button" onClick={() => setMwDialogOpen(false)} className="text-muted hover:text-fg text-2xl leading-none">×</button>
             </div>
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-6">
@@ -226,7 +231,7 @@ export default function MarkdownActionButtons({
                 disabled={mwSubmitting || !mwTitle.trim()}
                 className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50"
               >
-                {mwSubmitting ? '提交中…' : mwMode === 'append' ? '追加' : '新建'}
+                {mwSubmitting ? '创建中…' : mwMode === 'append' ? '创建追加任务' : '创建任务'}
               </button>
             </div>
           </div>

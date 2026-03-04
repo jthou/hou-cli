@@ -179,7 +179,7 @@ export default function WechatDraftPage() {
       })
       const data = await res.json()
       if (data.success) {
-        toast.info('任务已创建: ' + data.task_id)
+        toast.info('任务已创建，可在任务管理中查看执行状态')
         closeForm()
         loadDrafts()
       } else {

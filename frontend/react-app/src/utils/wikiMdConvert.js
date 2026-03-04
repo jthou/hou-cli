@@ -7,6 +7,8 @@
 
 const MATH_PLACEHOLDER_PREFIX = '__WIKIMATH_'
 const MATH_PLACEHOLDER_SUFFIX = '__'
+const CODE_PLACEHOLDER_PREFIX = '__WIKICODE_'
+const CODE_PLACEHOLDER_SUFFIX = '__'
 
 // ---------- Wikitext → Markdown ----------
 
@@ -124,6 +126,31 @@ export function wikiToMd(wiki) {
 }
 
 // ---------- Markdown → Wikitext ----------
+
+/**
+ * 提取 ```lang\ncode``` 代码块，避免后续替换破坏内容；转为 <syntaxhighlight lang="..."> 占位。
+ */
+function mdExtractCodeToPlaceholders(md) {
+  const list = []
+  const re = /```([\w.+-]*)\s*\n([\s\S]*?)```\s*/g
+  const out = md.replace(re, (_, lang, code) => {
+    const key = `${CODE_PLACEHOLDER_PREFIX}${list.length}${CODE_PLACEHOLDER_SUFFIX}`
+    const langAttr = (lang || '').trim() || 'text'
+    list.push({ lang: langAttr, code: code.replace(/\n$/, '') })
+    return key
+  })
+  return { text: out, codeList: list }
+}
+
+function mdRestoreCodePlaceholders(text, codeList) {
+  let s = text
+  for (let i = 0; i < codeList.length; i++) {
+    const { lang, code } = codeList[i]
+    const tag = `<syntaxhighlight lang="${lang}">\n${code}\n</syntaxhighlight>`
+    s = s.replace(`${CODE_PLACEHOLDER_PREFIX}${i}${CODE_PLACEHOLDER_SUFFIX}`, tag)
+  }
+  return s
+}
 
 /**
  * 提取 $$...$$ 与 $...$，避免后续替换破坏公式；先匹配块级再匹配行内。
@@ -252,11 +279,13 @@ export function mdToWiki(md) {
   if (md == null || typeof md !== 'string') return ''
   let s = md.trim()
   if (!s) return ''
-  const { text: afterMath, mathList } = mdExtractMathToPlaceholders(s)
+  const { text: afterCode, codeList } = mdExtractCodeToPlaceholders(s)
+  const { text: afterMath, mathList } = mdExtractMathToPlaceholders(afterCode)
   s = mdHeadersToWiki(afterMath)
   s = mdLinksToWiki(s)
   s = mdEmphasisToWiki(s)
   s = mdListsToWiki(s)
   s = mdBlockquoteToWiki(s)
-  return mdRestoreMathPlaceholders(s, mathList)
+  s = mdRestoreMathPlaceholders(s, mathList)
+  return mdRestoreCodePlaceholders(s, codeList)
 }

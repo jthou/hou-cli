@@ -628,8 +628,9 @@ export default function ArticleWriting() {
       })
       const data = await res.json().catch(() => ({}))
       if (data.success) {
-        toast?.info?.('任务已创建，草稿将同步到公众号草稿箱')
+        toast?.info?.('任务已创建，可在任务管理中查看执行状态')
         setOutputDialog(null)
+        navigate('/tasks', { state: data.task_id ? { detailTaskId: data.task_id } : {} })
       } else {
         toast?.error?.(formatWechatMpError('创建任务失败', new Error(data.detail || data.message || '创建任务失败')))
       }
@@ -1514,7 +1515,7 @@ export default function ArticleWriting() {
             </div>
             <form onSubmit={submitWechatOutputTask} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
-                <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。请填写标题与封面。</p>
+                <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。创建任务后由任务队列执行，可在任务管理中审计。请填写标题与封面。</p>
                 <TaskParamsForm
                   taskType="wechat_mp_draft"
                   schema={wechatOutputSchemaForForm}

@@ -423,8 +423,9 @@ TASK_TYPES = {
                 "description": "操作类型",
                 "default": "edit",
                 "enum": [
-                    {"value": "edit", "label": "编辑（存在则覆盖）"},
-                    {"value": "create", "label": "创建（仅当页面不存在时）"}
+                    {"value": "edit", "label": "编辑（不存在则创建，存在则覆盖）"},
+                    {"value": "create", "label": "创建（仅当页面不存在时，存在则失败）"},
+                    {"value": "append", "label": "追加（在现有内容末尾追加，不存在则创建）"}
                 ]
             },
         }
@@ -1058,8 +1059,22 @@ async def process_mediawiki_write_task(task_info: Dict[str, Any]) -> Dict[str, A
 
     summary = (metadata.get("summary") or "").strip() or None
     operation = (metadata.get("operation") or "edit").strip().lower()
-    if operation not in ("edit", "create"):
+    if operation not in ("edit", "create", "append"):
         operation = "edit"
+
+    # append：先获取现有内容，再拼接后写入
+    if operation == "append":
+        worker.update_task_progress(2, "正在获取现有页面内容...")
+        try:
+            from backend.services.mediawiki_client_service import MediaWikiClientService
+            client = MediaWikiClientService()
+            client.connect()
+            page = client.get_page(title)
+            existing = (page.content or "").strip() if page else ""
+            content = (existing + "\n\n" + content).strip() if existing else content
+            operation = "edit"  # 用 edit 执行（不存在则创建）
+        except Exception as e:
+            return _err("MEDIAWIKI_FETCH_FAILED", "获取现有页面失败", str(e), details=traceback.format_exc())
 
     worker.update_task_progress(5, "正在写入 MediaWiki...")
 
