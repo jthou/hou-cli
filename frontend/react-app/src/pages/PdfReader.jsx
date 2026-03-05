@@ -285,7 +285,7 @@ export default function PdfReader() {
   return (
     <div className="flex flex-col h-full">
       <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">PDF 阅读</h1>
+        <h1 className="text-xl font-semibold text-white">PDF阅读</h1>
       </header>
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧：PDF 选择 + 浏览器原生 PDF 预览 + 页文字 */}

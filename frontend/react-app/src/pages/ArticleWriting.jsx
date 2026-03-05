@@ -856,7 +856,7 @@ export default function ArticleWriting() {
   return (
     <div className="flex flex-col h-full min-h-0">
       <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">写文章</h1>
+        <h1 className="text-xl font-semibold text-white">AI写作</h1>
         <p className="text-sm text-muted mt-1">
           左侧为写文章会话列表，中间对话、右侧为文章预览；会遵循写作画像。
         </p>

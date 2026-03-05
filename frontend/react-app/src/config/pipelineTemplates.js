@@ -7,11 +7,11 @@
 export const PIPELINE_TEMPLATES = [
   {
     id: 'video_extract_audio_to_speech',
-    name: '视频提音频 → 语音转文字',
-    description: '从视频提取音频，再对音频做语音转文字，第二步自动使用第一步的输出。',
+    name: '音频提取 → 字幕提取',
+    description: '从视频提取音频，再对音频做字幕提取，第二步自动使用第一步的输出。',
     steps: [
-      { task_type: 'video_extract_audio', label: '步骤 1：视频提音频' },
-      { task_type: 'speech_to_text', label: '步骤 2：语音转文字', input_from_step: 1 },
+      { task_type: 'video_extract_audio', label: '步骤 1：音频提取' },
+      { task_type: 'speech_to_text', label: '步骤 2：字幕提取', input_from_step: 1 },
     ],
     form: {
       fields: [
@@ -49,11 +49,11 @@ export const PIPELINE_TEMPLATES = [
   },
   {
     id: 'video_download_audio_to_speech',
-    name: '视频下载（仅音频）→ 语音转文字',
-    description: '从 B 站/YouTube 等链接仅下载音频，再对音频做语音转文字，第二步自动使用第一步的输出。',
+    name: '视频下载（仅音频）→ 字幕提取',
+    description: '从 B 站/YouTube 等链接仅下载音频，再对音频做字幕提取，第二步自动使用第一步的输出。',
     steps: [
       { task_type: 'video_download', label: '步骤 1：视频下载（仅音频）' },
-      { task_type: 'speech_to_text', label: '步骤 2：语音转文字', input_from_step: 1 },
+      { task_type: 'speech_to_text', label: '步骤 2：字幕提取', input_from_step: 1 },
     ],
     form: {
       fields: [
@@ -95,11 +95,11 @@ export const PIPELINE_TEMPLATES = [
   {
     id: 'video_download_to_extract_to_speech_to_wiki',
     name: '视频下载 → 提取音频 → 转字幕 → 写入 MediaWiki',
-    description: '完整链路：下载视频 → 提取音频轨 → 语音转文字（字幕）→ 将字幕内容写入 MediaWiki 页面。',
+    description: '完整链路：下载视频 → 提取音频轨 → 字幕提取 → 将字幕内容写入 MediaWiki 页面。',
     steps: [
       { task_type: 'video_download', label: '步骤 1：视频下载' },
-      { task_type: 'video_extract_audio', label: '步骤 2：视频提取音频', input_from_step: 1 },
-      { task_type: 'speech_to_text', label: '步骤 3：语音转文字（字幕）', input_from_step: 2 },
+      { task_type: 'video_extract_audio', label: '步骤 2：音频提取', input_from_step: 1 },
+      { task_type: 'speech_to_text', label: '步骤 3：字幕提取', input_from_step: 2 },
       { task_type: 'mediawiki_write', label: '步骤 4：文字写入 MediaWiki', input_from_step: 3 },
     ],
     form: {
@@ -169,10 +169,10 @@ export const PIPELINE_TEMPLATES = [
   {
     id: 'video_download_audio_to_speech_to_wiki',
     name: '视频下载（仅音频）→ 转字幕 → 写入 MediaWiki',
-    description: '从链接仅下载音频 → 语音转文字（字幕）→ 将字幕内容写入 MediaWiki 页面。',
+    description: '从链接仅下载音频 → 字幕提取 → 将字幕内容写入 MediaWiki 页面。',
     steps: [
       { task_type: 'video_download', label: '步骤 1：视频下载（仅音频）' },
-      { task_type: 'speech_to_text', label: '步骤 2：语音转文字（字幕）', input_from_step: 1 },
+      { task_type: 'speech_to_text', label: '步骤 2：字幕提取', input_from_step: 1 },
       { task_type: 'mediawiki_write', label: '步骤 3：文字写入 MediaWiki', input_from_step: 2 },
     ],
     form: {

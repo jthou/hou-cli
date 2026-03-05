@@ -138,7 +138,7 @@ export default function SettingsLlmAudit() {
   return (
     <div className="flex flex-col h-full">
       <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">LLM 对话审计</h1>
+        <h1 className="text-xl font-semibold text-white">LLM 审计</h1>
         <p className="text-muted text-sm mt-1">所有 LLM 调用的输入与输出，按时间倒序。</p>
       </header>
 

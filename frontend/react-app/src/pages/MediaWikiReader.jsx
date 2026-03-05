@@ -47,7 +47,7 @@ export default function MediaWikiReader() {
     <div className="flex flex-col h-full">
       <header className="shrink-0 px-6 py-4 border-b border-border flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-white">MediaWiki 阅读</h1>
+          <h1 className="text-xl font-semibold text-white">Wiki阅读</h1>
           <p className="mt-1 text-sm text-muted">
             按多个关键词从 MediaWiki 中抓取现有页面，用于阅读和修改。
             适合基于已有知识库做查阅，不会抓取外部网页。

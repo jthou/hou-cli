@@ -353,7 +353,7 @@ export default function TaskManagement() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">任务管理</h1>
+        <h1 className="text-xl font-semibold text-white">任务中心</h1>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto w-full">
@@ -427,7 +427,7 @@ export default function TaskManagement() {
                 <button
                   onClick={() => setShowPipelineModal(true)}
                   className="px-3 py-2 text-muted hover:text-white text-sm"
-                  title="快捷：视频提音频 → 语音转文字"
+                  title="快捷：音频提取 → 字幕提取"
                 >
                   快捷模板
                 </button>
@@ -1109,7 +1109,7 @@ function CreatePipelineModal({ api, onClose, onSuccess }) {
   )
 }
 
-/** 管道模板：一键创建「视频提音频 → 语音转文字」两个任务，第二个依赖第一个的 result.data.output_file */
+/** 管道模板：一键创建「音频提取 → 字幕提取」两个任务，第二个依赖第一个的 result.data.output_file */
 function PipelineTemplateModal({ onClose, onSuccess }) {
   const toast = useToast()
   const [inputFile, setInputFile] = useState('')
@@ -1166,7 +1166,7 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
         input_bindings: { input_file: 'result.data.output_file' },
       })
       if (!res2.success) throw new Error(res2.detail || res2.message || '创建第二步任务失败')
-      toast.info(`管道已创建：\n1. 视频提音频 ${task1Id?.slice(0, 8)}\n2. 语音转文字（依赖上一步） ${res2.task_id?.slice(0, 8)}`)
+      toast.info(`管道已创建：\n1. 音频提取 ${task1Id?.slice(0, 8)}\n2. 字幕提取（依赖上一步） ${res2.task_id?.slice(0, 8)}`)
       onSuccess()
       onClose()
     } catch (err) {
@@ -1179,7 +1179,7 @@ function PipelineTemplateModal({ onClose, onSuccess }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div className="bg-surface border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-white">管道：视频提音频 → 语音转文字</h3>
+          <h3 className="text-lg font-semibold text-white">管道：音频提取 → 字幕提取</h3>
           <button onClick={onClose} className="text-2xl text-muted hover:text-white">&times;</button>
         </div>
         <p className="text-sm text-muted mb-4">将依次创建两个任务，第二步自动使用第一步的输出音频作为输入。</p>

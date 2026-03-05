@@ -278,7 +278,7 @@ TASK_TYPES = {
         }
     },
     "speech_to_text": {
-        "name": "语音转文字",
+        "name": "字幕提取",
         "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
         "pipeline_outputs": [
             {"path": "result.data.output_file", "type": "file", "format": "text", "description": "输出字幕/文本文件路径"}
@@ -337,7 +337,7 @@ TASK_TYPES = {
         }
     },
     "video_extract_audio": {
-        "name": "视频提取音频",
+        "name": "音频提取",
         "description": "从本地视频文件中提取音频轨并保存为音频文件",
         "pipeline_outputs": [
             {"path": "result.data.output_file", "type": "file", "format": "audio", "description": "输出音频文件路径"}

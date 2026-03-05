@@ -77,12 +77,12 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
     if task_type == "speech_to_text":
         inp = meta.get("input_file", "")
         short = (Path(inp).name[:30] + "..." if len(Path(inp).name) > 30 else Path(inp).name) if inp else "语音"
-        return f"语音转文字 {short} {ts}"
+        return f"字幕提取 {short} {ts}"
 
     if task_type == "video_extract_audio":
         inp = meta.get("input_file", "")
         short = (Path(inp).name[:30] + "..." if len(Path(inp).name) > 30 else Path(inp).name) if inp else "视频"
-        return f"视频提音频 {short} {ts}"
+        return f"音频提取 {short} {ts}"
 
     if task_type == "mediawiki_write":
         t = meta.get("title", "")
@@ -113,8 +113,8 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         "weather_query": "天气查询",
         "web_search": "网页搜索",
         "video_download": "视频下载",
-        "speech_to_text": "语音转文字",
-        "video_extract_audio": "视频提取音频",
+"speech_to_text": "字幕提取",
+    "video_extract_audio": "音频提取",
         "mediawiki_write": "MediaWiki 写入",
         "url_to_wiki": "网文抓取",
         "pdf_to_wiki": "PDF 转 Wiki",
@@ -909,7 +909,7 @@ async def create_scheduled_task(request: ScheduledTaskCreateRequest):
 
         task_name = (request.task_name or "").strip()
         if not task_name:
-            type_names = {"weather_query": "天气查询", "web_search": "网页搜索", "video_download": "视频下载", "speech_to_text": "语音转文字", "video_extract_audio": "视频提取音频", "mediawiki_write": "MediaWiki 写入", "url_to_wiki": "网文抓取", "pdf_to_wiki": "PDF 转 Wiki", "wiki_directory_refresh": "Wiki 目录页刷新", "wechat_mp_draft": "公众号草稿"}
+            type_names = {"weather_query": "天气查询", "web_search": "网页搜索", "video_download": "视频下载", "speech_to_text": "字幕提取", "video_extract_audio": "音频提取", "mediawiki_write": "MediaWiki 写入", "url_to_wiki": "网文抓取", "pdf_to_wiki": "PDF转Wiki", "wiki_directory_refresh": "Wiki目录", "wechat_mp_draft": "公众号草稿"}
             task_name = f"{type_names.get(request.task_type, request.task_type)}_定时"
 
         schedule_id = task_queue_db.create_scheduled_task(

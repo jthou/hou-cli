@@ -231,12 +231,12 @@ class TestTaskQueueRoutes:
         assert "speech_to_text" in type_keys
         assert "video_extract_audio" in type_keys
         st = next(t for t in types_list if t.get("type") == "speech_to_text")
-        assert st.get("name") == "语音转文字"
+        assert st.get("name") == "字幕提取"
         schema = st.get("metadata_schema") or {}
         assert schema.get("input_file", {}).get("required") is True
         assert "model" in schema and "output_format" in schema
         vea = next(t for t in types_list if t.get("type") == "video_extract_audio")
-        assert vea.get("name") == "视频提取音频"
+        assert vea.get("name") == "音频提取"
         assert vea.get("metadata_schema", {}).get("input_file", {}).get("required") is True
 
     def test_linkable_upstreams_speech_to_text(self, client):

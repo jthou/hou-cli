@@ -2,42 +2,49 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import BackendStatus from './BackendStatus'
 
-// 分组：内容创作、常用工具、管道编排、设置
+// 分组：任务、创作、阅读、抓取、媒体、文档、协作、管道、工具、设置、开发
 const navItems = [
-  { path: '/tasks', icon: '📋', label: '任务管理', group: 'content' },
-  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'content' },
-  { path: '/article-writing', icon: '✍️', label: '写文章', group: 'content' },
-  { path: '/mediawiki-reader', icon: '📖', label: 'MediaWiki 阅读', group: 'content' },
-  { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'content' },
-  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'tools' },
-  { path: '/video-extract-audio', icon: '🎧', label: '视频提取音频', group: 'tools' },
-  { path: '/speech-to-text', icon: '🎤', label: '语音转文字', group: 'tools' },
-  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'tools' },
-  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF 转 Wiki', group: 'tools' },
-  { path: '/pdf-reader', icon: '📘', label: 'PDF 阅读', group: 'tools' },
-  { path: '/wiki-directory', icon: '📚', label: 'Wiki 目录刷新', group: 'tools' },
-  { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
-  { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'tools' },
-  { path: '/settings/kanban', icon: '🗂️', label: '看板管理', group: 'settings' },
+  { path: '/tasks', icon: '📋', label: '任务中心', group: 'tasks' },
+  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'create' },
+  { path: '/article-writing', icon: '✍️', label: 'AI写作', group: 'create' },
+  { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },
+  { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'read' },
+  { path: '/pdf-reader', icon: '📘', label: 'PDF阅读', group: 'read' },
+  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'scrape' },
+  { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'scrape' },
+  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'media' },
+  { path: '/video-extract-audio', icon: '🎧', label: '音频提取', group: 'media' },
+  { path: '/speech-to-text', icon: '🎤', label: '字幕提取', group: 'media' },
+  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF转Wiki', group: 'docs' },
+  { path: '/wiki-directory', icon: '📚', label: 'Wiki目录', group: 'docs' },
+  { path: '/settings/kanban', icon: '🗂️', label: 'Wiki看板', group: 'wiki' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'pipeline' },
+  { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
-  { path: '/settings/llm-audit', icon: '📜', label: 'LLM 对话审计', group: 'settings' },
-  { path: '/settings/system-prompt-audit', icon: '📋', label: '系统提示词审计', group: 'settings' },
-  { path: '/settings/model-config-audit', icon: '🤖', label: '模型配置审计', group: 'settings' },
-  { path: '/settings/tests', icon: '🧪', label: '测试审计', group: 'settings' },
-  { path: '/settings/backend', icon: '🖥️', label: '后端服务', group: 'settings' },
-  { path: '/about', icon: 'ℹ️', label: '关于', group: 'settings' },
+  { path: '/settings/llm-audit', icon: '📜', label: 'LLM审计', group: 'settings' },
+  { path: '/settings/system-prompt-audit', icon: '📋', label: '提示词审计', group: 'settings' },
+  { path: '/settings/model-config-audit', icon: '🤖', label: '模型审计', group: 'settings' },
+  { path: '/about', icon: 'ℹ️', label: '关于系统', group: 'settings' },
+  { path: '/settings/tests', icon: '🧪', label: '测试占位', group: 'dev' },
+  { path: '/settings/backend', icon: '🖥️', label: '后端占位', group: 'dev' },
 ]
 
 const GROUP_META = {
-  content: { label: '内容创作', icon: '✏️', defaultOpen: true },
-  tools: { label: '常用工具', icon: '🔧', defaultOpen: true },
-  pipeline: { label: '管道编排', icon: '🔀', defaultOpen: true },
+  tasks: { label: '任务', icon: '📋', defaultOpen: true },
+  create: { label: '创作', icon: '✏️', defaultOpen: true },
+  read: { label: '阅读', icon: '📖', defaultOpen: true },
+  scrape: { label: '抓取', icon: '🔍', defaultOpen: true },
+  media: { label: '媒体', icon: '🎬', defaultOpen: true },
+  docs: { label: '文档', icon: '📄', defaultOpen: true },
+  wiki: { label: '协作', icon: '🗂️', defaultOpen: false },
+  pipeline: { label: '管道', icon: '🔀', defaultOpen: true },
+  tools: { label: '工具', icon: '🔧', defaultOpen: false },
   settings: { label: '设置', icon: '⚙️', defaultOpen: true },
+  dev: { label: '开发', icon: '🧪', defaultOpen: false },
 }
 
-const GROUP_ORDER = ['content', 'tools', 'pipeline', 'settings']
+const GROUP_ORDER = ['tasks', 'create', 'read', 'scrape', 'media', 'docs', 'wiki', 'pipeline', 'tools', 'settings', 'dev']
 
 export default function Sidebar({ open, onToggle }) {
   const [expanded, setExpanded] = useState(() =>

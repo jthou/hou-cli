@@ -1,6 +1,6 @@
 /**
  * 按任务类型展示的任务列表面板：进行中 / 排队 / 已完成，复用 TaskCard。
- * 用于视频下载、视频提取音频等页右侧。
+ * 用于视频下载、音频提取等页右侧。
  */
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
