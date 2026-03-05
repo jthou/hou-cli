@@ -31,6 +31,32 @@ window.addEventListener('message', (event) => {
     window.postMessage({ type: 'HOU_CLI_PONG' }, '*')
     return
   }
+  if (event.data?.type === 'HOU_CLI_EXPORT_COOKIES') {
+    const { domain, requestId } = event.data
+    const rid = requestId || 'cookies-' + Date.now()
+    const forward = (res) => {
+      window.postMessage(
+        { type: 'HOU_CLI_EXPORT_COOKIES_RESULT', requestId: rid, success: res.success, content: res.content, error: res.error },
+        '*'
+      )
+    }
+    const p = ensurePort()
+    if (p) {
+      const onResult = (msg) => {
+        if (msg.type !== 'HOU_CLI_EXPORT_COOKIES_RESULT' || msg.requestId !== rid) return
+        p.onMessage.removeListener(onResult)
+        forward(msg)
+      }
+      p.onMessage.addListener(onResult)
+      p.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES', domain: domain || 'youtube.com', requestId: rid })
+    } else {
+      chrome.runtime.sendMessage(
+        { action: 'export_cookies', domain: domain || 'youtube.com', requestId: rid },
+        (r) => { forward(r || { success: false, error: '扩展无响应' }) }
+      )
+    }
+    return
+  }
   if (event.data?.type !== 'HOU_CLI_FETCH' || !event.data?.url) return
   const { url, requestId, apiBase } = event.data
 

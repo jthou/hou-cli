@@ -134,6 +134,35 @@ export function mdToHtmlForWechat(md) {
 
 const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
 
+turndownService.addRule('table', {
+  filter: 'table',
+  replacement: (_content, node) => {
+    const rows = Array.from(node.querySelectorAll('tr'))
+    if (rows.length === 0) return ''
+    const getCells = (tr) => {
+      const cells = []
+      for (const cell of tr.querySelectorAll('th, td')) {
+        const raw = (cell.textContent || '').trim().replace(/\n/g, ' ')
+        const text = raw.replace(/\|/g, '\\|') || ' '
+        cells.push(text)
+      }
+      return cells
+    }
+    const mdRows = rows.map((tr) => getCells(tr))
+    const colCount = Math.max(...mdRows.map((r) => r.length))
+    const pad = (arr) => {
+      const a = [...arr]
+      while (a.length < colCount) a.push(' ')
+      return a.slice(0, colCount)
+    }
+    const sep = Array(colCount)
+      .fill('---')
+      .join(' | ')
+    const lines = mdRows.map((r) => '| ' + pad(r).join(' | ') + ' |')
+    return '\n' + lines[0] + '\n| ' + sep + ' |\n' + lines.slice(1).join('\n') + '\n'
+  },
+})
+
 /**
  * HTML → Markdown，用于编辑已有草稿时把接口返回的正文 HTML 转成 Markdown 再放入编辑器。
  * @param {string} html - HTML 字符串（如公众号草稿 content）

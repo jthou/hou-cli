@@ -135,6 +135,59 @@ def _extract_cookies_from_browser(browser: str, domain: str = 'bilibili.com') ->
         return None
 
 
+def _pick_format_from_available(formats: List[Dict[str, Any]], quality: str) -> Optional[str]:
+    """从可用格式列表中按质量偏好选择 format 选择器。返回 None 时由 yt-dlp 默认选择。"""
+    if not formats:
+        return None
+    max_height = None
+    if quality in ('1080p', '720p', '480p', '360p', '240p'):
+        max_height = {'1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240}.get(quality)
+    # 分离视频轨和音频轨
+    videos = [f for f in formats if f.get('vcodec') and f.get('vcodec') != 'none']
+    audios = [f for f in formats if f.get('acodec') and f.get('acodec') != 'none']
+    if max_height:
+        videos = [f for f in videos if (f.get('height') or 0) <= max_height]
+    if not videos and not audios:
+        return None
+    # 按分辨率/码率排序，取最佳
+    def vid_key(f):
+        return (f.get('height') or 0, f.get('tbr') or 0)
+    def aud_key(f):
+        return (f.get('abr') or 0, f.get('tbr') or 0)
+    videos.sort(key=vid_key, reverse=True)
+    audios.sort(key=aud_key, reverse=True)
+    best_v = videos[0] if videos else None
+    best_a = audios[0] if audios else None
+    if best_v and best_a and best_v.get('format_id') != best_a.get('format_id'):
+        return f"{best_v['format_id']}+{best_a['format_id']}"
+    if best_v:
+        return best_v['format_id']
+    if best_a:
+        return best_a['format_id']
+    return None
+
+
+def _log_ytdlp_equiv_cmd(ydl_opts: Dict[str, Any], url: str) -> None:
+    """输出等效 yt-dlp CLI 命令，便于在终端复现对比"""
+    equiv_parts = ["yt-dlp"]
+    if ydl_opts.get('outtmpl'):
+        equiv_parts.append(f"-o {repr(ydl_opts['outtmpl'])}")
+    if ydl_opts.get('format'):
+        equiv_parts.append(f"-f {repr(ydl_opts['format'])}")
+    if ydl_opts.get('format_sort'):
+        sort_str = ",".join(ydl_opts['format_sort'])
+        equiv_parts.append(f"-S {repr(sort_str)}")
+    if ydl_opts.get('cookiefile'):
+        equiv_parts.append(f"--cookies {repr(ydl_opts['cookiefile'])}")
+    if ydl_opts.get('extractor_args', {}).get('youtube'):
+        yt = ydl_opts['extractor_args']['youtube']
+        if yt.get('player_client'):
+            pc = ",".join(yt['player_client']) if isinstance(yt['player_client'], (list, tuple)) else yt['player_client']
+            equiv_parts.append(f"--extractor-args {repr('youtube:player_client=' + pc)}")
+    equiv_parts.append(repr(url))
+    logger.info("等效 CLI 命令（可复制到终端对比）: %s", " ".join(equiv_parts))
+
+
 # ============================================================================
 # 适配器基类
 # ============================================================================
@@ -239,7 +292,7 @@ class YouGetDownloader(DownloaderAdapter):
             if options.get('format'):
                 cmd.extend(['-f', str(options['format'])])
             cmd.append(url)
-            
+            logger.info("you-get 执行命令: %s", " ".join(cmd))
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -369,29 +422,55 @@ class YtDlpDownloader(DownloaderAdapter):
             ffmpeg_bin_dir = _get_ffmpeg_bin_dir()
             use_local_ffmpeg = ffmpeg_bin_dir.exists()
             
+            # 统一命名：视频 {title}.ext，音频 {title}_audio.ext，字幕 {title}_subtitle.{lang}.ext
+            if options.get('extract_audio_only'):
+                outtmpl = str(output_dir / '%(title)s_audio.%(ext)s')
+            elif options.get('download_subtitle_only'):
+                outtmpl = str(output_dir / '%(title)s_subtitle.%(lang)s.%(ext)s')
+            else:
+                outtmpl = str(output_dir / '%(title)s.%(ext)s')
             ydl_opts: Dict[str, Any] = {
-                'outtmpl': str(output_dir / '%(title)s.%(ext)s'),
+                'outtmpl': outtmpl,
             }
             
             # 处理 cookies（从浏览器提取的临时文件用后需清理）
+            # 日志显示：YouTube 上 cookies + default 客户端易触发 PO Token/403；无 cookies + default,tv 可成功。
+            # 对 YouTube 先尝试无 cookies，失败后再用 cookies 重试。
             cookies_file = options.get('cookies_file')
             cookies_from_browser = options.get('cookies_from_browser')
+            is_youtube = 'youtube.com' in url.lower() or 'youtu.be' in url.lower()
+            deferred_cookies_path: Optional[str] = None  # YouTube 时延后使用
             
             if cookies_file:
-                # 从文件加载 cookies
                 cookies_path = _load_cookies_from_file(cookies_file)
                 if cookies_path:
-                    ydl_opts['cookiefile'] = cookies_path
-                    logger.info(f"使用 cookies 文件: {cookies_path}")
+                    if is_youtube:
+                        deferred_cookies_path = cookies_path
+                        logger.info(f"YouTube：先尝试无 cookies，备选 cookies 文件: {cookies_path}")
+                    else:
+                        ydl_opts['cookiefile'] = cookies_path
+                        logger.info(f"使用 cookies 文件: {cookies_path}")
             elif cookies_from_browser:
-                # 从浏览器提取 cookies（临时文件，用后清理）
                 domain = 'bilibili.com' if 'bilibili.com' in url.lower() or 'b23.tv' in url.lower() else None
                 cookies_path = _extract_cookies_from_browser(cookies_from_browser, domain or '')
                 if cookies_path:
-                    ydl_opts['cookiefile'] = cookies_path
-                    cookie_files_to_cleanup.append(cookies_path)
-                    logger.info(f"从 {cookies_from_browser} 提取 cookies: {cookies_path}")
+                    if is_youtube:
+                        deferred_cookies_path = cookies_path
+                        cookie_files_to_cleanup.append(cookies_path)
+                        logger.info(f"YouTube：先尝试无 cookies，备选从 {cookies_from_browser} 提取: {cookies_path}")
+                    else:
+                        ydl_opts['cookiefile'] = cookies_path
+                        cookie_files_to_cleanup.append(cookies_path)
+                        logger.info(f"从 {cookies_from_browser} 提取 cookies: {cookies_path}")
             
+            # 对于 YouTube，尝试无需 PO Token 的客户端（参考 yt-dlp PO Token Guide）
+            if 'youtube.com' in url.lower() or 'youtu.be' in url.lower():
+                existing = ydl_opts.get('extractor_args') or {}
+                yt_args = dict(existing.get('youtube', {}))
+                # tv 客户端当前不需要 PO Token，作为 default 的备选
+                if 'player_client' not in yt_args:
+                    yt_args['player_client'] = ['default', 'tv']
+                ydl_opts['extractor_args'] = {**existing, 'youtube': yt_args}
             # 对于哔哩哔哩，添加必要的 headers 以避免 412 错误
             if 'bilibili.com' in url.lower() or 'b23.tv' in url.lower():
                 # 使用更真实的浏览器 headers（模拟 Chrome 浏览器）
@@ -412,7 +491,9 @@ class YtDlpDownloader(DownloaderAdapter):
                     'DNT': '1',
                 }
                 # 添加额外的 yt-dlp 选项来绕过反爬虫
+                existing = ydl_opts.get('extractor_args') or {}
                 ydl_opts['extractor_args'] = {
+                    **existing,
                     'bilibili': {
                         'username': None,  # 如果需要登录，可以在这里设置
                         'password': None,
@@ -488,9 +569,15 @@ class YtDlpDownloader(DownloaderAdapter):
                     'preferredquality': options.get('audio_quality', '192'),
                 }]
             else:
-                # 正常下载视频
-                if options.get('quality'):
-                    ydl_opts['format'] = self._convert_quality_to_yt_dlp_format(options['quality'])
+                # 正常下载视频。对 YouTube 等：先获取格式列表，再按质量从可用格式中选择，避免 "Requested format is not available"
+                quality = options.get('quality', 'auto')
+                if quality and quality not in ('auto', 'best'):
+                    sort_spec = self._quality_to_format_sort(quality)
+                    if sort_spec:
+                        ydl_opts['format_sort'] = sort_spec
+                        ydl_opts['format_sort_force'] = True
+                    else:
+                        ydl_opts['format'] = self._convert_quality_to_yt_dlp_format(quality)
                 if options.get('download_subtitle'):
                     ydl_opts['writesubtitles'] = True  # type: ignore
                     if options.get('subtitle_languages'):
@@ -503,10 +590,15 @@ class YtDlpDownloader(DownloaderAdapter):
                 os.environ['PATH'] = str(ffmpeg_bin_dir) + os.pathsep + old_path
             
             try:
-                logger.info(f"开始使用 yt-dlp 下载: {url}")
-                # 记录配置信息（不包含敏感信息）
+                has_cookies = bool(ydl_opts.get('cookiefile'))
+                fmt_str = ydl_opts.get('format') or (f"format_sort={ydl_opts.get('format_sort')}" if ydl_opts.get('format_sort') else "(未设置，yt-dlp 默认)")
+                logger.info(
+                    "yt-dlp 开始下载: url=%s format=%s cookies=%s outtmpl=%s",
+                    url, fmt_str, "是" if has_cookies else "否", ydl_opts.get('outtmpl', ''),
+                )
+                _log_ytdlp_equiv_cmd(ydl_opts, url)
                 debug_opts = {k: v for k, v in ydl_opts.items() if k not in ['cookiefile']}
-                logger.debug(f"yt-dlp 配置: {json.dumps(debug_opts, indent=2, ensure_ascii=False, default=str)}")
+                logger.debug(f"yt-dlp 完整配置: {json.dumps(debug_opts, indent=2, ensure_ascii=False, default=str)}")
                 
                 # 添加进度钩子（如果设置了进度回调）
                 progress_callback = self.progress_callback
@@ -539,6 +631,25 @@ class YtDlpDownloader(DownloaderAdapter):
                                 progress_callback(message)
                     
                     ydl_opts['progress_hooks'] = [progress_hook]  # type: ignore
+                
+                # 先获取格式列表，再从可用格式中选择（避免 Requested format is not available）
+                quality = options.get('quality', 'auto')
+                if (
+                    not options.get('extract_audio_only')
+                    and not options.get('download_subtitle_only')
+                    and ('youtube.com' in url.lower() or 'youtu.be' in url.lower())
+                ):
+                    try:
+                        opts_no_dl = {k: v for k, v in ydl_opts.items() if k not in ('progress_hooks',)}
+                        with yt_dlp.YoutubeDL(opts_no_dl) as ydl:
+                            info_pre = ydl.extract_info(url, download=False)
+                        formats = (info_pre or {}).get('formats') or []
+                        chosen = _pick_format_from_available(formats, quality)
+                        if chosen:
+                            ydl_opts['format'] = chosen
+                            logger.info(f"从 {len(formats)} 个可用格式中选取: {chosen}")
+                    except Exception as e:
+                        logger.debug(f"预取格式列表失败，使用默认选择: {e}")
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
@@ -694,6 +805,192 @@ class YtDlpDownloader(DownloaderAdapter):
                         f"原始错误: {error_msg}"
                     )
                     return DownloadResult(success=False, error=detailed_error)
+                elif 'Requested format is not available' in error_msg:
+                    # 格式不可用时重试：优先去掉 format/format_sort（让 yt-dlp 自动合并最佳音视频），
+                    # 因为 format=best 对仅 HLS 分离流的视频会失败（无预合并格式）。
+                    # 若曾指定格式则先去掉，再尝试 bv*+ba/b（显式合并）。
+                    fmt = ydl_opts.get('format')
+                    fmt_sort = ydl_opts.get('format_sort')
+                    retry_opts = ydl_opts.copy()
+                    if fmt:
+                        logger.warning(f"请求的格式不可用，去掉 format 让 yt-dlp 用默认重试: {fmt}")
+                        retry_opts.pop('format', None)
+                    elif fmt_sort:
+                        logger.warning(f"format_sort 不可用，去掉后重试: {fmt_sort}")
+                        retry_opts.pop('format_sort', None)
+                        retry_opts.pop('format_sort_force', None)
+                    else:
+                        logger.warning("默认格式仍失败，尝试 bv*+ba/b 显式合并重试")
+                        retry_opts['format'] = 'bv*+ba/b'
+                    _log_ytdlp_equiv_cmd(retry_opts, url)
+                    try:
+                        with yt_dlp.YoutubeDL(retry_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                            result_data = {
+                                'tool': 'yt-dlp',
+                                'output_dir': str(output_dir),
+                                'title': info.get('title', ''),
+                                'duration': info.get('duration'),
+                                'uploader': info.get('uploader', ''),
+                                'upload_date': info.get('upload_date', ''),
+                                'view_count': info.get('view_count'),
+                                'description': info.get('description', '')[:200] if info.get('description') else '',
+                            }
+                            if info:
+                                try:
+                                    out_path = ydl.prepare_filename(info)
+                                    if out_path and not Path(out_path).is_absolute():
+                                        out_path = str((output_dir / out_path).resolve())
+                                    result_data['output_file'] = out_path
+                                except Exception:
+                                    pass
+                            logger.info("格式重试下载成功")
+                            return DownloadResult(success=True, data=result_data)
+                    except Exception as retry_err:
+                        retry_err_str = str(retry_err)
+                        logger.warning(f"格式重试仍失败: {retry_err}")
+                        is_youtube = 'youtube.com' in url.lower() or 'youtu.be' in url.lower()
+                        has_cookies_already = bool(ydl_opts.get('cookiefile'))
+                        cookies_retry_tried = False
+                        # 日志显示：cookies + default 客户端可能触发需 PO Token 的 web 路径而失败；
+                        # 命令行无 cookies + player_client=tv 可成功。先尝试去掉 cookies、仅用 tv 客户端。
+                        if is_youtube and has_cookies_already:
+                            logger.info("YouTube 有 cookies 仍失败，尝试去掉 cookies、仅用 tv 客户端重试（tv 不需 PO Token）...")
+                            no_cookie_opts = ydl_opts.copy()
+                            no_cookie_opts.pop('cookiefile', None)
+                            no_cookie_opts['extractor_args'] = {
+                                **(no_cookie_opts.get('extractor_args') or {}),
+                                'youtube': {'player_client': ['tv']},
+                            }
+                            no_cookie_opts.pop('format', None)
+                            no_cookie_opts.pop('format_sort', None)
+                            no_cookie_opts.pop('format_sort_force', None)
+                            _log_ytdlp_equiv_cmd(no_cookie_opts, url)
+                            try:
+                                with yt_dlp.YoutubeDL(no_cookie_opts) as ydl:
+                                    info = ydl.extract_info(url, download=True)
+                                    result_data = {
+                                        'tool': 'yt-dlp',
+                                        'output_dir': str(output_dir),
+                                        'title': info.get('title', ''),
+                                        'duration': info.get('duration'),
+                                        'uploader': info.get('uploader', ''),
+                                        'upload_date': info.get('upload_date', ''),
+                                        'view_count': info.get('view_count'),
+                                        'description': info.get('description', '')[:200] if info.get('description') else '',
+                                        'cookies_skipped_for_tv_client': True,
+                                    }
+                                    if info:
+                                        try:
+                                            out_path = ydl.prepare_filename(info)
+                                            if out_path and not Path(out_path).is_absolute():
+                                                out_path = str((output_dir / out_path).resolve())
+                                            result_data['output_file'] = out_path
+                                        except Exception:
+                                            pass
+                                    logger.info("去掉 cookies、仅用 tv 客户端重试下载成功")
+                                    return DownloadResult(success=True, data=result_data)
+                            except Exception as no_cookie_err:
+                                logger.warning(f"去掉 cookies 重试仍失败: {no_cookie_err}")
+                        # 若有延后的 cookies（YouTube 首次未用），先尝试加上 cookies 重试
+                        if is_youtube and deferred_cookies_path and not has_cookies_already:
+                            logger.info("YouTube 无 cookies 仍失败，尝试使用延后的 cookies 重试...")
+                            with_cookie_opts = ydl_opts.copy()
+                            with_cookie_opts['cookiefile'] = deferred_cookies_path
+                            with_cookie_opts.pop('format', None)
+                            with_cookie_opts.pop('format_sort', None)
+                            with_cookie_opts.pop('format_sort_force', None)
+                            _log_ytdlp_equiv_cmd(with_cookie_opts, url)
+                            try:
+                                with yt_dlp.YoutubeDL(with_cookie_opts) as ydl:
+                                    info = ydl.extract_info(url, download=True)
+                                    result_data = {
+                                        'tool': 'yt-dlp',
+                                        'output_dir': str(output_dir),
+                                        'title': info.get('title', ''),
+                                        'duration': info.get('duration'),
+                                        'uploader': info.get('uploader', ''),
+                                        'upload_date': info.get('upload_date', ''),
+                                        'view_count': info.get('view_count'),
+                                        'description': info.get('description', '')[:200] if info.get('description') else '',
+                                    }
+                                    if info:
+                                        try:
+                                            out_path = ydl.prepare_filename(info)
+                                            if out_path and not Path(out_path).is_absolute():
+                                                out_path = str((output_dir / out_path).resolve())
+                                            result_data['output_file'] = out_path
+                                        except Exception:
+                                            pass
+                                    logger.info("使用延后 cookies 重试下载成功")
+                                    return DownloadResult(success=True, data=result_data)
+                            except Exception as with_cookie_err:
+                                logger.warning(f"使用延后 cookies 重试仍失败: {with_cookie_err}")
+                        if is_youtube and not has_cookies_already and not deferred_cookies_path:
+                            logger.info("YouTube Requested format 错误，尝试自动从浏览器提取 cookies 重试（需 browser-cookie3，且浏览器已登录 YouTube）...")
+                            for browser in ['chrome', 'firefox', 'safari', 'edge']:
+                                try:
+                                    cookies_path = _extract_cookies_from_browser(browser, 'youtube.com')
+                                    if cookies_path:
+                                        cookies_retry_tried = True
+                                        logger.info(f"从 {browser} 提取到 YouTube cookies，重试下载...")
+                                        cookie_files_to_cleanup.append(cookies_path)
+                                        retry_opts = ydl_opts.copy()
+                                        retry_opts['cookiefile'] = cookies_path
+                                        retry_opts.pop('format', None)
+                                        _log_ytdlp_equiv_cmd(retry_opts, url)
+                                        try:
+                                            with yt_dlp.YoutubeDL(retry_opts) as ydl:
+                                                info = ydl.extract_info(url, download=True)
+                                                result_data = {
+                                                    'tool': 'yt-dlp',
+                                                    'output_dir': str(output_dir),
+                                                    'title': info.get('title', ''),
+                                                    'duration': info.get('duration'),
+                                                    'uploader': info.get('uploader', ''),
+                                                    'upload_date': info.get('upload_date', ''),
+                                                    'view_count': info.get('view_count'),
+                                                    'description': info.get('description', '')[:200] if info.get('description') else '',
+                                                    'cookies_auto_extracted': True,
+                                                    'cookies_source': browser,
+                                                }
+                                                if info:
+                                                    try:
+                                                        out_path = ydl.prepare_filename(info)
+                                                        if out_path and not Path(out_path).is_absolute():
+                                                            out_path = str((output_dir / out_path).resolve())
+                                                        result_data['output_file'] = out_path
+                                                    except Exception:
+                                                        pass
+                                                logger.info(f"使用 {browser} cookies 重试下载成功（扩展/browser_cookie3）")
+                                                return DownloadResult(success=True, data=result_data)
+                                        except Exception as cookie_retry_err:
+                                            logger.warning(f"使用 {browser} cookies 重试失败: {cookie_retry_err}（可能未安装 browser-cookie3 或浏览器未登录 YouTube）")
+                                            continue
+                                except Exception as e:
+                                    logger.debug(f"从 {browser} 提取 YouTube cookies 失败: {e}")
+                                    continue
+                            if not cookies_retry_tried:
+                                logger.warning("未从任何浏览器提取到 YouTube cookies（请确认: pip install browser-cookie3，且 Chrome 等已登录 youtube.com）")
+                        # 构建最终错误信息
+                        cookies_hint = ""
+                        if is_youtube or '403' in retry_err_str or 'Forbidden' in retry_err_str:
+                            cookies_hint = (
+                                f"\n\n【重要】YouTube 该错误通常由 403 导致，需使用 cookies：\n"
+                                f"  - 创建任务时添加 metadata: cookies_from_browser='chrome'\n"
+                                f"  - 或在浏览器登录 YouTube 后，用 cookies_from_browser 提取\n"
+                            )
+                        detailed_error = (
+                            f"yt-dlp 下载失败\n\n"
+                            f"错误信息: {error_msg}\n"
+                            f"{cookies_hint}"
+                            f"已尝试：格式重试、备用工具。\n\n"
+                            f"建议：\n"
+                            f"1. 使用 cookies（YouTube 必须）：cookies_from_browser='chrome'\n"
+                            f"2. 更新 yt-dlp: pip install -U yt-dlp\n"
+                            f"3. 检查 URL 与网络\n"
+                        )
+                        return DownloadResult(success=False, error=detailed_error)
                 else:
                     # 其他错误，提供通用建议
                     detailed_error = (
@@ -728,16 +1025,28 @@ class YtDlpDownloader(DownloaderAdapter):
                 except Exception as cleanup_err:
                     logger.debug(f"清理临时 cookie 文件失败 {p}: {cleanup_err}")
     
+    def _quality_to_format_sort(self, quality: str) -> Optional[List[str]]:
+        """将质量转为 format_sort（优先指定分辨率，可回退）。返回 None 时用 format。"""
+        sort_map = {
+            '1080p': ['res:1080', 'ext'],
+            '720p': ['res:720', 'ext'],
+            '480p': ['res:480', 'ext'],
+            '360p': ['res:360', 'ext'],
+            '240p': ['res:240', 'ext'],
+        }
+        return sort_map.get(quality)
+
     def _convert_quality_to_yt_dlp_format(self, quality: str) -> str:
-        """转换质量参数到 yt-dlp 格式"""
+        """转换质量参数到 yt-dlp 格式。带 /best 回退，避免「Requested format is not available」。"""
         quality_map = {
+            'auto': 'best',  # 不用于设置 format，仅作 fallback
             'best': 'best',
             'worst': 'worst',
-            '1080p': 'best[height<=1080]',
-            '720p': 'best[height<=720]',
-            '480p': 'best[height<=480]',
-            '360p': 'best[height<=360]',
-            '240p': 'best[height<=240]',
+            '1080p': 'best[height<=1080]/best',
+            '720p': 'best[height<=720]/best',
+            '480p': 'best[height<=480]/best',
+            '360p': 'best[height<=360]/best',
+            '240p': 'best[height<=240]/best',
         }
         return quality_map.get(quality, 'best')
 
@@ -831,10 +1140,10 @@ class VideoDownloaderTool(Tool):
             ToolParameter(
                 name="quality",
                 type="string",
-                description="要下载的视频质量。可选值：'best'、'worst'、'1080p'、'720p'、'480p' 等。默认 'best'。",
+                description="要下载的视频质量。'auto'（默认，不指定 format，由 yt-dlp 自动选择最佳）、'worst'、'1080p'、'720p'、'480p' 等。",
                 required=False,
-                default="best",
-                enum=["best", "worst", "1080p", "720p", "480p", "360p", "240p"]
+                default="auto",
+                enum=["auto", "best", "worst", "1080p", "720p", "480p", "360p", "240p"]
             ),
             ToolParameter(
                 name="format",

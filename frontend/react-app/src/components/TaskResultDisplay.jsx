@@ -7,6 +7,7 @@ import WeatherResultDisplay from './WeatherResultDisplay'
 import UrlToWikiInline from './task/UrlToWikiInline'
 import WebSearchResultItem from './task/WebSearchResultItem'
 import MarkdownDraftActions from './task/MarkdownDraftActions'
+import SubtitlePreviewActions from './task/SubtitlePreviewActions'
 import { getMediaWikiPageUrl } from '../config/mediawiki'
 
 /** URL 规范化：去尾斜杠、trim，用于匹配同一页面不同写法 */
@@ -121,7 +122,64 @@ function WebSearchResults({ result, urlToWikiConfig, setUrlToWikiConfig }) {
   )
 }
 
-export default function TaskResultDisplay({ taskType, result }) {
+const VIDEO_AUDIO_EXTS = new Set(['.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv', '.m4a', '.mp3', '.wav', '.aac', '.flac', '.ogg', '.opus'])
+
+function isSubtitleOrTextFile(path) {
+  if (!path || typeof path !== 'string') return false
+  const ext = path.toLowerCase().slice(path.lastIndexOf('.'))
+  return ['.srt', '.vtt', '.txt', '.json'].includes(ext)
+}
+
+function SpeechToTextResultDisplay({ taskId, result, data: d }) {
+  const [subtitleContent, setSubtitleContent] = useState(null)
+  const [subtitleLoading, setSubtitleLoading] = useState(false)
+  const hasSubtitleFile = taskId && d.output_file && isSubtitleOrTextFile(d.output_file)
+  const suggestTitle = d.output_file ? d.output_file.replace(/_[^/]*\.(srt|vtt|txt|json)$/i, '').split(/[/\\]/).pop() || '' : ''
+
+  useEffect(() => {
+    if (!hasSubtitleFile) return
+    setSubtitleLoading(true)
+    fetch(`/api/task-queue/tasks/${taskId}/output-file`)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error('加载失败'))))
+      .then((text) => setSubtitleContent(text))
+      .catch(() => setSubtitleContent(null))
+      .finally(() => setSubtitleLoading(false))
+  }, [taskId, hasSubtitleFile])
+
+  return (
+    <div className="space-y-2 text-muted">
+      {result.summary && <p className="text-green-400 whitespace-pre-wrap">{result.summary}</p>}
+      {hasSubtitleFile && (
+        <div className="mt-3">
+          {subtitleLoading && <p className="text-muted text-sm">加载字幕…</p>}
+          {!subtitleLoading && subtitleContent === null && (
+            <p className="text-muted text-sm">无法加载预览</p>
+          )}
+          {!subtitleLoading && subtitleContent != null && (
+            <SubtitlePreviewActions
+              content={subtitleContent}
+              suggestTitle={suggestTitle}
+              summaryText="查看字幕与后续操作"
+            />
+          )}
+        </div>
+      )}
+      {d.output_file && <p><span className="text-muted">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
+      {d.language && <p><span className="text-muted">语言 </span>{d.language}</p>}
+      {d.text != null && !hasSubtitleFile && (
+        <p className="mt-2 text-muted text-xs">正文摘要: {String(d.text).slice(0, 200)}{String(d.text).length > 200 ? '…' : ''}</p>
+      )}
+    </div>
+  )
+}
+
+function isPlayableMedia(path) {
+  if (!path || typeof path !== 'string') return false
+  const ext = path.toLowerCase().slice(path.lastIndexOf('.'))
+  return VIDEO_AUDIO_EXTS.has(ext)
+}
+
+export default function TaskResultDisplay({ taskType, result, taskId }) {
   const [urlToWikiConfig, setUrlToWikiConfig] = useState(null)
   const isSuccess = result?.status === 'success'
   const isError = result?.status === 'error'
@@ -152,11 +210,33 @@ export default function TaskResultDisplay({ taskType, result }) {
 
   if (taskType === 'video_download' && result.data) {
     const d = result.data
+    const hasPlayable = taskId && d.output_file && isPlayableMedia(d.output_file)
+    const isVideo = hasPlayable && /\.(mp4|webm|mkv|avi|mov|flv)$/i.test(d.output_file)
+    const streamUrl = taskId && d.output_file ? `/api/task-queue/tasks/${taskId}/output-file` : null
     return (
       <div className="space-y-2 text-muted">
         {result.summary && <p className="text-green-400">{result.summary}</p>}
         {d.title && <p><span className="text-muted">标题 </span>{d.title}</p>}
+        {hasPlayable && streamUrl && (
+          <div className="mt-3 rounded-lg overflow-hidden bg-black/30 border border-border">
+            {isVideo ? (
+              <video
+                src={streamUrl}
+                controls
+                className="w-full max-h-[360px]"
+                preload="metadata"
+              >
+                您的浏览器不支持视频播放
+              </video>
+            ) : (
+              <audio src={streamUrl} controls className="w-full" preload="metadata">
+                您的浏览器不支持音频播放
+              </audio>
+            )}
+          </div>
+        )}
         {d.output_dir && <p><span className="text-muted">保存位置 </span><code className="text-cyan-300 break-all">{d.output_dir}</code></p>}
+        {d.output_file && <p><span className="text-muted">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
       </div>
     )
   }
@@ -164,20 +244,24 @@ export default function TaskResultDisplay({ taskType, result }) {
   if (taskType === 'speech_to_text' && result.data) {
     const d = result.data
     return (
-      <div className="space-y-2 text-muted">
-        {result.summary && <p className="text-green-400">{result.summary}</p>}
-        {d.output_file && <p><span className="text-muted">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
-        {d.language && <p><span className="text-muted">语言 </span>{d.language}</p>}
-        {d.text != null && <p className="mt-2 text-muted text-xs">正文摘要: {String(d.text).slice(0, 200)}{String(d.text).length > 200 ? '…' : ''}</p>}
-      </div>
+      <SpeechToTextResultDisplay taskId={taskId} result={result} data={d} />
     )
   }
 
   if (taskType === 'video_extract_audio' && result.data) {
     const d = result.data
+    const hasPlayable = taskId && d.output_file && isPlayableMedia(d.output_file)
+    const streamUrl = taskId && d.output_file ? `/api/task-queue/tasks/${taskId}/output-file` : null
     return (
       <div className="space-y-2 text-muted">
         {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {hasPlayable && streamUrl && (
+          <div className="mt-3 rounded-lg overflow-hidden bg-black/30 border border-border">
+            <audio src={streamUrl} controls className="w-full" preload="metadata">
+              您的浏览器不支持音频播放
+            </audio>
+          </div>
+        )}
         {d.output_file && <p><span className="text-muted">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
         {d.format && <p><span className="text-muted">格式 </span>{d.format}</p>}
       </div>

@@ -61,6 +61,7 @@ install-deps:
 	  ($(PYTHON) -m pip show $$pkg 2>/dev/null | grep -q "externals") && $(PYTHON) -m pip uninstall -y $$pkg || true; \
 	done
 	@$(PYTHON) -m pip install -r requirements.txt -q
+	@$(PYTHON) -m pip install -U yt-dlp -q
 	@test -d "frontend/react-app" && (cd frontend/react-app && npm install) || true
 	@echo "系统依赖安装完成"
 

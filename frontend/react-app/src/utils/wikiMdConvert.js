@@ -9,8 +9,56 @@ const MATH_PLACEHOLDER_PREFIX = '__WIKIMATH_'
 const MATH_PLACEHOLDER_SUFFIX = '__'
 const CODE_PLACEHOLDER_PREFIX = '__WIKICODE_'
 const CODE_PLACEHOLDER_SUFFIX = '__'
+const NOWIKI_PLACEHOLDER_PREFIX = '__WIKINOWIKI_'
+const NOWIKI_PLACEHOLDER_SUFFIX = '__'
+const PRE_PLACEHOLDER_PREFIX = '__WIKIPRE_'
+const PRE_PLACEHOLDER_SUFFIX = '__'
 
 // ---------- Wikitext → Markdown ----------
+
+/**
+ * 提取 <nowiki>...</nowiki>，原样保留内容，避免后续替换破坏。
+ */
+function wikiExtractNowikiToPlaceholders(wiki) {
+  const list = []
+  const re = /<nowiki>([\s\S]*?)<\/nowiki>/gi
+  const out = wiki.replace(re, (_, body) => {
+    const key = `${NOWIKI_PLACEHOLDER_PREFIX}${list.length}${NOWIKI_PLACEHOLDER_SUFFIX}`
+    list.push(body)
+    return key
+  })
+  return { text: out, list }
+}
+
+function wikiRestoreNowikiPlaceholders(text, list) {
+  let s = text
+  for (let i = 0; i < list.length; i++) {
+    s = s.replace(`${NOWIKI_PLACEHOLDER_PREFIX}${i}${NOWIKI_PLACEHOLDER_SUFFIX}`, list[i])
+  }
+  return s
+}
+
+/**
+ * 提取 <pre>...</pre>，转为 ``` 代码块占位。
+ */
+function wikiExtractPreToPlaceholders(wiki) {
+  const list = []
+  const re = /<pre>([\s\S]*?)<\/pre>/gi
+  const out = wiki.replace(re, (_, body) => {
+    const key = `${PRE_PLACEHOLDER_PREFIX}${list.length}${PRE_PLACEHOLDER_SUFFIX}`
+    list.push('```\n' + body.replace(/\n$/, '') + '\n```')
+    return key
+  })
+  return { text: out, list }
+}
+
+function wikiRestorePrePlaceholders(text, list) {
+  let s = text
+  for (let i = 0; i < list.length; i++) {
+    s = s.replace(`${PRE_PLACEHOLDER_PREFIX}${i}${PRE_PLACEHOLDER_SUFFIX}`, list[i])
+  }
+  return s
+}
 
 /**
  * 提取 <math>...</math>，避免后续替换破坏公式内容。
@@ -108,6 +156,215 @@ function wikiBrToMd(wiki) {
 }
 
 /**
+ * ---- (4+ 减号) → --- 水平线
+ */
+function wikiHrToMd(wiki) {
+  return wiki.replace(/^----+\s*$/gm, '---')
+}
+
+/**
+ * [[File:xxx]]、[[Image:xxx]] → ![](filename) 或 ![caption](filename)
+ * 支持 [[File:name.png|thumb|200px|caption]]
+ */
+function wikiImageToMd(wiki) {
+  const re = /\[\[(?:File|Image):([^\]|]+)(?:\|([^\]]*))?\]\]/gi
+  return wiki.replace(re, (_, filename, params) => {
+    const name = filename.trim()
+    if (!params) return `![${name}](${name})`
+    const parts = params.split('|').map((p) => p.trim())
+    const opts = new Set(['thumb', 'thumbnail', 'frame', 'framed', 'frameless', 'left', 'right', 'center', 'none', 'border', 'upright'])
+    let caption = ''
+    for (const p of parts) {
+      if (!opts.has(p.toLowerCase()) && !/^\d+px$/i.test(p) && !/^upright=/i.test(p) && !/^\d+x\d+px$/i.test(p)) {
+        caption = p
+      }
+    }
+    return caption ? `![${caption}](${name})` : `![${name}](${name})`
+  })
+}
+
+/**
+ * 定义列表 ; 术语 : 定义 → **术语**\n> 定义
+ */
+function wikiDefListToMd(wiki) {
+  const lines = wiki.split('\n')
+  const out = []
+  let lastTerm = null
+  const defs = []
+  const flushDef = () => {
+    if (lastTerm !== null && defs.length) {
+      out.push(`**${lastTerm}**`)
+      for (const d of defs) out.push('> ' + d)
+      defs.length = 0
+      lastTerm = null
+    } else if (lastTerm !== null) {
+      out.push(`**${lastTerm}**`)
+      lastTerm = null
+    }
+  }
+  for (const line of lines) {
+    const termMatch = line.match(/^;\s*(.*)$/)
+    const defMatch = line.match(/^:\s*(.*)$/)
+    if (termMatch) {
+      flushDef()
+      lastTerm = termMatch[1].trim()
+    } else if (defMatch && lastTerm !== null) {
+      defs.push(defMatch[1])
+    } else {
+      flushDef()
+      out.push(line)
+    }
+  }
+  flushDef()
+  return out.join('\n')
+}
+
+/**
+ * 行首 : 缩进 → > 引用
+ */
+function wikiIndentToMd(wiki) {
+  return wiki.replace(/^(:+)\s*(.*)$/gm, (_, colons, rest) => {
+    const depth = colons.length
+    return '> '.repeat(depth) + rest
+  })
+}
+
+/**
+ * <sub>、<sup>、<s>、<del> → MD 或保留 HTML
+ */
+function wikiSubSupStrikeToMd(wiki) {
+  let s = wiki
+  s = s.replace(/<sub>([\s\S]*?)<\/sub>/gi, '<sub>$1</sub>')
+  s = s.replace(/<sup>([\s\S]*?)<\/sup>/gi, '<sup>$1</sup>')
+  s = s.replace(/<s>([\s\S]*?)<\/s>/gi, '~~$1~~')
+  s = s.replace(/<del>([\s\S]*?)<\/del>/gi, '~~$1~~')
+  return s
+}
+
+/**
+ * 解析 Wiki 单元格：| attr | content 或 | content，返回 { content, colspan, rowspan, align }
+ */
+function parseWikiCell(raw) {
+  const s = raw.trim().replace(/&#124;/g, '|')
+  const pipeIdx = s.indexOf('|')
+  if (pipeIdx < 0) return { content: s, colspan: 1, rowspan: 1, align: 'left' }
+  const left = s.slice(0, pipeIdx).trim()
+  const content = s.slice(pipeIdx + 1).trim()
+  if (!left || !/=/.test(left)) return { content: s, colspan: 1, rowspan: 1, align: 'left' }
+  const colspan = parseInt(left.match(/colspan\s*=\s*["']?(\d+)["']?/i)?.[1], 10) || 1
+  const rowspan = parseInt(left.match(/rowspan\s*=\s*["']?(\d+)["']?/i)?.[1], 10) || 1
+  const alignMatch = left.match(/text-align\s*:\s*(left|center|right)/i)
+  const align = alignMatch ? alignMatch[1].toLowerCase() : 'left'
+  return { content, colspan, rowspan, align }
+}
+
+/**
+ * MediaWiki 表格 {| ... |} → Markdown 或 HTML 表格
+ * 支持 |+ caption、| A || B（同行多格）、每行一格的 | A \n| B、! 表头、colspan、rowspan
+ */
+function wikiTableToMd(wiki) {
+  const re = /\{\|([^]*?)\|\}/g
+  return wiki.replace(re, (block) => {
+    const inner = block.slice(2, -2).trim()
+    const lines = inner.split('\n')
+    let caption = ''
+    const rows = []
+    let currentRow = []
+    const flushRow = () => {
+      if (currentRow.length) {
+        rows.push(currentRow)
+        currentRow = []
+      }
+    }
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('|+')) {
+        const cap = trimmed.slice(2).trim()
+        const pipeIdx = cap.indexOf('|')
+        caption = pipeIdx >= 0 ? cap.slice(pipeIdx + 1).trim() : cap
+        continue
+      }
+      if (trimmed === '|-') {
+        flushRow()
+        continue
+      }
+      if (/^\|/.test(trimmed)) {
+        const parts = trimmed.replace(/^\|\s*/, '').split(/\|\|/)
+        for (const p of parts) {
+          currentRow.push({ ...parseWikiCell(p), header: false })
+        }
+      } else if (/^!/.test(trimmed)) {
+        const parts = trimmed.replace(/^!\s*/, '').split(/!!/)
+        for (const p of parts) {
+          currentRow.push({ ...parseWikiCell(p), header: true })
+        }
+      }
+    }
+    flushRow()
+    if (rows.length === 0) return block
+    const hasSpan = rows.some((r) => r.some((c) => c.colspan > 1 || c.rowspan > 1))
+    if (hasSpan) {
+      const escape = (t) => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const grid = []
+      for (let ri = 0; ri < rows.length; ri++) {
+        const r = rows[ri]
+        if (!grid[ri]) grid[ri] = []
+        let col = 0
+        for (const cell of r) {
+          while (col < grid[ri].length && grid[ri][col] === null) col++
+          const attrs = []
+          if (cell.colspan > 1) attrs.push(`colspan="${cell.colspan}"`)
+          if (cell.rowspan > 1) attrs.push(`rowspan="${cell.rowspan}"`)
+          const tag = cell.header ? 'th' : 'td'
+          const attrStr = attrs.length ? ' ' + attrs.join(' ') : ''
+          const html = `<${tag}${attrStr}>${escape(cell.content)}</${tag}>`
+          grid[ri][col] = html
+          for (let rr = 0; rr < cell.rowspan; rr++) {
+            for (let cc = 0; cc < cell.colspan; cc++) {
+              if (rr === 0 && cc === 0) continue
+              const rri = ri + rr
+              const cci = col + cc
+              if (!grid[rri]) grid[rri] = []
+              grid[rri][cci] = null
+            }
+          }
+          col += cell.colspan
+        }
+      }
+      const htmlRows = grid.map((row) => {
+        const cells = (row || []).filter((c) => c !== null)
+        return `<tr>${cells.join('')}</tr>`
+      })
+      const table = `<table class="wikitable">${caption ? `<caption>${escape(caption)}</caption>` : ''}<tbody>${htmlRows.join('')}</tbody></table>`
+      return table
+    }
+    const colCount = Math.max(...rows.map((r) => r.reduce((s, c) => s + c.colspan, 0)))
+    const pad = (arr) => {
+      const a = arr.flatMap((c) => Array(c.colspan).fill(c.content))
+      while (a.length < colCount) a.push('')
+      return a.slice(0, colCount)
+    }
+    const alignToSep = (a) => {
+      if (a === 'center') return ':---:'
+      if (a === 'right') return '---:'
+      return ':---'
+    }
+    const firstAligns = rows[0].flatMap((c) => Array(c.colspan).fill(c.align)).slice(0, colCount)
+    const sep = firstAligns
+      .map((a) => alignToSep(a || 'left'))
+      .concat(Array(Math.max(0, colCount - firstAligns.length)).fill(':---'))
+      .slice(0, colCount)
+      .join(' | ')
+    const mdRows = rows.map((r) => pad(r).map((c) => (c || ' ').replace(/\|/g, '&#124;')).join(' | '))
+    const header = mdRows[0]
+    const body = mdRows.slice(1)
+    let out = `| ${header} |\n| ${sep} |\n` + body.map((r) => `| ${r} |`).join('\n')
+    if (caption) out = `**${caption}**\n\n` + out
+    return out
+  })
+}
+
+/**
  * Wikitext → Markdown（覆盖常用语法，模板等复杂结构可能保留原样或略化）
  * @param {string} wiki - MediaWiki wikitext
  * @returns {string} Markdown
@@ -116,13 +373,23 @@ export function wikiToMd(wiki) {
   if (wiki == null || typeof wiki !== 'string') return ''
   let s = wiki.trim()
   if (!s) return ''
-  const { text: afterMath, mathList } = wikiExtractMathToPlaceholders(s)
+  const { text: afterNowiki, list: nowikiList } = wikiExtractNowikiToPlaceholders(s)
+  const { text: afterPre, list: preList } = wikiExtractPreToPlaceholders(afterNowiki)
+  const { text: afterMath, mathList } = wikiExtractMathToPlaceholders(afterPre)
   s = wikiBrToMd(afterMath)
+  s = wikiHrToMd(s)
+  s = wikiTableToMd(s)
+  s = wikiListsToMd(s)
   s = wikiHeadersToMd(s)
+  s = wikiImageToMd(s)
   s = wikiLinksToMd(s)
   s = wikiEmphasisToMd(s)
-  s = wikiListsToMd(s)
-  return wikiRestoreMathPlaceholders(s, mathList)
+  s = wikiDefListToMd(s)
+  s = wikiIndentToMd(s)
+  s = wikiSubSupStrikeToMd(s)
+  s = wikiRestoreMathPlaceholders(s, mathList)
+  s = wikiRestorePrePlaceholders(s, preList)
+  return wikiRestoreNowikiPlaceholders(s, nowikiList)
 }
 
 // ---------- Markdown → Wikitext ----------
@@ -247,6 +514,100 @@ function mdBlockquoteToWiki(md) {
 }
 
 /**
+ * 解析 MD 分隔行对齐：:--- 左，:---: 中，---: 右
+ */
+function parseMdAlign(cell) {
+  const s = (cell || '').trim()
+  const hasLeft = s.startsWith(':')
+  const hasRight = s.endsWith(':')
+  if (hasLeft && hasRight) return 'center'
+  if (hasRight) return 'right'
+  return 'left'
+}
+
+/**
+ * Markdown 表格 → MediaWiki 表格
+ * | H1 | H2 | + | :---: | --- | + 数据行
+ * 若上一行是 **xxx** 或 '''xxx'''，作为 |+ caption
+ */
+function mdTableToWiki(md) {
+  const lines = md.split('\n')
+  const out = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    if (!/^\|[\s\S]*\|?\s*$/.test(line.trim())) {
+      out.push(line)
+      i++
+      continue
+    }
+    let prevLine = ''
+    for (let k = out.length - 1; k >= 0; k--) {
+      if (out[k].trim()) {
+        prevLine = out[k]
+        break
+      }
+    }
+    const captionMatch = prevLine.match(/^['*]{2,3}(.+?)['*]{2,3}\s*$/)
+    let tableCaption = ''
+    if (captionMatch) {
+      tableCaption = captionMatch[1].trim()
+      for (let k = out.length - 1; k >= 0; k--) {
+        if (out[k].trim()) {
+          out.splice(k, 1)
+          break
+        }
+      }
+    }
+    const tableRows = []
+    let alignments = []
+    while (i < lines.length && /^\|[\s\S]*\|?\s*$/.test(lines[i].trim())) {
+      const parts = lines[i]
+        .trim()
+        .split('|')
+        .map((c) => c.trim())
+      if (parts[0] === '') parts.shift()
+      if (parts[parts.length - 1] === '') parts.pop()
+      if (parts.every((c) => /^[-:\s]+$/.test(c))) {
+        alignments = parts.map(parseMdAlign)
+        i++
+        continue
+      }
+      tableRows.push(parts)
+      i++
+    }
+    if (tableRows.length === 0) {
+      out.push(line)
+      i++
+      continue
+    }
+    const colCount = Math.max(...tableRows.map((r) => r.length))
+    if (alignments.length === 0) alignments = Array(colCount).fill('left')
+    const pad = (arr) => {
+      const a = [...arr]
+      while (a.length < colCount) a.push('')
+      return a
+    }
+    const escapePipe = (s) => (s || '').replace(/\|/g, '&#124;')
+    const formatCell = (text, colIdx) => {
+      const align = alignments[colIdx] || 'left'
+      if (align === 'left') return escapePipe(text)
+      return `style="text-align:${align}" | ${escapePipe(text)}`
+    }
+    const wikiRows = tableRows.map((r) => {
+      const padded = pad(r)
+      return padded
+        .map((c, ci) => formatCell(c, ci))
+        .join(' || ')
+    })
+    const captionLine = tableCaption ? `|+ ${tableCaption}\n` : ''
+    const wiki = `{| class="wikitable"\n${captionLine}|-\n| ${wikiRows.join('\n|-\n| ')}\n|}`
+    out.push(wiki)
+  }
+  return out.join('\n')
+}
+
+/**
  * - item → * item; 1. /2. /3. item → # item
  */
 function mdListsToWiki(md) {
@@ -286,6 +647,7 @@ export function mdToWiki(md) {
   s = mdEmphasisToWiki(s)
   s = mdListsToWiki(s)
   s = mdBlockquoteToWiki(s)
+  s = mdTableToWiki(s)
   s = mdRestoreMathPlaceholders(s, mathList)
   return mdRestoreCodePlaceholders(s, codeList)
 }

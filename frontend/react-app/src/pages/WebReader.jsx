@@ -371,6 +371,7 @@ export default function WebReader() {
                       theme="dark"
                       onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
                       sendToArticleLabel="加入写文章"
+                      onAddToReference={(c) => navigate('/article-writing', { state: { addToReference: c } })}
                     />
                   </div>
                 ) : viewMode === 'markdown' ? (
@@ -381,6 +382,7 @@ export default function WebReader() {
                       theme="dark"
                       onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
                       sendToArticleLabel="加入写文章"
+                      onAddToReference={(c) => navigate('/article-writing', { state: { addToReference: c } })}
                     />
                   </div>
                 ) : (

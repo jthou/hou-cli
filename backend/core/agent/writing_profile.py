@@ -83,6 +83,25 @@ def get_profile_path() -> Path:
     return Path.cwd() / "config" / "writing_profile.json"
 
 
+def get_profile_block_for_prompt(path: Optional[Path] = None, include_samples: bool = True) -> str:
+    """返回写作画像的 prompt 片段，供 orchestrator 注入到 user 消息。无画像时返回空。"""
+    profile = load_writing_profile(path)
+    parts = []
+    if profile.preferences:
+        parts.append("【用户喜好】\n" + "\n".join(f"- {p}" for p in profile.preferences))
+    if profile.style_notes:
+        parts.append("【习惯的表述方式】\n" + profile.style_notes.strip())
+    if include_samples and profile.sample_articles:
+        sample_texts = profile.get_sample_contents(max_chars_per_sample=3500)
+        if sample_texts:
+            head = "【范文参考（请模仿其风格与表述）】\n\n"
+            parts.append(head + "\n\n---\n\n".join(sample_texts))
+    if not parts:
+        return ""
+    intro = "\n\n以下为作者画像，请严格遵循其喜好与表述习惯：\n\n"
+    return intro + "\n\n".join(parts)
+
+
 def load_writing_profile(path: Optional[Path] = None) -> WritingProfile:
     """从 JSON 加载写作画像；文件不存在则返回空画像"""
     p = path or get_profile_path()

@@ -6,6 +6,7 @@ import HtmlPreview from '../components/HtmlPreview'
 import { useToast } from '../components/ToastModal'
 import { STATUS_MAP, formatDateTime } from '../utils/taskConstants'
 import { prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
+import { requestCookiesFromExtension } from '../utils/extensionCookies'
 import { getDefaultMetadata, getApiErrorMessage, migrateWeatherMetadata, getDateCategoryStrings } from '../components/task/taskFormUtils'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import TaskParamsForm from '../components/task/TaskParamsForm'
@@ -1842,10 +1843,26 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
     }
     setSubmitting(true)
     try {
-      const meta = await prepareMetadataForSubmitAsync(type, metadata)
+      let meta = { ...metadata }
+      if (type === 'video_download' && metadata.cookies_from_extension) {
+        const url = (metadata.url || '').trim().toLowerCase()
+        const domain = url.includes('youtube.com') || url.includes('youtu.be') ? 'youtube.com'
+          : url.includes('bilibili.com') || url.includes('b23.tv') ? 'bilibili.com'
+          : 'youtube.com'
+        const res = await requestCookiesFromExtension(domain)
+        if (res.success && res.content) {
+          meta = { ...meta, cookies_content: res.content }
+        } else {
+          toast.warning(res.error || '未能从扩展获取 cookies')
+          setSubmitting(false)
+          return
+        }
+        delete meta.cookies_from_extension
+      }
+      const prepared = await prepareMetadataForSubmitAsync(type, meta)
       if (isEditMode && editTask?.task_id) {
         const patchRes = await TASK_API.patch(editTask.task_id, {
-          metadata: meta,
+          metadata: prepared,
           task_name: (name || '').trim() || undefined,
           priority,
           max_retries: maxRetries,
@@ -1857,7 +1874,7 @@ function CreateTaskModal({ taskTypes, initialType, initialMetadata, initialName,
         onSuccess()
         onClose()
       } else {
-        const payload = { task_type: type, task_name: name || undefined, priority, max_retries: maxRetries, metadata: meta }
+        const payload = { task_type: type, task_name: name || undefined, priority, max_retries: maxRetries, metadata: prepared }
         if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
           payload.depends_on_task_id = dependsOnTaskId.trim()
           const bindings = {}

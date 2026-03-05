@@ -12,13 +12,32 @@ import { wikiToMd } from '../utils/wikiMdConvert'
  * @param {string} [props.wikiText] - MediaWiki wikitext
  * @param {string} [props.className] - 容器额外类名
  * @param {'light'|'dark'} [props.theme='light'] - 预览主题
+ * @param {(content: string) => void} [props.onAddToReference] - 添加到参考信息回调，不传则隐藏按钮
  */
-export default function WikiPreview({ wikiText = '', className = '', theme = 'light' }) {
+export default function WikiPreview({ wikiText = '', className = '', theme = 'light', onAddToReference }) {
   const markdown = useMemo(
     () => (wikiText ? wikiToMd(wikiText) : ''),
     [wikiText],
   )
 
-  return <MarkdownPreview markdown={markdown} className={className} theme={theme} />
+  return (
+    <div className="flex flex-col min-h-0">
+      <MarkdownPreview markdown={markdown} className={className} theme={theme} />
+      {onAddToReference && (
+        <div className="shrink-0 flex flex-wrap gap-2 mt-2">
+          <button
+            type="button"
+            onClick={() => {
+              const toAdd = (wikiText || '').trim()
+              if (toAdd) onAddToReference(toAdd)
+            }}
+            className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
+          >
+            添加到参考信息
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 

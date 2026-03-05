@@ -119,15 +119,16 @@ TASK_TYPES = {
             "quality": {
                 "type": "string",
                 "required": False,
-                "description": "视频质量",
+                "description": "视频质量（auto=自动选择，YouTube 推荐）",
                 "enum": [
+                    {"value": "auto", "label": "自动"},
                     {"value": "best", "label": "最佳"},
                     {"value": "1080p", "label": "1080p"},
                     {"value": "720p", "label": "720p"},
                     {"value": "480p", "label": "480p"},
                     {"value": "360p", "label": "360p"}
                 ],
-                "default": "best"
+                "default": "auto"
             },
             "download_subtitle": {"type": "boolean", "required": False, "description": "下载字幕", "default": False},
             "extract_audio_only": {"type": "boolean", "required": False, "description": "仅提取音频", "default": False},
@@ -830,6 +831,7 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
     worker.update_task_progress(5, "准备下载...")
 
     def _run_download():
+        import tempfile
         from backend.core.agent.tools.builtin.video_downloader_tool import (
             VideoDownloaderTool,
             normalize_output_dir,
@@ -837,7 +839,7 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
         tool = VideoDownloaderTool()
         output_dir = normalize_output_dir(metadata.get("output_dir"), restrict_to_home=True)
         opts = {
-            "quality": metadata.get("quality", "best"),
+            "quality": metadata.get("quality", "auto"),
             "download_subtitle": metadata.get("download_subtitle", False),
             "download_thumbnail": metadata.get("download_thumbnail", False),
             "extract_audio_only": metadata.get("extract_audio_only", False),
@@ -848,10 +850,26 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
         }
         if metadata.get("preferred_tool"):
             opts["preferred_tool"] = metadata["preferred_tool"]
+        cookies_temp_path = None
         if metadata.get("cookies_file"):
             opts["cookies_file"] = (metadata.get("cookies_file") or "").strip()
-        if metadata.get("cookies_from_browser"):
+        elif metadata.get("cookies_from_browser"):
             opts["cookies_from_browser"] = metadata["cookies_from_browser"]
+        elif metadata.get("cookies_content"):
+            content = (metadata.get("cookies_content") or "").strip()
+            if content:
+                fd, cookies_temp_path = tempfile.mkstemp(suffix=".txt", prefix="hou_cli_cookies_")
+                try:
+                    with open(fd, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    opts["cookies_file"] = cookies_temp_path
+                except Exception:
+                    if cookies_temp_path and os.path.exists(cookies_temp_path):
+                        try:
+                            os.unlink(cookies_temp_path)
+                        except Exception:
+                            pass
+                    cookies_temp_path = None
         raw_subs = (metadata.get("subtitle_languages") or "").strip()
         if raw_subs:
             opts["subtitle_languages"] = [s.strip() for s in raw_subs.split(",") if s.strip()]
@@ -869,8 +887,20 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
             else:
                 on_progress(0, a or "")
         tool.progress_callback = _cb
-        result = tool.execute(url=url, output_dir=output_dir, **opts)
-        return result
+        cookies_src = "cookies_file" if opts.get("cookies_file") else ("cookies_from_browser" if opts.get("cookies_from_browser") else "无")
+        logger.info(
+            "video_download 执行: url=%s quality=%s output_dir=%s cookies=%s preferred_tool=%s",
+            url, opts.get("quality"), output_dir, cookies_src, opts.get("preferred_tool"),
+        )
+        try:
+            return tool.execute(url=url, output_dir=output_dir, **opts)
+        finally:
+            if cookies_temp_path and os.path.exists(cookies_temp_path):
+                try:
+                    os.unlink(cookies_temp_path)
+                    logger.debug("已删除临时 cookies 文件: %s", cookies_temp_path)
+                except Exception as e:
+                    logger.warning("清理临时 cookies 文件失败: %s", e)
 
     try:
         result = await asyncio.to_thread(_run_download)
@@ -930,7 +960,7 @@ async def process_speech_to_text_task(task_info: Dict[str, Any]) -> Dict[str, An
         except Exception as e:
             return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
         ext = {"json": ".json", "text": ".txt", "srt": ".srt"}.get(metadata.get("output_format", "srt"), ".srt")
-        output_file = str(out_dir / f"{input_path.stem}_transcription{ext}")
+        output_file = str(out_dir / f"{input_path.stem}_subtitle{ext}")
 
     worker.update_task_progress(0, "准备转写...")
 
@@ -999,7 +1029,7 @@ async def process_video_extract_audio_task(task_info: Dict[str, Any]) -> Dict[st
             out_dir = normalize_output_dir(output_dir or None, restrict_to_home=True)
         except Exception as e:
             return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
-        output_file = str(out_dir / f"{input_path.stem}{ext}")
+        output_file = str(out_dir / f"{input_path.stem}_audio{ext}")
 
     worker.update_task_progress(5, "正在提取音频...")
 

@@ -64,7 +64,7 @@ function ArrayFieldWithChips({ fieldKey, fieldIdPrefix, label, required, items, 
   )
 }
 
-/** 支持文件上传的字段：{ fieldKey: accept }；customFieldRender: (fieldKey, { value, onChange, spec, required, label }) => ReactNode | null 可替代默认渲染 */
+/** 支持文件上传的字段：{ fieldKey: accept }；customFieldRender: (fieldKey, { value, onChange, spec, required, label }) => ReactNode | null 可替代默认渲染；fieldsToHide 不渲染的字段 */
 export default function TaskMetadataFormFields({
   schema,
   metadata,
@@ -74,6 +74,7 @@ export default function TaskMetadataFormFields({
   inputFileAccept = '*',
   fileUploadFields = null, // { [fieldKey]: accept }，优先于 isInputFileTask
   customFieldRender = null, // (fieldKey, { value, onChange, spec, required, label }) => ReactNode | null
+  fieldsToHide = null, // string[] 不渲染的字段（如从上游任务绑定时隐藏 input_file）
 }) {
   const toast = useToast()
   const fileInputRefs = useRef({})
@@ -106,6 +107,7 @@ export default function TaskMetadataFormFields({
     <div className="space-y-4">
       {Object.entries(schema).map(([fieldKey, spec]) => {
         if (!spec || typeof spec !== 'object') return null
+        if (fieldsToHide && fieldsToHide.includes(fieldKey)) return null
         const label = spec.description || fieldKey
         const required = spec.required
         const value = metadata[fieldKey] ?? (spec.default ?? (spec.type === 'boolean' ? false : ''))

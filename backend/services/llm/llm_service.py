@@ -4,7 +4,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
-from openai import AsyncOpenAI, PermissionDeniedError
+from openai import AsyncOpenAI, PermissionDeniedError, APIConnectionError
 import httpx
 from dotenv import load_dotenv
 from shared.debug_utils import DebugOutput
@@ -164,10 +164,12 @@ class LLMService:
         # 配置 httpx 客户端
         # 超时设置：连接30秒，读取60秒（测试环境），写入30秒
         # 生产环境可以通过环境变量覆盖
+        # trust_env=False + proxy=None：强制直连，不使用环境变量或系统代理（避免代理导致 SSL 错误）
         read_timeout = float(os.getenv("LLM_READ_TIMEOUT", "60.0"))
         http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(read_timeout, connect=30.0, read=read_timeout, write=30.0),
-            trust_env=False
+            trust_env=False,
+            proxy=None,
         )
         
         # 创建 OpenAI 客户端（所有提供商都使用 OpenAI 兼容接口）
@@ -490,6 +492,34 @@ class LLMService:
                     # OpenAI SDK 的权限错误（403）：不重试
                     logger.error(f"API 权限不足 (PermissionDeniedError): 模型可能未启用或权限不足: {e}", exc_info=True)
                     raise
+                except APIConnectionError as e:
+                    # 连接失败：网络/代理/防火墙问题，可重试
+                    last_error = e
+                    hint = "请检查：1) 网络连接；2) 代理/VPN 设置；3) 防火墙是否拦截 api.deepseek.com"
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        logger.warning(
+                            f"API 连接失败，等待 {delay:.1f} 秒后重试 "
+                            f"(尝试 {attempt + 1}/{max_retries}): {e}。{hint}",
+                            exc_info=True
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        cause = getattr(e, "__cause__", None)
+                        cause_str = f" 底层原因: {type(cause).__name__}: {cause}" if cause else ""
+                        try:
+                            from backend.services.llm.llm_audit import append_audit
+                            append_audit(
+                                "response_error",
+                                self.model,
+                                {"error": str(e), "error_type": "APIConnectionError", "hint": hint, "cause": str(cause) if cause else None},
+                                meta=dict(audit_meta or {}, audit_id=audit_id),
+                            )
+                        except Exception:
+                            pass
+                        logger.error(f"API 连接失败，重试次数耗尽: {e}{cause_str}。{hint}", exc_info=True)
+                        raise
                 except Exception as e:
                     # 处理 OpenAI SDK 的 APITimeoutError 和其他超时异常
                     error_str = str(e)
@@ -716,6 +746,22 @@ class LLMService:
                 pass
             logger.error(f"网络错误: {e}", exc_info=True)
             raise
+        except APIConnectionError as e:
+            hint = "请检查：1) 网络连接；2) 代理/VPN 设置；3) 防火墙是否拦截 api.deepseek.com；4) 若在中国大陆，确认可访问 DeepSeek API"
+            cause = getattr(e, "__cause__", None)
+            cause_str = f" 底层原因: {type(cause).__name__}: {cause}" if cause else ""
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit(
+                    "response_error",
+                    self.model,
+                    {"error": str(e), "error_type": "APIConnectionError", "hint": hint, "cause": str(cause) if cause else None},
+                    meta=dict(audit_meta or {}, audit_id=audit_id),
+                )
+            except Exception:
+                pass
+            logger.error(f"API 连接失败: {e}{cause_str}。{hint}", exc_info=True)
+            raise
         except Exception as e:
             try:
                 from backend.services.llm.llm_audit import append_audit
@@ -801,13 +847,19 @@ class LLMService:
             # 检查是否支持 response_format
             supports_response_format = self.supports_response_format()
             
-            # 准备参数
+            # 准备参数（browser-use / LangChain 默认会读环境变量代理，需传入 http_client 强制直连）
+            _http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=30.0, read=120.0),
+                trust_env=False,
+                proxy=None,
+            )
             llm_kwargs = {
                 "model": config["model"],
                 "api_key": config["api_key"],
                 "base_url": config["base_url"],
                 "temperature": self.temperature,
-                "max_retries": 5
+                "max_retries": 5,
+                "http_client": _http_client,
             }
             
             # 记录browser-use LLM创建信息

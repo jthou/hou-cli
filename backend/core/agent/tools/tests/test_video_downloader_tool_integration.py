@@ -72,7 +72,7 @@ class TestVideoDownloaderToolIntegration:
         
         # 验证枚举值（如果存在）
         if 'enum' in props.get('quality', {}):
-            assert props['quality']['enum'] == ["best", "worst", "1080p", "720p", "480p", "360p", "240p"]
+            assert props['quality']['enum'] == ["auto", "best", "worst", "1080p", "720p", "480p", "360p", "240p"]
         if 'enum' in props.get('preferred_tool', {}):
             assert props['preferred_tool']['enum'] == ["auto", "yt-dlp", "you-get"]
     

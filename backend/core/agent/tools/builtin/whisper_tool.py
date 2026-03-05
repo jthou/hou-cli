@@ -213,7 +213,7 @@ class WhisperTool(Tool):
                 output_path = Path(output_file).expanduser()
             else:
                 # 自动生成输出文件名
-                output_path = audio_path.parent / f"{audio_path.stem}_transcription"
+                output_path = audio_path.parent / f"{audio_path.stem}_subtitle"
             
             # 保存结果
             if output_format == "json":

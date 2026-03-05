@@ -244,11 +244,40 @@ async function doFetch(url, opts) {
   }
 }
 
+/** 导出指定域名的 cookies 为 Netscape 格式（供 yt-dlp 等使用） */
+async function exportCookiesForDomain(domain) {
+  const d = (domain || '').trim().toLowerCase().replace(/^\./, '')
+  if (!d) return { success: false, error: '缺少域名' }
+  const baseUrl = d.startsWith('http') ? d : `https://www.${d}`
+  const list = await chrome.cookies.getAll({ url: baseUrl })
+  if (!list || list.length === 0) return { success: false, error: `未找到 ${domain} 的 cookies，请先在浏览器中登录` }
+  const lines = ['# Netscape HTTP Cookie File', '# https://youtube.com']
+  for (const c of list) {
+    const host = (c.domain || '').startsWith('.') ? c.domain.slice(1) : c.domain
+    const flag = (c.hostOnly === false) ? 'TRUE' : 'FALSE'
+    const path = c.path || '/'
+    const secure = c.secure ? 'TRUE' : 'FALSE'
+    const exp = (c.expirationDate && c.expirationDate > 0) ? Math.floor(c.expirationDate) : 0
+    lines.push([host, flag, path, secure, exp, c.name || '', (c.value || '').replace(/\t/g, ' ')].join('\t'))
+  }
+  return { success: true, content: lines.join('\n') }
+}
+
 // Port 长连接：保持 SW 活跃，避免 sendResponse 因 SW 被 kill 而丢失
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'hou-cli-web-reader') return
 
-  port.onMessage.addListener((msg) => {
+  port.onMessage.addListener(async (msg) => {
+    if (msg.type === 'HOU_CLI_EXPORT_COOKIES') {
+      const requestId = msg.requestId || 'cookies-' + Date.now()
+      try {
+        const res = await exportCookiesForDomain(msg.domain || 'youtube.com')
+        port.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES_RESULT', requestId, ...res })
+      } catch (e) {
+        port.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES_RESULT', requestId, success: false, error: e?.message || '导出失败' })
+      }
+      return
+    }
     if (msg.type !== 'HOU_CLI_FETCH' || !msg.url) return
 
     const url = (msg.url || '').trim()
@@ -283,6 +312,12 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // 兼容旧版 sendMessage
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.action === 'export_cookies') {
+    exportCookiesForDomain(msg.domain || 'youtube.com')
+      .then((res) => sendResponse?.(res))
+      .catch((e) => sendResponse?.({ success: false, error: e?.message || '导出失败' }))
+    return true
+  }
   if (msg.action !== 'fetch' || !msg.url) {
     sendResponse?.({ success: false, error: 'Unknown action' })
     return false

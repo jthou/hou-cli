@@ -97,7 +97,7 @@ export default function TaskDetailModal({
               {task.result != null && task.status === 'completed' && (
                 <div>
                   <div className="text-muted text-xs mb-2">执行结果</div>
-                  <TaskResultDisplay taskType={task.task_type} result={task.result} />
+                  <TaskResultDisplay taskType={task.task_type} result={task.result} taskId={task.task_id} />
                 </div>
               )}
               {(task.error || task.error_message) && (

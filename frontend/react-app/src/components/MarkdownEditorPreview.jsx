@@ -20,6 +20,7 @@ const textareaCls =
  * @param {(content: string) => void} [props.onSendToArticle] - 发送到写文章回调，不传则隐藏按钮
  * @param {string} [props.sendToArticleLabel='发送到写文章'] - 按钮文案
  * @param {boolean} [props.showMediaWiki=true] - 是否显示写入 MediaWiki 按钮
+ * @param {(content: string) => void} [props.onAddToReference] - 添加到参考信息回调，不传则隐藏
  * @param {React.ReactNode} [props.footerExtra] - 底部额外按钮（如「同步到公众号草稿」）
  */
 export default function MarkdownEditorPreview({
@@ -32,6 +33,7 @@ export default function MarkdownEditorPreview({
   onSendToArticle,
   sendToArticleLabel = '发送到写文章',
   showMediaWiki = true,
+  onAddToReference,
   footerExtra,
 }) {
   const [viewMode, setViewMode] = useState('preview')
@@ -91,6 +93,7 @@ export default function MarkdownEditorPreview({
           onSendToArticle={onSendToArticle}
           sendToArticleLabel={sendToArticleLabel}
           showMediaWiki={showMediaWiki}
+          onAddToReference={onAddToReference}
           extra={footerExtra}
         />
       </div>

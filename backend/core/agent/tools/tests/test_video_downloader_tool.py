@@ -178,12 +178,116 @@ class TestYtDlpDownloader:
                 sys.modules.pop('yt_dlp', None)
 
     def test_convert_quality_to_yt_dlp_format(self):
-        """测试质量参数转换"""
+        """测试质量参数转换（带 /best 回退避免 Requested format is not available）"""
         downloader = YtDlpDownloader()
         assert downloader._convert_quality_to_yt_dlp_format("best") == "best"
-        assert downloader._convert_quality_to_yt_dlp_format("1080p") == "best[height<=1080]"
-        assert downloader._convert_quality_to_yt_dlp_format("720p") == "best[height<=720]"
+        assert downloader._convert_quality_to_yt_dlp_format("1080p") == "best[height<=1080]/best"
+        assert downloader._convert_quality_to_yt_dlp_format("720p") == "best[height<=720]/best"
         assert downloader._convert_quality_to_yt_dlp_format("unknown") == "best"
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
+    def test_quality_auto_does_not_set_format_in_opts(self, mock_ffmpeg_dir):
+        """quality=auto（或 best）时不设 format，让 yt-dlp 用默认逻辑"""
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
+        captured_opts = []
+
+        def capture_opts(ydl_opts):
+            captured_opts.append(ydl_opts.copy())
+            return _make_ydl_cm()
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = capture_opts
+        mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            downloader.download(
+                "https://www.youtube.com/watch?v=xxx",
+                Path("/tmp/out"),
+                quality="auto",
+            )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
+        assert len(captured_opts) >= 1
+        assert 'format' not in captured_opts[0]
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
+    def test_quality_1080p_sets_format_in_opts(self, mock_ffmpeg_dir):
+        """quality=1080p 时 ydl_opts 含 format=best[height<=1080]/best"""
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
+        captured_opts = []
+
+        def capture_opts(ydl_opts):
+            captured_opts.append(ydl_opts.copy())
+            return _make_ydl_cm()
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = capture_opts
+        mock_yt_dlp.utils.DownloadError = type('DownloadError', (Exception,), {})
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            downloader.download(
+                "https://www.youtube.com/watch?v=xxx",
+                Path("/tmp/out"),
+                quality="1080p",
+            )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
+        assert len(captured_opts) >= 1
+        # 参考 yt-dlp#11295：分辨率质量改用 format_sort 以支持回退
+        opts = captured_opts[0]
+        assert opts.get('format_sort') == ['res:1080', 'ext'] and opts.get('format_sort_force') is True
+
+    @patch('backend.core.agent.tools.builtin.video_downloader_tool._get_ffmpeg_bin_dir')
+    def test_requested_format_not_available_retries_without_format_and_succeeds(self, mock_ffmpeg_dir):
+        """Requested format is not available 时去掉 format 重试，成功则返回 success"""
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
+        DownloadError = type('DownloadError', (Exception,), {})
+
+        cm_first = MagicMock()
+        cm_first.__enter__.return_value.extract_info.side_effect = DownloadError(
+            "Requested format is not available"
+        )
+        cm_first.__exit__.return_value = None
+        cm_retry = _make_ydl_cm({
+            'title': 'YouTube Video',
+            'uploader': '',
+            'upload_date': '',
+            'view_count': None,
+            'description': '',
+        })
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = [cm_first, cm_retry]
+        mock_yt_dlp.utils.DownloadError = DownloadError
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            downloader = YtDlpDownloader()
+            result = downloader.download(
+                "https://www.youtube.com/watch?v=xxx",
+                Path("/tmp/out"),
+                quality="1080p",
+            )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
+        assert result.success is True
+        assert result.data.get('title') == 'YouTube Video'
 
 
 class TestDownloaderSelection:
@@ -455,8 +559,9 @@ class TestYtDlpAntiScrapingCapability:
             with patch('backend.core.agent.tools.builtin.video_downloader_tool._load_cookies_from_file') as m_load:
                 m_load.return_value = "/tmp/cookies.txt"
                 downloader = YtDlpDownloader()
+                # Bilibili 立即使用 cookies；YouTube 会延后，首轮无 cookiefile
                 downloader.download(
-                    "https://www.youtube.com/watch?v=xxx",
+                    "https://www.bilibili.com/video/BV123",
                     Path("/tmp/out"),
                     cookies_file="/tmp/cookies.txt",
                 )
@@ -531,6 +636,58 @@ class TestYtDlpAntiScrapingCapability:
                 sys.modules.pop('yt_dlp', None)
         assert result.success is True
         assert result.data.get('title') == 'B站视频'
+        assert result.data.get('cookies_auto_extracted') is True
+        assert result.data.get('cookies_source') in ('chrome', 'firefox', 'safari', 'edge')
+
+    def test_youtube_requested_format_tries_browser_cookies_and_succeeds(self, mock_ffmpeg_dir):
+        """YouTube Requested format 错误时自动从浏览器提取 cookies 重试，成功则返回 success"""
+        mock_ffmpeg_dir.return_value = MagicMock(exists=MagicMock(return_value=True))
+        DownloadError = type('DownloadError', (Exception,), {})
+
+        cm_prefetch = MagicMock()
+        cm_prefetch.__enter__.return_value.extract_info.side_effect = DownloadError(
+            "Requested format is not available. Use --list-formats"
+        )
+        cm_prefetch.__exit__.return_value = None
+        cm_first = MagicMock()
+        cm_first.__enter__.return_value.extract_info.side_effect = DownloadError(
+            "Requested format is not available. Use --list-formats"
+        )
+        cm_first.__exit__.return_value = None
+        cm_format_retry = MagicMock()
+        cm_format_retry.__enter__.return_value.extract_info.side_effect = DownloadError(
+            "Requested format is not available"
+        )
+        cm_format_retry.__exit__.return_value = None
+        cm_cookie_retry = _make_ydl_cm({
+            'title': 'YouTube Video',
+            'uploader': '',
+            'upload_date': '',
+            'view_count': None,
+            'description': '',
+        })
+
+        mock_yt_dlp = MagicMock()
+        mock_yt_dlp.YoutubeDL.side_effect = [cm_prefetch, cm_first, cm_format_retry, cm_cookie_retry]
+        mock_yt_dlp.utils.DownloadError = DownloadError
+        import sys
+        old_yt_dlp = sys.modules.get('yt_dlp')
+        sys.modules['yt_dlp'] = mock_yt_dlp
+        try:
+            with patch('backend.core.agent.tools.builtin.video_downloader_tool._extract_cookies_from_browser') as m_extract:
+                m_extract.return_value = "/tmp/yt_cookies.txt"
+                downloader = YtDlpDownloader()
+                result = downloader.download(
+                    "https://www.youtube.com/watch?v=aAPpQC-3EyE",
+                    Path("/tmp/out"),
+                )
+        finally:
+            if old_yt_dlp is not None:
+                sys.modules['yt_dlp'] = old_yt_dlp
+            else:
+                sys.modules.pop('yt_dlp', None)
+        assert result.success is True
+        assert result.data.get('title') == 'YouTube Video'
         assert result.data.get('cookies_auto_extracted') is True
         assert result.data.get('cookies_source') in ('chrome', 'firefox', 'safari', 'edge')
 

@@ -53,6 +53,7 @@ export default function TaskTypePage({
       description={description}
       submitLabel={submitLabel}
       rightContent={rightContent}
+      onTaskCreated={() => setRefreshTrigger((t) => (t ?? 0) + 1)}
     />
   )
 }

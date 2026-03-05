@@ -1,10 +1,12 @@
 """任务队列 API 路由"""
 import logging
+import mimetypes
 import re
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, File, UploadFile
+from fastapi.responses import FileResponse
 from backend.infrastructure.storage.task_queue_db import (
     get_task_queue_db,
     TaskStatus,
@@ -353,6 +355,57 @@ async def patch_task_result_output_file(task_id: str):
     except Exception as e:
         debug_log(f"patch-result-output-file 失败: {str(e)}", level="error")
         raise HTTPException(status_code=500, detail=f"补全失败: {str(e)}")
+
+
+def _validate_path_in_home(p: Path) -> bool:
+    """校验路径在用户主目录下"""
+    try:
+        p.resolve().relative_to(Path.home().resolve())
+        return True
+    except ValueError:
+        return False
+
+
+@router.get("/task-queue/tasks/{task_id}/output-file")
+async def stream_task_output_file(task_id: str):
+    """
+    流式返回任务输出文件（视频/音频），供任务详情中的播放器使用。
+    仅支持 video_download、video_extract_audio、speech_to_text 等有 output_file 的任务。
+    支持 8 位短 id。
+    """
+    try:
+        task_queue_db = get_task_queue_db()
+        resolved_id = task_id.strip()
+        if len(resolved_id) == 8:
+            full_id = task_queue_db.get_task_id_by_prefix(resolved_id)
+            if full_id:
+                resolved_id = full_id
+        task = task_queue_db.get_task(resolved_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if task.get("status") != TaskStatus.COMPLETED.value:
+            raise HTTPException(status_code=400, detail="任务未完成")
+        result = task.get("result")
+        if not result or not isinstance(result, dict):
+            raise HTTPException(status_code=400, detail="任务无 result")
+        data = result.get("data") or {}
+        out_file = data.get("output_file")
+        if not out_file or not isinstance(out_file, str):
+            raise HTTPException(status_code=404, detail="任务无 output_file")
+        file_path = Path(out_file).expanduser().resolve()
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail="输出文件不存在")
+        if not _validate_path_in_home(file_path):
+            raise HTTPException(status_code=403, detail="文件路径不在允许范围内")
+        media_type, _ = mimetypes.guess_type(str(file_path))
+        if not media_type:
+            media_type = "application/octet-stream"
+        return FileResponse(str(file_path), media_type=media_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"stream-task-output-file 失败: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"获取文件失败: {str(e)}")
 
 
 @router.get("/task-queue/tasks/{task_id}")

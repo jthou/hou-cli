@@ -202,6 +202,18 @@ export default function TaskParamsForm({
 
       {taskType === 'wechat_mp_draft' && <WechatOutboundIpHint />}
 
+      {taskType === 'video_download' && (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!metadata?.cookies_from_extension}
+            onChange={e => setMetadata(m => ({ ...m, cookies_from_extension: e.target.checked }))}
+            className="text-accent focus:ring-accent rounded"
+          />
+          <span className="text-sm text-muted">使用扩展获取 cookies（YouTube/Bilibili 需登录时勾选，需安装 Hou CLI 扩展）</span>
+        </label>
+      )}
+
       {taskType === 'mediawiki_write' && (
         <label className="flex items-center gap-2 cursor-pointer">
           <input

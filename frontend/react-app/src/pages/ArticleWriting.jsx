@@ -23,6 +23,16 @@ const WECHAT_MP_API = {
 
 const ARTICLE_SESSION_TYPE = 'article_writing'
 const STORAGE_KEY_SELECTED_SESSION = 'article_writing_selected_session_id'
+const STORAGE_KEY_REFERENCE_BLOCKS = 'article_writing_reference_blocks'
+
+/** 从内容推导参考块标题：取首行或前 80 字，截断至 50 字 */
+function deriveRefTitle(content) {
+  const trimmed = (content || '').trim()
+  if (!trimmed) return ''
+  const firstLine = trimmed.split('\n')[0].trim()
+  const candidate = firstLine || trimmed.slice(0, 80)
+  return candidate.slice(0, 50)
+}
 
 export default function ArticleWriting() {
   const toast = useToast()
@@ -71,7 +81,15 @@ export default function ArticleWriting() {
   const [wechatOutputSchema, setWechatOutputSchema] = useState({})
   const [wechatOutputMetadata, setWechatOutputMetadata] = useState({})
   const [wechatOutputSubmitting, setWechatOutputSubmitting] = useState(false)
-  const [referenceBlocks, setReferenceBlocks] = useState([])
+  const [referenceBlocks, setReferenceBlocks] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY_REFERENCE_BLOCKS)
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const messagesEndRef = useRef(null)
@@ -94,6 +112,20 @@ export default function ArticleWriting() {
 
   const handleRemoveReferenceBlock = (id) => {
     setReferenceBlocks((prev) => prev.filter((b) => b.id !== id))
+  }
+
+  const handleAddToReference = (content) => {
+    if (!content || typeof content !== 'string' || !content.trim()) return
+    const trimmed = content.trim()
+    setReferencePanelOpen(true)
+    setReferenceBlocks((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title: deriveRefTitle(trimmed),
+        content: trimmed,
+      },
+    ])
   }
 
   const loadRevisions = useCallback(() => {
@@ -128,6 +160,13 @@ export default function ArticleWriting() {
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
+
+  /** 参考信息持久化到 sessionStorage，实现跨页面、跨 session 共享与累积 */
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(STORAGE_KEY_REFERENCE_BLOCKS, JSON.stringify(referenceBlocks))
+    } catch (_) {}
+  }, [referenceBlocks])
 
   /** 接收来自 url_to_wiki 等「发送到写文章」的 initialMarkdown，创建新会话并填入 */
   useEffect(() => {
@@ -171,6 +210,23 @@ export default function ArticleWriting() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在有 initialMarkdown 时执行一次
   }, [])
 
+  /** 接收来自 Markdown/MediaWiki 预览等「添加到参考信息」的导航，将内容追加到参考块末尾 */
+  useEffect(() => {
+    const addToRef = location.state?.addToReference
+    if (!addToRef || typeof addToRef !== 'string' || !addToRef.trim()) return
+    navigate(location.pathname + location.search, { replace: true, state: {} })
+    const trimmed = addToRef.trim()
+    setReferencePanelOpen(true)
+    setReferenceBlocks((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title: deriveRefTitle(trimmed),
+        content: trimmed,
+      },
+    ])
+  }, [location.state?.addToReference])
+
   useEffect(() => {
     if (sessions.length === 0) return
     const ids = new Set(sessions.map((s) => s.session_id))
@@ -191,11 +247,6 @@ export default function ArticleWriting() {
         sessionStorage.removeItem(STORAGE_KEY_SELECTED_SESSION)
       }
     } catch (_) {}
-  }, [selectedSessionId])
-
-  useEffect(() => {
-    setReferenceBlocks([])
-    setReferencePanelOpen(false)
   }, [selectedSessionId])
 
   useEffect(() => {
@@ -279,7 +330,7 @@ export default function ArticleWriting() {
             })
             .join('\n\n')}\n\n---\n\n`
 
-    const messageForModel = referenceContext ? `${referenceContext}${text}` : text
+    const messageForModel = referenceContext ? `${referenceContext}【用户本次提问】\n${text}` : text
 
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
@@ -957,7 +1008,7 @@ export default function ArticleWriting() {
                     key={i}
                     className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div className={`max-w-[85%] ${m.role === 'user' ? '' : 'flex flex-col items-start'}`}>
+                    <div className={`max-w-[85%] ${m.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}>
                       <div
                         className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap ${
                           m.role === 'user'
@@ -969,6 +1020,17 @@ export default function ArticleWriting() {
                       >
                         {m.content}
                       </div>
+                      {m.role === 'user' && (
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleAddToReference(m.content)}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+                          >
+                            添加到参考信息
+                          </button>
+                        </div>
+                      )}
                       {m.role === 'assistant' && (
                         <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                           {extractPatchBlock(m.content) && (
@@ -1002,6 +1064,13 @@ export default function ArticleWriting() {
                           >
                             加入输入框
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddToReference(m.content)}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+                          >
+                            添加到参考信息
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1018,7 +1087,7 @@ export default function ArticleWriting() {
                       >
                         {streamingContent || 'thinking…'}
                       </div>
-                      <div className="mt-1.5 flex items-center gap-2">
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
                           onClick={handleStop}
@@ -1026,6 +1095,15 @@ export default function ArticleWriting() {
                         >
                           停止
                         </button>
+                        {streamingContent && (
+                          <button
+                            type="button"
+                            onClick={() => handleAddToReference(streamingContent)}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+                          >
+                            添加到参考信息
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1267,6 +1345,7 @@ export default function ArticleWriting() {
                 content={previewContent}
                 onSendToArticle={handleAddContentToInput}
                 sendToArticleLabel="加入输入框"
+                onAddToReference={handleAddToReference}
                 extra={
                   <button
                     type="button"

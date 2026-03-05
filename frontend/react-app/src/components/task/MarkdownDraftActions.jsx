@@ -74,6 +74,15 @@ export default function MarkdownDraftActions({
     })
   }
 
+  const handleAddToReference = () => {
+    const params = new URLSearchParams()
+    if (sourceUrl) params.set('source_url', sourceUrl)
+    if (suggestTitle) params.set('suggest_title', suggestTitle)
+    navigate(`/article-writing?${params.toString()}`, {
+      state: { addToReference: markdown },
+    })
+  }
+
   const handleCopy = () => {
     navigator.clipboard?.writeText(markdown).catch(() => {})
   }
@@ -106,6 +115,13 @@ export default function MarkdownDraftActions({
           onClick={handleSendToArticle}
         >
           发送到写文章
+        </button>
+        <button
+          type="button"
+          className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
+          onClick={handleAddToReference}
+        >
+          添加到参考信息
         </button>
         <button
           type="button"

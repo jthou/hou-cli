@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import TaskCard from './TaskCard'
 
-const STATUS_LABEL = { queued: '排队', running: '进行中', completed: '已完成' }
+const STATUS_LABEL = { queued: '排队', running: '进行中', completed: '已完成', failed: '失败' }
 
 export default function TaskListByTypePanel({
   taskType,
@@ -46,6 +46,7 @@ export default function TaskListByTypePanel({
     running: tasks.filter(t => t.status === 'running'),
     queued: tasks.filter(t => t.status === 'queued'),
     completed: tasks.filter(t => t.status === 'completed'),
+    failed: tasks.filter(t => t.status === 'failed'),
   }
 
   if (loading) {
@@ -76,7 +77,7 @@ export default function TaskListByTypePanel({
           刷新
         </button>
       </div>
-      {(['running', 'queued', 'completed']).map(status => {
+      {(['running', 'queued', 'failed', 'completed']).map(status => {
         const list = byStatus[status]
         if (!list.length) return null
         return (

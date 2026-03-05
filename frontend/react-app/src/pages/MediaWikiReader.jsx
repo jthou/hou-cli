@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import WikiPreview from '../components/WikiPreview'
 
 export default function MediaWikiReader() {
+  const navigate = useNavigate()
   const [termsInput, setTermsInput] = useState('')
   const [perTermLimit, setPerTermLimit] = useState(5)
   const [loading, setLoading] = useState(false)
@@ -194,6 +196,9 @@ export default function MediaWikiReader() {
                                   wikiText={page.content}
                                   className="min-h-[120px]"
                                   theme="dark"
+                                  onAddToReference={(content) =>
+                                    navigate('/article-writing', { state: { addToReference: content } })
+                                  }
                                 />
                               </div>
                             </details>

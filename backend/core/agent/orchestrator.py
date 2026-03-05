@@ -53,6 +53,7 @@ from backend.core.agent.system_prompt_templates import (
     SHORT_CHAT_SYSTEM_PROMPT,
 )
 from backend.core.agent.agent_tools_registry import get_tools_for_llm_by_agent
+from backend.core.agent.writing_profile import get_profile_block_for_prompt
 
 
 class UnifiedOrchestrator:
@@ -1479,6 +1480,11 @@ class SkillMatcher:
         )
         if mw_reference:
             task_with_article = mw_reference + task_with_article
+        # 注入写作画像（config/writing_profile.json），供模型遵循用户喜好与范文风格
+        profile_block = get_profile_block_for_prompt()
+        if profile_block:
+            task_with_article = profile_block + "\n\n" + task_with_article
+            self.debug.log_orchestrator_step("注入写作画像", {"length": len(profile_block)})
         # 构建 user_prompt（包含历史上下文）
         filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
         if filtered_history:
@@ -1486,7 +1492,7 @@ class SkillMatcher:
                 f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
                 for msg in filtered_history
             ])
-            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task_with_article}"
+            user_prompt = f"【历史对话】\n{history_text}\n\n【当前用户问题】\n{task_with_article}"
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
         else:
             user_prompt = task_with_article

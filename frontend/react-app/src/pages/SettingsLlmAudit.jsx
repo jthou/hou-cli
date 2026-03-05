@@ -41,6 +41,8 @@ function RecordCard({ record }) {
         <div className="text-sm">
           <p className="text-red-400 font-medium">{payload.error_type || 'Error'}</p>
           <pre className="text-muted whitespace-pre-wrap mt-1 bg-black/20 rounded p-2">{payload.error}</pre>
+          {payload.cause && <p className="text-amber-400/80 text-xs mt-2">底层原因: {payload.cause}</p>}
+          {payload.hint && <p className="text-amber-400/90 text-xs mt-2">{payload.hint}</p>}
           {payload.partial_preview && <p className="text-xs text-muted mt-2">局部输出: {payload.partial_preview.slice(0, 200)}...</p>}
         </div>
       )
