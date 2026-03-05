@@ -57,6 +57,31 @@ window.addEventListener('message', (event) => {
     }
     return
   }
+  if (event.data?.type === 'HOU_CLI_FETCH_PDF' && event.data?.url) {
+    const { url, requestId } = event.data
+    const rid = requestId || 'pdf-' + Date.now()
+    const forward = (res) => {
+      window.postMessage(
+        { type: 'HOU_CLI_FETCH_PDF_RESULT', requestId: rid, success: res.success, base64: res.base64, error: res.error },
+        '*'
+      )
+    }
+    const p = ensurePort()
+    if (p) {
+      const onResult = (msg) => {
+        if (msg.type !== 'HOU_CLI_FETCH_PDF_RESULT' || msg.requestId !== rid) return
+        p.onMessage.removeListener(onResult)
+        forward(msg)
+      }
+      p.onMessage.addListener(onResult)
+      p.postMessage({ type: 'HOU_CLI_FETCH_PDF', url, requestId: rid })
+    } else {
+      chrome.runtime.sendMessage({ action: 'fetch_pdf', url }, (r) => {
+        forward(r || { success: false, error: '扩展无响应' })
+      })
+    }
+    return
+  }
   if (event.data?.type !== 'HOU_CLI_FETCH' || !event.data?.url) return
   const { url, requestId, apiBase } = event.data
 

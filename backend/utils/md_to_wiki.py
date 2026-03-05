@@ -7,8 +7,9 @@ import re
 from typing import List, Tuple
 
 
-MATH_PLACEHOLDER_PREFIX = "__WIKIMATH_"
-MATH_PLACEHOLDER_SUFFIX = "__"
+# 使用 \x01 避免被 _ 或 __ 的强调正则误匹配
+MATH_PLACEHOLDER_PREFIX = "\x01WIKIMATH"
+MATH_PLACEHOLDER_SUFFIX = "\x01"
 
 
 def _md_extract_math_to_placeholders(md: str) -> Tuple[str, List[dict]]:
@@ -34,13 +35,13 @@ def _md_extract_math_to_placeholders(md: str) -> Tuple[str, List[dict]]:
 
 
 def _md_restore_math_placeholders(text: str, math_list: List[dict]) -> str:
-    """恢复公式占位符为 <math> 标签"""
+    """恢复公式占位符为 $ / $$（MediaWiki 原生支持）"""
     for i, m in enumerate(math_list):
         body = m["body"]
         if m["block"]:
-            tag = f'<math display="block">{body}</math>'
+            tag = f"$${body}$$"
         else:
-            tag = f"<math>{body}</math>"
+            tag = f"${body}$"
         key = f"{MATH_PLACEHOLDER_PREFIX}{i}{MATH_PLACEHOLDER_SUFFIX}"
         text = text.replace(key, tag)
     return text

@@ -19,6 +19,7 @@ from backend.infrastructure.execution.task_handlers import (
     process_weather_query_task,
     process_web_search_task,
     process_speech_to_text_task,
+    process_image_generation_task,
     validate_task_creation,
     get_available_task_types,
     get_linkable_upstream_types,
@@ -399,6 +400,92 @@ class TestValidateTaskCreation:
         assert ok is False
         assert "audio_format" in err and "取值无效" in err
 
+    def test_image_generation_missing_prompt(self):
+        ok, err = validate_task_creation("image_generation", {})
+        assert ok is False
+        assert "prompt" in err
+
+    def test_image_generation_valid_metadata(self):
+        ok, err = validate_task_creation(
+            "image_generation", {"prompt": "一只橘猫在阳光下打盹"}
+        )
+        assert ok is True
+        assert err is None
+
+
+class TestImageGenerationHandler:
+    """图片生成任务处理器"""
+
+    @pytest.mark.asyncio
+    async def test_image_generation_missing_prompt_returns_error_struct(self):
+        """缺 prompt 时返回统一错误结构"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_image_generation_task({
+                "task_id": "t1", "task_type": "image_generation", "metadata": {},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "PROMPT_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_image_generation_success_return_shape(self):
+        """mock ImageGenService 成功时返回 status/summary/data"""
+        mock_result = {
+            "images": ["data:image/png;base64,xxx"],
+            "output_file": str(Path.home() / "hou-cli" / "outputs" / "images" / "gen_0.png"),
+            "output_dir": str(Path.home() / "hou-cli" / "outputs" / "images"),
+            "prompt": "一只猫",
+        }
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            with patch(
+                "backend.services.llm.image_gen_service.ImageGenService"
+            ) as MockSvc:
+                mock_svc = MagicMock()
+                mock_svc.generate = AsyncMock(return_value=mock_result)
+                MockSvc.return_value = mock_svc
+                out = await process_image_generation_task({
+                    "task_id": "t1", "task_type": "image_generation",
+                    "metadata": {"prompt": "一只猫"},
+                })
+        assert out["status"] == "success"
+        assert "summary" in out
+        assert "data" in out
+        assert out["data"]["output_file"] == mock_result["output_file"]
+        assert out["data"]["prompt"] == "一只猫"
+
+    @pytest.mark.asyncio
+    async def test_image_generation_api_failure_returns_error_struct(self):
+        """ImageGenService 抛出异常时返回 IMAGE_GEN_FAILED"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            with patch(
+                "backend.services.llm.image_gen_service.ImageGenService"
+            ) as MockSvc:
+                mock_svc = MagicMock()
+                mock_svc.generate = AsyncMock(side_effect=RuntimeError("API 超时"))
+                MockSvc.return_value = mock_svc
+                out = await process_image_generation_task({
+                    "task_id": "t1", "task_type": "image_generation",
+                    "metadata": {"prompt": "一只猫"},
+                })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "IMAGE_GEN_FAILED"
+
+    @pytest.mark.asyncio
+    async def test_image_generation_output_dir_outside_home_returns_error(self):
+        """output_dir 在主目录外时返回 OUTPUT_PATH_DENIED"""
+        # /etc 等系统路径不在用户主目录下（Unix/Linux/macOS）
+        outside_home = "/etc"
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_image_generation_task({
+                "task_id": "t1", "task_type": "image_generation",
+                "metadata": {"prompt": "一只猫", "output_dir": outside_home},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "OUTPUT_PATH_DENIED"
+
 
 class TestPipelineLinkableUpstreams:
     """管道可链接性：pipeline_outputs / pipeline_accept 与 get_linkable_upstream_types"""
@@ -440,6 +527,17 @@ class TestPipelineLinkableUpstreams:
         out = get_linkable_upstream_types("unknown_type")
         assert out["linkable_task_types"] == []
         assert out["suggested_bindings"] == {}
+
+    def test_image_generation_has_pipeline_outputs(self):
+        """image_generation 任务类型包含 pipeline_outputs，可作为管道上游"""
+        types = get_available_task_types()
+        ig = next((t for t in types if t["type"] == "image_generation"), None)
+        assert ig is not None
+        outputs = ig.get("pipeline_outputs") or []
+        assert len(outputs) >= 1
+        out = outputs[0]
+        assert out.get("path") == "result.data.output_file"
+        assert out.get("format") == "image"
 
 
 class TestValidateInputPathInHome:

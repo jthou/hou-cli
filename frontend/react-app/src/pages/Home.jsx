@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PageHeader from '../components/PageHeader'
 import WeatherResultDisplay from '../components/WeatherResultDisplay'
 
 export default function Home() {
@@ -45,9 +46,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">首页</h1>
-      </header>
+      <PageHeader title="首页" />
       <div className="flex-1 flex overflow-hidden">
         {/* 左栏 */}
         <div className="w-full lg:w-1/2 border-r border-border overflow-y-auto p-6 space-y-4">

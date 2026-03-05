@@ -268,6 +268,25 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
     )
   }
 
+  if (taskType === 'image_generation' && result.data) {
+    const d = result.data
+    const hasImage = taskId && d.output_file
+    const streamUrl = hasImage ? `/api/task-queue/tasks/${taskId}/output-file` : null
+    return (
+      <div className="space-y-2 text-muted">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {streamUrl && (
+          <div className="mt-3 rounded-lg overflow-hidden border border-border">
+            <img src={streamUrl} alt="生成图" className="w-full object-contain max-h-[360px]" />
+          </div>
+        )}
+        {d.output_dir && <p><span className="text-muted">保存位置 </span><code className="text-cyan-300 break-all">{d.output_dir}</code></p>}
+        {d.output_file && <p><span className="text-muted">输出文件 </span><code className="text-cyan-300 break-all">{d.output_file}</code></p>}
+        {d.prompt && <p className="text-muted text-xs">提示词: {d.prompt}</p>}
+      </div>
+    )
+  }
+
   if (taskType === 'mediawiki_write' && result.data) {
     const d = result.data
     const pageUrl = d.title ? getMediaWikiPageUrl(d.title) : ''

@@ -29,6 +29,8 @@ AGENT_TOOLS: Dict[str, List[str]] = {
         "pdf_parser",
         "zhihu_zhida",
         "kanban_board",
+        "image_generation",
+        "text_to_image_prompt",
     ],
     "article_writing": [
         "browser",

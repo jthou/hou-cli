@@ -8,7 +8,7 @@ import re
 from typing import List, Optional
 from urllib.parse import unquote, urlparse, parse_qs
 
-import httpx
+import requests
 
 from .models import GoogleSearchResult, GoogleSearchResponse
 
@@ -57,17 +57,18 @@ def search(
     results: List[GoogleSearchResult] = []
 
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.post(
-                DDG_HTML_URL,
-                data={"q": query},
-                headers={"User-Agent": USER_AGENT},
-            )
-            resp.raise_for_status()
-            html = resp.text
-    except httpx.HTTPStatusError as e:
+        resp = requests.post(
+            DDG_HTML_URL,
+            data={"q": query},
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        resp.raise_for_status()
+        html = resp.text
+    except requests.exceptions.HTTPError as e:
         raise BrowserSearchError(f"DuckDuckGo 返回错误: {e.response.status_code}")
-    except httpx.RequestError as e:
+    except requests.exceptions.RequestException as e:
         raise BrowserSearchError(f"请求失败: {str(e)}")
 
     # 解析 HTML：DuckDuckGo HTML 版结果在 div.result 中，链接在 a.result__url

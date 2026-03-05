@@ -50,6 +50,16 @@ class ArticleRevisionStorage:
                 "CREATE INDEX IF NOT EXISTS idx_article_revisions_created "
                 "ON article_revisions(created_at DESC)"
             )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS article_wechat_metadata (
+                    session_id TEXT PRIMARY KEY,
+                    title TEXT,
+                    digest TEXT,
+                    author TEXT,
+                    thumb_media_id TEXT,
+                    updated_at TEXT NOT NULL
+                )
+            """)
             conn.commit()
         finally:
             conn.close()
@@ -165,3 +175,63 @@ class ArticleRevisionStorage:
         if self.set_current(session_id, content, source="user"):
             return content
         return None
+
+    def get_wechat_metadata(self, session_id: str) -> Optional[dict]:
+        """获取会话的公众号文章元数据（标题、摘要、作者、封面 media_id）。"""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT title, digest, author, thumb_media_id FROM article_wechat_metadata WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "title": row[0] or "",
+                "digest": row[1] or "",
+                "author": row[2] or "",
+                "thumb_media_id": row[3] or "",
+            }
+        finally:
+            conn.close()
+
+    def set_wechat_metadata(
+        self,
+        session_id: str,
+        title: str = "",
+        digest: str = "",
+        author: str = "",
+        thumb_media_id: str = "",
+    ) -> bool:
+        """保存会话的公众号文章元数据。"""
+        from datetime import datetime
+
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """
+                INSERT INTO article_wechat_metadata (session_id, title, digest, author, thumb_media_id, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    title = excluded.title,
+                    digest = excluded.digest,
+                    author = excluded.author,
+                    thumb_media_id = excluded.thumb_media_id,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    session_id,
+                    (title or "").strip(),
+                    (digest or "").strip()[:120],
+                    (author or "").strip()[:16],
+                    (thumb_media_id or "").strip(),
+                    datetime.utcnow().isoformat() + "Z",
+                ),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            return False
+        finally:
+            conn.close()

@@ -151,3 +151,31 @@ class TestChatRoutes:
             assert b"stream_chunk_A" in content
             assert b"stream_chunk_B" in content
 
+    def test_chat_stream_image_generation_markdown_in_response(self, client):
+        """E2E：图片生成时流式响应应包含 base64 图片的 Markdown 语法"""
+        img_b64 = "data:image/png;base64,iVBORw0KGgo="
+        image_markdown = f"\n\n![生成的图片]({img_b64})\n\n"
+
+        async def mock_stream_with_image(task, context=None):
+            yield "__DEBUG__:{}"
+            yield image_markdown
+
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.stream_process = mock_stream_with_image
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post(
+                "/api/chat/stream",
+                json={"message": "画一只猫"},
+            )
+
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers["content-type"]
+            content = b""
+            for chunk in response.iter_bytes():
+                content += chunk
+            content_str = content.decode("utf-8")
+            assert "![生成的图片]" in content_str
+            assert img_b64 in content_str
+

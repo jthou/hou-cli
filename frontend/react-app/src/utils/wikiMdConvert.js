@@ -5,8 +5,9 @@
  * 公式：MediaWiki 使用 <math>（已装 MathJax）；本应用统一用 $ 行内、$$ 行间，转换时互转。
  */
 
-const MATH_PLACEHOLDER_PREFIX = '__WIKIMATH_'
-const MATH_PLACEHOLDER_SUFFIX = '__'
+// 使用 \x01 避免被 _ 或 __ 的强调正则误匹配
+const MATH_PLACEHOLDER_PREFIX = '\x01WIKIMATH'
+const MATH_PLACEHOLDER_SUFFIX = '\x01'
 const CODE_PLACEHOLDER_PREFIX = '__WIKICODE_'
 const CODE_PLACEHOLDER_SUFFIX = '__'
 const NOWIKI_PLACEHOLDER_PREFIX = '__WIKINOWIKI_'
@@ -444,7 +445,7 @@ function mdRestoreMathPlaceholders(text, mathList) {
   let s = text
   for (let i = 0; i < mathList.length; i++) {
     const { block, body } = mathList[i]
-    const tag = block ? `<math display="block">${body}</math>` : `<math>${body}</math>`
+    const tag = block ? `$$${body}$$` : `$${body}$`
     s = s.replace(`${MATH_PLACEHOLDER_PREFIX}${i}${MATH_PLACEHOLDER_SUFFIX}`, tag)
   }
   return s

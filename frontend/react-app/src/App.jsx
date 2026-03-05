@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
+import ImageGeneration from './pages/ImageGeneration'
 import VideoExtractAudio from './pages/VideoExtractAudio'
 import SpeechToText from './pages/SpeechToText'
 import WeatherQuery from './pages/WeatherQuery'
@@ -16,6 +17,7 @@ import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
 import SettingsLlmAudit from './pages/SettingsLlmAudit'
+import SettingsNetworkAudit from './pages/SettingsNetworkAudit'
 import SettingsSystemPromptAudit from './pages/SettingsSystemPromptAudit'
 import SettingsModelConfigAudit from './pages/SettingsModelConfigAudit'
 import SettingsKanban from './pages/SettingsKanban'
@@ -42,6 +44,7 @@ export default function App() {
               <Route path="/tasks" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />
+              <Route path="/image-generation" element={<ImageGeneration />} />
               <Route path="/video-extract-audio" element={<VideoExtractAudio />} />
               <Route path="/speech-to-text" element={<SpeechToText />} />
               <Route path="/weather-query" element={<WeatherQuery />} />
@@ -57,6 +60,7 @@ export default function App() {
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
+              <Route path="/settings/network-audit" element={<SettingsNetworkAudit />} />
               <Route path="/settings/system-prompt-audit" element={<SettingsSystemPromptAudit />} />
               <Route path="/settings/model-config-audit" element={<SettingsModelConfigAudit />} />
               <Route path="/settings/kanban" element={<SettingsKanban />} />

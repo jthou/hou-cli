@@ -285,6 +285,29 @@ class ContextManager:
             self.storage.set_session_article(session_id, content)
         return content
 
+    def get_article_wechat_metadata(self, session_id: str) -> Optional[dict]:
+        """获取会话的公众号文章元数据（标题、摘要、作者、封面 media_id）。"""
+        ast = self._get_article_storage()
+        if not ast or not hasattr(ast, "get_wechat_metadata"):
+            return None
+        return ast.get_wechat_metadata(session_id)
+
+    def set_article_wechat_metadata(
+        self,
+        session_id: str,
+        title: str = "",
+        digest: str = "",
+        author: str = "",
+        thumb_media_id: str = "",
+    ) -> bool:
+        """保存会话的公众号文章元数据。"""
+        ast = self._get_article_storage()
+        if not ast or not hasattr(ast, "set_wechat_metadata"):
+            return False
+        return ast.set_wechat_metadata(
+            session_id, title=title, digest=digest, author=author, thumb_media_id=thumb_media_id
+        )
+
     def get_mw_source_titles(self, session_id: str) -> List[str]:
         """获取会话的参考 MediaWiki 页面标题列表（写文章用）。"""
         if hasattr(self.storage, "get_session_mw_sources"):

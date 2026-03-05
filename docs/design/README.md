@@ -93,6 +93,15 @@
   - Rich 库使用指南
   - UI 组件说明
 
+### 功能设计
+
+- **[image-generation-system-design.md](./image-generation-system-design.md)** - 图片生成系统设计
+  - 文生图工具、长文本转提示词 subagent
+  - 任务型前端、Agent 集成、实现顺序
+
+- **[video-downloader-tool-design.md](./video-downloader-tool-design.md)** - 视频下载工具设计
+  - 多平台下载、工具选择与降级策略
+
 ## 文档阅读顺序建议
 
 ### 新开发者

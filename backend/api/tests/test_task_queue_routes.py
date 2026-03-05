@@ -88,6 +88,36 @@ class TestTaskQueueRoutes:
         assert "无效的任务类型" in data["detail"]
         assert "invalid_type" in data["detail"]
 
+    def test_create_task_image_generation_success(self, client, mock_task_queue_db):
+        """E2E：创建图片生成任务成功"""
+        mock_task_queue_db.create_task.return_value = "img-gen-task-1"
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={
+                    "task_type": "image_generation",
+                    "task_name": "生成猫咪图",
+                    "metadata": {"prompt": "一只橘猫在阳光下打盹，写实风格"},
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["task_id"] == "img-gen-task-1"
+        mock_task_queue_db.create_task.assert_called_once()
+        call_metadata = mock_task_queue_db.create_task.call_args[1]["metadata"]
+        assert call_metadata["prompt"] == "一只橘猫在阳光下打盹，写实风格"
+
+    def test_create_task_image_generation_missing_prompt_returns_400(self, client, mock_task_queue_db):
+        """image_generation 缺少必填 prompt 时返回 400"""
+        with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "image_generation", "metadata": {}},
+            )
+        assert response.status_code == 400
+        assert "prompt" in response.json()["detail"]
+
     def test_create_task_weather_query_missing_location(self, client, mock_task_queue_db):
         """测试 weather_query 缺少必填 location 时返回 400"""
         with patch('backend.api.task_queue_routes.get_task_queue_db', return_value=mock_task_queue_db):

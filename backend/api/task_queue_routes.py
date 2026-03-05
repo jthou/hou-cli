@@ -486,11 +486,18 @@ async def list_tasks(
             task_types=task_types,
             pipeline_only=pipeline_only,
         )
-        
+        total = task_queue_db.count_tasks(
+            status=task_status,
+            include_deleted=include_deleted,
+            created_by_schedule_id=created_by_schedule_id or None,
+            task_types=task_types,
+            pipeline_only=pipeline_only,
+        )
         return {
             "success": True,
             "tasks": tasks,
-            "count": len(tasks)
+            "count": len(tasks),
+            "total": total,
         }
     except HTTPException:
         raise

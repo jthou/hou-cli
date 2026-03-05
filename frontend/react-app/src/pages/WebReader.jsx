@@ -3,9 +3,18 @@ import { useNavigate } from 'react-router-dom'
 import { htmlToMd } from '../utils/mdToHtml'
 import MarkdownPreview from '../components/MarkdownPreview'
 import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
+import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
+import ExtensionInstallFooter from '../components/ExtensionInstallFooter'
+import PasteButton from '../components/PasteButton'
+import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/ToastModal'
+import { useExtensionReady } from '../hooks/useExtensionReady'
+import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
+import { saveScreenshots, clearScreenshots, loadScreenshots, saveLastRead, loadLastRead } from '../utils/webReaderIndexedDB'
 
 const REQUEST_ID_PREFIX = 'web-reader-'
+const STORAGE_KEY_LAST_LEGACY = 'hou-cli-web-reader-last' // 迁移用
+const SAVE_DEBOUNCE_MS = 600
 
 export default function WebReader() {
   const navigate = useNavigate()
@@ -16,10 +25,80 @@ export default function WebReader() {
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [loadingOcr, setLoadingOcr] = useState(false)
-  const [extensionReady, setExtensionReady] = useState(false)
+  const extensionReady = useExtensionReady()
   const [viewMode, setViewMode] = useState('markdown') // 'text' | 'html' | 'markdown'
   const timeoutRef = useRef(null)
   const ocrRequestedRef = useRef(null)
+  const saveDebounceRef = useRef(null)
+
+  /** 恢复上次阅读内容（异步 IndexedDB，避免 localStorage 同步阻塞） */
+  useEffect(() => {
+    if (data || loading) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        let saved = await loadLastRead()
+        if (!saved) {
+          const raw = localStorage.getItem(STORAGE_KEY_LAST_LEGACY)
+          if (raw) {
+            try {
+              saved = JSON.parse(raw)
+              if (saved?.markdown || saved?.content) {
+                await saveLastRead(saved)
+                localStorage.removeItem(STORAGE_KEY_LAST_LEGACY)
+              }
+            } catch (_) {}
+          }
+        }
+        if (!saved?.markdown && !saved?.content) return
+        let screenshots = null
+        if (saved.url) {
+          screenshots = await loadScreenshots(saved.url)
+        }
+        if (cancelled) return
+        setData({
+          url: saved.url,
+          title: saved.title || '上次阅读',
+          markdown: saved.markdown || saved.content || '',
+          content: saved.content || saved.markdown || '',
+          html: saved.html || '',
+          screenshots: screenshots || undefined,
+          pendingOcr: false,
+        })
+        if (saved.urlInput) setUrlInput(saved.urlInput)
+        if (saved.viewMode) setViewMode(saved.viewMode)
+      } catch (_) {}
+    }
+    run()
+    return () => { cancelled = true }
+  }, [])
+
+  /** 异步保存上次阅读内容（防抖 + IndexedDB，避免主线程阻塞） */
+  useEffect(() => {
+    if (!data?.markdown && !data?.content) return
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    saveDebounceRef.current = setTimeout(() => {
+      saveDebounceRef.current = null
+      const toSave = {
+        url: data.url,
+        urlInput,
+        title: data.title,
+        markdown: data.markdown || '',
+        content: data.content || '',
+        html: data.html || '',
+        viewMode,
+      }
+      saveLastRead(toSave).catch(() => {})
+    }, SAVE_DEBOUNCE_MS)
+    if (data.screenshots?.length) {
+      saveScreenshots(data.url, data.screenshots)
+    } else {
+      clearScreenshots()
+    }
+    return () => {
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    }
+  }, [data?.url, data?.title, data?.markdown, data?.content, data?.html, data?.screenshots, urlInput, viewMode])
 
   useEffect(() => {
     if (enlargedImageIndex == null || !data?.screenshots?.length) return
@@ -60,41 +139,10 @@ export default function WebReader() {
     return html.replace(/<\/body\s*>/i, clickScript + '</body>')
   }
 
-  useEffect(() => {
-    const check = () => {
-      if (window.__HOU_CLI_EXTENSION_LOADED) {
-        setExtensionReady(true)
-        return true
-      }
-      return false
-    }
-    if (check()) return
-    const handler = (e) => {
-      if (e.data?.type === 'HOU_CLI_PONG') {
-        setExtensionReady(true)
-        window.removeEventListener('message', handler)
-      }
-    }
-    window.addEventListener('message', handler)
-    const ping = () => {
-      if (window.__HOU_CLI_EXTENSION_LOADED) return
-      window.postMessage({ type: 'HOU_CLI_PING' }, '*')
-    }
-    ping()
-    const id = setInterval(() => {
-      if (check()) {
-        clearInterval(id)
-        return
-      }
-      ping()
-    }, 600)
-    const stop = setTimeout(() => clearInterval(id), 15000)
-    return () => {
-      clearInterval(id)
-      clearTimeout(stop)
-      window.removeEventListener('message', handler)
-    }
-  }, [])
+  const handlePasteFromClipboard = usePasteFromClipboard({
+    onPaste: (text) => setUrlInput(text),
+    toast,
+  })
 
   const doRead = useCallback((url) => {
     const u = (url || '').trim()
@@ -184,16 +232,6 @@ export default function WebReader() {
       .finally(() => setLoadingOcr(false))
   }, [data?.screenshots, data?.pendingOcr])
 
-  const handlePasteFromClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (text?.trim()) setUrlInput(text.trim())
-      else toast?.warning?.('剪贴板为空')
-    } catch (e) {
-      toast?.error?.('读取剪贴板失败：' + (e?.message || '请检查权限'))
-    }
-  }
-
   const handleRead = (e) => {
     e.preventDefault()
     const url = (urlInput || '').trim()
@@ -210,13 +248,10 @@ export default function WebReader() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">网页阅读</h1>
-        <p className="mt-1 text-sm text-muted">
-          通过浏览器扩展抓取网页正文，复用当前浏览器的登录态（Cookie）。
-          微信读书使用截图 + Qwen-VL OCR 提取，需配置 BAILIAN_API_KEY。
-        </p>
-      </header>
+      <PageHeader
+        title="网页阅读"
+        subtitle="通过浏览器扩展抓取网页正文，复用当前浏览器的登录态（Cookie）。微信读书使用截图 + Qwen-VL OCR 提取，需配置 BAILIAN_API_KEY。"
+      />
 
       <div className="flex-1 overflow-hidden flex">
         <div className="flex flex-col w-[45%] min-w-[320px] max-w-[600px] border-r border-border shrink-0">
@@ -229,14 +264,7 @@ export default function WebReader() {
                 placeholder="https://example.com/article"
                 className="flex-1 min-w-0 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none text-sm"
               />
-              <button
-                type="button"
-                onClick={handlePasteFromClipboard}
-                title="从剪贴板获取 URL"
-                className="px-3 py-2 border border-border rounded-lg text-muted hover:text-fg hover:bg-white/5 text-sm shrink-0"
-              >
-                粘贴
-              </button>
+              <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板获取 URL" />
               <button
                 type="submit"
                 disabled={loading || loadingOcr || !extensionReady}
@@ -245,24 +273,7 @@ export default function WebReader() {
                 {loading ? '抓取中…' : loadingOcr ? '识别中…' : !extensionReady ? '等待扩展…' : '读取'}
               </button>
             </form>
-            {!extensionReady && (
-              <div className="text-xs text-amber-400 space-y-1">
-                <p>未检测到扩展。请确认：</p>
-                <ul className="list-disc list-inside ml-1">
-                  <li>已安装 Hou CLI 网页阅读助手扩展（chrome://extensions 加载 <code className="bg-white/5 px-1 rounded">extension</code> 目录）</li>
-                  <li>本页通过 <code className="bg-white/5 px-1 rounded">localhost</code> 或 <code className="bg-white/5 px-1 rounded">127.0.0.1</code> 访问（当前：<code className="bg-white/5 px-1 rounded">{window.location.host}</code>）</li>
-                  <li>在 Chrome/Edge 中打开，非编辑器内置浏览器</li>
-                  <li>安装后<strong>刷新本页面</strong></li>
-                </ul>
-                <button
-                  type="button"
-                  onClick={() => window.postMessage({ type: 'HOU_CLI_PING' }, '*')}
-                  className="mt-2 px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-amber-300"
-                >
-                  再次检测
-                </button>
-              </div>
-            )}
+            {!extensionReady && <ExtensionNotReadyHint />}
             {error && <p className="text-xs text-red-400">{error}</p>}
           </div>
           <div className="flex-1 min-h-0 border-t border-border overflow-auto w-full">
@@ -307,10 +318,7 @@ export default function WebReader() {
               </div>
             )}
           </div>
-          <div className="shrink-0 p-3 text-xs text-muted border-t border-border space-y-1">
-            <p><strong>安装扩展：</strong>chrome://extensions → 开发者模式 → 加载 <code className="bg-white/5 px-1 rounded">extension</code> 目录</p>
-            <p>需在 Chrome/Edge 中打开本页，编辑器内置浏览器无法使用扩展。</p>
-          </div>
+          <ExtensionInstallFooter />
         </div>
 
         <div className="min-w-0 flex-1 overflow-y-auto bg-white/[0.02] p-6">

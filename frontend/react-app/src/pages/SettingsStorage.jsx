@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PageHeader from '../components/PageHeader'
 
 export default function SettingsStorage() {
   const [config, setConfig] = useState(null)
@@ -34,9 +35,7 @@ export default function SettingsStorage() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">存储配置</h1>
-      </header>
+      <PageHeader title="存储配置" />
       <div className="flex-1 overflow-y-auto p-6 max-w-4xl space-y-6">
         {loading && <p className="text-muted text-sm">加载中…</p>}
         {error && <p className="text-sm text-red-400">获取存储配置失败：{error}</p>}

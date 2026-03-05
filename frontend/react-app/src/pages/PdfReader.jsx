@@ -1,8 +1,18 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import MarkdownPreview from '../components/MarkdownPreview'
+import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
+import ExtensionInstallFooter from '../components/ExtensionInstallFooter'
+import PasteButton from '../components/PasteButton'
+import PageHeader from '../components/PageHeader'
+import { useExtensionReady } from '../hooks/useExtensionReady'
+import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
+import { mdToWiki } from '../utils/wikiMdConvert'
+import { requestPdfFromExtension } from '../utils/extensionCookies'
 
 export default function PdfReader() {
+  const navigate = useNavigate()
   const toast = useToast()
   const [filePath, setFilePath] = useState('')
   const [pageCount, setPageCount] = useState(null)
@@ -22,6 +32,13 @@ export default function PdfReader() {
   const [downloadStatus, setDownloadStatus] = useState('')
   const [sourceOriginal, setSourceOriginal] = useState('')
   const [recentSources, setRecentSources] = useState([])
+
+  const [mwDialogOpen, setMwDialogOpen] = useState(false)
+  const [mwTitle, setMwTitle] = useState('')
+  const [mwSummary, setMwSummary] = useState('')
+  const [mwSubmitting, setMwSubmitting] = useState(false)
+  const extensionReady = useExtensionReady()
+  const [loadingResolve, setLoadingResolve] = useState(false)
 
   const pdfViewUrl =
     filePath && filePath.trim()
@@ -94,6 +111,50 @@ export default function PdfReader() {
     setMergedPages([])
   }
 
+  const handlePasteFromClipboard = usePasteFromClipboard({
+    onPaste: (text) => setSourceInput(text),
+    toast,
+  })
+
+  const handleCopyContent = () => {
+    const content =
+      mergedPagesSorted.length > 0
+        ? mergedPreviewText
+        : (pageText || '').trim() || '(该页未提取到文字内容)'
+    if (!content.trim()) {
+      toast?.warning?.('没有可复制的内容')
+      return
+    }
+    navigator.clipboard?.writeText(content).then(
+      () => toast?.info?.('已复制到剪贴板'),
+      () => toast?.error?.('复制失败')
+    )
+  }
+
+  const handleSendToArticle = () => {
+    const content =
+      mergedPagesSorted.length > 0
+        ? mergedPreviewText
+        : (pageText || '').trim() || ''
+    if (!content.trim()) {
+      toast?.warning?.('没有可发送的内容')
+      return
+    }
+    navigate('/article-writing', { state: { initialMarkdown: content } })
+  }
+
+  const handleAddToReference = () => {
+    const content =
+      mergedPagesSorted.length > 0
+        ? mergedPreviewText
+        : (pageText || '').trim() || ''
+    if (!content.trim()) {
+      toast?.warning?.('没有可添加的内容')
+      return
+    }
+    navigate('/article-writing', { state: { addToReference: content } })
+  }
+
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -164,39 +225,65 @@ export default function PdfReader() {
       toast.warning('请输入 PDF 路径或 URL')
       return
     }
-    setDownloadStatus('下载/解析中…')
+    const isUrl = src.startsWith('http://') || src.startsWith('https://')
+    if (isUrl && !extensionReady) {
+      toast.warning('加载在线 PDF 需安装 Hou CLI 扩展，请在 chrome://extensions 加载 extension 目录')
+      return
+    }
+    setLoadingResolve(true)
+    setDownloadStatus('加载中…')
     setError(null)
     try {
-      const res = await fetch('/api/pdf/resolve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: src }),
-      })
-      const json = await res.json()
-      if (!res.ok || !json.success || !json.file_path) {
-        throw new Error(json.detail || json.message || '下载或解析失败')
+      let resolvedPath
+      if (isUrl) {
+        setDownloadStatus('通过扩展获取 PDF…')
+        const extRes = await requestPdfFromExtension(src, 60000)
+        if (!extRes.success || !extRes.base64) {
+          throw new Error(extRes.error || '扩展获取失败')
+        }
+        setDownloadStatus('上传到服务器…')
+        const uploadRes = await fetch('/api/pdf/upload-from-extension', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64: extRes.base64, original_url: src }),
+        })
+        const uploadJson = await uploadRes.json()
+        if (!uploadRes.ok || !uploadJson.success || !uploadJson.file_path) {
+          throw new Error(uploadJson.detail || uploadJson.message || '上传失败')
+        }
+        resolvedPath = uploadJson.file_path
+        setDownloadStatus(`已通过扩展加载: ${src.split('/').slice(-1)[0] || src}`)
+      } else {
+        setDownloadStatus('解析本地路径…')
+        const res = await fetch('/api/pdf/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: src }),
+        })
+        const json = await res.json()
+        if (!res.ok || !json.success || !json.file_path) {
+          throw new Error(json.detail || json.message || '解析失败')
+        }
+        resolvedPath = json.file_path
+        setDownloadStatus(`已解析本地路径: ${resolvedPath.split('/').slice(-1)[0] || resolvedPath}`)
       }
-      const resolvedPath = json.file_path
       setFilePath(resolvedPath)
-      setSourceOriginal(json.original || src)
-      setDownloadStatus(
-        json.downloaded
-          ? `已从网络下载到本地: ${resolvedPath}`
-          : `已解析本地路径: ${resolvedPath}`
-      )
+      setSourceOriginal(src)
       setPageCount(null)
       setCurrentPage(1)
       setPageText('')
       setMergedPages([])
       setUseCurrentPageContext(true)
       setUseMergedContext(false)
-      saveRecentSource(json.original || src, resolvedPath)
+      saveRecentSource(src, resolvedPath)
       await fetchPage(resolvedPath, 1)
     } catch (err) {
       const msg = err.message || String(err)
-      setDownloadStatus(`下载/解析失败: ${msg}`)
+      setDownloadStatus(`加载失败: ${msg}`)
       setError(msg)
       toast.error('加载 PDF 失败: ' + msg)
+    } finally {
+      setLoadingResolve(false)
     }
   }
 
@@ -282,17 +369,72 @@ export default function PdfReader() {
     }
   }
 
+  const submitMediaWikiOutput = async () => {
+    const title = (mwTitle || '').trim()
+    if (!title) {
+      toast.warning('请输入页面标题')
+      return
+    }
+    const content =
+      mergedPagesSorted.length > 0
+        ? mergedPreviewText
+        : (pageText || '').trim() || '(该页未提取到文字内容)'
+    if (!content.trim()) {
+      toast.warning('没有可写入的内容')
+      return
+    }
+    setMwSubmitting(true)
+    try {
+      const wikitext = mdToWiki(content)
+      const res = await fetch('/api/task-queue/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_type: 'mediawiki_write',
+          priority: 2,
+          max_retries: 3,
+          metadata: {
+            title,
+            content: wikitext,
+            summary: (mwSummary || '').trim() || (filePath ? `从 PDF 导入: ${filePath.split('/').slice(-1)[0]}` : '从 PDF 导入'),
+          },
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.task_id) {
+        toast.info(`已创建 MediaWiki 写入任务 ${data.task_id.slice(0, 8)}…`)
+        setMwDialogOpen(false)
+        setMwTitle('')
+        setMwSummary('')
+      } else {
+        throw new Error(data.detail || data.message || '创建任务失败')
+      }
+    } catch (e) {
+      toast.error(e?.message || '创建任务失败')
+    } finally {
+      setMwSubmitting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">PDF阅读</h1>
-      </header>
+      <PageHeader
+        title="PDF阅读"
+        subtitle="支持本地 PDF 或在线 URL（在线需安装 Hou CLI 扩展）。可提取页文字、合并多页、写入 MediaWiki。"
+      />
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧：PDF 选择 + 浏览器原生 PDF 预览 + 页文字 */}
-        <div className="w-1/2 border-r border-border overflow-y-auto p-6 space-y-4">
+        <div className="flex flex-col w-1/2 border-r border-border shrink-0 min-w-0">
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
           <section className="space-y-3">
             <h2 className="text-sm font-semibold text-white">选择 PDF</h2>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (sourceInput.trim()) handleResolveAndLoad()
+              }}
+              className="flex flex-wrap items-center gap-3 text-xs text-muted"
+            >
               <div className="flex items-center gap-2">
                 <label className="px-3 py-2 rounded-lg border border-border text-sm text-muted hover:text-fg hover:bg-white/5 cursor-pointer">
                   选择本地 PDF
@@ -309,27 +451,61 @@ export default function PdfReader() {
                   type="text"
                   value={sourceInput}
                   onChange={(e) => setSourceInput(e.target.value)}
-                  placeholder="或输入服务器上的 PDF 路径 / 在线 URL，点击右侧加载"
+                  placeholder="本地路径或在线 URL（在线需安装 Hou CLI 扩展）"
                   className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-xs text-white placeholder-muted focus:border-accent focus:outline-none"
                 />
               </div>
+              <PasteButton onClick={handlePasteFromClipboard} size="sm" />
               <button
-                type="button"
-                onClick={handleResolveAndLoad}
-                className="px-3 py-2 border border-border rounded-lg text-xs text-muted hover:text-fg hover:bg-white/5"
+                type="submit"
+                disabled={
+                  loadingResolve ||
+                  (sourceInput.trim() && (sourceInput.startsWith('http://') || sourceInput.startsWith('https://')) && !extensionReady)
+                }
+                title={
+                  sourceInput.trim() && (sourceInput.startsWith('http://') || sourceInput.startsWith('https://')) && !extensionReady
+                    ? '加载在线 PDF 需先安装 Hou CLI 扩展'
+                    : undefined
+                }
+                className="px-3 py-2 border border-border rounded-lg text-xs text-muted hover:text-fg hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                加载
+                {loadingResolve
+                  ? '加载中…'
+                  : sourceInput.trim() && (sourceInput.startsWith('http://') || sourceInput.startsWith('https://')) && !extensionReady
+                    ? '等待扩展…'
+                    : '加载'}
               </button>
-            </div>
+            </form>
             {downloadStatus && (
               <p className="mt-1 text-[11px] text-muted break-all">
                 {downloadStatus}
               </p>
             )}
+            {!extensionReady && (
+              <div className="mt-2">
+                <ExtensionNotReadyHint compact />
+              </div>
+            )}
             {recentSources.length > 0 && (
               <div className="mt-2 text-[11px] text-muted space-y-1">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span>最近打开的 PDF</span>
+                  {!filePath && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const first = recentSources[0]
+                        const src = first?.original || first?.file_path
+                        if (src) {
+                          setSourceInput(src)
+                          handleResolveAndLoad(src)
+                        }
+                      }}
+                      className="text-amber-400/90 hover:text-amber-400"
+                    >
+                      恢复上次
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="text-[11px] text-muted hover:text-fg"
@@ -486,6 +662,8 @@ export default function PdfReader() {
               )}
             </section>
           )}
+          </div>
+          <ExtensionInstallFooter />
         </div>
 
         {/* 右侧：合并预览 + 对话窗口 */}
@@ -593,7 +771,28 @@ export default function PdfReader() {
           )}
 
           {filePath && (pageText || mergedPagesSorted.length > 0) && (
-            <div className="mt-4 pt-3 border-t border-border flex items-center justify-end gap-3">
+            <div className="mt-4 pt-3 border-t border-border flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCopyContent}
+                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
+              >
+                复制
+              </button>
+              <button
+                type="button"
+                onClick={handleSendToArticle}
+                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
+              >
+                加入写文章
+              </button>
+              <button
+                type="button"
+                onClick={handleAddToReference}
+                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
+              >
+                添加到参考信息
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -603,7 +802,7 @@ export default function PdfReader() {
                 }}
                 className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
               >
-                当前页写入 MediaWiki
+                写入 MediaWiki
               </button>
             </div>
           )}

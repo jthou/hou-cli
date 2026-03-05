@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PageHeader from '../components/PageHeader'
 
 const DARK_STORAGE_KEY = 'hou-cli-dark-mode'
 
@@ -22,9 +23,7 @@ export default function SettingsGeneral() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-fg">常规设置</h1>
-      </header>
+      <PageHeader title="常规设置" titleClassName="text-fg" />
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl">
         <div className="space-y-6">
           <section>

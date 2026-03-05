@@ -3,6 +3,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/ToastModal'
+import PageHeader from '../components/PageHeader'
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import HtmlPreview from '../components/HtmlPreview'
@@ -196,15 +197,17 @@ export default function WechatDraftPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="shrink-0 px-6 py-4 border-b border-border flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-white">公众号草稿</h1>
-        <button
-          onClick={openAddForm}
-          className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
-        >
-          + 新建草稿
-        </button>
-      </div>
+      <PageHeader
+        title="公众号草稿"
+        actions={
+          <button
+            onClick={openAddForm}
+            className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
+          >
+            + 新建草稿
+          </button>
+        }
+      />
 
       <div className="flex-1 flex min-h-0">
         {/* 左侧：草稿列表 */}

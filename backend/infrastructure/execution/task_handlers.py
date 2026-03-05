@@ -431,6 +431,54 @@ TASK_TYPES = {
             },
         }
     },
+    "image_generation": {
+        "name": "图片生成",
+        "description": "根据文本描述生成图片。请输入简短描述（50–200 字），长文本请使用 Chat 的「根据文章生成配图」功能。",
+        "pipeline_outputs": [
+            {
+                "path": "result.data.output_file",
+                "type": "file",
+                "format": "image",
+                "description": "输出图片文件路径",
+            }
+        ],
+        "metadata_schema": {
+            "prompt": {
+                "type": "string",
+                "required": True,
+                "description": "图片描述（建议 50–200 字）",
+                "placeholder": "如：一只橘猫在阳光下打盹，写实风格",
+            },
+            "model": {
+                "type": "string",
+                "required": False,
+                "default": "wan2.6-t2i",
+                "enum": [
+                    {"value": "wan2.6-t2i", "label": "万相文生图"},
+                    {"value": "wan2.6-image", "label": "万相图像"},
+                    {"value": "qwen-image-max-2025-12-30", "label": "通义 Image Max"},
+                    {"value": "qwen-image-plus-2026-01-09", "label": "通义 Image Plus"},
+                ],
+            },
+            "size": {
+                "type": "string",
+                "required": False,
+                "default": "1024*1024",
+                "enum": [
+                    {"value": "1024*1024", "label": "1024×1024"},
+                    {"value": "1280*720", "label": "1280×720"},
+                    {"value": "720*1280", "label": "720×1280"},
+                    {"value": "1280*1280", "label": "1280×1280"},
+                ],
+            },
+            "output_dir": {
+                "type": "string",
+                "required": False,
+                "description": "保存目录，须在用户主目录下",
+                "placeholder": "留空使用 ~/hou-cli/outputs/images",
+            },
+        },
+    },
     "url_to_wiki": {
         "name": "网文抓取",
         "description": "抓取指定 URL 正文，翻译成中文后生成 Markdown 草稿，可按需写入 MediaWiki",
@@ -1220,6 +1268,14 @@ PDF_TO_WIKI_CHUNK_CHARS = 8000
 PDF_TO_WIKI_PAGES_PER_CHUNK = 10
 
 
+# 浏览器风格请求头，避免部分站点（如 ti.com.cn）拦截非浏览器请求
+_DOWNLOAD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/pdf,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+
 def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
     """将 PDF URL 下载到临时文件。返回 (临时文件路径, 字节数)。超过 PDF_TO_WIKI_MAX_FILE_BYTES 抛 ValueError。"""
     import tempfile
@@ -1229,7 +1285,11 @@ def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
         temp_path = f.name
     try:
         with httpx.stream(
-            "GET", url, follow_redirects=True, timeout=PDF_TO_WIKI_DOWNLOAD_TIMEOUT
+            "GET",
+            url,
+            follow_redirects=True,
+            timeout=PDF_TO_WIKI_DOWNLOAD_TIMEOUT,
+            headers=_DOWNLOAD_HEADERS,
         ) as r:
             r.raise_for_status()
             cl = r.headers.get("content-length")
@@ -1898,6 +1958,67 @@ async def process_wiki_directory_refresh_task(task_info: Dict[str, Any]) -> Dict
     }
 
 
+async def process_image_generation_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理图片生成任务。直接调用 ImageGenService，output_dir 使用 normalize_output_dir(restrict_to_home=True)。"""
+    metadata = task_info.get("metadata") or {}
+    worker = get_task_worker()
+
+    prompt = (metadata.get("prompt") or "").strip()
+    if not prompt:
+        return _err("PROMPT_REQUIRED", "缺少提示词", "prompt 参数是必需的")
+
+    from shared.platform_utils import get_default_output_dir, normalize_output_dir
+
+    output_dir_raw = (metadata.get("output_dir") or "").strip()
+    default_out = get_default_output_dir() / "images"
+    if output_dir_raw:
+        out_path = Path(output_dir_raw).expanduser().resolve()
+        ok, err_msg = _validate_output_path_in_home(out_path)
+        if not ok:
+            return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_msg or "输出路径须在用户主目录下")
+        out_path = normalize_output_dir(output_dir_raw, restrict_to_home=True)
+        out_dir = str(out_path)
+    else:
+        out_path = normalize_output_dir(str(default_out), restrict_to_home=True)
+        out_dir = str(out_path)
+
+    model = metadata.get("model") or "wan2.6-t2i"
+    size = metadata.get("size") or "1024*1024"
+
+    worker.update_task_progress(0, "正在生成图片...")
+
+    try:
+        from backend.services.llm.image_gen_service import ImageGenService
+
+        svc = ImageGenService()
+        result = await svc.generate(
+            prompt=prompt,
+            model=model,
+            size=size,
+            n=1,
+            output_dir=out_dir,
+        )
+    except Exception as e:
+        logger.exception("图片生成失败")
+        return _err("IMAGE_GEN_FAILED", "图片生成失败", str(e), details=traceback.format_exc())
+
+    worker.update_task_progress(100, "生成完成")
+
+    output_file = result.get("output_file") or ""
+    output_dir_res = result.get("output_dir") or out_dir
+    summary = f"已保存至 {output_dir_res}" if output_file else "生成完成"
+
+    return {
+        "status": "success",
+        "summary": summary,
+        "data": {
+            "output_file": output_file,
+            "output_dir": output_dir_res,
+            "prompt": prompt,
+        },
+    }
+
+
 def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
@@ -1911,6 +2032,7 @@ def register_default_handlers():
     worker.register_handler("pdf_to_wiki", process_pdf_to_wiki_task)
     worker.register_handler("wiki_directory_refresh", process_wiki_directory_refresh_task)
     worker.register_handler("wechat_mp_draft", process_wechat_mp_draft_task)
+    worker.register_handler("image_generation", process_image_generation_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 
 

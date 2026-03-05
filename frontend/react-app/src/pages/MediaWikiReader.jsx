@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import PageHeader from '../components/PageHeader'
 import WikiPreview from '../components/WikiPreview'
 
 export default function MediaWikiReader() {
@@ -45,15 +46,10 @@ export default function MediaWikiReader() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white">Wiki阅读</h1>
-          <p className="mt-1 text-sm text-muted">
-            按多个关键词从 MediaWiki 中抓取现有页面，用于阅读和修改。
-            适合基于已有知识库做查阅，不会抓取外部网页。
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Wiki阅读"
+        subtitle="按多个关键词从 MediaWiki 中抓取现有页面，用于阅读和修改。适合基于已有知识库做查阅，不会抓取外部网页。"
+      />
 
       <div className="flex-1 overflow-hidden flex">
         <div className="flex-1 overflow-y-auto p-6 max-w-2xl">

@@ -1016,7 +1016,54 @@ class TaskQueueDB:
             return []
         finally:
             conn.close()
-    
+
+    def count_tasks(
+        self,
+        status: Optional[TaskStatus] = None,
+        include_deleted: Optional[str] = None,
+        created_by_schedule_id: Optional[str] = None,
+        task_types: Optional[List[str]] = None,
+        pipeline_only: bool = False,
+    ) -> int:
+        """统计符合条件的任务总数（与 list_tasks 使用相同过滤条件）"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            query = "SELECT COUNT(*) FROM tasks"
+            params = []
+            conditions = []
+            if status:
+                conditions.append("status = ?")
+                params.append(status.value)
+            if include_deleted == "only":
+                conditions.append("deleted_at IS NOT NULL")
+            elif include_deleted is None or include_deleted == "exclude":
+                conditions.append("deleted_at IS NULL")
+            if created_by_schedule_id:
+                sid = created_by_schedule_id.strip()
+                if len(sid) == 8:
+                    conditions.append("created_by_schedule_id LIKE ?")
+                    params.append(sid + "%")
+                else:
+                    conditions.append("created_by_schedule_id = ?")
+                    params.append(sid)
+            if task_types:
+                placeholders = ",".join("?" * len(task_types))
+                conditions.append(f"task_type IN ({placeholders})")
+                params.extend(task_types)
+            if pipeline_only:
+                conditions.append("pipeline_id IS NOT NULL AND pipeline_id != ''")
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            return row[0] if row else 0
+        except Exception as e:
+            debug_log(f"统计任务失败: {e}", level="error")
+            return 0
+        finally:
+            conn.close()
+
     def register_worker(self, worker_id: str, worker_name: str) -> bool:
         """
         注册 Worker

@@ -4,6 +4,7 @@ import { useToast } from '../components/ToastModal'
 import { formStyles } from '../components/task/taskFormUtils'
 import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
+import PageHeader from '../components/PageHeader'
 
 const TASK_API = {
   create: (payload) =>
@@ -93,9 +94,7 @@ export default function PipelineOrchestration() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">管道编排</h1>
-      </header>
+      <PageHeader title="管道编排" />
 
       <div className="flex-1 overflow-hidden flex">
         <div className="flex-1 overflow-y-auto p-6 max-w-2xl shrink-0">

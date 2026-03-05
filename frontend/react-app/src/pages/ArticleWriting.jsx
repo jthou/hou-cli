@@ -4,6 +4,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
+import PageHeader from '../components/PageHeader'
 import MarkdownPreview from '../components/MarkdownPreview'
 import MarkdownActionButtons from '../components/MarkdownActionButtons'
 import ChatInput from '../components/ChatInput'
@@ -12,6 +13,8 @@ import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../uti
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
+import { saveReferenceBlocks, loadReferenceBlocks } from '../utils/articleWritingIndexedDB'
+import { runWhenIdle } from '../utils/runWhenIdle'
 
 const WECHAT_MP_API = {
   uploadCover: (file) => {
@@ -23,7 +26,7 @@ const WECHAT_MP_API = {
 
 const ARTICLE_SESSION_TYPE = 'article_writing'
 const STORAGE_KEY_SELECTED_SESSION = 'article_writing_selected_session_id'
-const STORAGE_KEY_REFERENCE_BLOCKS = 'article_writing_reference_blocks'
+const STORAGE_KEY_REFERENCE_BLOCKS_LEGACY = 'article_writing_reference_blocks'
 
 /** 从内容推导参考块标题：取首行或前 80 字，截断至 50 字 */
 function deriveRefTitle(content) {
@@ -81,18 +84,17 @@ export default function ArticleWriting() {
   const [wechatOutputSchema, setWechatOutputSchema] = useState({})
   const [wechatOutputMetadata, setWechatOutputMetadata] = useState({})
   const [wechatOutputSubmitting, setWechatOutputSubmitting] = useState(false)
-  const [referenceBlocks, setReferenceBlocks] = useState(() => {
-    try {
-      const raw = sessionStorage.getItem(STORAGE_KEY_REFERENCE_BLOCKS)
-      const parsed = raw ? JSON.parse(raw) : []
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
-  })
+  const [wechatGeneratingField, setWechatGeneratingField] = useState(null) // 'title'|'digest'|'author'|'cover'
+  const [wechatCoverPrompt, setWechatCoverPrompt] = useState('')
+  const [referenceBlocks, setReferenceBlocks] = useState([])
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
+  const [referenceBlockPreviewId, setReferenceBlockPreviewId] = useState(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const referenceBlocksLoadedRef = useRef(false)
+  const referenceBlocksRef = useRef(referenceBlocks)
+  referenceBlocksRef.current = referenceBlocks
   const messagesEndRef = useRef(null)
+  const messagesScrollRef = useRef(null)
   const abortControllerRef = useRef(null)
   const streamingContentRef = useRef('')
 
@@ -111,7 +113,11 @@ export default function ArticleWriting() {
   }
 
   const handleRemoveReferenceBlock = (id) => {
-    setReferenceBlocks((prev) => prev.filter((b) => b.id !== id))
+    setReferenceBlocks((prev) => {
+      const next = prev.filter((b) => b.id !== id)
+      runWhenIdle(() => saveReferenceBlocks(next).catch(() => {}))
+      return next
+    })
   }
 
   const handleAddToReference = (content) => {
@@ -161,12 +167,64 @@ export default function ArticleWriting() {
     loadSessions()
   }, [loadSessions])
 
-  /** 参考信息持久化到 sessionStorage，实现跨页面、跨 session 共享与累积 */
+  /** 从 IndexedDB 加载参考块（含 sessionStorage 迁移），并合并导航传入的 addToReference */
   useEffect(() => {
-    try {
-      sessionStorage.setItem(STORAGE_KEY_REFERENCE_BLOCKS, JSON.stringify(referenceBlocks))
-    } catch (_) {}
-  }, [referenceBlocks])
+    let cancelled = false
+    const addToRef = location.state?.addToReference
+    loadReferenceBlocks().then((blocks) => {
+      if (cancelled) return
+      let initial = Array.isArray(blocks) ? blocks : []
+      if (addToRef && typeof addToRef === 'string' && addToRef.trim()) {
+        initial = [
+          ...initial,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title: deriveRefTitle(addToRef),
+            content: addToRef.trim(),
+          },
+        ]
+        navigate(location.pathname + location.search, { replace: true, state: {} })
+        setReferencePanelOpen(true)
+      }
+      if (initial.length > 0) {
+        setReferenceBlocks(initial)
+      } else {
+        try {
+          const raw = sessionStorage.getItem(STORAGE_KEY_REFERENCE_BLOCKS_LEGACY)
+          const parsed = raw ? JSON.parse(raw) : []
+          const legacy = Array.isArray(parsed) ? parsed : []
+          if (legacy.length > 0) {
+            setReferenceBlocks(legacy)
+            runWhenIdle(() => saveReferenceBlocks(legacy).catch(() => {}))
+            sessionStorage.removeItem(STORAGE_KEY_REFERENCE_BLOCKS_LEGACY)
+          }
+        } catch (_) {}
+      }
+      referenceBlocksLoadedRef.current = true
+    })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅 mount 时执行，addToRef 从闭包捕获
+  }, [])
+
+  /** 参考块持久化到 IndexedDB：参考信息面板关闭时写入（空闲时执行，避免阻塞） */
+  const prevReferencePanelOpenRef = useRef(referencePanelOpen)
+  useEffect(() => {
+    if (!referenceBlocksLoadedRef.current) return
+    if (prevReferencePanelOpenRef.current && !referencePanelOpen) {
+      runWhenIdle(() => saveReferenceBlocks(referenceBlocks).catch(() => {}))
+    }
+    prevReferencePanelOpenRef.current = referencePanelOpen
+  }, [referencePanelOpen, referenceBlocks])
+
+  /** 组件卸载时保存参考块（空闲时执行，避免阻塞导航） */
+  useEffect(() => {
+    return () => {
+      const blocks = referenceBlocksRef.current
+      if (referenceBlocksLoadedRef.current && blocks?.length > 0) {
+        runWhenIdle(() => saveReferenceBlocks(blocks).catch(() => {}), { timeout: 0 })
+      }
+    }
+  }, [])
 
   /** 接收来自 url_to_wiki 等「发送到写文章」的 initialMarkdown，创建新会话并填入 */
   useEffect(() => {
@@ -210,22 +268,6 @@ export default function ArticleWriting() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在有 initialMarkdown 时执行一次
   }, [])
 
-  /** 接收来自 Markdown/MediaWiki 预览等「添加到参考信息」的导航，将内容追加到参考块末尾 */
-  useEffect(() => {
-    const addToRef = location.state?.addToReference
-    if (!addToRef || typeof addToRef !== 'string' || !addToRef.trim()) return
-    navigate(location.pathname + location.search, { replace: true, state: {} })
-    const trimmed = addToRef.trim()
-    setReferencePanelOpen(true)
-    setReferenceBlocks((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        title: deriveRefTitle(trimmed),
-        content: trimmed,
-      },
-    ])
-  }, [location.state?.addToReference])
 
   useEffect(() => {
     if (sessions.length === 0) return
@@ -280,12 +322,17 @@ export default function ArticleWriting() {
     loadRevisions()
   }, [selectedSessionId, loadRevisions])
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  const scrollToBottom = useCallback(() => {
+    const el = messagesScrollRef.current
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [])
   useEffect(() => {
     scrollToBottom()
-  }, [messages, streamingContent])
+  }, [messages, streamingContent, scrollToBottom])
 
   const handleNewSession = () => {
     fetch('/api/sessions', {
@@ -602,23 +649,25 @@ export default function ArticleWriting() {
       .catch(() => setEditDialogSearchResults([]))
   }
 
-  const handleWriteToPreview = (content) => {
+  const handleWriteToPreview = async (content) => {
     if (!selectedSessionId || content == null) return
-    fetch('/api/chat/article', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: selectedSessionId, content: content || '' }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.status === 'success' && d.article != null) {
-          setArticle(d.article)
-          loadRevisions()
-        } else {
-          toast?.error?.(d.error || '写入失败')
-        }
+    try {
+      const r = await fetch('/api/chat/article', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedSessionId, content: content || '' }),
       })
-      .catch((e) => toast?.error?.(e?.message || '写入失败'))
+      const d = await r.json()
+      if (d.status !== 'success' || d.article == null) {
+        toast?.error?.(d.error || '写入失败')
+        return
+      }
+      setArticle(d.article)
+      loadRevisions()
+      toast?.info?.('已更新文章，可在「同步到公众号草稿」中按需生成标题、摘要、封面')
+    } catch (e) {
+      toast?.error?.(e?.message || '写入失败')
+    }
   }
 
   const enterEditMode = () => {
@@ -650,6 +699,38 @@ export default function ArticleWriting() {
       .catch((e) => {
         toast?.error?.(e?.message || '保存失败')
       })
+  }
+
+  const handleGenerateWechatField = async (field) => {
+    if (!selectedSessionId || wechatGeneratingField) return
+    setWechatGeneratingField(field)
+    try {
+      const res = await fetch('/api/chat/article/generate-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedSessionId, fields: [field] }),
+      })
+      const d = await res.json()
+      if (d.status === 'success' && d.metadata) {
+        const m = d.metadata
+        setWechatOutputMetadata((prev) => ({
+          ...prev,
+          title: m.title ?? prev?.title ?? '',
+          digest: m.digest ?? prev?.digest ?? '',
+          author: m.author ?? prev?.author ?? '',
+          thumb_media_id: m.thumb_media_id ?? prev?.thumb_media_id ?? '',
+        }))
+        if (field === 'cover' && m.cover_prompt) setWechatCoverPrompt(m.cover_prompt)
+        const msg = { title: '标题已生成', digest: '摘要已生成', author: '作者已生成', cover: '封面已生成' }[field]
+        toast?.info?.(msg)
+      } else {
+        toast?.error?.(d.error || '生成失败')
+      }
+    } catch (e) {
+      toast?.error?.(e?.message || '生成失败')
+    } finally {
+      setWechatGeneratingField(null)
+    }
   }
 
   const submitWechatOutputTask = async (e) => {
@@ -704,6 +785,16 @@ export default function ArticleWriting() {
     setInput((prev) => (prev ? prev + '\n\n' + content : content))
   }
 
+  /** 从助手回复中剥离「执行 xxx 代理... 」前缀，状态单独展示，正文不进入 Markdown */
+  const stripAgentStatusPrefix = (text) => {
+    if (!text || typeof text !== 'string') return { status: null, content: text || '' }
+    const m = text.match(/^执行\s+\S+\s+代理\.\.\.\s*/)
+    if (m) {
+      return { status: m[0].trim(), content: text.slice(m[0].length).trimStart() }
+    }
+    return { status: null, content: text }
+  }
+
   /** 从助手回复中解析 ```patch ... ``` 代码块，用于「应用此 patch」 */
   const extractPatchBlock = (text) => {
     if (!text || typeof text !== 'string') return null
@@ -743,29 +834,38 @@ export default function ArticleWriting() {
     return rev?.content ?? article ?? ''
   }, [article, previewRevisionId, revisions])
 
-  /** 打开「同步到公众号草稿」时拉取 schema 并用当前文章（Markdown）预填 content，提交时由 prepareMetadataForSubmitAsync 转为公众号 HTML */
+  /** 打开「同步到公众号草稿」时拉取 schema、当前文章、以及已生成的元数据（标题、摘要、作者、封面）预填 */
   useEffect(() => {
     if (outputDialog !== 'wechat' || !previewContent) return
-    fetch('/api/task-queue/task-types')
-      .then((r) => r.json())
-      .then((d) => {
-        const list = d.task_types || []
+    setWechatCoverPrompt('')
+    const loadSchema = fetch('/api/task-queue/task-types').then((r) => r.json())
+    const loadMeta = selectedSessionId
+      ? fetch(`/api/chat/article/metadata?session_id=${encodeURIComponent(selectedSessionId)}`).then((r) => r.json())
+      : Promise.resolve({ metadata: null })
+    Promise.all([loadSchema, loadMeta])
+      .then(([schemaRes, metaRes]) => {
+        const list = schemaRes.task_types || []
         const wechat = list.find((t) => t.type === 'wechat_mp_draft')
         const schema = wechat?.metadata_schema || {}
         setWechatOutputSchema(schema)
         const defaults = getDefaultMetadata(schema)
         const { operation: _o, ...restDefaults } = defaults
+        const meta = metaRes.metadata
         setWechatOutputMetadata({
           ...restDefaults,
           operation: 'add',
           content: previewContent,
+          title: meta?.title || restDefaults.title || '',
+          digest: meta?.digest || restDefaults.digest || '',
+          author: meta?.author || restDefaults.author || '',
+          thumb_media_id: meta?.thumb_media_id || restDefaults.thumb_media_id || '',
         })
       })
       .catch(() => {
         setWechatOutputSchema({})
         setWechatOutputMetadata({ operation: 'add', content: previewContent })
       })
-  }, [outputDialog, previewContent])
+  }, [outputDialog, previewContent, selectedSessionId])
 
   /** 写文章场景固定为「新增草稿」，不展示「操作类型」；更新草稿需在任务管理里选定已有草稿（media_id） */
   const wechatOutputSchemaForForm = useMemo(() => {
@@ -855,12 +955,10 @@ export default function ArticleWriting() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">AI写作</h1>
-        <p className="text-sm text-muted mt-1">
-          左侧为写文章会话列表，中间对话、右侧为文章预览；会遵循写作画像。
-        </p>
-      </header>
+      <PageHeader
+        title="公众号写作"
+        subtitle="左侧为公众号写作会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可点击生成标题、摘要、作者、封面建议。"
+      />
 
       <div className="flex-1 flex min-h-0">
         {/* 左侧：写文章会话列表（与公众号草稿左侧一致） */}
@@ -976,7 +1074,7 @@ export default function ArticleWriting() {
         </div>
 
         {/* 中间：对话 */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 border-r border-border">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden border-r border-border">
           {!selectedSessionId ? (
             <div className="flex-1 flex items-center justify-center text-muted text-sm">
               请在左侧选择或新建一个写文章会话
@@ -987,7 +1085,7 @@ export default function ArticleWriting() {
             </div>
           ) : (
             <>
-              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
+              <div ref={messagesScrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
                 {messages.length === 0 && (
                   <div className="text-muted text-sm rounded-lg bg-white/5 p-4 border border-border">
                     <p className="font-medium text-muted mb-2">示例开场：</p>
@@ -1002,6 +1100,8 @@ export default function ArticleWriting() {
                     m.role === 'assistant' &&
                     typeof m.content === 'string' &&
                     m.content.trim().startsWith('我们之前的对话内容如下')
+                  const { status: agentStatus, content: assistantContent } =
+                    m.role === 'assistant' ? stripAgentStatusPrefix(m.content) : { status: null, content: m.content }
 
                   return (
                   <div
@@ -1009,16 +1109,29 @@ export default function ArticleWriting() {
                     className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div className={`max-w-[85%] ${m.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}>
+                      {m.role === 'assistant' && agentStatus && (
+                        <div className="mb-1 text-xs text-muted">
+                          {agentStatus}
+                        </div>
+                      )}
                       <div
-                        className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap ${
+                        className={`rounded-lg px-4 py-2.5 text-sm ${
                           m.role === 'user'
-                            ? 'bg-accent/20 text-accent'
+                            ? 'bg-accent/20 text-accent whitespace-pre-wrap'
                             : isHistorySummary
                               ? 'bg-accent/5 text-fg border border-accent/40'
                               : 'bg-white/5 text-fg border border-border'
                         }`}
                       >
-                        {m.content}
+                        {m.role === 'assistant' ? (
+                          <MarkdownPreview
+                            markdown={assistantContent || ''}
+                            className="chat-message-markdown"
+                            theme="dark"
+                          />
+                        ) : (
+                          m.content
+                        )}
                       </div>
                       {m.role === 'user' && (
                         <div className="mt-1.5 flex items-center gap-2 flex-wrap justify-end">
@@ -1033,11 +1146,11 @@ export default function ArticleWriting() {
                       )}
                       {m.role === 'assistant' && (
                         <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                          {extractPatchBlock(m.content) && (
+                          {extractPatchBlock(assistantContent) && (
                             <button
                               type="button"
                               disabled={applyingPatch}
-                              onClick={() => handleApplyPatch(extractPatchBlock(m.content))}
+                              onClick={() => handleApplyPatch(extractPatchBlock(assistantContent))}
                               className="px-2.5 py-1 text-xs rounded border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50"
                             >
                               {applyingPatch ? '应用中…' : '应用此 patch'}
@@ -1045,28 +1158,28 @@ export default function ArticleWriting() {
                             )}
                           <button
                             type="button"
-                            onClick={() => handleWriteToPreview(m.content)}
+                            onClick={() => handleWriteToPreview(assistantContent)}
                             className="px-2.5 py-1 text-xs rounded border border-border text-cyan-400 hover:bg-white/10"
                           >
                             接受修改
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleCopyContent(m.content)}
+                            onClick={() => handleCopyContent(assistantContent)}
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             复制
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAddContentToInput(m.content)}
+                            onClick={() => handleAddContentToInput(assistantContent)}
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             加入输入框
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAddToReference(m.content)}
+                            onClick={() => handleAddToReference(assistantContent)}
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             添加到参考信息
@@ -1077,15 +1190,30 @@ export default function ArticleWriting() {
                   </div>
                   )
                 })}
-                {loading && (
+                {loading && (() => {
+                  const { status: streamStatus, content: streamMarkdown } = stripAgentStatusPrefix(streamingContent)
+                  return (
                   <div className="flex justify-start items-center gap-3">
                     <div className="max-w-[85%] flex flex-col items-start">
+                      {streamStatus && (
+                        <div className="mb-1 text-xs text-muted">
+                          {streamStatus}
+                        </div>
+                      )}
                       <div
-                        className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap border border-border ${
-                          streamingContent ? 'bg-white/5 text-fg' : 'text-muted bg-white/5'
+                        className={`rounded-lg px-4 py-2.5 text-sm border border-border ${
+                          streamMarkdown ? 'bg-white/5 text-fg' : 'text-muted bg-white/5'
                         }`}
                       >
-                        {streamingContent || 'thinking…'}
+                        {streamMarkdown ? (
+                          <MarkdownPreview
+                            markdown={streamMarkdown}
+                            className="chat-message-markdown"
+                            theme="dark"
+                          />
+                        ) : (
+                          'thinking…'
+                        )}
                       </div>
                       <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                         <button
@@ -1095,10 +1223,10 @@ export default function ArticleWriting() {
                         >
                           停止
                         </button>
-                        {streamingContent && (
+                        {streamMarkdown && (
                           <button
                             type="button"
-                            onClick={() => handleAddToReference(streamingContent)}
+                            onClick={() => handleAddToReference(streamMarkdown)}
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             添加到参考信息
@@ -1107,7 +1235,8 @@ export default function ArticleWriting() {
                       </div>
                     </div>
                   </div>
-                )}
+                  )
+                })()}
                 <div ref={messagesEndRef} />
               </div>
               <div className="border-t border-border px-4 py-2">
@@ -1124,7 +1253,7 @@ export default function ArticleWriting() {
                   )}
                 </button>
                 {referencePanelOpen && (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 space-y-2 max-h-[40vh] overflow-y-auto min-h-0">
                     {referenceBlocks.length === 0 && (
                       <p className="text-[11px] text-muted">
                         可以在这里粘贴多段资料作为上下文，助手回答时会一并参考，但不会单独显示为消息。
@@ -1155,16 +1284,39 @@ export default function ArticleWriting() {
                           >
                             删除
                           </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReferenceBlockPreviewId((prev) => (prev === block.id ? null : block.id))
+                            }
+                            className={`px-2 py-1 text-[11px] rounded border ${
+                              referenceBlockPreviewId === block.id
+                                ? 'border-accent/60 text-accent bg-accent/10'
+                                : 'border-border text-muted hover:text-fg hover:bg-white/5'
+                            }`}
+                          >
+                            {referenceBlockPreviewId === block.id ? '编辑' : '预览'}
+                          </button>
                         </div>
-                        <textarea
-                          rows={3}
-                          value={block.content}
-                          onChange={(e) =>
-                            handleUpdateReferenceBlock(block.id, 'content', e.target.value)
-                          }
-                          placeholder="在这里粘贴这段参考资料文本（支持多段）。"
-                          className="w-full px-2 py-1.5 rounded bg-black/20 border border-border text-xs text-white placeholder-[#64748b] resize-y focus:outline-none focus:border-accent"
-                        />
+                        {referenceBlockPreviewId === block.id ? (
+                          <div className="min-h-[120px] max-h-[280px] overflow-y-auto rounded bg-black/20 border border-border p-2">
+                            <MarkdownPreview
+                              markdown={block.content || ''}
+                              theme="dark"
+                              className="text-xs"
+                            />
+                          </div>
+                        ) : (
+                          <textarea
+                            rows={6}
+                            value={block.content}
+                            onChange={(e) =>
+                              handleUpdateReferenceBlock(block.id, 'content', e.target.value)
+                            }
+                            placeholder="在这里粘贴这段参考资料文本（支持多段）。"
+                            className="w-full min-h-[120px] px-2 py-1.5 rounded bg-black/20 border border-border text-xs text-white placeholder-[#64748b] resize-y focus:outline-none focus:border-accent"
+                          />
+                        )}
                       </div>
                     ))}
                     <div className="flex items-center justify-between gap-2">
@@ -1595,6 +1747,46 @@ export default function ArticleWriting() {
             <form onSubmit={submitWechatOutputTask} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
                 <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。创建任务后由任务队列执行，可在任务管理中审计。请填写标题与封面。</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!!wechatGeneratingField}
+                    onClick={() => handleGenerateWechatField('title')}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                  >
+                    {wechatGeneratingField === 'title' ? '生成中…' : '生成标题建议'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!wechatGeneratingField}
+                    onClick={() => handleGenerateWechatField('digest')}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                  >
+                    {wechatGeneratingField === 'digest' ? '生成中…' : '生成摘要建议'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!wechatGeneratingField}
+                    onClick={() => handleGenerateWechatField('author')}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                  >
+                    {wechatGeneratingField === 'author' ? '生成中…' : '生成作者建议'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!wechatGeneratingField}
+                    onClick={() => handleGenerateWechatField('cover')}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                  >
+                    {wechatGeneratingField === 'cover' ? '生成中…' : '生成封面'}
+                  </button>
+                </div>
+                {wechatCoverPrompt && (
+                  <div className="text-xs text-muted">
+                    <span className="font-medium text-fg">封面提示词：</span>
+                    {wechatCoverPrompt}
+                  </div>
+                )}
                 <TaskParamsForm
                   taskType="wechat_mp_draft"
                   schema={wechatOutputSchemaForForm}

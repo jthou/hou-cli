@@ -13,6 +13,7 @@ import TaskParamsForm from '../components/task/TaskParamsForm'
 import WikiTitlePreviewHint from '../components/task/WikiTitlePreviewHint'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
+import PageHeader from '../components/PageHeader'
 
 /**
  * 任务管理与展示机制
@@ -23,7 +24,9 @@ import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 
 const TASK_API = {
   list: (params) => {
-    const q = new URLSearchParams({ limit: 100, offset: 0 })
+    const limit = params?.limit ?? 20
+    const offset = params?.offset ?? 0
+    const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (params?.status) q.set('status', params.status)
     if (params?.deleted) q.set('deleted', params.deleted)
     if (params?.created_by_schedule_id) q.set('created_by_schedule_id', params.created_by_schedule_id)
@@ -196,11 +199,14 @@ export default function TaskManagement() {
   const toast = useToast()
   const [tab, setTab] = useState('tasks')
   const [tasks, setTasks] = useState([])
+  const [tasksTotal, setTasksTotal] = useState(null)
   const [scheduledTasks, setScheduledTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [heartbeat, setHeartbeat] = useState(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPipelineModal, setShowPipelineModal] = useState(false)
   const [showCreatePipelineModal, setShowCreatePipelineModal] = useState(false)
@@ -239,26 +245,48 @@ export default function TaskManagement() {
   const loadTasks = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await TASK_API.list({ status: statusFilter || undefined })
-      if (data.success && data.tasks) setTasks(data.tasks)
-      else setTasks([])
+      const offset = (page - 1) * pageSize
+      const data = await TASK_API.list({
+        status: statusFilter || undefined,
+        limit: pageSize,
+        offset,
+      })
+      if (data.success && data.tasks) {
+        setTasks(data.tasks)
+        setTasksTotal(data.total ?? data.tasks.length)
+      } else {
+        setTasks([])
+        setTasksTotal(0)
+      }
     } catch (e) {
       setTasks([])
+      setTasksTotal(0)
     }
     setLoading(false)
-  }, [statusFilter])
+  }, [statusFilter, page, pageSize])
 
   const loadDeletedTasks = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await TASK_API.list({ deleted: 'only' })
-      if (data.success && data.tasks) setTasks(data.tasks)
-      else setTasks([])
+      const offset = (page - 1) * pageSize
+      const data = await TASK_API.list({
+        deleted: 'only',
+        limit: pageSize,
+        offset,
+      })
+      if (data.success && data.tasks) {
+        setTasks(data.tasks)
+        setTasksTotal(data.total ?? data.tasks.length)
+      } else {
+        setTasks([])
+        setTasksTotal(0)
+      }
     } catch (e) {
       setTasks([])
+      setTasksTotal(0)
     }
     setLoading(false)
-  }, [])
+  }, [page, pageSize])
 
   const loadDrafts = useCallback(async () => {
     setDraftsLoading(true)
@@ -343,7 +371,9 @@ export default function TaskManagement() {
     ? pipelineGroups.flatMap(g => g.tasks)
     : tasks
   const stats = {
-    total: tasksForStats.length,
+    total: (tab === 'tasks' || tab === 'pipeline') && tasksTotal != null
+      ? tasksTotal
+      : tasksForStats.length,
     pending: tasksForStats.filter(t => t.status === 'queued').length,
     running: tasksForStats.filter(t => t.status === 'running').length,
     completed: tasksForStats.filter(t => t.status === 'completed').length,
@@ -352,9 +382,7 @@ export default function TaskManagement() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">任务中心</h1>
-      </header>
+      <PageHeader title="任务中心" />
 
       <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto w-full">
         {/* 心跳条 */}
@@ -383,7 +411,7 @@ export default function TaskManagement() {
         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
           <div className="flex gap-1 p-1 bg-white/5 rounded-lg border border-border">
             <button
-              onClick={() => setTab('tasks')}
+              onClick={() => { setPage(1); setTab('tasks') }}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
                 tab === 'tasks' ? 'bg-accent text-white' : 'text-muted hover:text-white'
               }`}
@@ -391,7 +419,7 @@ export default function TaskManagement() {
               普通任务
             </button>
             <button
-              onClick={() => setTab('pipeline')}
+              onClick={() => { setPage(1); setTab('pipeline') }}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
                 tab === 'pipeline' ? 'bg-accent text-white' : 'text-muted hover:text-white'
               }`}
@@ -407,7 +435,7 @@ export default function TaskManagement() {
               定时任务
             </button>
             <button
-              onClick={() => setTab('deleted')}
+              onClick={() => { setPage(1); setTab('deleted') }}
               className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
                 tab === 'deleted' ? 'bg-accent text-white' : 'text-muted hover:text-white'
               }`}
@@ -515,6 +543,43 @@ export default function TaskManagement() {
                 </>
               )}
             </div>
+
+            {/* 已删除分页 */}
+            {!loading && (tasksTotal ?? 0) > 0 && (
+              <div className="mt-6 flex items-center justify-between gap-4 flex-wrap">
+                <div className="text-sm text-muted">
+                  第 {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, tasksTotal ?? 0)} 条，共 {tasksTotal} 条
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={e => { setPage(1); setPageSize(Number(e.target.value)) }}
+                    className="px-2 py-1.5 bg-white/5 border border-border rounded text-sm text-white focus:border-accent focus:outline-none"
+                  >
+                    <option value={20}>每页 20 条</option>
+                    <option value={50}>每页 50 条</option>
+                    <option value={100}>每页 100 条</option>
+                  </select>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="px-3 py-1.5 border border-border rounded text-sm text-muted hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-2 text-sm text-muted">
+                    {page} / {Math.max(1, Math.ceil((tasksTotal ?? 0) / pageSize))}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(Math.ceil((tasksTotal ?? 0) / pageSize), p + 1))}
+                    disabled={page >= Math.ceil((tasksTotal ?? 0) / pageSize)}
+                    className="px-3 py-1.5 border border-border rounded text-sm text-muted hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         ) : tab === 'tasks' || tab === 'pipeline' ? (
           <>
@@ -548,7 +613,7 @@ export default function TaskManagement() {
               />
               <select
                 value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
+                onChange={e => { setPage(1); setStatusFilter(e.target.value) }}
                 className="px-3 py-2 bg-white/5 border border-border rounded-lg text-sm text-white focus:border-accent focus:outline-none"
               >
                 <option value="">全部状态</option>
@@ -647,6 +712,43 @@ export default function TaskManagement() {
                 )
               )}
             </div>
+
+            {/* 分页 */}
+            {!loading && (tasksTotal ?? 0) > 0 && (
+              <div className="mt-6 flex items-center justify-between gap-4 flex-wrap">
+                <div className="text-sm text-muted">
+                  第 {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, tasksTotal ?? 0)} 条，共 {tasksTotal} 条
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={e => { setPage(1); setPageSize(Number(e.target.value)) }}
+                    className="px-2 py-1.5 bg-white/5 border border-border rounded text-sm text-white focus:border-accent focus:outline-none"
+                  >
+                    <option value={20}>每页 20 条</option>
+                    <option value={50}>每页 50 条</option>
+                    <option value={100}>每页 100 条</option>
+                  </select>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="px-3 py-1.5 border border-border rounded text-sm text-muted hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-2 text-sm text-muted">
+                    {page} / {Math.max(1, Math.ceil((tasksTotal ?? 0) / pageSize))}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(Math.ceil((tasksTotal ?? 0) / pageSize), p + 1))}
+                    disabled={page >= Math.ceil((tasksTotal ?? 0) / pageSize)}
+                    className="px-3 py-1.5 border border-border rounded text-sm text-muted hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="space-y-3">

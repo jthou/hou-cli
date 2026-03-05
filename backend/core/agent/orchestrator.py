@@ -518,8 +518,6 @@ class UnifiedOrchestrator:
     async def _stream_execute_agent(self, agent_name: str, task: str, params: Dict, session_id: str) -> AsyncIterator[str]:
         """流式执行指定的agent"""
         logger.info(f"流式执行agent: {agent_name}，任务: {task}")
-        # 这里可以根据agent名称动态调用相应的agent
-        # 暂时使用通用处理方式
         yield f"执行 {agent_name} 代理... "
         result = await self._execute_agent(agent_name, task, params, session_id)
         for char in result:
@@ -846,6 +844,30 @@ class UnifiedOrchestrator:
             logger.warning(error_msg)
         except Exception as e:
             error_msg = f"Failed to register FFmpeg tool: {str(e)}. FFmpeg tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+
+        # 注册图像生成工具（文生图）
+        try:
+            from backend.core.agent.tools.builtin.image_generation_tool import ImageGenerationTool
+            image_generation_tool = ImageGenerationTool()
+            self.tool_registry.register(image_generation_tool)
+            self.debug.log_orchestrator_step("注册工具", {"image_generation_tool": "registered"})
+            logger.info("Image generation tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register image generation tool: {str(e)}. Image generation tool will not be available."
+            self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
+            logger.warning(error_msg)
+
+        # 注册长文本转图片提示词工具
+        try:
+            from backend.core.agent.tools.builtin.text_to_image_prompt_tool import TextToImagePromptTool
+            text_to_image_prompt_tool = TextToImagePromptTool()
+            self.tool_registry.register(text_to_image_prompt_tool)
+            self.debug.log_orchestrator_step("注册工具", {"text_to_image_prompt_tool": "registered"})
+            logger.info("Text to image prompt tool registered successfully")
+        except Exception as e:
+            error_msg = f"Failed to register text_to_image_prompt tool: {str(e)}. Tool will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
@@ -2815,6 +2837,16 @@ class SkillMatcher:
                             "error": tool_result.error if not tool_result.success else None
                         }
                         yield StreamMessageBuilder.build_tool(tool_info)
+
+                        # Chat 场景：image_generation 成功后注入 base64 图片到内容流，便于前端渲染
+                        if (
+                            tool_name == "image_generation"
+                            and tool_result.success
+                            and tool_result.data
+                        ):
+                            img_b64 = tool_result.data.get("image_base64")
+                            if img_b64:
+                                yield f"\n\n![生成的图片]({img_b64})\n\n"
                         
                         # ===== 自适应策略：收集工具执行指标（阶段2） =====
                         tool_call_count += 1

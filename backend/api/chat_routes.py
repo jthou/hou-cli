@@ -225,6 +225,83 @@ async def set_chat_article(request: SetArticleRequest):
         return {"article": None, "status": "error", "success": False, "error": str(e)}
 
 
+@router.get("/chat/article/metadata")
+async def get_article_metadata(session_id: Optional[str] = None):
+    """获取会话的公众号文章元数据（标题、摘要、作者、封面 media_id）。"""
+    if not session_id:
+        return {"metadata": None, "status": "success"}
+    try:
+        orchestrator = get_orchestrator()
+        meta = orchestrator.context_manager.get_article_wechat_metadata(session_id)
+        return {"metadata": meta, "status": "success"}
+    except Exception as e:
+        debug_log(f"get_article_metadata failed: {e}", level="error")
+        return {"metadata": None, "status": "error", "error": str(e)}
+
+
+class GenerateMetadataRequest(BaseModel):
+    session_id: str
+    fields: Optional[List[str]] = None  # ["title","digest","author","cover"] 子集，空则全部
+
+
+@router.post("/chat/article/generate-metadata")
+async def generate_article_metadata_endpoint(request: GenerateMetadataRequest):
+    """根据当前文章内容生成公众号元数据（可选：标题、摘要、作者、封面图）并保存。"""
+    if not request.session_id:
+        return {"status": "error", "error": "缺少 session_id", "metadata": None}
+    try:
+        from backend.services.article_metadata_service import (
+            generate_article_metadata,
+            generate_cover_image_from_content,
+        )
+
+        orchestrator = get_orchestrator()
+        content = orchestrator.context_manager.get_current_article(request.session_id)
+        if not content or not content.strip():
+            return {"status": "error", "error": "当前文章为空", "metadata": None}
+
+        fields = request.fields or ["title", "digest", "author", "cover"]
+        meta = {}
+        existing = orchestrator.context_manager.get_article_wechat_metadata(
+            request.session_id
+        ) or {}
+
+        if "title" in fields or "digest" in fields or "author" in fields:
+            text_fields = [f for f in ["title", "digest", "author"] if f in fields]
+            if not text_fields:
+                text_fields = ["title", "digest", "author"]
+            parsed = await generate_article_metadata(content, fields=text_fields)
+            meta.update(parsed)
+
+        if "cover" in fields:
+            cover_out = await generate_cover_image_from_content(content)
+            meta["thumb_media_id"] = cover_out.get("thumb_media_id", "")
+            meta["cover_prompt"] = cover_out.get("prompt", "")
+
+        title = meta.get("title") or existing.get("title", "")
+        digest = meta.get("digest") or existing.get("digest", "")
+        author = meta.get("author") or existing.get("author", "")
+        thumb = meta.get("thumb_media_id") or existing.get("thumb_media_id", "")
+
+        ok = orchestrator.context_manager.set_article_wechat_metadata(
+            request.session_id,
+            title=title,
+            digest=digest,
+            author=author,
+            thumb_media_id=thumb,
+        )
+        return {
+            "status": "success" if ok else "error",
+            "metadata": meta,
+            "success": ok,
+        }
+    except Exception as e:
+        import traceback
+
+        debug_log(f"generate_article_metadata failed: {e}", level="error", data={"trace": traceback.format_exc()})
+        return {"status": "error", "error": str(e), "metadata": None, "success": False}
+
+
 @router.get("/chat/article/revisions")
 async def get_article_revisions(session_id: Optional[str] = None, limit: int = 50, offset: int = 0):
     """列出写文章会话的文章修改历史（版本列表）。"""

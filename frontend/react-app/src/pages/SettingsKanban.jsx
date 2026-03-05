@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PageHeader from '../components/PageHeader'
 
 export default function SettingsKanban() {
   const [boards, setBoards] = useState([])
@@ -59,12 +60,10 @@ export default function SettingsKanban() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">Wiki看板</h1>
-        <p className="text-[#94a3b8] text-sm mt-1">
-          读取 MediaWiki 中的 KanbanBoard，看板 → 列 → 卡片，只读预览。
-        </p>
-      </header>
+      <PageHeader
+        title="Wiki看板"
+        subtitle="读取 MediaWiki 中的 KanbanBoard，看板 → 列 → 卡片，只读预览。"
+      />
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         <div className="flex-1 flex min-h-0 overflow-hidden">

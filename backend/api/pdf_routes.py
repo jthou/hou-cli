@@ -1,7 +1,7 @@
 """PDF 阅读/解析相关路由"""
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -12,50 +12,98 @@ from shared.debug_utils import debug_log
 router = APIRouter()
 
 
-def _download_pdf_if_url(file_path: str) -> Tuple[Path, bool]:
-    """若 file_path 为 http/https URL，则下载到临时文件并返回 (路径, True)，否则按本地路径解析并返回 (路径, False)。"""
-    if file_path.startswith("http://") or file_path.startswith("https://"):
-        try:
-            # 复用 pdf_to_wiki 的下载逻辑和大小限制
-            from backend.infrastructure.execution.task_handlers import _download_pdf_to_temp
-        except Exception as e:  # pragma: no cover - 极端情况
-            raise HTTPException(
-                status_code=500,
-                detail=f"当前后端未启用 PDF 下载能力: {e}",
-            )
-
-        try:
-            temp_path_str, _size = _download_pdf_to_temp(file_path)
-        except ValueError as ve:
-            # 大小超限等业务性错误
-            raise HTTPException(status_code=400, detail=str(ve))
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"下载 PDF 失败: {e}")
-
-        temp_path = Path(temp_path_str).resolve()
-        return temp_path, True
-
-    # 本地文件路径
+def _resolve_local_pdf(file_path: str) -> Path:
+    """解析本地 PDF 路径。在线 PDF 统一由扩展获取，不再由后端下载。"""
     pdf_path = Path(file_path).expanduser().resolve()
-    return pdf_path, False
+    return pdf_path
 
 
 class PdfResolveRequest(BaseModel):
-  source: str
+    source: str
+
+
+class PdfUploadFromExtensionRequest(BaseModel):
+    """扩展获取的 PDF base64 数据"""
+    base64: str
+    original_url: Optional[str] = None
+
+
+def _cleanup_old_pdf_temp_files(max_age_hours: int = 24):
+    """清理超过指定小时的 PDF 临时文件"""
+    import tempfile as _tempfile
+    import time
+
+    temp_dir = Path(_tempfile.gettempdir()) / "hou-cli-pdf"
+    if not temp_dir.exists():
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    for f in temp_dir.glob("*.pdf"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+@router.post("/pdf/upload-from-extension")
+async def upload_pdf_from_extension(payload: PdfUploadFromExtensionRequest):
+    """接收扩展获取的 PDF（base64），保存到临时文件并返回路径。统一方案：在线 PDF 仅通过扩展获取。"""
+    import base64
+    import tempfile
+
+    temp_dir = Path(tempfile.gettempdir()) / "hou-cli-pdf"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    _cleanup_old_pdf_temp_files()
+
+    b64 = (payload.base64 or "").strip()
+    if not b64:
+        raise HTTPException(status_code=400, detail="base64 不能为空")
+
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"base64 解码失败: {e}")
+
+    max_bytes = 50 * 1024 * 1024  # 50MB
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=400, detail=f"PDF 超过 {max_bytes // (1024*1024)} MB 限制")
+
+    if len(raw) < 4 or raw[:4] != b"%PDF":
+        raise HTTPException(status_code=400, detail="不是有效的 PDF 文件")
+
+    fd, path = tempfile.mkstemp(suffix=".pdf", dir=str(temp_dir))
+    try:
+        import os
+        os.write(fd, raw)
+        os.close(fd)
+    except Exception:
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        Path(path).unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="保存临时文件失败")
+
+    return {
+        "success": True,
+        "file_path": path,
+        "original_url": payload.original_url,
+    }
 
 
 @router.post("/pdf/resolve")
 async def resolve_pdf_source(payload: PdfResolveRequest):
-    """将 URL 或本地路径解析为可用的 PDF 本地文件路径。
-
-    - 对于 http/https URL，会下载到临时文件并返回该路径
-    - 对于本地路径，会返回规范化后的绝对路径
-    """
+    """将本地路径解析为可用的 PDF 绝对路径。在线 PDF 统一由扩展获取。"""
     src = (payload.source or "").strip()
     if not src:
         raise HTTPException(status_code=400, detail="source 不能为空")
+    if src.startswith("http://") or src.startswith("https://"):
+        raise HTTPException(
+            status_code=400,
+            detail="在线 PDF 请使用扩展加载（需安装 Hou CLI 扩展）",
+        )
 
-    pdf_path, downloaded = _download_pdf_if_url(src)
+    pdf_path = _resolve_local_pdf(src)
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {src}")
     if pdf_path.suffix.lower() != ".pdf":
@@ -64,7 +112,7 @@ async def resolve_pdf_source(payload: PdfResolveRequest):
     return {
         "success": True,
         "file_path": str(pdf_path),
-        "downloaded": downloaded,
+        "downloaded": False,
         "original": src,
     }
 
@@ -73,18 +121,13 @@ async def resolve_pdf_source(payload: PdfResolveRequest):
 async def get_pdf_page_text(
     file_path: str = Query(
         ...,
-        description="服务器上的 PDF 绝对路径（如上传后返回的 path），或 http(s) 在线 PDF URL",
+        description="服务器上的 PDF 绝对路径（如上传、扩展获取后返回的 path）",
     ),
     page: int = Query(1, ge=1, description="要提取的页码，从 1 开始"),
 ):
-    """读取指定 PDF 的某一页文本内容。
-
-    - 支持本地绝对路径（如 /task-queue/upload-input-file 返回的 path）
-    - 也支持 http/https 在线 PDF，会自动下载到临时文件后再解析
-    """
-    temp_downloaded = False
+    """读取指定 PDF 的某一页文本内容。仅支持本地路径（扩展获取的 PDF 会先保存到临时文件）。"""
     try:
-        pdf_path, temp_downloaded = _download_pdf_if_url(file_path)
+        pdf_path = _resolve_local_pdf(file_path)
         if not pdf_path.exists():
             raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {file_path}")
         if pdf_path.suffix.lower() != ".pdf":
@@ -122,13 +165,6 @@ async def get_pdf_page_text(
     except Exception as e:
         debug_log(f"get_pdf_page_text failed: {e}", level="error")
         raise HTTPException(status_code=500, detail=f"读取 PDF 失败: {e}")
-    finally:
-        # 对于在线 PDF，解析完后删除临时文件
-        if temp_downloaded:
-            try:
-                pdf_path.unlink(missing_ok=True)  # type: ignore[name-defined]
-            except Exception:
-                debug_log("删除临时 PDF 文件失败", level="warning")
 
 
 @router.get("/pdf/view")

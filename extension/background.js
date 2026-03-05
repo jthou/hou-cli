@@ -1,26 +1,39 @@
 /**
  * Hou CLI 网页阅读助手 - Background Service Worker
- * 微信读书：截图 + Qwen-VL OCR；普通网页：DOM 提取
+ * 微信读书：截图 + Qwen-VL OCR
+ * 飞书多维表格：DOM 提取，延长等待 + 专用选择器
+ * 普通网页：DOM 提取
  */
 
 const OVERALL_TIMEOUT_MS = 45000
 
-/** 极简等待 */
+/** 极简等待：微信读书 2.5s，飞书多维表格 3s，普通网页 1.5s */
 function waitForPage() {
-  const delay = /weread\.qq\.com/.test(window.location.href) ? 2500 : 1500
+  const href = window.location.href || ''
+  const delay = /weread\.qq\.com/.test(href) ? 2500
+    : /feishu\.cn|feishubase\.com/.test(href) ? 3000
+    : 1500
   return new Promise((r) => setTimeout(r, delay))
 }
 
 function extractContent() {
-  const selectors = [
+  const href = window.location.href || ''
+  const isFeishu = /feishu\.cn|feishubase\.com/.test(href)
+  const baseSelectors = [
     'article', 'main', '[role="main"]', '.post-content', '.article-body',
     '.content', '#content', '.entry-content', '.post-body', '.article-content',
   ]
+  const feishuSelectors = [
+    '[data-type="bitable"]', '[class*="bitable"]', '[class*="base-table"]',
+    '[class*="baseTable"]', '[class*="Bitable"]', 'main', '[role="main"]',
+  ]
+  const selectors = isFeishu ? [...feishuSelectors, ...baseSelectors] : baseSelectors
+  const minLen = isFeishu ? 30 : 100
   let el = null
   for (const s of selectors) {
     try {
       const candidate = document.querySelector(s)
-      if (candidate && (candidate.innerText || candidate.textContent || '').trim().length >= 100) {
+      if (candidate && (candidate.innerText || candidate.textContent || '').trim().length >= minLen) {
         el = candidate
         break
       }
@@ -85,6 +98,77 @@ function scrollToPosition(offsetY) {
     scrollHeight: el.scrollHeight,
     clientHeight: el.clientHeight,
     atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 20,
+  }
+}
+
+/** 飞书多维表格：查找滚动容器（表格虚拟滚动区域） */
+function findFeishuScrollContainer() {
+  const candidates = [
+    '[class*="bitable"]', '[class*="base-table"]', '[class*="BaseTable"]',
+    '[class*="virtual"]', '[class*="Virtual"]', '[class*="scroll"]',
+    '[class*="table-body"]', '[class*="tableBody"]', '[class*="grid"]',
+    'main', '[role="main"]',
+  ]
+  let best = document.scrollingElement || document.documentElement
+  let maxSh = best.scrollHeight || 0
+  for (const sel of candidates) {
+    try {
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!el || !el.scrollHeight) return
+        const s = window.getComputedStyle(el)
+        const oy = s.overflowY || s.overflow
+        if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && el.scrollHeight > el.clientHeight + 80 && el.scrollHeight > maxSh) {
+          best = el
+          maxSh = el.scrollHeight
+        }
+      })
+    } catch (_) {}
+  }
+  return best
+}
+
+/** 飞书多维表格：滚动 + 分步提取，应对虚拟滚动 */
+async function extractContentWithScrollFeishu() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+  const scrollEl = findFeishuScrollContainer()
+  const maxSteps = 25
+  const stepPause = 500
+  const seen = new Set()
+  const lines = []
+
+  for (let i = 0; i < maxSteps; i++) {
+    scrollEl.scrollTop = Math.min(i * Math.floor((scrollEl.clientHeight || 400) * 0.8), scrollEl.scrollHeight)
+    await wait(stepPause)
+
+    const extractRoot = (scrollEl === document.documentElement || scrollEl === document.body) ? document.body : scrollEl
+    const text = (extractRoot.innerText || extractRoot.textContent || '').trim()
+    const newLines = text.split(/\r?\n/).filter((l) => l.trim())
+    for (const line of newLines) {
+      const key = line.slice(0, 200)
+      if (!seen.has(key)) {
+        seen.add(key)
+        lines.push(line)
+      }
+    }
+
+    const atBottom = scrollEl.scrollTop + (scrollEl.clientHeight || 0) >= (scrollEl.scrollHeight || 0) - 30
+    if (atBottom) break
+  }
+
+  scrollEl.scrollTop = 0
+  const content = lines.join('\n').slice(0, 500000)
+  const path = window.location.pathname || '/'
+  const dir = path.endsWith('/') ? path : path.replace(/\/[^/]*$/, '/') || '/'
+  const base = window.location.origin + dir
+  return {
+    title: document.title || '',
+    content,
+    html: content ? '<pre>' + content.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>' : '',
+    fullPageHtml: '',
+    baseUrl: base,
+    stylesheets: [],
+    inlineStyles: [],
+    url: window.location.href,
   }
 }
 
@@ -179,12 +263,26 @@ async function fetchWereadScreenshot(url, createdByUs, tabId) {
   }
 }
 
-/** 普通网页：DOM 提取 */
-async function runDomExtraction(tabId, url, createdByUs, needLoad) {
-  if (needLoad) await new Promise((r) => setTimeout(r, 2500))
+/** 普通网页 / 飞书：DOM 提取。opts.initialWaitMs 覆盖 needLoad 时的默认 2500ms；opts.useScrollExtract 时用飞书滚动提取 */
+async function runDomExtraction(tabId, url, createdByUs, needLoad, opts = {}) {
+  await chrome.tabs.update(tabId, { active: true }).catch(() => {})
+  if (needLoad) {
+    const ms = opts.initialWaitMs ?? 2500
+    await new Promise((r) => setTimeout(r, ms))
+  }
   await chrome.scripting.executeScript({ target: { tabId }, func: waitForPage }).catch(() => {})
-  const results = await chrome.scripting.executeScript({ target: { tabId }, func: extractContent })
-  const data = results?.[0]?.result
+  let data
+  if (opts.useScrollExtract) {
+    const scrollRes = await chrome.scripting.executeScript({ target: { tabId }, func: extractContentWithScrollFeishu })
+    data = scrollRes?.[0]?.result
+    if (data && (data.content || '').trim().length < 50) {
+      const fallback = await chrome.scripting.executeScript({ target: { tabId }, func: extractContent })
+      data = fallback?.[0]?.result || data
+    }
+  } else {
+    const results = await chrome.scripting.executeScript({ target: { tabId }, func: extractContent })
+    data = results?.[0]?.result
+  }
   if (createdByUs) await chrome.tabs.remove(tabId).catch(() => {})
   return data
 }
@@ -193,6 +291,7 @@ async function runDomExtraction(tabId, url, createdByUs, needLoad) {
 async function doFetch(url, opts) {
   const { postMessage, requestId, apiBase } = opts
   const isWeread = /weread\.qq\.com/.test(url)
+  const isFeishu = /feishu\.cn|feishubase\.com/.test(url)
   let tabId = null
   let createdByUs = false
 
@@ -215,6 +314,22 @@ async function doFetch(url, opts) {
         await chrome.tabs.update(tabId, { url })
         needLoad = true
       }
+    } else if (isFeishu) {
+      const [a, b, c] = await Promise.all([
+        chrome.tabs.query({ url: '*://*.feishu.cn/*' }),
+        chrome.tabs.query({ url: '*://feishu.cn/*' }),
+        chrome.tabs.query({ url: '*://*.feishubase.com/*' }),
+      ])
+      const existing = [...a, ...b, ...c]
+      const reqPath = url.split('?')[0]
+      const match = existing.find((t) => (t.url || '').split('?')[0] === reqPath)
+      if (match) {
+        tabId = match.id
+      } else if (existing.length > 0) {
+        tabId = existing[0].id
+        await chrome.tabs.update(tabId, { url, active: true })
+        needLoad = true
+      }
     }
 
     if (!tabId) {
@@ -230,7 +345,8 @@ async function doFetch(url, opts) {
       if (navigated) await new Promise((r) => setTimeout(r, 3000))
       data = await fetchWereadScreenshot(url, createdByUs, tabId)
     } else {
-      data = await runDomExtraction(tabId, url, createdByUs, needLoad)
+      const domOpts = isFeishu ? { initialWaitMs: 3000, useScrollExtract: true } : {}
+      data = await runDomExtraction(tabId, url, createdByUs, needLoad, domOpts)
     }
 
     if (data && (data.content || data.title || data.html || data.screenshots?.length)) {
@@ -241,6 +357,48 @@ async function doFetch(url, opts) {
   } catch (err) {
     if (tabId && createdByUs) chrome.tabs.remove(tabId).catch(() => {})
     respond({ success: false, error: err?.message || '提取失败' })
+  }
+}
+
+const PDF_FETCH_MAX_BYTES = 50 * 1024 * 1024  // 50MB
+
+/** 通过扩展获取 PDF（复用浏览器 cookies，统一方案） */
+async function fetchPdfWithCookies(url) {
+  const u = (url || '').trim()
+  if (!u.startsWith('http://') && !u.startsWith('https://')) {
+    return { success: false, error: '无效的 URL' }
+  }
+  try {
+    const list = await chrome.cookies.getAll({ url: u })
+    const cookieStr = list.map((c) => `${c.name}=${c.value}`).join('; ')
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/pdf,*/*;q=0.8',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    }
+    if (cookieStr) headers['Cookie'] = cookieStr
+
+    const res = await fetch(u, { headers, credentials: 'omit' })
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` }
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    if (!ct.includes('pdf') && !ct.includes('octet-stream')) {
+      return { success: false, error: '响应不是 PDF 格式' }
+    }
+    const buf = await res.arrayBuffer()
+    if (buf.byteLength > PDF_FETCH_MAX_BYTES) {
+      return { success: false, error: `PDF 超过 ${PDF_FETCH_MAX_BYTES / 1024 / 1024} MB 限制` }
+    }
+    const bytes = new Uint8Array(buf)
+    let binary = ''
+    const chunkSize = 8192
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length))
+      binary += String.fromCharCode.apply(null, chunk)
+    }
+    const base64 = btoa(binary)
+    return { success: true, base64, size: buf.byteLength }
+  } catch (e) {
+    return { success: false, error: e?.message || '下载失败' }
   }
 }
 
@@ -275,6 +433,16 @@ chrome.runtime.onConnect.addListener((port) => {
         port.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES_RESULT', requestId, ...res })
       } catch (e) {
         port.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES_RESULT', requestId, success: false, error: e?.message || '导出失败' })
+      }
+      return
+    }
+    if (msg.type === 'HOU_CLI_FETCH_PDF' && msg.url) {
+      const requestId = msg.requestId || 'pdf-' + Date.now()
+      try {
+        const res = await fetchPdfWithCookies(msg.url)
+        port.postMessage({ type: 'HOU_CLI_FETCH_PDF_RESULT', requestId, ...res })
+      } catch (e) {
+        port.postMessage({ type: 'HOU_CLI_FETCH_PDF_RESULT', requestId, success: false, error: e?.message || '下载失败' })
       }
       return
     }
@@ -316,6 +484,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     exportCookiesForDomain(msg.domain || 'youtube.com')
       .then((res) => sendResponse?.(res))
       .catch((e) => sendResponse?.({ success: false, error: e?.message || '导出失败' }))
+    return true
+  }
+  if (msg.action === 'fetch_pdf' && msg.url) {
+    fetchPdfWithCookies(msg.url)
+      .then((res) => sendResponse?.(res))
+      .catch((e) => sendResponse?.({ success: false, error: e?.message || '下载失败' }))
     return true
   }
   if (msg.action !== 'fetch' || !msg.url) {

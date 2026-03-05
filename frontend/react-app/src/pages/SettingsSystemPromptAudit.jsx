@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PageHeader from '../components/PageHeader'
 
 export default function SettingsSystemPromptAudit() {
   const [agents, setAgents] = useState([])
@@ -29,10 +30,7 @@ export default function SettingsSystemPromptAudit() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">提示词审计</h1>
-        <p className="text-muted text-sm mt-1">按 agent 展示当前使用的系统提示，便于核对与审计。</p>
-      </header>
+      <PageHeader title="提示词审计" subtitle="按 agent 展示当前使用的系统提示，便于核对与审计。" />
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {loading && (

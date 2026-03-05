@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PageHeader from '../components/PageHeader'
 
 const API_KEY_LABELS = {
   DEEPSEEK_API_KEY: 'DeepSeek API Key',
@@ -37,12 +38,10 @@ export default function SettingsModelConfigAudit() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-6 py-4 border-b border-border">
-        <h1 className="text-xl font-semibold text-white">模型审计</h1>
-        <p className="text-muted text-sm mt-1">
-          显示 .env 中配置的模型信息及各 Agent 使用的模型（API Key 仅显示是否已设置，不暴露原文）
-        </p>
-      </header>
+      <PageHeader
+        title="模型审计"
+        subtitle="显示 .env 中配置的模型信息及各 Agent 使用的模型（API Key 仅显示是否已设置，不暴露原文）"
+      />
 
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl">
         {loading && <div className="text-muted">加载中…</div>}
