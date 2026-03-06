@@ -33,6 +33,7 @@ AGENT_TOOLS: Dict[str, List[str]] = {
         "text_to_image_prompt",
     ],
     "article_writing": [
+        "writing_blog_tool",
         "browser",
         "google_search",
         "web_fetch",

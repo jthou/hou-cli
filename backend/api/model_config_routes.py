@@ -8,6 +8,7 @@ router = APIRouter()
 # 每项: (agent_id, name, model_keys_or_expr, description)
 AGENT_MODEL_MAPPING = [
     ("chat", "通用对话", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "按任务智能选择"),
+    ("work_assistant", "工作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("article_writing", "写文章", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "按任务智能选择"),
     ("orchestrator_selector", "智能编排选择器", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("skill_matching", "技能匹配", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
@@ -129,4 +130,38 @@ async def get_model_config_audit():
 
     result["agent_model_mapping"] = _resolve_agent_models()
 
+    # 用户可选模型（模型选择下拉使用的配置）
+    result["model_selection"] = [
+        {"key": "CHAT_MODEL", "label": "对话模型", "value": os.getenv("CHAT_MODEL", "deepseek-chat")},
+        {"key": "CODE_MODEL", "label": "编码模型", "value": os.getenv("CODE_MODEL", "deepseek-coder")},
+        {"key": "REASONING_MODEL", "label": "推理模型", "value": os.getenv("REASONING_MODEL", "deepseek-reasoner")},
+    ]
+
     return result
+
+
+@router.get("/models/selectable")
+async def get_selectable_models():
+    """
+    返回前端可选的模型列表（具体模型名）。
+    - auto: 智能选择
+    - 其余为配置的 chat/code/reasoning 模型名
+    """
+    chat_model = os.getenv("CHAT_MODEL", "deepseek-chat")
+    code_model = os.getenv("CODE_MODEL", "deepseek-coder")
+    reasoning_model = os.getenv("REASONING_MODEL", "deepseek-reasoner")
+
+    models = [
+        {"value": "auto", "label": "智能选择"},
+        {"value": chat_model, "label": chat_model},
+        {"value": code_model, "label": code_model},
+        {"value": reasoning_model, "label": reasoning_model},
+    ]
+    # 去重：若 chat/code/reasoning 配置了相同模型，只保留一个
+    seen = set()
+    unique = []
+    for m in models:
+        if m["value"] not in seen:
+            seen.add(m["value"])
+            unique.append(m)
+    return {"success": True, "models": unique}

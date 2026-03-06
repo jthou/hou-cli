@@ -151,6 +151,62 @@ class TestChatRoutes:
             assert b"stream_chunk_A" in content
             assert b"stream_chunk_B" in content
 
+    def test_chat_endpoint_with_model_override(self, client):
+        """测试带 model 参数的聊天接口，context 正确传递"""
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.process = AsyncMock(return_value="使用指定模型的响应")
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post("/api/chat", json={
+                "message": "你好",
+                "model": "reasoning"
+            })
+
+            assert response.status_code == 200
+            call_args = mock_orch.process.call_args
+            assert call_args[1]["context"]["model"] == "reasoning"
+
+    def test_chat_stream_endpoint_with_model_override(self, client):
+        """测试流式接口带 model 参数"""
+        async def mock_stream_with_model_check(task, context=None):
+            assert context.get("model") == "code"
+            yield "chunk1"
+            yield "chunk2"
+
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.stream_process = mock_stream_with_model_check
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post("/api/chat/stream", json={
+                "message": "写一个函数",
+                "model": "code"
+            })
+
+            assert response.status_code == 200
+            content = b""
+            for chunk in response.iter_bytes():
+                content += chunk
+            assert b"chunk1" in content
+
+    def test_chat_endpoint_without_model_uses_empty_context(self, client):
+        """不传 model 时 context 不包含 model 键"""
+        with patch('backend.api.chat_routes.get_orchestrator') as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.process = AsyncMock(return_value="响应")
+
+            def check_context(message, context=None):
+                assert context is not None
+                assert "model" not in context or context.get("model") is None
+                return "响应"
+
+            mock_orch.process.side_effect = check_context
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post("/api/chat", json={"message": "你好"})
+            assert response.status_code == 200
+
     def test_chat_stream_image_generation_markdown_in_response(self, client):
         """E2E：图片生成时流式响应应包含 base64 图片的 Markdown 语法"""
         img_b64 = "data:image/png;base64,iVBORw0KGgo="

@@ -775,6 +775,122 @@ class LLMService:
                 pass
             raise
 
+    async def stream_chat_with_tools(
+        self,
+        messages: list,
+        tools: Optional[list] = None,
+        timeout: int = 120,
+        audit_meta: Optional[Dict[str, Any]] = None,
+        out_result: Optional[Dict[str, Any]] = None,
+    ) -> AsyncIterator[str]:
+        """
+        带工具调用的流式聊天：content 实时 yield，tool_calls 累积后写入 out_result。
+
+        Args:
+            messages: 消息列表
+            tools: 工具定义（OpenAI Function Calling 格式）
+            timeout: 超时秒数
+            audit_meta: 审计元数据
+            out_result: 可变的 dict，流结束后写入 {"content": str} 或 {"tool_calls": [...]}
+
+        Yields:
+            content 文本块（逐 token）
+        """
+        out = out_result if out_result is not None else {}
+        out.clear()
+        content_chunks = []
+        tool_calls_acc = {}  # index -> {id, function: {name, arguments}}
+
+        request_params = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+        if tools:
+            request_params["tools"] = tools
+            request_params["tool_choice"] = "auto"
+
+        audit_id = None
+        try:
+            from backend.services.llm.llm_audit import append_audit, _messages_summary, create_audit_id
+            audit_id = create_audit_id()
+            append_audit("request", self.model, _messages_summary(messages), meta=dict(audit_meta or {}, has_tools=bool(tools), audit_id=audit_id))
+        except Exception as e:
+            logger.debug("LLM 审计写入请求记录失败: %s", e)
+
+        try:
+            stream = await asyncio.wait_for(
+                self.client.chat.completions.create(**request_params),
+                timeout=timeout,
+            )
+            async for chunk in stream:
+                if not hasattr(chunk, "choices") or not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                finish_reason = getattr(chunk.choices[0], "finish_reason", None)
+
+                if hasattr(delta, "content") and delta.content:
+                    content_chunks.append(delta.content)
+                    yield delta.content
+
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = getattr(tc, "index", 0)
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {"id": "", "function": {"name": "", "arguments": ""}}
+                        acc = tool_calls_acc[idx]
+                        if getattr(tc, "id", None):
+                            acc["id"] = tc.id
+                        if hasattr(tc, "function") and tc.function:
+                            fn = tc.function
+                            if getattr(fn, "name", None):
+                                acc["function"]["name"] = (acc["function"]["name"] or "") + (fn.name or "")
+                            if getattr(fn, "arguments", None):
+                                acc["function"]["arguments"] = (acc["function"]["arguments"] or "") + (fn.arguments or "")
+
+                if finish_reason == "tool_calls" and tool_calls_acc:
+                    from types import SimpleNamespace
+                    tool_calls_list = []
+                    for i in sorted(tool_calls_acc.keys()):
+                        acc = tool_calls_acc[i]
+                        fn = SimpleNamespace(
+                            name=acc["function"]["name"] or "",
+                            arguments=acc["function"]["arguments"] or "{}",
+                        )
+                        tc = SimpleNamespace(
+                            id=acc["id"] or f"call_{i}",
+                            type="function",
+                            function=fn,
+                        )
+                        tool_calls_list.append(tc)
+                    out["tool_calls"] = tool_calls_list
+                    break
+                if finish_reason in ("stop", "end_turn", "length"):
+                    break
+
+            full_content = "".join(content_chunks)
+            if "tool_calls" not in out:
+                out["content"] = full_content
+
+            try:
+                from backend.services.llm.llm_audit import append_audit, _response_summary
+                if "tool_calls" in out:
+                    append_audit("response", self.model, {"tool_calls": len(out["tool_calls"])}, meta=dict(audit_meta or {}, audit_id=audit_id))
+                else:
+                    append_audit("response", self.model, _response_summary(full_content, self.model), meta=dict(audit_meta or {}, audit_id=audit_id))
+            except Exception as e:
+                logger.debug("LLM 审计写入流式响应记录失败: %s", e)
+
+        except Exception as e:
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit("response_error", self.model, {"error": str(e)}, meta=dict(audit_meta or {}, audit_id=audit_id))
+            except Exception:
+                pass
+            raise
+
     def supports_response_format(self) -> bool:
         """
         检查当前 LLM 是否支持 response_format 参数

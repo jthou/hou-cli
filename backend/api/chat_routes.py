@@ -35,6 +35,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None  # 会话 ID（可选）
     current_article: Optional[str] = None  # 写文章时右侧草稿，会注入对话上下文并持久化
     context_type: Optional[str] = None  # 建新会话时的类型，如 article_writing；无 session_id 时生效
+    model: Optional[str] = None  # 用户指定模型：chat/code/reasoning 或具体模型名；不传则智能选择
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
@@ -54,6 +55,8 @@ async def chat(request: ChatRequest):
             context["session_id"] = request.session_id
         if request.context_type:
             context["context_type"] = request.context_type
+        if request.model and request.model.strip():
+            context["model"] = request.model.strip()
         # 写文章：保存右侧草稿，供本次及后续轮次注入上下文
         if request.session_id and request.current_article is not None:
             orchestrator.context_manager.set_current_article(
@@ -118,6 +121,8 @@ async def chat_stream(request: ChatRequest):
                 context["session_id"] = request.session_id
             if request.context_type:
                 context["context_type"] = request.context_type
+            if request.model and request.model.strip():
+                context["model"] = request.model.strip()
             # 写文章：保存右侧草稿供流式分支注入上下文（与 POST /chat 一致）
             if request.session_id and request.current_article is not None:
                 orchestrator.context_manager.set_current_article(

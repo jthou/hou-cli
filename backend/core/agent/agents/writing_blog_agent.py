@@ -1,12 +1,30 @@
 #!/usr/bin/env python3
 """写作博客文章的智能Agent - 基于用户提供的主题和草稿"""
 
+import asyncio
+import json
+import re
 from typing import Dict, Optional, Any
 from datetime import datetime
 
 from backend.core.agent.base_agent import BaseAgent
 from backend.services.llm.llm_service import LLMService
 from backend.core.agent.tools.registry import ToolRegistry
+from backend.core.agent.tools.base import ToolResult
+
+
+def _extract_urls(text: str) -> list[str]:
+    """从文本中提取 http/https URL"""
+    if not text:
+        return []
+    pattern = r"https?://[^\s\)\]\"']+"
+    return list(dict.fromkeys(re.findall(pattern, text)))
+
+
+async def _run_tool_sync(tool, **kwargs) -> ToolResult:
+    """在线程池中运行同步工具，避免阻塞事件循环"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: tool.execute(**kwargs))
 
 
 class BlogWritingAgent(BaseAgent):
@@ -70,12 +88,50 @@ class BlogWritingAgent(BaseAgent):
     async def _parse_user_input(
         self, task: str, context: Optional[Dict]
     ) -> Dict[str, Any]:
-        """解析用户输入的任务和上下文"""
-        # 使用LLM分析用户输入，提取关键信息
+        """解析用户输入的任务和上下文；若含 URL 或 MediaWiki 参考页则拉取内容"""
+        ctx = context or {}
+        reference_content: list[str] = []
+
+        # 1. web_fetch：用户提供 URL 时抓取
+        urls = _extract_urls(task)
+        urls.extend(_extract_urls(str(ctx.get("reference_url", ""))))
+        urls.extend(_extract_urls(str(ctx.get("url", ""))))
+        web_fetch_tool = self.tool_registry.get_tool("web_fetch") if self.tool_registry else None
+        for url in urls[:3]:  # 最多 3 个 URL
+            if web_fetch_tool:
+                try:
+                    res = await _run_tool_sync(web_fetch_tool, url=url, max_length=15000)
+                    if res.success and res.data:
+                        ref = f"【参考：{res.data.get('title', url)}\n{res.data.get('content', '')[:12000]}】"
+                        reference_content.append(ref)
+                except Exception:
+                    pass
+
+        # 2. mediawiki：用户指定参考页面时读取
+        mw_titles = ctx.get("mediawiki_page") or ctx.get("mw_source_titles")
+        if mw_titles and not isinstance(mw_titles, (list, tuple)):
+            mw_titles = [mw_titles]
+        mediawiki_tool = self.tool_registry.get_tool("mediawiki") if self.tool_registry else None
+        if mediawiki_tool and mw_titles:
+            for title in (mw_titles or [])[:3]:
+                try:
+                    res = await _run_tool_sync(
+                        mediawiki_tool, operation="read", title=str(title).strip()
+                    )
+                    if res.success and res.data and res.data.get("content"):
+                        ref = f"【参考 MediaWiki 页面：{title}\n{res.data['content'][:12000]}】"
+                        reference_content.append(ref)
+                except Exception:
+                    pass
+
+        ref_block = "\n\n".join(reference_content) if reference_content else ""
+
+        # 3. LLM 分析用户输入
         prompt = f"""
         请分析以下用户输入并提取关键信息：
         用户输入: {task}
-        上下文: {context or {}}
+        上下文: {ctx}
+        {f'参考材料（请纳入分析）:\n{ref_block}' if ref_block else ''}
         
         提取以下信息：
         1. 文章主题
@@ -86,49 +142,88 @@ class BlogWritingAgent(BaseAgent):
         
         请以JSON格式返回结果。
         """
-        
-        response = await self.llm_service.chat(
-            [{"role": "user", "content": prompt}]
-        )
-
-        # 简单解析响应中的JSON部分
-        import json
-        import re
-        
-        # 提取JSON部分
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        response = await self.llm_service.chat([{"role": "user", "content": prompt}])
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
         if json_match:
             try:
                 result = json.loads(json_match.group())
-                # 确保返回的数据结构正确
                 result.setdefault("topic", task)
                 result.setdefault("target_audience", "general")
                 result.setdefault("article_type", "tutorial")
                 result.setdefault("draft_points", [])
                 result.setdefault("special_requirements", [])
+                result["_reference_content"] = ref_block
                 return result
             except json.JSONDecodeError:
                 pass
-                
-        # 如果无法解析JSON，返回基本结构
         return {
             "topic": task,
             "target_audience": "general",
             "article_type": "tutorial",
             "draft_points": [],
-            "special_requirements": []
+            "special_requirements": [],
+            "_reference_content": ref_block,
         }
     
     async def _create_outline(
         self, parsed_input: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """基于用户输入创建文章大纲"""
+        """基于用户输入创建文章大纲；可选接入 google_search、mediawiki 获取参考"""
+        topic = parsed_input.get("topic", "未知")
+        ref_block = parsed_input.get("_reference_content", "")
+        outline_refs: list[str] = []
+
+        # google_search：搜索同类文章结构、SEO 标题
+        google_tool = self.tool_registry.get_tool("google_search") if self.tool_registry else None
+        if google_tool:
+            try:
+                res = await _run_tool_sync(
+                    google_tool, query=str(topic)[:80], num_results=5
+                )
+                if res.success and res.data and res.data.get("results"):
+                    snippets = [
+                        f"- {r.get('title', '')}: {r.get('snippet', '')[:150]}"
+                        for r in res.data["results"][:5]
+                    ]
+                    outline_refs.append("【同类文章参考】\n" + "\n".join(snippets))
+            except Exception:
+                pass
+
+        # mediawiki search_read：拉取同主题已有文章大纲
+        mediawiki_tool = self.tool_registry.get_tool("mediawiki") if self.tool_registry else None
+        if mediawiki_tool:
+            try:
+                res = await _run_tool_sync(
+                    mediawiki_tool,
+                    operation="search_read",
+                    terms=str(topic)[:50],
+                    per_term_limit=2,
+                )
+                if res.success and res.data and res.data.get("results"):
+                    pages = []
+                    for r in res.data["results"]:
+                        pages.extend(r.get("pages", [])[:2])
+                    pages = pages[:3]
+                    if pages:
+                        texts = [
+                            f"【{p.get('title', '')}】\n{p.get('content', '')[:2000]}"
+                            for p in pages
+                        ]
+                        outline_refs.append("【MediaWiki 同主题文章】\n" + "\n\n".join(texts))
+            except Exception:
+                pass
+
+        ref_section = "\n\n".join(outline_refs) if outline_refs else ""
+        if ref_block:
+            ref_section = (ref_section + "\n\n" + ref_block) if ref_section else ref_block
+
         prompt = f"""
         基于以下用户输入创建结构化文章大纲：
-        主题: {parsed_input.get('topic', '未知')}
+        主题: {topic}
         类型: {parsed_input.get('article_type', '通用')}
         已有草稿要点: {parsed_input.get('draft_points', [])}
         特殊要求: {parsed_input.get('special_requirements', [])}
+        {f'参考材料（可借鉴结构与表述）:\n{ref_section}' if ref_section else ''}
         
         大纲应包含：
         1. 吸引人的标题（考虑SEO）
@@ -139,46 +234,28 @@ class BlogWritingAgent(BaseAgent):
         
         请返回结构化的JSON格式大纲，包含每个部分的简要描述。
         """
-        
-        response = await self.llm_service.chat(
-            [{"role": "user", "content": prompt}]
-        )
-
-        # 简单解析响应
-        import json
-        import re
-        
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        response = await self.llm_service.chat([{"role": "user", "content": prompt}])
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
         if json_match:
             try:
-                return json.loads(json_match.group())
+                outline = json.loads(json_match.group())
+                outline["_reference_content"] = ref_block
+                return outline
             except json.JSONDecodeError:
                 pass
-        
-        # 默认返回
-        return {
-            "title": parsed_input.get('topic', '博客文章'),
+        base = {
+            "title": topic if isinstance(topic, str) else "博客文章",
             "introduction": "文章引言部分",
             "sections": [
-                {
-                    "title": "第一部分",
-                    "description": "主要内容第一部分",
-                    "content_hint": "",
-                },
-                {
-                    "title": "第二部分",
-                    "description": "主要内容第二部分",
-                    "content_hint": "",
-                },
-                {
-                    "title": "第三部分",
-                    "description": "主要内容第三部分",
-                    "content_hint": "",
-                },
+                {"title": "第一部分", "description": "主要内容第一部分", "content_hint": ""},
+                {"title": "第二部分", "description": "主要内容第二部分", "content_hint": ""},
+                {"title": "第三部分", "description": "主要内容第三部分", "content_hint": ""},
             ],
             "conclusion": "文章结论部分",
-            "call_to_action": "可能的后续行动或思考"
+            "call_to_action": "可能的后续行动或思考",
         }
+        base["_reference_content"] = ref_block
+        return base
     
     async def _generate_detailed_content(
         self, outline: Dict[str, Any]
@@ -198,6 +275,9 @@ class BlogWritingAgent(BaseAgent):
             }
         }
         
+        ref_block = outline.get("_reference_content", "")
+        ref_note = f"\n参考材料（可引用或借鉴，勿照抄）:\n{ref_block[:8000]}" if ref_block else ""
+
         # 生成引言
         intro_prompt = f"""
         请为"{outline.get('title', '')}"这个主题撰写引言部分。
@@ -206,24 +286,22 @@ class BlogWritingAgent(BaseAgent):
         2. 简要介绍主题重要性
         3. 预告文章主要内容
         4. 长度约150-200字
+        {ref_note}
         
         返回纯文本格式的引言。
         """
-        
-        introduction = await self.llm_service.chat(
-            [{"role": "user", "content": intro_prompt}]
-        )
+        introduction = await self.llm_service.chat([{"role": "user", "content": intro_prompt}])
         article["introduction"] = introduction.strip()
         
         # 生成各个部分
         sections = outline.get("sections", [])
         for i, section in enumerate(sections):
-            section_content = await self._write_section(
-                section, i + 1, len(sections)
-            )
+            sec = dict(section)
+            sec["_reference_content"] = ref_block
+            section_content = await self._write_section(sec, i + 1, len(sections))
             article["sections"].append({
                 "title": section.get("title", f"第{i+1}部分"),
-                "content": section_content
+                "content": section_content,
             })
         
         # 生成结论
@@ -234,13 +312,11 @@ class BlogWritingAgent(BaseAgent):
         2. 提供价值或建议
         3. 与引言呼应
         4. 长度约100-150字
+        {ref_note}
         
         返回纯文本格式的结论。
         """
-        
-        conclusion = await self.llm_service.chat(
-            [{"role": "user", "content": conclusion_prompt}]
-        )
+        conclusion = await self.llm_service.chat([{"role": "user", "content": conclusion_prompt}])
         article["conclusion"] = conclusion.strip()
         
         # 生成行动号召或后续思考
@@ -253,10 +329,7 @@ class BlogWritingAgent(BaseAgent):
         
         返回纯文本格式的内容。
         """
-        
-        call_to_action = await self.llm_service.chat(
-            [{"role": "user", "content": cta_prompt}]
-        )
+        call_to_action = await self.llm_service.chat([{"role": "user", "content": cta_prompt}])
         article["call_to_action"] = call_to_action.strip()
         
         # 计算统计数据
@@ -293,9 +366,15 @@ class BlogWritingAgent(BaseAgent):
         self,
         section_info: Dict[str, Any],
         section_num: int,
-        total_sections: int
+        total_sections: int,
     ) -> str:
         """撰写单个章节"""
+        ref_block = section_info.get("_reference_content", "")
+        ref_note = (
+            f"\n参考材料（可引用或借鉴，勿照抄）:\n{ref_block[:6000]}"
+            if ref_block
+            else ""
+        )
         prompt = f"""
         请撰写博客文章的章节：
         章节标题: {section_info.get('title', f'第{section_num}部分')}
@@ -308,47 +387,77 @@ class BlogWritingAgent(BaseAgent):
         3. 与整体文章主题保持一致
         4. 长度约200-400字
         5. 如适用，可包含小标题、列表或示例
+        {ref_note}
         
         当前是第{section_num}部分，共{total_sections}部分。
         
         返回该章节的完整内容。
         """
-        
-        response = await self.llm_service.chat(
-            [{"role": "user", "content": prompt}]
-        )
+        response = await self.llm_service.chat([{"role": "user", "content": prompt}])
         return response.strip()
     
     async def _optimize_article(
         self, article: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """优化文章内容"""
-        # 在实际实现中，这里应该使用LLM来优化内容
-        # optimization_prompt = f"""
-        # 请优化以下博客文章内容：
-        # 标题: {article["title"]}
-        # 引言: {article["introduction"]}
-        # 主体内容: {[sec["content"] for sec in article["sections"]}
-        # }
-        # 结论: {article["conclusion"]}
-        # 行动号召: {article["call_to_action"]}
-        # 
-        # 优化要求：
-        # 1. 检查语法和表达的清晰度
-        # 2. 确保段落之间逻辑流畅
-        # 3. 优化句子结构，提高可读性
-        # 4. 确保标题和内容的一致性
-        # 5. 检查是否符合目标读者的期望
-        # 
-        # 返回优化后的文章，保持原有结构。
-        # """
-            
-        # 目前直接返回原文章
-        # 在实际实现中，这里应该解析优化后的内容
-        # 目前简单更新优化时间戳
+        """使用 LLM 优化文章：语法、流畅度、可读性"""
+        full_text = (
+            article.get("introduction", "")
+            + "\n\n"
+            + "\n\n".join(
+                s.get("content", "") for s in article.get("sections", [])
+            )
+            + "\n\n"
+            + article.get("conclusion", "")
+            + "\n\n"
+            + article.get("call_to_action", "")
+        )
+        if len(full_text) > 12000:
+            # 过长时仅优化引言+前两节+结论，避免超 token
+            intro = article.get("introduction", "")
+            secs = article.get("sections", [])
+            concl = article.get("conclusion", "")
+            cta = article.get("call_to_action", "")
+            to_opt = intro + "\n\n"
+            for s in secs[:2]:
+                to_opt += s.get("content", "") + "\n\n"
+            to_opt += concl + "\n\n" + cta
+        else:
+            to_opt = full_text
+
+        prompt = f"""
+        请优化以下博客文章，保持原有结构和章节标题，只修改正文表述。
+
+        【原文】
+        {to_opt[:10000]}
+
+        优化要求：
+        1. 检查语法和表达的清晰度
+        2. 确保段落之间逻辑流畅
+        3. 优化句子结构，提高可读性
+        4. 确保标题和内容的一致性
+
+        请按以下 JSON 格式返回（仅返回 JSON，不要其他说明）：
+        {{"introduction": "优化后的引言", "sections": [{{"title": "章节标题", "content": "优化后的内容"}}, ...], "conclusion": "优化后的结论", "call_to_action": "优化后的行动号召"}}
+        """
+        try:
+            response = await self.llm_service.chat([{"role": "user", "content": prompt}])
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
+            if json_match:
+                opt = json.loads(json_match.group())
+                if opt.get("introduction"):
+                    article["introduction"] = opt["introduction"]
+                if opt.get("sections"):
+                    for i, sec_opt in enumerate(opt["sections"][: len(article.get("sections", []))]):
+                        if i < len(article["sections"]) and sec_opt.get("content"):
+                            article["sections"][i]["content"] = sec_opt["content"]
+                if opt.get("conclusion"):
+                    article["conclusion"] = opt["conclusion"]
+                if opt.get("call_to_action"):
+                    article["call_to_action"] = opt["call_to_action"]
+        except Exception:
+            pass
         article["metadata"]["last_optimized"] = datetime.now().isoformat()
         article["metadata"]["optimized_by"] = self.name
-                
         return article
     
     async def _format_for_mediawiki(self, article: Dict[str, Any]) -> str:

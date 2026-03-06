@@ -240,6 +240,10 @@ class UnifiedOrchestrator:
     
     async def _intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> str:
         """使用LLM智能编排agents和tools"""
+        # 用户指定模型时优先使用
+        selected_model = await self._select_model(task, context=context)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
         # 获取会话ID
         session_id = context.get("session_id") if context else None
         if not session_id:
@@ -307,9 +311,30 @@ class UnifiedOrchestrator:
         if agent_name == "writing_blog_agent":
             from backend.core.agent.agents.writing_blog_agent import BlogWritingAgent
             agent = BlogWritingAgent(self.llm_service, self.tool_registry)
-            # 使用参数执行博客写作
-            result = await agent.execute(params)
-            return result
+            # 将编排参数转换为 BlogWritingAgent 期望的 task 格式
+            task_str = params.get("task") or params.get("topic") or task
+            agent_context = {
+                k: v for k, v in params.items()
+                if k not in ("task", "topic") and v is not None
+            }
+            if params.get("target_audience"):
+                agent_context.setdefault("target_audience", params["target_audience"])
+            if params.get("article_type"):
+                agent_context.setdefault("article_type", params["article_type"])
+            if params.get("draft_content"):
+                agent_context.setdefault("draft_points", [params["draft_content"]])
+            result = await agent.execute({"task": str(task_str), "context": agent_context})
+            # 返回可读的字符串（process 期望 str）
+            if isinstance(result, dict) and result.get("success"):
+                art = result.get("article", {})
+                parts = [f"# {art.get('title', '文章')}\n\n"]
+                parts.append(art.get("introduction", "") + "\n\n")
+                for sec in art.get("sections", []):
+                    parts.append(f"## {sec.get('title', '')}\n\n{sec.get('content', '')}\n\n")
+                parts.append(f"## 结论\n\n{art.get('conclusion', '')}\n\n")
+                parts.append(f"## 后续思考\n\n{art.get('call_to_action', '')}")
+                return "\n".join(parts)
+            return str(result) if result else "博客写作未返回结果"
         elif agent_name == "code_agent":
             # 代码agent处理逻辑
             pass
@@ -328,13 +353,15 @@ class UnifiedOrchestrator:
     
     async def _execute_tool(self, tool_name: str, params: Dict, session_id: str) -> str:
         """执行指定的tool"""
-        # 从工具注册表获取工具并执行
         tool = self.tool_registry.get_tool(tool_name)
         if tool:
             try:
-                result = await tool.execute(**params)
+                if hasattr(self.tool_registry, "execute_async"):
+                    result = await self.tool_registry.execute_async(tool_name, **params)
+                else:
+                    result = tool.execute(**params)
                 if result.success:
-                    return str(result.data) if result.data else result.message
+                    return str(result.data) if result.data else (getattr(result, "message", None) or str(result.data))
                 else:
                     return f"工具执行失败: {result.error}"
             except Exception as e:
@@ -454,6 +481,10 @@ class UnifiedOrchestrator:
     
     async def _stream_intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
         """流式智能编排agents和tools"""
+        # 用户指定模型时优先使用
+        selected_model = await self._select_model(task, context=context)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
         # 获取会话ID
         session_id = context.get("session_id") if context else None
         if not session_id:
@@ -871,6 +902,16 @@ class UnifiedOrchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册写作博客工具
+        try:
+            from backend.core.agent.tools.writing_blog_tool import WritingBlogTool
+            writing_blog_tool = WritingBlogTool()
+            self.tool_registry.register(writing_blog_tool)
+            self.debug.log_orchestrator_step("注册工具", {"writing_blog_tool": "registered"})
+            logger.info("Writing blog tool registered successfully")
+        except Exception as e:
+            logger.warning("Failed to register writing blog tool: %s", e)
+
         # 注册天气工具
         try:
             jwt_auth = JWTAuth.from_env()
@@ -934,6 +975,53 @@ class UnifiedOrchestrator:
         except Exception as e:
             logger.warning(f"Failed to initialize auto code executor: {str(e)}")
             self.auto_code_executor = None
+
+    def _resolve_user_model(self, model_spec: str) -> str:
+        """
+        解析用户指定的模型（chat/code/reasoning 或具体模型名）
+        """
+        from backend.services.llm.model_config import get_model_config_manager
+        spec = (model_spec or "").strip().lower()
+        if not spec:
+            raise ValueError("model 不能为空")
+        config_manager = get_model_config_manager()
+        if spec == "chat":
+            return config_manager.get_chat_model()
+        if spec == "code":
+            return config_manager.get_code_model()
+        if spec == "reasoning":
+            return config_manager.get_reasoning_model()
+        config = config_manager.get_model_config(spec)
+        return config.model_name
+
+    async def _select_model(self, task: str, context: Optional[Dict] = None) -> str:
+        """
+        智能选择模型；若 context 含 model 则优先使用用户指定
+        """
+        import os
+        from backend.services.llm.model_config import get_model_config_manager
+
+        user_model = (context or {}).get("model")
+        if user_model and str(user_model).strip():
+            return self._resolve_user_model(str(user_model).strip())
+
+        if os.getenv("DISABLE_SMART_MODEL_SELECTION", "false").lower() == "true":
+            return get_model_config_manager().get_chat_model()
+
+        config_manager = get_model_config_manager()
+        chat_model = config_manager.get_chat_model()
+        code_model = config_manager.get_code_model()
+        reasoning_model = config_manager.get_reasoning_model()
+        task_lower = task.lower()
+        code_keywords = ["执行", "运行", "代码", "编写", "函数", "脚本"]
+        reasoning_keywords = ["分析", "推理", "计划", "设计", "报告", "总结"]
+        for kw in reasoning_keywords:
+            if kw in task_lower:
+                return reasoning_model
+        for kw in code_keywords:
+            if kw in task_lower:
+                return code_model
+        return chat_model
 
 
 class SkillMatcher:
@@ -1169,8 +1257,8 @@ class SkillMatcher:
         tools = get_tools_for_llm_by_agent("chat", self.tool_registry.get_tools_for_llm())
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools)})
         
-        # 智能模型选择：使用推理模型分析任务，决定使用哪个模型
-        selected_model = await self._select_model(task)
+        # 智能模型选择：使用推理模型分析任务，决定使用哪个模型；context 含 model 时优先用户指定
+        selected_model = await self._select_model(task, context=context)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
         # 总是显示模型选择信息（即使模型没有改变）
@@ -1182,7 +1270,8 @@ class SkillMatcher:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             tools=tools if tools else None,
-            session_id=session_id
+            session_id=session_id,
+            context=context
         )
         self.debug.log_llm_response(response, selected_model)
         
@@ -2046,7 +2135,7 @@ class SkillMatcher:
         }
         yield StreamMessageBuilder.build_debug(debug_info)
         
-        selected_model = await self._select_model(task)
+        selected_model = await self._select_model(task, context=context)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
         # 总是显示模型选择信息（即使模型没有改变）
@@ -2078,7 +2167,8 @@ class SkillMatcher:
                     user_prompt=user_prompt,
                     tools=tools,
                     planning_files=planning_files,
-                    session_id=session_id
+                    session_id=session_id,
+                    context=context
                 ):
                     # 检查是否是调试信息、工具调用信息或状态更新
                     if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:") or chunk.startswith("__STATUS__:"):
@@ -2524,13 +2614,23 @@ class SkillMatcher:
                 return json.dumps(data, ensure_ascii=False, indent=2)
             return "✅ 技能执行完成"
     
+    async def _yield_text_in_chunks(self, text: str, chunk_size: int = 40) -> AsyncIterator[str]:
+        """将文本分块 yield，模拟流式输出以提升 UX。"""
+        import asyncio
+        if not text:
+            return
+        for i in range(0, len(text), chunk_size):
+            yield text[i : i + chunk_size]
+            await asyncio.sleep(0)  # 让出事件循环，确保及时发送
+
     async def _chat_with_tools_stream(
         self,
         system_prompt: str,
         user_prompt: str,
         tools: Optional[list] = None,
         planning_files: Optional[Any] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        context: Optional[Dict] = None
     ) -> AsyncIterator[str]:
         """
         带工具调用的聊天（流式版本，包含调试信息）
@@ -2577,22 +2677,32 @@ class SkillMatcher:
                 self.debug.log_orchestrator_step(f"工具调用循环第 {iteration} 轮", {})
                 
                 audit_meta = {"session_id": session_id} if session_id else None
+                out_result = {}
                 try:
-                    # 调用 LLM（使用 messages 而不是 system_prompt/user_prompt）
-                    response = await self.llm_service.chat(messages=messages, tools=tools, audit_meta=audit_meta)
+                    # 流式调用 LLM（content 实时 yield，tool_calls 写入 out_result）
+                    async for chunk in self.llm_service.stream_chat_with_tools(
+                        messages=messages,
+                        tools=tools,
+                        audit_meta=audit_meta,
+                        out_result=out_result,
+                    ):
+                        yield chunk
                 except Exception as e:
                     logger.error(f"LLM 调用失败: {str(e)}", exc_info=True)
                     yield f"抱歉，处理您的请求时出现错误：{str(e)}"
                     return
 
-                # 检查响应类型
-                if isinstance(response, str):
-                    # 普通文本回复，直接返回
-                    yield response
+                # 纯文本回复：已在上方流式 yield，直接返回
+                if "content" in out_result and "tool_calls" not in out_result:
                     return
 
                 # 检查是否有工具调用
-                if hasattr(response, 'tool_calls') and response.tool_calls:
+                if "tool_calls" in out_result:
+                    from types import SimpleNamespace
+                    response = SimpleNamespace(tool_calls=out_result["tool_calls"], content=None)
+                else:
+                    response = None
+                if response and hasattr(response, 'tool_calls') and response.tool_calls:
                     debug_info = {
                         "type": "debug",
                         "category": "orchestrator",
@@ -2603,100 +2713,101 @@ class SkillMatcher:
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
                     
                     # ===== 根据工具类型选择模型（新增） =====
-                    # 检测工具调用时，根据工具元数据选择最合适的模型
-                    from backend.core.agent.tools.metadata import tool_metadata_registry
-                    from backend.services.llm.model_config import get_model_config_manager
-                    
-                    # 收集所有工具推荐的模型类型
-                    recommended_models = set()
-                    for tool_call in response.tool_calls:
-                        tool_name = tool_call.function.name
-                        metadata = tool_metadata_registry.get_metadata(tool_name)
-                        if metadata and metadata.recommended_model:
-                            recommended_models.add(metadata.recommended_model)
-                    
-                    # 如果所有工具都推荐同一个模型类型，切换到该模型
-                    if len(recommended_models) == 1:
-                        recommended_model_type = list(recommended_models)[0]
-                        config_manager = get_model_config_manager()
-                        current_model = self.llm_service.model
+                    # 用户指定 model 时跳过工具推荐切换，保持用户选择
+                    if not (context and context.get("model")):
+                        from backend.core.agent.tools.metadata import tool_metadata_registry
+                        from backend.services.llm.model_config import get_model_config_manager
                         
-                        # 根据推荐模型类型切换
-                        if recommended_model_type == "code":
-                            target_model = config_manager.get_code_model()
-                        elif recommended_model_type == "reasoning":
-                            target_model = config_manager.get_reasoning_model()
-                        elif recommended_model_type == "chat":
-                            target_model = config_manager.get_chat_model()
-                        else:
-                            target_model = None
+                        # 收集所有工具推荐的模型类型
+                        recommended_models = set()
+                        for tool_call in response.tool_calls:
+                            tool_name = tool_call.function.name
+                            metadata = tool_metadata_registry.get_metadata(tool_name)
+                            if metadata and metadata.recommended_model:
+                                recommended_models.add(metadata.recommended_model)
                         
-                        # 如果目标模型与当前模型不同，进行切换
-                        if target_model and target_model != current_model:
-                            logger.info(f"工具调用检测：切换到 {recommended_model_type} 模型 ({target_model})")
-                            self.llm_service.set_model(target_model)
-                            debug_info = {
-                                "type": "debug",
-                                "category": "orchestrator",
-                                "message": "模型切换",
-                                "details": {
-                                    "reason": "工具类型推荐",
-                                    "from": current_model,
-                                    "to": target_model,
-                                    "tools": [tc.function.name for tc in response.tool_calls]
+                        # 如果所有工具都推荐同一个模型类型，切换到该模型
+                        if len(recommended_models) == 1:
+                            recommended_model_type = list(recommended_models)[0]
+                            config_manager = get_model_config_manager()
+                            current_model = self.llm_service.model
+                            
+                            # 根据推荐模型类型切换
+                            if recommended_model_type == "code":
+                                target_model = config_manager.get_code_model()
+                            elif recommended_model_type == "reasoning":
+                                target_model = config_manager.get_reasoning_model()
+                            elif recommended_model_type == "chat":
+                                target_model = config_manager.get_chat_model()
+                            else:
+                                target_model = None
+                            
+                            # 如果目标模型与当前模型不同，进行切换
+                            if target_model and target_model != current_model:
+                                logger.info(f"工具调用检测：切换到 {recommended_model_type} 模型 ({target_model})")
+                                self.llm_service.set_model(target_model)
+                                debug_info = {
+                                    "type": "debug",
+                                    "category": "orchestrator",
+                                    "message": "模型切换",
+                                    "details": {
+                                        "reason": "工具类型推荐",
+                                        "from": current_model,
+                                        "to": target_model,
+                                        "tools": [tc.function.name for tc in response.tool_calls]
+                                    }
                                 }
-                            }
-                            yield StreamMessageBuilder.build_debug(debug_info)
-                            self.debug.log_orchestrator_step(
-                                "模型切换",
-                                {
-                                    "reason": "工具类型推荐",
-                                    "from": current_model,
-                                    "to": target_model,
-                                    "tools": [tc.function.name for tc in response.tool_calls]
+                                yield StreamMessageBuilder.build_debug(debug_info)
+                                self.debug.log_orchestrator_step(
+                                    "模型切换",
+                                    {
+                                        "reason": "工具类型推荐",
+                                        "from": current_model,
+                                        "to": target_model,
+                                        "tools": [tc.function.name for tc in response.tool_calls]
+                                    }
+                                )
+                        elif len(recommended_models) > 1:
+                            # 多个工具推荐不同模型，选择优先级最高的（reasoning > code > chat）
+                            config_manager = get_model_config_manager()
+                            current_model = self.llm_service.model
+                            
+                            if "reasoning" in recommended_models:
+                                target_model = config_manager.get_reasoning_model()
+                                recommended_model_type = "reasoning"
+                            elif "code" in recommended_models:
+                                target_model = config_manager.get_code_model()
+                                recommended_model_type = "code"
+                            else:
+                                target_model = config_manager.get_chat_model()
+                                recommended_model_type = "chat"
+                            
+                            if target_model != current_model:
+                                logger.info(f"工具调用检测：多个工具推荐不同模型，选择 {recommended_model_type} 模型 ({target_model})")
+                                self.llm_service.set_model(target_model)
+                                debug_info = {
+                                    "type": "debug",
+                                    "category": "orchestrator",
+                                    "message": "模型切换",
+                                    "details": {
+                                        "reason": "多工具推荐（选择优先级最高）",
+                                        "from": current_model,
+                                        "to": target_model,
+                                        "recommended_models": list(recommended_models),
+                                        "tools": [tc.function.name for tc in response.tool_calls]
+                                    }
                                 }
-                            )
-                    elif len(recommended_models) > 1:
-                        # 多个工具推荐不同模型，选择优先级最高的（reasoning > code > chat）
-                        config_manager = get_model_config_manager()
-                        current_model = self.llm_service.model
-                        
-                        if "reasoning" in recommended_models:
-                            target_model = config_manager.get_reasoning_model()
-                            recommended_model_type = "reasoning"
-                        elif "code" in recommended_models:
-                            target_model = config_manager.get_code_model()
-                            recommended_model_type = "code"
-                        else:
-                            target_model = config_manager.get_chat_model()
-                            recommended_model_type = "chat"
-                        
-                        if target_model != current_model:
-                            logger.info(f"工具调用检测：多个工具推荐不同模型，选择 {recommended_model_type} 模型 ({target_model})")
-                            self.llm_service.set_model(target_model)
-                            debug_info = {
-                                "type": "debug",
-                                "category": "orchestrator",
-                                "message": "模型切换",
-                                "details": {
-                                    "reason": "多工具推荐（选择优先级最高）",
-                                    "from": current_model,
-                                    "to": target_model,
-                                    "recommended_models": list(recommended_models),
-                                    "tools": [tc.function.name for tc in response.tool_calls]
-                                }
-                            }
-                            yield StreamMessageBuilder.build_debug(debug_info)
-                            self.debug.log_orchestrator_step(
-                                "模型切换",
-                                {
-                                    "reason": "多工具推荐（选择优先级最高）",
-                                    "from": current_model,
-                                    "to": target_model,
-                                    "recommended_models": list(recommended_models),
-                                    "tools": [tc.function.name for tc in response.tool_calls]
-                                }
-                            )
+                                yield StreamMessageBuilder.build_debug(debug_info)
+                                self.debug.log_orchestrator_step(
+                                    "模型切换",
+                                    {
+                                        "reason": "多工具推荐（选择优先级最高）",
+                                        "from": current_model,
+                                        "to": target_model,
+                                        "recommended_models": list(recommended_models),
+                                        "tools": [tc.function.name for tc in response.tool_calls]
+                                    }
+                                )
                     
                     # 执行所有工具调用
                     tool_results = []
@@ -3120,8 +3231,9 @@ class SkillMatcher:
                                 }
                                 yield StreamMessageBuilder.build_debug(debug_info)
                                 logger.info(f"策略调整建议: {adjustment.reason}")
-                    
-                    yield response.content
+
+                    async for chunk in self._yield_text_in_chunks(response.content or ""):
+                        yield chunk
                     return
                 
                 # 如果都没有，返回空字符串
@@ -3165,7 +3277,8 @@ class SkillMatcher:
         system_prompt: str,
         user_prompt: str,
         tools: Optional[list] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        context: Optional[Dict] = None
     ) -> str:
         """
         带工具调用的聊天（处理工具调用循环）
@@ -3244,76 +3357,77 @@ class SkillMatcher:
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
                     
                     # ===== 根据工具类型选择模型（新增） =====
-                    # 检测工具调用时，根据工具元数据选择最合适的模型
-                    from backend.core.agent.tools.metadata import tool_metadata_registry
-                    from backend.services.llm.model_config import get_model_config_manager
-                    
-                    # 收集所有工具推荐的模型类型
-                    recommended_models = set()
-                    for tool_call in response.tool_calls:
-                        tool_name = tool_call.function.name
-                        metadata = tool_metadata_registry.get_metadata(tool_name)
-                        if metadata and metadata.recommended_model:
-                            recommended_models.add(metadata.recommended_model)
-                    
-                    # 如果所有工具都推荐同一个模型类型，切换到该模型
-                    if len(recommended_models) == 1:
-                        recommended_model_type = list(recommended_models)[0]
-                        config_manager = get_model_config_manager()
-                        current_model = self.llm_service.model
+                    # 用户指定 model 时跳过工具推荐切换，保持用户选择
+                    if not (context and context.get("model")):
+                        from backend.core.agent.tools.metadata import tool_metadata_registry
+                        from backend.services.llm.model_config import get_model_config_manager
                         
-                        # 根据推荐模型类型切换
-                        if recommended_model_type == "code":
-                            target_model = config_manager.get_code_model()
-                        elif recommended_model_type == "reasoning":
-                            target_model = config_manager.get_reasoning_model()
-                        elif recommended_model_type == "chat":
-                            target_model = config_manager.get_chat_model()
-                        else:
-                            target_model = None
+                        # 收集所有工具推荐的模型类型
+                        recommended_models = set()
+                        for tool_call in response.tool_calls:
+                            tool_name = tool_call.function.name
+                            metadata = tool_metadata_registry.get_metadata(tool_name)
+                            if metadata and metadata.recommended_model:
+                                recommended_models.add(metadata.recommended_model)
                         
-                        # 如果目标模型与当前模型不同，进行切换
-                        if target_model and target_model != current_model:
-                            logger.info(f"工具调用检测：切换到 {recommended_model_type} 模型 ({target_model})")
-                            self.llm_service.set_model(target_model)
-                            self.debug.log_orchestrator_step(
-                                "模型切换",
-                                {
-                                    "reason": "工具类型推荐",
-                                    "from": current_model,
-                                    "to": target_model,
-                                    "tools": [tc.function.name for tc in response.tool_calls]
-                                }
-                            )
-                    elif len(recommended_models) > 1:
-                        # 多个工具推荐不同模型，选择优先级最高的（reasoning > code > chat）
-                        config_manager = get_model_config_manager()
-                        current_model = self.llm_service.model
-                        
-                        if "reasoning" in recommended_models:
-                            target_model = config_manager.get_reasoning_model()
-                            recommended_model_type = "reasoning"
-                        elif "code" in recommended_models:
-                            target_model = config_manager.get_code_model()
-                            recommended_model_type = "code"
-                        else:
-                            target_model = config_manager.get_chat_model()
-                            recommended_model_type = "chat"
-                        
-                        if target_model != current_model:
-                            logger.info(f"工具调用检测：多个工具推荐不同模型，选择 {recommended_model_type} 模型 ({target_model})")
-                            self.llm_service.set_model(target_model)
-                            self.debug.log_orchestrator_step(
-                                "模型切换",
-                                {
-                                    "reason": "多工具推荐（选择优先级最高）",
-                                    "from": current_model,
-                                    "to": target_model,
-                                    "recommended_models": list(recommended_models),
-                                    "tools": [tc.function.name for tc in response.tool_calls]
-                                }
-                            )
-                    
+                        # 如果所有工具都推荐同一个模型类型，切换到该模型
+                        if len(recommended_models) == 1:
+                            recommended_model_type = list(recommended_models)[0]
+                            config_manager = get_model_config_manager()
+                            current_model = self.llm_service.model
+                            
+                            # 根据推荐模型类型切换
+                            if recommended_model_type == "code":
+                                target_model = config_manager.get_code_model()
+                            elif recommended_model_type == "reasoning":
+                                target_model = config_manager.get_reasoning_model()
+                            elif recommended_model_type == "chat":
+                                target_model = config_manager.get_chat_model()
+                            else:
+                                target_model = None
+                            
+                            # 如果目标模型与当前模型不同，进行切换
+                            if target_model and target_model != current_model:
+                                logger.info(f"工具调用检测：切换到 {recommended_model_type} 模型 ({target_model})")
+                                self.llm_service.set_model(target_model)
+                                self.debug.log_orchestrator_step(
+                                    "模型切换",
+                                    {
+                                        "reason": "工具类型推荐",
+                                        "from": current_model,
+                                        "to": target_model,
+                                        "tools": [tc.function.name for tc in response.tool_calls]
+                                    }
+                                )
+                        elif len(recommended_models) > 1:
+                            # 多个工具推荐不同模型，选择优先级最高的（reasoning > code > chat）
+                            config_manager = get_model_config_manager()
+                            current_model = self.llm_service.model
+                            
+                            if "reasoning" in recommended_models:
+                                target_model = config_manager.get_reasoning_model()
+                                recommended_model_type = "reasoning"
+                            elif "code" in recommended_models:
+                                target_model = config_manager.get_code_model()
+                                recommended_model_type = "code"
+                            else:
+                                target_model = config_manager.get_chat_model()
+                                recommended_model_type = "chat"
+                            
+                            if target_model != current_model:
+                                logger.info(f"工具调用检测：多个工具推荐不同模型，选择 {recommended_model_type} 模型 ({target_model})")
+                                self.llm_service.set_model(target_model)
+                                self.debug.log_orchestrator_step(
+                                    "模型切换",
+                                    {
+                                        "reason": "多工具推荐（选择优先级最高）",
+                                        "from": current_model,
+                                        "to": target_model,
+                                        "recommended_models": list(recommended_models),
+                                        "tools": [tc.function.name for tc in response.tool_calls]
+                                    }
+                                )
+
                     # 执行所有工具调用
                     tool_results = []
                     for tool_call in response.tool_calls:
@@ -3494,12 +3608,41 @@ class SkillMatcher:
             logger.error(f"_chat_with_tools 执行失败: {str(e)}", exc_info=True)
             return f"抱歉，处理您的请求时出现错误：{str(e)}"
     
-    async def _select_model(self, task: str) -> str:
+    def _resolve_user_model(self, model_spec: str) -> str:
         """
-        使用推理模型智能选择最适合的模型
+        解析用户指定的模型（chat/code/reasoning 或具体模型名）
+        
+        Args:
+            model_spec: 用户指定，如 "chat"、"code"、"reasoning" 或 "deepseek-chat"
+            
+        Returns:
+            解析后的模型名称
+            
+        Raises:
+            ValueError: 无效的模型类型或无法校验的模型名
+        """
+        from backend.services.llm.model_config import get_model_config_manager
+        spec = (model_spec or "").strip().lower()
+        if not spec:
+            raise ValueError("model 不能为空")
+        config_manager = get_model_config_manager()
+        if spec == "chat":
+            return config_manager.get_chat_model()
+        if spec == "code":
+            return config_manager.get_code_model()
+        if spec == "reasoning":
+            return config_manager.get_reasoning_model()
+        # 具体模型名：校验后返回规范化名称
+        config = config_manager.get_model_config(spec)
+        return config.model_name
+
+    async def _select_model(self, task: str, context: Optional[Dict] = None) -> str:
+        """
+        使用推理模型智能选择最适合的模型；若 context 含 model 则优先使用用户指定
         
         Args:
             task: 用户任务
+            context: 上下文（可选），含 model 时使用用户指定
             
         Returns:
             选定的模型名称（从配置的 CHAT_MODEL、CODE_MODEL、REASONING_MODEL 中选择）
@@ -3507,7 +3650,12 @@ class SkillMatcher:
         import os
         from backend.services.llm.model_config import get_model_config_manager
         from backend.core.agent.models import TaskComplexity
-        
+
+        # 用户指定模型时优先使用
+        user_model = (context or {}).get("model")
+        if user_model and str(user_model).strip():
+            return self._resolve_user_model(str(user_model).strip())
+
         # 如果禁用了智能模型选择，直接返回默认模型
         if os.getenv("DISABLE_SMART_MODEL_SELECTION", "false").lower() == "true":
             config_manager = get_model_config_manager()

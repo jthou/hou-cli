@@ -5,7 +5,7 @@
  * 普通网页：DOM 提取
  */
 
-const OVERALL_TIMEOUT_MS = 45000
+const OVERALL_TIMEOUT_MS = 90000  // 90 秒，适配复杂页面（自动展开 + 慢速站点）
 
 /** 极简等待：微信读书 2.5s，飞书多维表格 3s，普通网页 1.5s */
 function waitForPage() {
@@ -16,19 +16,104 @@ function waitForPage() {
   return new Promise((r) => setTimeout(r, delay))
 }
 
+/** 展开所有隐藏/折叠内容，返回本轮点击数量。在页面内执行（依赖先注入 amazon.js） */
+function expandAllHiddenContent() {
+  const href = window.location.href || ''
+  const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
+  let clicked = 0
+  if (amazon?.isAmazonUrl?.(href)) {
+    clicked += (amazon.loadProductDetailsSection?.() ?? 0)
+    clicked += (amazon.expandProductDetails?.() ?? 0)
+  }
+
+  const patterns = [
+    /see\s*more/i, /read\s*more/i, /show\s*more/i, /view\s*more/i, /load\s*more/i,
+    /expand\s*(all)?/i, /see\s*full/i, /show\s*all/i,
+    /product\s*details/i, /full\s*content/i,
+    /展开/, /查看更多/, /展开更多/, /显示更多/, /加载更多/,
+    /全文/, /更多内容/, /更多详情/, /更多信息/, /产品详情/,
+  ]
+  const isExpandLike = (text) => {
+    const t = (text || '').trim()
+    if (t.length < 2 || t.length > 80) return false
+    return patterns.some((p) => p.test(t))
+  }
+
+  // 1. <details> 元素：直接展开
+  document.querySelectorAll('details:not([open])').forEach((el) => {
+    const summary = el.querySelector('summary')
+    if (summary) {
+      try {
+        summary.click()
+        clicked++
+      } catch (_) {}
+    } else {
+      el.open = true
+      clicked++
+    }
+  })
+
+  // 2. 可点击元素：文本匹配「展开」类
+  const clickables = document.querySelectorAll(
+    'a, button, [role="button"], [onclick], [data-action], [class*="expand"], [class*="more"], [class*="toggle"]'
+  )
+  clickables.forEach((el) => {
+    if (clicked >= 20) return
+    const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim()
+    if (!isExpandLike(text)) return
+    if (el.offsetParent === null && el.getBoundingClientRect().height === 0) return
+    try {
+      el.scrollIntoView({ block: 'center', behavior: 'auto' })
+      el.click()
+      clicked++
+    } catch (_) {}
+  })
+
+  // 3. aria-expanded="false" 的折叠项
+  document.querySelectorAll('[aria-expanded="false"]').forEach((el) => {
+    if (clicked >= 20) return
+    const text = (el.innerText || el.textContent || '').trim()
+    if (text.length < 2) return
+    try {
+      el.scrollIntoView({ block: 'center', behavior: 'auto' })
+      el.click()
+      clicked++
+    } catch (_) {}
+  })
+
+  // 4. 带 data-expanded / data-collapsed 的折叠触发器
+  document.querySelectorAll('[data-expanded="false"], [data-collapsed="true"]').forEach((el) => {
+    if (clicked >= 20) return
+    try {
+      el.scrollIntoView({ block: 'center', behavior: 'auto' })
+      el.click()
+      clicked++
+    } catch (_) {}
+  })
+
+  return clicked
+}
+
 function extractContent() {
   const href = window.location.href || ''
   const isFeishu = /feishu\.cn|feishubase\.com/.test(href)
+  const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
+  const isAmazon = amazon?.isAmazonProductPage?.(href) ?? /amazon\.(com|co\.\w{2}|cn|co\.jp)\/(dp|gp\/product)/.test(href)
   const baseSelectors = [
     'article', 'main', '[role="main"]', '.post-content', '.article-body',
     '.content', '#content', '.entry-content', '.post-body', '.article-content',
+  ]
+  const amazonSelectors = (amazon?.SELECTORS ?? []).length ? amazon.SELECTORS : [
+    '#productDetails_feature_div', '#prodDetails', '#productDetails',
+    '#detailBullets_feature_div', '#feature-bullets',
   ]
   const feishuSelectors = [
     '[data-type="bitable"]', '[class*="bitable"]', '[class*="base-table"]',
     '[class*="baseTable"]', '[class*="Bitable"]', 'main', '[role="main"]',
   ]
-  const selectors = isFeishu ? [...feishuSelectors, ...baseSelectors] : baseSelectors
-  const minLen = isFeishu ? 30 : 100
+  const selectors = isAmazon ? [...amazonSelectors, ...baseSelectors]
+    : isFeishu ? [...feishuSelectors, ...baseSelectors] : baseSelectors
+  const minLen = isFeishu ? 30 : isAmazon ? 50 : 100
   let el = null
   for (const s of selectors) {
     try {
@@ -271,6 +356,26 @@ async function runDomExtraction(tabId, url, createdByUs, needLoad, opts = {}) {
     await new Promise((r) => setTimeout(r, ms))
   }
   await chrome.scripting.executeScript({ target: { tabId }, func: waitForPage }).catch(() => {})
+
+  // 注入 Amazon 专用逻辑（若为 Amazon 页则展开 productDetails）
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['amazon.js'] }).catch(() => {})
+
+  // 自动展开所有隐藏/折叠内容（See more、展开更多等），多轮直到无新元素
+  const isAmazon = /amazon\.(com|co\.\w{2}|cn|co\.jp)\/(dp|gp\/product)/.test(url || '')
+  const maxExpandRounds = isAmazon ? 8 : 5
+  const expandPauseMs = 800
+  const amazonLoadWaitMs = 1500
+  for (let r = 0; r < maxExpandRounds; r++) {
+    const [res] = await chrome.scripting
+      .executeScript({ target: { tabId }, func: expandAllHiddenContent })
+      .catch(() => [{ result: 0 }])
+    const count = res?.result ?? 0
+    if (count === 0) break
+    const waitMs = isAmazon && count === 1 ? amazonLoadWaitMs : expandPauseMs
+    await new Promise((x) => setTimeout(x, waitMs))
+  }
+  await new Promise((x) => setTimeout(x, 300))
+
   let data
   if (opts.useScrollExtract) {
     const scrollRes = await chrome.scripting.executeScript({ target: { tabId }, func: extractContentWithScrollFeishu })
@@ -283,8 +388,63 @@ async function runDomExtraction(tabId, url, createdByUs, needLoad, opts = {}) {
     const results = await chrome.scripting.executeScript({ target: { tabId }, func: extractContent })
     data = results?.[0]?.result
   }
+
+  // Amazon：对指定位置截图（主图、价格、产品详情等）
+  if (data && isAmazon) {
+    const screenshots = await runAmazonScreenshots(tabId)
+    if (screenshots.length) data.screenshots = screenshots
+  }
+
   if (createdByUs) await chrome.tabs.remove(tabId).catch(() => {})
   return data
+}
+
+/** 在页面内裁剪截图到指定元素区域（依赖 amazon.js 的 cropImageToRect） */
+function cropScreenshotToElement(dataUrl, rect, dpr) {
+  const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
+  if (!amazon?.cropImageToRect) return dataUrl
+  return amazon.cropImageToRect(dataUrl, rect, dpr)
+}
+
+/** Amazon 指定位置截图：滚动到各目标元素，截取视口后裁剪为元素区域 */
+async function runAmazonScreenshots(tabId) {
+  await chrome.tabs.update(tabId, { active: true }).catch(() => {})
+  const getTargets = () => {
+    const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
+    return amazon?.getScreenshotTargets?.() ?? []
+  }
+  const scrollTo = (selector) => {
+    const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
+    return amazon?.scrollElementIntoView?.(selector) ?? null
+  }
+
+  const [targetsRes] = await chrome.scripting
+    .executeScript({ target: { tabId }, func: getTargets })
+    .catch(() => [{}])
+  const targets = targetsRes?.result ?? []
+  if (!targets.length) return []
+
+  const screenshots = []
+  for (const t of targets) {
+    try {
+      const [scrollRes] = await chrome.scripting.executeScript({ target: { tabId }, func: scrollTo, args: [t.selector] }).catch(() => [{}])
+      const rect = scrollRes?.result
+      await new Promise((r) => setTimeout(r, 500))
+      const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' })
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const [cropRes] = await chrome.scripting
+          .executeScript({ target: { tabId }, func: cropScreenshotToElement, args: [dataUrl, rect, rect.dpr || 1] })
+          .catch(() => [{}])
+        const cropped = cropRes?.result
+        screenshots.push(typeof cropped === 'string' ? cropped : dataUrl)
+      } else {
+        screenshots.push(dataUrl)
+      }
+    } catch (_) {
+      break
+    }
+  }
+  return screenshots
 }
 
 /** 主流程：获取或创建 tab，执行提取 */

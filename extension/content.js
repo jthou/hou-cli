@@ -7,13 +7,22 @@ window.__HOU_CLI_EXTENSION_LOADED = true
 
 let port = null
 
+// 扩展重新加载后，Chrome 调用 Port 回调时可能抛出，需全局捕获避免控制台报错
+window.addEventListener('error', (e) => {
+  if (e.message && String(e.message).includes('Extension context invalidated')) {
+    e.stopImmediatePropagation()
+    e.preventDefault()
+    return true
+  }
+})
+
 function ensurePort() {
   if (port) return port
   for (let i = 0; i < 3; i++) {
     try {
       port = chrome.runtime.connect({ name: 'hou-cli-web-reader' })
       port.onDisconnect.addListener(() => {
-        port = null
+        try { port = null } catch (_) {}
       })
       return port
     } catch (_) {
@@ -24,7 +33,11 @@ function ensurePort() {
 }
 
 // 页面加载时预连接，确保 Port 就绪
-ensurePort()
+try {
+  ensurePort()
+} catch (_) {
+  port = null
+}
 
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'HOU_CLI_PING') {
@@ -44,16 +57,26 @@ window.addEventListener('message', (event) => {
     if (p) {
       const onResult = (msg) => {
         if (msg.type !== 'HOU_CLI_EXPORT_COOKIES_RESULT' || msg.requestId !== rid) return
-        p.onMessage.removeListener(onResult)
+        try { p.onMessage.removeListener(onResult) } catch (_) {}
         forward(msg)
       }
       p.onMessage.addListener(onResult)
       p.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES', domain: domain || 'youtube.com', requestId: rid })
     } else {
-      chrome.runtime.sendMessage(
-        { action: 'export_cookies', domain: domain || 'youtube.com', requestId: rid },
-        (r) => { forward(r || { success: false, error: '扩展无响应' }) }
-      )
+      try {
+        chrome.runtime.sendMessage(
+          { action: 'export_cookies', domain: domain || 'youtube.com', requestId: rid },
+          (r) => {
+            try {
+              forward(r || { success: false, error: '扩展无响应' })
+            } catch (_) {
+              forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+            }
+          }
+        )
+      } catch (_) {
+        forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+      }
     }
     return
   }
@@ -70,15 +93,23 @@ window.addEventListener('message', (event) => {
     if (p) {
       const onResult = (msg) => {
         if (msg.type !== 'HOU_CLI_FETCH_PDF_RESULT' || msg.requestId !== rid) return
-        p.onMessage.removeListener(onResult)
+        try { p.onMessage.removeListener(onResult) } catch (_) {}
         forward(msg)
       }
       p.onMessage.addListener(onResult)
       p.postMessage({ type: 'HOU_CLI_FETCH_PDF', url, requestId: rid })
     } else {
-      chrome.runtime.sendMessage({ action: 'fetch_pdf', url }, (r) => {
-        forward(r || { success: false, error: '扩展无响应' })
-      })
+      try {
+        chrome.runtime.sendMessage({ action: 'fetch_pdf', url }, (r) => {
+          try {
+            forward(r || { success: false, error: '扩展无响应' })
+          } catch (_) {
+            forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+          }
+        })
+      } catch (_) {
+        forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+      }
     }
     return
   }
@@ -96,12 +127,14 @@ window.addEventListener('message', (event) => {
   if (p) {
     const onResult = (msg) => {
       if (msg.type !== 'HOU_CLI_FETCH_RESULT' || msg.requestId !== requestId) return
-      p.onMessage.removeListener(onResult)
-      p.onDisconnect.removeListener(onDisconnect)
+      try {
+        p.onMessage.removeListener(onResult)
+        p.onDisconnect.removeListener(onDisconnect)
+      } catch (_) {}
       forward(msg)
     }
     const onDisconnect = () => {
-      p.onMessage.removeListener(onResult)
+      // 扩展上下文失效时，任何对 p（Port）的访问都会抛错，故不调用 removeListener
       port = null
       forward({ success: false, error: '扩展连接已断开，请刷新页面后重试' })
     }
@@ -114,9 +147,24 @@ window.addEventListener('message', (event) => {
       apiBase: apiBase || window.location.origin,
     })
   } else {
-    chrome.runtime.sendMessage(
-      { action: 'fetch', url, requestId, apiBase: apiBase || window.location.origin },
-      (response) => { forward(response || { success: false, error: '扩展无响应' }) }
-    )
+    // Port 失败时回退到 sendMessage：至少能触发跳转，长任务回调可能超时
+    try {
+      chrome.runtime.sendMessage(
+        { action: 'fetch', url, requestId, apiBase: apiBase || window.location.origin },
+        (response) => {
+          try {
+            if (chrome.runtime?.lastError) {
+              forward({ success: false, error: '扩展无响应，请刷新页面后重试' })
+            } else {
+              forward(response || { success: false, error: '扩展无响应' })
+            }
+          } catch (e) {
+            forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+          }
+        }
+      )
+    } catch (e) {
+      forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+    }
   }
 })

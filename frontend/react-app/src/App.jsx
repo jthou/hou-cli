@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ToastProvider } from './components/ToastModal'
 import Sidebar from './components/Sidebar'
 import Home from './pages/Home'
+import WorkAssistant from './pages/WorkAssistant'
 import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
@@ -21,6 +22,7 @@ import SettingsNetworkAudit from './pages/SettingsNetworkAudit'
 import SettingsSystemPromptAudit from './pages/SettingsSystemPromptAudit'
 import SettingsModelConfigAudit from './pages/SettingsModelConfigAudit'
 import SettingsKanban from './pages/SettingsKanban'
+import SettingsDevAudit from './pages/SettingsDevAudit'
 import About from './pages/About'
 import WechatDraftPage from './pages/WechatDraftPage'
 import UrlToWiki from './pages/UrlToWiki'
@@ -41,6 +43,7 @@ export default function App() {
           <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface overflow-hidden">
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/work-assistant" element={<WorkAssistant />} />
               <Route path="/tasks" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />
@@ -65,6 +68,7 @@ export default function App() {
               <Route path="/settings/model-config-audit" element={<SettingsModelConfigAudit />} />
               <Route path="/settings/kanban" element={<SettingsKanban />} />
               <Route path="/settings/tests" element={<SettingsTests />} />
+              <Route path="/settings/dev-audit" element={<SettingsDevAudit />} />
               <Route path="/settings/backend" element={<SettingsBackend />} />
               <Route path="/about" element={<About />} />
             </Routes>

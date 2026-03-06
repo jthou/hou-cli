@@ -15,6 +15,7 @@ import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { saveReferenceBlocks, loadReferenceBlocks } from '../utils/articleWritingIndexedDB'
 import { runWhenIdle } from '../utils/runWhenIdle'
+import { useSelectableModels } from '../hooks/useSelectableModels'
 
 const WECHAT_MP_API = {
   uploadCover: (file) => {
@@ -73,6 +74,8 @@ export default function ArticleWriting() {
   const [editDraft, setEditDraft] = useState('')
   /** 流式输出时当前已接收的助手回复内容（未结束时累积显示） */
   const [streamingContent, setStreamingContent] = useState('')
+  /** 流式过程中收到的工具调用（调用了什么、结果如何） */
+  const [streamingToolCalls, setStreamingToolCalls] = useState([])
   /** 局部插入弹窗 */
   const [patchDialogOpen, setPatchDialogOpen] = useState(false)
   const [patchAnchor, setPatchAnchor] = useState('')
@@ -89,6 +92,9 @@ export default function ArticleWriting() {
   const [referenceBlocks, setReferenceBlocks] = useState([])
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   const [referenceBlockPreviewId, setReferenceBlockPreviewId] = useState(null)
+  /** 模型选择：auto=智能选择，或具体模型名 */
+  const [selectedModel, setSelectedModel] = useState('auto')
+  const { models: selectableModels } = useSelectableModels()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const referenceBlocksLoadedRef = useRef(false)
   const referenceBlocksRef = useRef(referenceBlocks)
@@ -382,6 +388,7 @@ export default function ArticleWriting() {
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
+    setStreamingToolCalls([])
     setLoading(true)
     const ac = new AbortController()
     abortControllerRef.current = ac
@@ -395,6 +402,7 @@ export default function ArticleWriting() {
           session_id: selectedSessionId,
           current_article: article || undefined,
           context_type: 'article_writing',
+          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
       })
@@ -420,14 +428,31 @@ export default function ArticleWriting() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (raw.startsWith('__DEBUG__:') || raw.startsWith('__TOOL__:') || raw.startsWith('__STATUS__:')) continue
-                fullContent += raw
-                streamingContentRef.current = fullContent
-                setStreamingContent(fullContent)
+                if (raw.startsWith('__DEBUG__:') || raw.startsWith('__STATUS__:')) {
+                  // 忽略
+                } else if (raw.startsWith('__TOOL__:')) {
+                  try {
+                    const toolData = JSON.parse(raw.slice(9).trim())
+                    if (toolData?.name) {
+                      setStreamingToolCalls((prev) => [...prev, {
+                        name: toolData.name,
+                        args: toolData.args || {},
+                        success: toolData.success,
+                        result: toolData.result,
+                        error: toolData.error,
+                      }])
+                    }
+                  } catch (_) {}
+                } else {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
+                }
               } else if (obj.status === 'done') {
                 const finalContent = fullContent.trim() || '（助手未返回内容，可能仍在处理或匹配技能，请稍后重试或换一种说法。）'
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
+                setStreamingToolCalls([])
                 streamingContentRef.current = ''
                 if (isFirstMessage && text) {
                   fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
@@ -445,6 +470,7 @@ export default function ArticleWriting() {
                 toast?.error?.(err)
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
                 setStreamingContent('')
+                setStreamingToolCalls([])
                 streamingContentRef.current = ''
                 fullContent = ''
               }
@@ -459,7 +485,20 @@ export default function ArticleWriting() {
             const obj = JSON.parse(dataLine.slice(6))
             if (obj.status === 'streaming' && obj.content != null) {
               const raw = String(obj.content)
-              if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__TOOL__:') && !raw.startsWith('__STATUS__:')) {
+              if (raw.startsWith('__TOOL__:')) {
+                try {
+                  const toolData = JSON.parse(raw.slice(9).trim())
+                  if (toolData?.name) {
+                    setStreamingToolCalls((prev) => [...prev, {
+                      name: toolData.name,
+                      args: toolData.args || {},
+                      success: toolData.success,
+                      result: toolData.result,
+                      error: toolData.error,
+                    }])
+                  }
+                } catch (_) {}
+              } else if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:')) {
                 fullContent += raw
                 streamingContentRef.current = fullContent
                 setStreamingContent(fullContent)
@@ -472,6 +511,7 @@ export default function ArticleWriting() {
               const finalContent = fullContent.trim() || '（助手未返回内容，可能仍在处理或匹配技能，请稍后重试或换一种说法。）'
               setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
               setStreamingContent('')
+              setStreamingToolCalls([])
               streamingContentRef.current = ''
               fullContent = ''
               if (isFirstMessage && text) {
@@ -489,6 +529,7 @@ export default function ArticleWriting() {
               toast?.error?.(err)
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
               setStreamingContent('')
+              setStreamingToolCalls([])
               streamingContentRef.current = ''
             }
           }
@@ -506,6 +547,7 @@ export default function ArticleWriting() {
         const stoppedContent = streamingContentRef.current
         setMessages((prev) => [...prev, { role: 'assistant', content: stoppedContent ? `[已停止]\n\n${stoppedContent}` : '[已停止]' }])
         setStreamingContent('')
+        setStreamingToolCalls([])
         streamingContentRef.current = ''
         return
       }
@@ -1192,9 +1234,36 @@ export default function ArticleWriting() {
                 })}
                 {loading && (() => {
                   const { status: streamStatus, content: streamMarkdown } = stripAgentStatusPrefix(streamingContent)
+                  const formatToolResult = (tc) => {
+                    if (tc.success && tc.result != null) {
+                      const r = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result)
+                      return r.length > 120 ? r.slice(0, 120) + '…' : r
+                    }
+                    return tc.error || '（无结果）'
+                  }
                   return (
                   <div className="flex justify-start items-center gap-3">
                     <div className="max-w-[85%] flex flex-col items-start">
+                      {streamingToolCalls.length > 0 && (
+                        <div className="mb-2 space-y-1.5 w-full">
+                          {streamingToolCalls.map((tc, idx) => (
+                            <div
+                              key={idx}
+                              className={`text-xs rounded-lg px-3 py-2 border ${
+                                tc.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                              }`}
+                            >
+                              <span className="font-medium">🔧 {tc.name}</span>
+                              <span className="text-muted ml-1">
+                                {tc.success ? '→ 成功' : '→ 失败'}
+                              </span>
+                              <div className="mt-1 text-muted truncate" title={formatToolResult(tc)}>
+                                {formatToolResult(tc)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {streamStatus && (
                         <div className="mb-1 text-xs text-muted">
                           {streamStatus}
@@ -1333,6 +1402,18 @@ export default function ArticleWriting() {
                     </div>
                   </div>
                 )}
+              </div>
+              <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">
+                <label className="text-xs text-muted shrink-0">模型</label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="text-xs rounded border border-border bg-white/5 px-2 py-1.5 text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  {selectableModels.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
               </div>
               <ChatInput
                 value={input}

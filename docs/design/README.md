@@ -102,6 +102,16 @@
 - **[video-downloader-tool-design.md](./video-downloader-tool-design.md)** - 视频下载工具设计
   - 多平台下载、工具选择与降级策略
 
+- **[work-assistant-agent-design.md](./work-assistant-agent-design.md)** - 工作助手 Agent 设计
+  - 任务分解、做计划、会议纪要分析、项目笔记整理、公司知识库
+  - MediaWiki 为唯一数据源（项目背景、团队架构）
+  - 同步更新 MediaWiki 与看板
+
+- **[model-selectable-at-use-time-design.md](./model-selectable-at-use-time-design.md)** - 模型使用时可选择设计
+  - 运行时用户选择模型（chat/code/reasoning 或具体模型名）
+  - ChatRequest 扩展、Orchestrator 模型覆盖逻辑
+  - 后端测试验证方案（单元测试、集成测试、API 测试）
+
 ## 文档阅读顺序建议
 
 ### 新开发者

@@ -82,6 +82,8 @@ restart: stop
 
 start: install-deps build-web
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
+	@echo "运行开发审计..."
+	@bash -c "source $(VENV_ACTIVATE) && python scripts/run_audit.py" || true
 	@echo "停止旧后端（若存在）..."
 	@-lsof -ti :$(WEB_PORT) | xargs kill -TERM 2>/dev/null || true
 	@echo "等待端口 $(WEB_PORT) 释放（最多 25 秒）..."

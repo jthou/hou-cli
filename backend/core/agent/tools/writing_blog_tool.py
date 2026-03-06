@@ -1,89 +1,96 @@
 #!/usr/bin/env python3
-"""写作博客文章工具类"""
+"""写作博客文章工具类 - 调用 BlogWritingAgent 执行完整写作流程"""
 
 from typing import Optional
-from backend.core.agent.tools.base import BaseTool
-from backend.core.agent.tools.tool_result import ToolResult
+from backend.core.agent.tools.base import Tool, ToolParameter, ToolResult
 
 
-class WritingBlogTool(BaseTool):
-    """写作博客文章工具"""
-    
+class WritingBlogTool(Tool):
+    """写作博客文章工具 - 基于主题和草稿生成结构化文章"""
+
     def __init__(self):
+        parameters = [
+            ToolParameter(name="topic", type="string", description="博客文章主题", required=True),
+            ToolParameter(name="draft_content", type="string", description="初步草稿内容", required=False),
+            ToolParameter(name="target_audience", type="string", description="目标读者群体", required=False, default="general"),
+            ToolParameter(name="article_type", type="string", description="文章类型（教程、分析、评论等）", required=False, default="tutorial"),
+            ToolParameter(name="reference_url", type="string", description="参考 URL，将抓取内容纳入写作", required=False),
+            ToolParameter(name="mediawiki_page", type="string", description="参考 MediaWiki 页面标题", required=False),
+            ToolParameter(name="publish_to_mediawiki", type="boolean", description="是否发布到MediaWiki", required=False, default=False),
+        ]
         super().__init__(
             name="writing_blog_tool",
-            description="帮助用户基于主题和草稿创建博客文章的工具",
-            parameters={
-                "topic": {"type": "string", "description": "博客文章主题"},
-                "draft_content": {
-                    "type": "string",
-                    "description": "初步草稿内容",
-                },
-                "target_audience": {
-                    "type": "string",
-                    "description": "目标读者群体",
-                },
-                "article_type": {
-                    "type": "string",
-                    "description": "文章类型（教程、分析、评论等）",
-                },
-                "publish_to_mediawiki": {
-                    "type": "boolean",
-                    "description": "是否发布到MediaWiki",
-                }
-            }
+            description="帮助用户基于主题和草稿创建博客文章的工具。会解析输入、创建大纲、生成内容、优化并输出 MediaWiki 格式。",
+            parameters=parameters,
         )
-    
-    async def execute(self, **kwargs) -> ToolResult:
+
+    def execute(self, **kwargs) -> ToolResult:
+        """同步执行：供测试等场景"""
+        import asyncio
+        return asyncio.run(self._execute_async(**kwargs))
+
+    async def _execute_async(self, **kwargs) -> ToolResult:
         """
-        执行博客写作任务
-        
-        Args:
-            topic: 博客文章主题
-            draft_content: 初步草稿内容
-            target_audience: 目标读者群体
-            article_type: 文章类型
-            publish_to_mediawiki: 是否发布到MediaWiki
-            
-        Returns:
-            ToolResult: 包含写作结果
+        执行博客写作任务，调用 BlogWritingAgent
         """
         try:
-            # 整合输入参数
+            from backend.services.llm.llm_service import LLMService
+            from backend.core.agent.tools.registry import ToolRegistry
+            from backend.core.agent.agents.writing_blog_agent import BlogWritingAgent
+
             topic = kwargs.get("topic", "")
             draft_content = kwargs.get("draft_content", "")
             target_audience = kwargs.get("target_audience", "general")
             article_type = kwargs.get("article_type", "tutorial")
+            reference_url = kwargs.get("reference_url", "")
+            mediawiki_page = kwargs.get("mediawiki_page", "")
             publish_to_mediawiki = kwargs.get("publish_to_mediawiki", False)
-            
-            # 这里应该是调用BlogWritingAgent的地方
-            # 由于目前只创建了agent类，实际实现需要集成整个系统
-            result = {
-                "topic": topic,
-                "draft_content": draft_content,
+
+            if not topic:
+                return ToolResult(
+                    success=False,
+                    error="topic 参数不能为空，请提供博客文章主题",
+                )
+
+            llm_service = LLMService()
+            tool_registry = ToolRegistry()
+            agent = BlogWritingAgent(llm_service, tool_registry)
+
+            task_str = f"{topic}\n\n{draft_content}".strip() if draft_content else topic
+            context = {
                 "target_audience": target_audience,
                 "article_type": article_type,
-                "status": "写作任务已接收",
-                "steps": [
-                    "1. 分析用户输入的主题和草稿",
-                    "2. 创建文章大纲",
-                    "3. 生成详细内容",
-                    "4. 优化文章",
-                    "5. 格式化为MediaWiki格式" if publish_to_mediawiki else "完成文章生成"
-                ]
             }
-            
+            if reference_url:
+                context["reference_url"] = reference_url
+            if mediawiki_page:
+                context["mediawiki_page"] = mediawiki_page
+
+            result = await agent.execute({"task": task_str, "context": context})
+
+            if not result.get("success"):
+                return ToolResult(
+                    success=False,
+                    error=result.get("error", "博客写作执行失败"),
+                )
+
+            data = {
+                "topic": topic,
+                "outline": result.get("outline"),
+                "article": result.get("article"),
+                "mediawiki_content": result.get("mediawiki_content"),
+                "timestamp": result.get("timestamp"),
+                "publish_to_mediawiki": publish_to_mediawiki,
+            }
             return ToolResult(
                 success=True,
-                data=result,
-                message=f"博客写作任务已创建: {topic}"
+                data=data,
             )
-            
+
         except Exception as e:
             return ToolResult(
                 success=False,
-                error=str(e),
-                message="博客写作过程中发生错误"
+                error=f"博客写作过程中发生错误: {str(e)}",
             )
     
     def check_health(self) -> tuple[bool, Optional[str]]:

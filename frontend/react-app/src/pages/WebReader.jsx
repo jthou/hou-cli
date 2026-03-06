@@ -161,10 +161,10 @@ export default function WebReader() {
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null
       setLoading((prev) => {
-        if (prev) setError('扩展无响应（60 秒超时），请刷新页面后重试')
+        if (prev) setError('扩展无响应（90 秒超时），请刷新页面后重试')
         return false
       })
-    }, 60000)
+    }, 90000)
   }, [])
 
   useEffect(() => {

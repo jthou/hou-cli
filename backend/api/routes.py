@@ -29,6 +29,7 @@ from backend.api.llm_audit_routes import router as llm_audit_router
 from backend.api.network_audit_routes import router as network_audit_router
 from backend.api.model_config_routes import router as model_config_router
 from backend.api.task_routes import router as task_router
+from backend.api.audit_routes import router as audit_router
 
 # 导入任务队列路由（添加错误处理）
 try:
@@ -60,6 +61,7 @@ router.include_router(llm_audit_router, tags=["llm-audit"])
 router.include_router(network_audit_router, tags=["network-audit"])
 router.include_router(model_config_router, tags=["model-config"])
 router.include_router(task_router, tags=["tasks"])
+router.include_router(audit_router, tags=["audit"])
 router.include_router(kanban_router, tags=["kanban"])
 router.include_router(pdf_router, tags=["pdf"])
 router.include_router(web_reader_router)

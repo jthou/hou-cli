@@ -1,15 +1,67 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import WikiPreview from '../components/WikiPreview'
+import PasteButton from '../components/PasteButton'
+import { useToast } from '../components/ToastModal'
+import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
+
+const STORAGE_KEY_LAST = 'mediawiki_reader_last'
 
 export default function MediaWikiReader() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [termsInput, setTermsInput] = useState('')
   const [perTermLimit, setPerTermLimit] = useState(5)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
+
+  const handlePasteFromClipboard = usePasteFromClipboard({
+    onPaste: (text) => setTermsInput(text),
+    toast,
+  })
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_LAST)
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (saved?.termsInput != null) setTermsInput(String(saved.termsInput))
+      if (saved?.perTermLimit != null) setPerTermLimit(Number(saved.perTermLimit) || 5)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const handleRestoreLast = () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_LAST)
+      if (!raw) {
+        toast?.warning?.('暂无上次记录')
+        return
+      }
+      const saved = JSON.parse(raw)
+      if (saved?.termsInput != null) setTermsInput(String(saved.termsInput))
+      if (saved?.perTermLimit != null) setPerTermLimit(Number(saved.perTermLimit) || 5)
+      toast?.info?.('已恢复上次关键词')
+    } catch {
+      toast?.warning?.('恢复失败')
+    }
+  }
+
+  const handleClearLast = () => {
+    try {
+      if (localStorage.getItem(STORAGE_KEY_LAST)) {
+        localStorage.removeItem(STORAGE_KEY_LAST)
+        toast?.info?.('已清空上次记录')
+      } else {
+        toast?.warning?.('暂无上次记录')
+      }
+    } catch {
+      toast?.warning?.('清空失败')
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -34,6 +86,14 @@ export default function MediaWikiReader() {
         throw new Error(json.detail || json.message || '抓取失败')
       }
       setData(json)
+      try {
+        localStorage.setItem(
+          STORAGE_KEY_LAST,
+          JSON.stringify({ termsInput: (termsInput || '').trim(), perTermLimit: perTermLimit || 5 })
+        )
+      } catch {
+        // ignore
+      }
     } catch (err) {
       setError(err.message || String(err))
     }
@@ -51,13 +111,32 @@ export default function MediaWikiReader() {
         subtitle="按多个关键词从 MediaWiki 中抓取现有页面，用于阅读和修改。适合基于已有知识库做查阅，不会抓取外部网页。"
       />
 
-      <div className="flex-1 overflow-hidden flex">
+      <div className="flex-1 overflow-hidden flex min-h-0">
         <div className="flex-1 overflow-y-auto p-6 max-w-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm text-muted mb-1">
-                关键词列表（每词抓取若干篇文章）
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-sm text-muted">
+                  关键词列表（每词抓取若干篇文章）
+                </label>
+                <div className="flex items-center gap-2">
+                  <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板粘贴" />
+                  <button
+                    type="button"
+                    onClick={handleRestoreLast}
+                    className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+                  >
+                    恢复上次
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearLast}
+                    className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+                  >
+                    清空
+                  </button>
+                </div>
+              </div>
               <textarea
                 value={termsInput}
                 onChange={(e) => setTermsInput(e.target.value)}
@@ -92,7 +171,7 @@ export default function MediaWikiReader() {
                 disabled={loading}
                 className="mt-5 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50"
               >
-                {loading ? '抓取中...' : '抓取 MediaWiki 文章'}
+                {loading ? '抓取中…' : '抓取 MediaWiki 文章'}
               </button>
             </div>
 
@@ -124,10 +203,21 @@ export default function MediaWikiReader() {
 
           {loading && (
             <div className="h-full flex items-center justify-center text-sm text-muted">
-              抓取中，请稍候...
+              抓取中，请稍候…
             </div>
           )}
 
+          {error && !loading && (
+            <div className="h-full flex items-center justify-center">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
+
+          {data && results.length === 0 && (
+            <div className="h-full flex items-center justify-center text-sm text-muted">
+              未找到匹配的页面，请尝试其他关键词或增加抓取篇数。
+            </div>
+          )}
           {data && results.length > 0 && (
             <div className="space-y-6">
               {results.map((group) => (
@@ -194,6 +284,9 @@ export default function MediaWikiReader() {
                                   theme="dark"
                                   onAddToReference={(content) =>
                                     navigate('/article-writing', { state: { addToReference: content } })
+                                  }
+                                  onSendToArticle={(md) =>
+                                    navigate('/article-writing', { state: { initialMarkdown: md } })
                                   }
                                 />
                               </div>

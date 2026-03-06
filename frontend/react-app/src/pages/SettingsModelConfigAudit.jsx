@@ -86,6 +86,36 @@ export default function SettingsModelConfigAudit() {
             </section>
 
             <section>
+              <h2 className="text-base font-medium text-white mb-3">用户可选模型（模型选择下拉）</h2>
+              <div className="rounded-lg border border-border bg-white/[0.02] overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left">
+                      <th className="px-4 py-2.5 text-muted font-medium">配置项</th>
+                      <th className="px-4 py-2.5 text-muted font-medium">当前值</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.model_selection || []).map((item) => (
+                      <tr key={item.key} className="border-b border-border/50 last:border-0">
+                        <td className="px-4 py-2.5">
+                          <code className="text-cyan-400/90">{item.key}</code>
+                          <span className="text-muted ml-2 text-xs">{item.label}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-emerald-400/90 font-mono text-xs">
+                          {item.value || '（未设置）'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted mt-2">
+                CHAT_MODEL、CODE_MODEL、REASONING_MODEL 对应写文章、工作助手等页面的模型选择下拉。
+              </p>
+            </section>
+
+            <section>
               <h2 className="text-base font-medium text-white mb-3">Agent → 模型映射</h2>
               <div className="rounded-lg border border-border bg-white/[0.02] overflow-hidden">
                 <table className="w-full text-sm">
