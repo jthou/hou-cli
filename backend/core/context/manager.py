@@ -205,6 +205,26 @@ class ContextManager:
         messages = self.storage.get_messages(session_id)
         return self.retrieval.search(messages, query, top_k)
     
+    def get_message_by_id(self, session_id: str, message_id: str):
+        """获取指定 ID 的消息，不存在返回 None。"""
+        messages = self.storage.get_messages(session_id)
+        for m in messages:
+            if m.message_id == message_id:
+                return m
+        return None
+
+    def truncate_after_message(self, session_id: str, message_id: str) -> bool:
+        """删除指定消息之后的所有消息（用于「重新回答」时清除该回答及后续对话）。"""
+        messages = self.storage.get_messages(session_id)
+        found = False
+        for m in messages:
+            if m.message_id == message_id:
+                found = True
+                continue
+            if found:
+                self.storage.delete_message(session_id, m.message_id)
+        return found
+
     def clear_session(self, session_id: str) -> bool:
         """清除会话内容（消息、文章草稿及文章版本历史），会话记录保留。"""
         ast = self._get_article_storage()

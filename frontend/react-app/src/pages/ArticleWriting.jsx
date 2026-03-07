@@ -13,9 +13,11 @@ import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../uti
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
-import { saveReferenceBlocks, loadReferenceBlocks } from '../utils/articleWritingIndexedDB'
-import { runWhenIdle } from '../utils/runWhenIdle'
+import { formatReferenceContext } from '../utils/referenceUtils'
+import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
+import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import { useSelectableModels } from '../hooks/useSelectableModels'
+import ModelSelector from '../components/ModelSelector'
 
 const WECHAT_MP_API = {
   uploadCover: (file) => {
@@ -27,16 +29,6 @@ const WECHAT_MP_API = {
 
 const ARTICLE_SESSION_TYPE = 'article_writing'
 const STORAGE_KEY_SELECTED_SESSION = 'article_writing_selected_session_id'
-const STORAGE_KEY_REFERENCE_BLOCKS_LEGACY = 'article_writing_reference_blocks'
-
-/** 从内容推导参考块标题：取首行或前 80 字，截断至 50 字 */
-function deriveRefTitle(content) {
-  const trimmed = (content || '').trim()
-  if (!trimmed) return ''
-  const firstLine = trimmed.split('\n')[0].trim()
-  const candidate = firstLine || trimmed.slice(0, 80)
-  return candidate.slice(0, 50)
-}
 
 export default function ArticleWriting() {
   const toast = useToast()
@@ -89,56 +81,40 @@ export default function ArticleWriting() {
   const [wechatOutputSubmitting, setWechatOutputSubmitting] = useState(false)
   const [wechatGeneratingField, setWechatGeneratingField] = useState(null) // 'title'|'digest'|'author'|'cover'
   const [wechatCoverPrompt, setWechatCoverPrompt] = useState('')
-  const [referenceBlocks, setReferenceBlocks] = useState([])
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
-  const [referenceBlockPreviewId, setReferenceBlockPreviewId] = useState(null)
   /** 模型选择：auto=智能选择，或具体模型名 */
   const [selectedModel, setSelectedModel] = useState('auto')
-  const { models: selectableModels } = useSelectableModels()
+  const { providers, models: selectableModels, loading: modelsLoading } = useSelectableModels()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const referenceBlocksLoadedRef = useRef(false)
-  const referenceBlocksRef = useRef(referenceBlocks)
-  referenceBlocksRef.current = referenceBlocks
+  const {
+    referenceBlocks,
+    handleAddReferenceBlock,
+    handleUpdateReferenceBlock,
+    handleRemoveReferenceBlock,
+  } = useReferenceBlocks(selectedSessionId, referencePanelOpen)
   const messagesEndRef = useRef(null)
   const messagesScrollRef = useRef(null)
   const abortControllerRef = useRef(null)
   const streamingContentRef = useRef('')
 
-  const handleAddReferenceBlock = () => {
+  const handleAddReferenceBlockAndOpen = () => {
     setReferencePanelOpen(true)
-    setReferenceBlocks((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: '', content: '' },
-    ])
+    handleAddReferenceBlock()
   }
 
-  const handleUpdateReferenceBlock = (id, field, value) => {
-    setReferenceBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, [field]: value } : b))
-    )
-  }
-
-  const handleRemoveReferenceBlock = (id) => {
-    setReferenceBlocks((prev) => {
-      const next = prev.filter((b) => b.id !== id)
-      runWhenIdle(() => saveReferenceBlocks(next).catch(() => {}))
-      return next
-    })
-  }
-
-  const handleAddToReference = (content) => {
-    if (!content || typeof content !== 'string' || !content.trim()) return
-    const trimmed = content.trim()
-    setReferencePanelOpen(true)
-    setReferenceBlocks((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        title: deriveRefTitle(trimmed),
-        content: trimmed,
-      },
-    ])
-  }
+  const loadSessions = useCallback(() => {
+    setSessionsLoading(true)
+    const sort = listSort === 'created_at' ? 'created_at' : 'updated_at'
+    const order = 'desc'
+    fetch(`/api/sessions/list?limit=50&type=${encodeURIComponent(ARTICLE_SESSION_TYPE)}&sort=${sort}&order=${order}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const list = Array.isArray(d.sessions) ? d.sessions : []
+        setSessions(list)
+      })
+      .catch(() => setSessions([]))
+      .finally(() => setSessionsLoading(false))
+  }, [listSort])
 
   const loadRevisions = useCallback(() => {
     if (!selectedSessionId) {
@@ -155,82 +131,25 @@ export default function ArticleWriting() {
       .finally(() => setRevisionsLoading(false))
   }, [selectedSessionId])
 
-  const loadSessions = useCallback(() => {
-    setSessionsLoading(true)
-    const sort = listSort === 'created_at' ? 'created_at' : 'updated_at'
-    const order = 'desc'
-    fetch(`/api/sessions/list?limit=50&type=${encodeURIComponent(ARTICLE_SESSION_TYPE)}&sort=${sort}&order=${order}`)
-      .then((r) => r.json())
-      .then((d) => {
-        const list = Array.isArray(d.sessions) ? d.sessions : []
-        setSessions(list)
-      })
-      .catch(() => setSessions([]))
-      .finally(() => setSessionsLoading(false))
-  }, [listSort])
+  const handleAddToReference = (content) => {
+    if (!content || typeof content !== 'string' || !content.trim()) return
+    navigate('/add-reference', { state: { addToReference: content.trim() } })
+  }
 
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
 
-  /** 从 IndexedDB 加载参考块（含 sessionStorage 迁移），并合并导航传入的 addToReference */
+  /** 从 AddReference 页跳回时聚焦指定会话 */
   useEffect(() => {
-    let cancelled = false
-    const addToRef = location.state?.addToReference
-    loadReferenceBlocks().then((blocks) => {
-      if (cancelled) return
-      let initial = Array.isArray(blocks) ? blocks : []
-      if (addToRef && typeof addToRef === 'string' && addToRef.trim()) {
-        initial = [
-          ...initial,
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            title: deriveRefTitle(addToRef),
-            content: addToRef.trim(),
-          },
-        ]
-        navigate(location.pathname + location.search, { replace: true, state: {} })
-        setReferencePanelOpen(true)
-      }
-      if (initial.length > 0) {
-        setReferenceBlocks(initial)
-      } else {
-        try {
-          const raw = sessionStorage.getItem(STORAGE_KEY_REFERENCE_BLOCKS_LEGACY)
-          const parsed = raw ? JSON.parse(raw) : []
-          const legacy = Array.isArray(parsed) ? parsed : []
-          if (legacy.length > 0) {
-            setReferenceBlocks(legacy)
-            runWhenIdle(() => saveReferenceBlocks(legacy).catch(() => {}))
-            sessionStorage.removeItem(STORAGE_KEY_REFERENCE_BLOCKS_LEGACY)
-          }
-        } catch (_) {}
-      }
-      referenceBlocksLoadedRef.current = true
-    })
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅 mount 时执行，addToRef 从闭包捕获
-  }, [])
-
-  /** 参考块持久化到 IndexedDB：参考信息面板关闭时写入（空闲时执行，避免阻塞） */
-  const prevReferencePanelOpenRef = useRef(referencePanelOpen)
-  useEffect(() => {
-    if (!referenceBlocksLoadedRef.current) return
-    if (prevReferencePanelOpenRef.current && !referencePanelOpen) {
-      runWhenIdle(() => saveReferenceBlocks(referenceBlocks).catch(() => {}))
-    }
-    prevReferencePanelOpenRef.current = referencePanelOpen
-  }, [referencePanelOpen, referenceBlocks])
-
-  /** 组件卸载时保存参考块（空闲时执行，避免阻塞导航） */
-  useEffect(() => {
-    return () => {
-      const blocks = referenceBlocksRef.current
-      if (referenceBlocksLoadedRef.current && blocks?.length > 0) {
-        runWhenIdle(() => saveReferenceBlocks(blocks).catch(() => {}), { timeout: 0 })
-      }
-    }
-  }, [])
+    const focusId = location.state?.focusSessionId
+    if (!focusId || typeof focusId !== 'string') return
+    navigate(location.pathname + location.search, { replace: true, state: {} })
+    setSelectedSessionId(focusId)
+    try {
+      sessionStorage.setItem(STORAGE_KEY_SELECTED_SESSION, focusId)
+    } catch (_) {}
+  }, [location.state?.focusSessionId, location.pathname, location.search, navigate])
 
   /** 接收来自 url_to_wiki 等「发送到写文章」的 initialMarkdown，创建新会话并填入 */
   useEffect(() => {
@@ -368,21 +287,7 @@ export default function ArticleWriting() {
     const text = (input || '').trim()
     if (!text) return
 
-    const trimmedBlocks = referenceBlocks
-      .map((b) => ({ ...b, content: (b.content || '').trim() }))
-      .filter((b) => b.content)
-
-    const referenceContext =
-      trimmedBlocks.length === 0
-        ? ''
-        : `以下是用户提供的参考资料，请在回答时充分利用，并根据用户的最新指令进行综合判断：\n\n${trimmedBlocks
-            .map((b, idx) => {
-              const title = (b.title || '').trim()
-              const header = title ? `【参考${idx + 1}：${title}】` : `【参考${idx + 1}】`
-              return `${header}\n${b.content}`
-            })
-            .join('\n\n')}\n\n---\n\n`
-
+    const referenceContext = formatReferenceContext(referenceBlocks)
     const messageForModel = referenceContext ? `${referenceContext}【用户本次提问】\n${text}` : text
 
     setInput('')
@@ -1322,98 +1227,22 @@ export default function ArticleWriting() {
                   )}
                 </button>
                 {referencePanelOpen && (
-                  <div className="mt-2 space-y-2 max-h-[40vh] overflow-y-auto min-h-0">
-                    {referenceBlocks.length === 0 && (
-                      <p className="text-[11px] text-muted">
-                        可以在这里粘贴多段资料作为上下文，助手回答时会一并参考，但不会单独显示为消息。
-                      </p>
-                    )}
-                    {referenceBlocks.map((block, idx) => (
-                      <div
-                        key={block.id}
-                        className="rounded-lg border border-border bg-white/5 px-3 py-2 space-y-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-muted shrink-0">
-                            参考 {idx + 1}
-                          </span>
-                          <input
-                            type="text"
-                            value={block.title}
-                            onChange={(e) =>
-                              handleUpdateReferenceBlock(block.id, 'title', e.target.value)
-                            }
-                            placeholder="可选：给这段资料起个标题"
-                            className="flex-1 min-w-0 px-2 py-1 rounded bg-transparent border border-border/60 text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-accent"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveReferenceBlock(block.id)}
-                            className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-red-400 hover:border-red-400/60"
-                          >
-                            删除
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setReferenceBlockPreviewId((prev) => (prev === block.id ? null : block.id))
-                            }
-                            className={`px-2 py-1 text-[11px] rounded border ${
-                              referenceBlockPreviewId === block.id
-                                ? 'border-accent/60 text-accent bg-accent/10'
-                                : 'border-border text-muted hover:text-fg hover:bg-white/5'
-                            }`}
-                          >
-                            {referenceBlockPreviewId === block.id ? '编辑' : '预览'}
-                          </button>
-                        </div>
-                        {referenceBlockPreviewId === block.id ? (
-                          <div className="min-h-[120px] max-h-[280px] overflow-y-auto rounded bg-black/20 border border-border p-2">
-                            <MarkdownPreview
-                              markdown={block.content || ''}
-                              theme="dark"
-                              className="text-xs"
-                            />
-                          </div>
-                        ) : (
-                          <textarea
-                            rows={6}
-                            value={block.content}
-                            onChange={(e) =>
-                              handleUpdateReferenceBlock(block.id, 'content', e.target.value)
-                            }
-                            placeholder="在这里粘贴这段参考资料文本（支持多段）。"
-                            className="w-full min-h-[120px] px-2 py-1.5 rounded bg-black/20 border border-border text-xs text-white placeholder-[#64748b] resize-y focus:outline-none focus:border-accent"
-                          />
-                        )}
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={handleAddReferenceBlock}
-                        className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:text-fg hover:bg-white/5"
-                      >
-                        + 新增参考块
-                      </button>
-                      <p className="text-[11px] text-muted text-right">
-                        参考信息会自动加入每次请求的隐藏上下文，无需在输入框里重复粘贴。
-                      </p>
-                    </div>
-                  </div>
+                  <ReferenceBlocksPanel
+                    referenceBlocks={referenceBlocks}
+                    onAdd={handleAddReferenceBlockAndOpen}
+                    onUpdate={handleUpdateReferenceBlock}
+                    onRemove={handleRemoveReferenceBlock}
+                  />
                 )}
               </div>
               <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">
-                <label className="text-xs text-muted shrink-0">模型</label>
-                <select
+                <ModelSelector
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="text-xs rounded border border-border bg-white/5 px-2 py-1.5 text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                >
-                  {selectableModels.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
+                  onChange={setSelectedModel}
+                  providers={providers}
+                  models={selectableModels}
+                  loading={modelsLoading}
+                />
               </div>
               <ChatInput
                 value={input}

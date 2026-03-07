@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import TaskDetailModal from '../components/task/TaskDetailModal'
 import TaskCard from '../components/TaskCard'
 import HtmlPreview from '../components/HtmlPreview'
@@ -223,10 +223,19 @@ export default function TaskManagement() {
   const [editPipelineGroup, setEditPipelineGroup] = useState(null) // { pipelineId, tasks }
 
   const location = useLocation()
+  const navigate = useNavigate()
   useEffect(() => {
     const id = location.state?.detailTaskId
     if (id) setDetailTaskId(id)
   }, [location.state?.detailTaskId])
+  useEffect(() => {
+    const editTask = location.state?.editTask
+    if (editTask?.task_id) {
+      setCreateModalEditTask(editTask)
+      setShowCreateModal(true)
+      navigate(location.pathname, { replace: true, state: { ...location.state, editTask: undefined } })
+    }
+  }, [location.state?.editTask?.task_id, location.pathname, location.state, navigate])
 
   const handleGoToSchedule = useCallback((scheduleId) => {
     setDetailTaskId(null)

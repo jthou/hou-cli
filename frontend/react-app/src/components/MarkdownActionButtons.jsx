@@ -15,7 +15,7 @@ import { useToast } from './ToastModal'
  * @param {(content: string) => void} [props.onSendToArticle] - 发送到写文章回调，不传则隐藏
  * @param {string} [props.sendToArticleLabel='发送到写文章'] - 按钮文案
  * @param {boolean} [props.showMediaWiki=true] - 是否显示写入 MediaWiki
- * @param {(content: string) => void} [props.onAddToReference] - 添加到参考信息回调，不传则隐藏
+ * @param {(content: string) => void} [props.onAddToReference] - 添加到参考回调，不传则隐藏
  * @param {React.ReactNode} [props.extra] - 额外按钮（如「同步到公众号草稿」）
  * @param {string} [props.className] - 容器类名
  */
@@ -161,7 +161,7 @@ export default function MarkdownActionButtons({
             }}
             className="px-4 py-2 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5 text-sm"
           >
-            添加到参考信息
+            添加到参考
           </button>
         )}
         {extra}

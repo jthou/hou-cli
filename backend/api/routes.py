@@ -22,12 +22,14 @@ from backend.api.latex_routes import router as latex_router
 from backend.api.tool_routes import router as tool_router
 from backend.api.kanban_routes import router as kanban_router
 from backend.api.heartbeat_routes import router as heartbeat_router
+from backend.api.version_routes import router as version_router
 from backend.api.storage_routes import router as storage_router
 from backend.api.pdf_routes import router as pdf_router
 from backend.api.web_reader_routes import router as web_reader_router
 from backend.api.llm_audit_routes import router as llm_audit_router
 from backend.api.network_audit_routes import router as network_audit_router
 from backend.api.model_config_routes import router as model_config_router
+from backend.api.model_availability_routes import router as model_availability_router
 from backend.api.task_routes import router as task_router
 from backend.api.audit_routes import router as audit_router
 
@@ -56,10 +58,12 @@ router.include_router(wechat_mp_router, tags=["wechat-mp"])
 router.include_router(latex_router, tags=["latex"])
 router.include_router(tool_router, tags=["tools"])
 router.include_router(heartbeat_router, tags=["monitoring"])
+router.include_router(version_router, tags=["version"])
 router.include_router(storage_router, tags=["storage"])
 router.include_router(llm_audit_router, tags=["llm-audit"])
 router.include_router(network_audit_router, tags=["network-audit"])
 router.include_router(model_config_router, tags=["model-config"])
+router.include_router(model_availability_router, tags=["model-availability-audit"])
 router.include_router(task_router, tags=["tasks"])
 router.include_router(audit_router, tags=["audit"])
 router.include_router(kanban_router, tags=["kanban"])

@@ -283,7 +283,7 @@ export default function MediaWikiReader() {
                                   className="min-h-[120px]"
                                   theme="dark"
                                   onAddToReference={(content) =>
-                                    navigate('/article-writing', { state: { addToReference: content } })
+                                    navigate('/add-reference', { state: { addToReference: content } })
                                   }
                                   onSendToArticle={(md) =>
                                     navigate('/article-writing', { state: { initialMarkdown: md } })

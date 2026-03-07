@@ -4,9 +4,9 @@
  * - 编辑已有草稿时，接口返回的 content 为 HTML，用 htmlToMd() 转成 Markdown 再放入编辑器。
  * - 提交任务/定时任务时，metadata.content 必须为 HTML，由 prepareWechatDraftMetadata 或 prepareMetadataForSubmit 统一转换。
  */
-import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { mdToWiki } from './wikiMdConvert.js'
+import { mdToHtmlCore } from './mdToHtmlCore.js'
 
 /** 任务类型：公众号草稿。凡提交该类型任务的 metadata 前，应对 content 做 MD→HTML。 */
 export const WECHAT_MP_DRAFT_TASK_TYPE = 'wechat_mp_draft'
@@ -14,22 +14,16 @@ export const WECHAT_MP_DRAFT_TASK_TYPE = 'wechat_mp_draft'
 /** 任务类型：MediaWiki 写入。若勾选「正文为 Markdown」，提交前对 content 做 MD→Wiki。 */
 export const MEDIAWIKI_WRITE_TASK_TYPE = 'mediawiki_write'
 
-// 安全起见关闭 raw HTML（用户输入的 MD 中若有 HTML 会转义）
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-})
+/** 导出核心转换函数，供测试或直接调用 */
+export { mdToHtmlCore } from './mdToHtmlCore.js'
 
 /**
+ * Markdown 转 HTML（核心转换 + 与 mdToHtmlForWechat 共用同一实现）。
  * @param {string} md - Markdown 文本
  * @returns {string} HTML 字符串
  */
 export function mdToHtml(md) {
-  if (md == null || typeof md !== 'string') return ''
-  const trimmed = md.trim()
-  if (!trimmed) return ''
-  const out = marked.parse(trimmed)
-  return typeof out === 'string' ? out : String(out)
+  return mdToHtmlCore(md)
 }
 
 /**

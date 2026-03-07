@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/ToastModal'
 import Sidebar from './components/Sidebar'
 import Home from './pages/Home'
@@ -31,6 +31,7 @@ import PdfReader from './pages/PdfReader'
 import WikiDirectory from './pages/WikiDirectory'
 import MediaWikiReader from './pages/MediaWikiReader'
 import WebReader from './pages/WebReader'
+import AddReference from './pages/AddReference'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="/weather-query" element={<WeatherQuery />} />
               <Route path="/web-search" element={<WebSearch />} />
               <Route path="/article-writing" element={<ArticleWriting />} />
+              <Route path="/add-reference" element={<AddReference />} />
               <Route path="/wechat-drafts" element={<WechatDraftPage />} />
               <Route path="/url-to-wiki" element={<UrlToWiki />} />
               <Route path="/pdf-to-wiki" element={<PdfToWiki />} />
@@ -66,6 +68,10 @@ export default function App() {
               <Route path="/settings/network-audit" element={<SettingsNetworkAudit />} />
               <Route path="/settings/system-prompt-audit" element={<SettingsSystemPromptAudit />} />
               <Route path="/settings/model-config-audit" element={<SettingsModelConfigAudit />} />
+              <Route
+                path="/settings/model-availability-audit"
+                element={<Navigate to="/settings/model-config-audit" replace />}
+              />
               <Route path="/settings/kanban" element={<SettingsKanban />} />
               <Route path="/settings/tests" element={<SettingsTests />} />
               <Route path="/settings/dev-audit" element={<SettingsDevAudit />} />

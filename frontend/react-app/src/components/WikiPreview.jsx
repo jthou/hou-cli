@@ -13,7 +13,7 @@ import { wikiToMd } from '../utils/wikiMdConvert'
  * @param {string} [props.wikiText] - MediaWiki wikitext
  * @param {string} [props.className] - 容器额外类名
  * @param {'light'|'dark'} [props.theme='light'] - 预览主题
- * @param {(content: string) => void} [props.onAddToReference] - 添加到参考信息回调，不传则隐藏
+ * @param {(content: string) => void} [props.onAddToReference] - 添加到参考回调，不传则隐藏
  * @param {(content: string) => void} [props.onSendToArticle] - 加入写文章回调，不传则隐藏
  */
 export default function WikiPreview({
@@ -67,7 +67,7 @@ export default function WikiPreview({
               disabled={!mdContent}
               className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              添加到参考信息
+              添加到参考
             </button>
           )}
         </div>

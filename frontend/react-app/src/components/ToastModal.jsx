@@ -1,4 +1,4 @@
-import { useState, createContext, useContext, useCallback, useRef, useEffect } from 'react'
+import { useState, createContext, useContext, useCallback, useEffect } from 'react'
 
 const ToastContext = createContext(null)
 
@@ -117,20 +117,10 @@ function ToastModal({ type, title, message, onConfirm, onCancel, position }) {
 
 export function ToastProvider({ children }) {
   const [toast, setToast] = useState(null)
-  const mouseRef = useRef({ x: 0, y: 0 })
-
-  useEffect(() => {
-    const onMove = (e) => {
-      mouseRef.current = { x: e.clientX, y: e.clientY }
-    }
-    window.addEventListener('mousemove', onMove, { passive: true })
-    return () => window.removeEventListener('mousemove', onMove)
-  }, [])
 
   const show = useCallback((opts) => {
     return new Promise((resolve) => {
-      const pos = opts.position ?? mouseRef.current
-      setToast({ ...opts, resolve, position: { x: pos.x, y: pos.y } })
+      setToast({ ...opts, resolve, position: opts.position ?? undefined })
     })
   }, [])
 

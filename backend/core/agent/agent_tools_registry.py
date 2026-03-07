@@ -32,13 +32,8 @@ AGENT_TOOLS: Dict[str, List[str]] = {
         "image_generation",
         "text_to_image_prompt",
     ],
-    "article_writing": [
-        "writing_blog_tool",
-        "browser",
-        "google_search",
-        "web_fetch",
-        "mediawiki",
-    ],
+    "article_writing": [],  # 写文章仅依据参考信息+用户提问，不调用工具
+    "work_assistant": [],   # 工作助手不调用工具，仅基于知识作答
     # 以下 agent 在审计页有系统提示但无 LLM 工具调用，tools 为空
     "orchestrator_selector": [],
     "skill_matching": [],
@@ -61,11 +56,11 @@ def get_tools_for_llm_by_agent(
     """
     从 LLM 格式的工具定义列表中筛出该 agent 配备的工具。
     tools_for_llm: ToolRegistry.get_tools_for_llm() 的返回值。
-    若 agent 未配置或配置为空，返回原列表（保持兼容）。
+    若 agent 配置为空（如 work_assistant、article_writing），返回空列表。
     """
     names = get_tool_names_for_agent(agent_id)
     if not names:
-        return tools_for_llm
+        return []
     name_set = set(names)
     return [
         t

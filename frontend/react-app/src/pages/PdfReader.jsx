@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSelectableModels } from '../hooks/useSelectableModels'
+import ModelSelector from '../components/ModelSelector'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import MarkdownPreview from '../components/MarkdownPreview'
@@ -26,7 +27,7 @@ export default function PdfReader() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [selectedModel, setSelectedModel] = useState('auto')
-  const { models: selectableModels } = useSelectableModels()
+  const { providers, models: selectableModels, loading: modelsLoading } = useSelectableModels()
 
   const [mergedPages, setMergedPages] = useState([]) // { page, text }[]
   const [useCurrentPageContext, setUseCurrentPageContext] = useState(true)
@@ -743,16 +744,13 @@ export default function PdfReader() {
               </label>
             </div>
             <div className="flex items-center gap-2 mb-2">
-              <label className="text-xs text-muted shrink-0">模型</label>
-              <select
+              <ModelSelector
                 value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="text-xs rounded border border-border bg-white/5 px-2 py-1.5 text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-              >
-                {selectableModels.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
+                onChange={setSelectedModel}
+                providers={providers}
+                models={selectableModels}
+                loading={modelsLoading}
+              />
             </div>
             <form onSubmit={handleSend} className="flex items-center gap-2">
               <textarea

@@ -43,6 +43,10 @@
   - 文件存储管理、知识提炼和处理
   - 向量化存储、向量搜索服务
 
+- **[work-assistant-reference-design.md](./work-assistant-reference-design.md)** - 工作助手参考块设计
+  - 工作助手无参考块时的设计考量
+  - 可选方案：保持现状 / 增加参考块 / 替代性上下文来源
+
 - **[01-code-and-memory-design.md](./01-code-and-memory-design.md)** - 代码能力和长记忆设计
   - 代码读取/编辑能力、文件系统操作
   - 长记忆系统、上下文管理
@@ -111,6 +115,11 @@
   - 运行时用户选择模型（chat/code/reasoning 或具体模型名）
   - ChatRequest 扩展、Orchestrator 模型覆盖逻辑
   - 后端测试验证方案（单元测试、集成测试、API 测试）
+
+- **[model-availability-audit-design.md](./model-availability-audit-design.md)** - 模型可用性审计设计
+  - 对每个模型主动发 "hello" 探测
+  - 有回馈→可用，报错→显示错误信息
+  - 应对配额耗尽（FreeTierOnly）、403、429 等场景
 
 ## 文档阅读顺序建议
 

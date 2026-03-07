@@ -140,28 +140,102 @@ async def get_model_config_audit():
     return result
 
 
+PROVIDER_LABELS = {
+    "deepseek": "DeepSeek",
+    "bailian": "百炼平台",
+    "theturbogateway": "TheTurbo.ai 网关",
+}
+
+# 视觉模型（OCR/截图识别）按供应商分组
+VISION_MODELS_BY_PROVIDER = {
+    "bailian": [
+        ("qwen3-vl-plus-2025-12-19", "Qwen3-VL Plus"),
+        ("qwen3-vl-flash-2025-10-15", "Qwen3-VL Flash"),
+        ("qwen-vl-max-2025-08-13", "Qwen-VL Max"),
+        ("qwen-vl-plus-latest", "Qwen-VL Plus"),
+        ("qwen3-vl-32b-thinking", "Qwen3-VL 32B Thinking"),
+    ],
+    "theturbogateway": [
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-4o-mini", "GPT-4o Mini"),
+        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+        ("claude-opus-4-20250514", "Claude Opus 4"),
+        ("claude-sonnet-4-20250514", "Claude Sonnet 4"),
+    ],
+}
+
+
+def _get_vision_providers():
+    """返回视觉模型按供应商分组，用于前端选择"""
+    env_default = os.getenv(
+        "WEB_READER_OCR_MODEL",
+        os.getenv("BROWSER_TOOL_VISION_MODEL", "qwen3-vl-plus-2025-12-19"),
+    )
+    from backend.services.llm.model_registry import ModelRegistry
+
+    provider, _ = ModelRegistry.parse_model_name(env_default)
+    providers = []
+    for p in ["bailian", "theturbogateway"]:
+        models = VISION_MODELS_BY_PROVIDER.get(p, [])
+        if not models:
+            continue
+        providers.append({
+            "id": p,
+            "label": PROVIDER_LABELS.get(p, p),
+            "models": [{"value": v, "label": lbl} for v, lbl in models],
+        })
+    return {"providers": providers, "default": env_default}
+
+
 @router.get("/models/selectable")
 async def get_selectable_models():
     """
-    返回前端可选的模型列表（具体模型名）。
-    - auto: 智能选择
-    - 其余为配置的 chat/code/reasoning 模型名
+    返回前端可选的模型列表，按供应商分组。
+    - providers: [{ id, label, models: [{value, label}] }]
+    - models: 扁平列表（向后兼容）
     """
+    from backend.services.llm.model_registry import ModelRegistry
+
     chat_model = os.getenv("CHAT_MODEL", "deepseek-chat")
     code_model = os.getenv("CODE_MODEL", "deepseek-coder")
     reasoning_model = os.getenv("REASONING_MODEL", "deepseek-reasoner")
 
-    models = [
-        {"value": "auto", "label": "智能选择"},
-        {"value": chat_model, "label": chat_model},
-        {"value": code_model, "label": code_model},
-        {"value": reasoning_model, "label": reasoning_model},
-    ]
-    # 去重：若 chat/code/reasoning 配置了相同模型，只保留一个
-    seen = set()
-    unique = []
-    for m in models:
-        if m["value"] not in seen:
-            seen.add(m["value"])
-            unique.append(m)
-    return {"success": True, "models": unique}
+    configured = []
+    for val in (chat_model, code_model, reasoning_model):
+        if val and val not in {m["value"] for m in configured}:
+            configured.append({"value": val, "label": val})
+
+    by_provider = {}
+    for m in configured:
+        provider, _ = ModelRegistry.parse_model_name(m["value"])
+        if provider not in by_provider:
+            by_provider[provider] = []
+        by_provider[provider].append(m)
+
+    provider_order = ["deepseek", "bailian", "theturbogateway"]
+    providers = []
+    for p in provider_order:
+        if p in by_provider:
+            providers.append({
+                "id": p,
+                "label": PROVIDER_LABELS.get(p, p),
+                "models": by_provider[p],
+            })
+    for p in by_provider:
+        if p not in provider_order:
+            providers.append({
+                "id": p,
+                "label": PROVIDER_LABELS.get(p, p),
+                "models": by_provider[p],
+            })
+
+    models = [{"value": "auto", "label": "智能选择"}] + configured
+    # 视觉模型（OCR/截图识别）：按供应商分组，供网页阅读等使用
+    vision_providers = _get_vision_providers()
+    return {
+        "success": True,
+        "models": models,
+        "providers": providers,
+        "vision_providers": vision_providers,
+    }

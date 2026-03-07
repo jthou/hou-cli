@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 102
+- 后端路由数: 105
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -38,6 +38,7 @@ GET /api/settings/kanban/board
 GET /api/settings/kanban/boards
 GET /api/settings/llm-audit/dates
 GET /api/settings/llm-audit/list
+GET /api/settings/model-availability-audit/models
 GET /api/settings/model-config-audit
 GET /api/settings/system-prompt-audit/prompts
 GET /api/storage/config
@@ -66,6 +67,7 @@ GET /api/tests/list
 GET /api/tests/statistics
 GET /api/tests/status
 GET /api/tools/list
+GET /api/version
 GET /api/wechat-mp/cover-image
 GET /api/wechat-mp/drafts
 GET /api/wechat-mp/drafts/detail
@@ -90,6 +92,7 @@ POST /api/pdf/upload-from-extension
 POST /api/sessions
 POST /api/sessions/{session_id}/clear
 POST /api/sessions/{session_id}/summary
+POST /api/settings/model-availability-audit/probe
 POST /api/task-queue/cleanup
 POST /api/task-queue/scheduled-tasks
 POST /api/task-queue/scheduled-tasks/{schedule_id}/run-now
@@ -158,6 +161,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/settings/kanban/boards
 - /api/settings/llm-audit/dates
 - /api/settings/llm-audit/list
+- /api/settings/model-availability-audit/models
+- /api/settings/model-availability-audit/probe
 - /api/settings/model-config-audit
 - /api/settings/system-prompt-audit/prompts
 - /api/storage/config
@@ -198,6 +203,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/tests/statistics
 - /api/tests/status
 - /api/tools/list
+- /api/version
 - /api/web-reader/ocr
 - /api/wechat-mp/cover-image
 - /api/wechat-mp/drafts

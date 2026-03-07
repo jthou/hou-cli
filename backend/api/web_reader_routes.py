@@ -22,6 +22,7 @@ OCR_PROMPT = """请识别图片中的所有文字，按原文顺序逐行输出�
 class OcrRequest(BaseModel):
     """OCR 请求：base64 图片"""
     image: str  # data:image/png;base64,... 或纯 base64
+    model: Optional[str] = None  # 可选，前端选择的视觉模型；未传则用 env 默认
 
 
 class OcrResponse(BaseModel):
@@ -31,10 +32,10 @@ class OcrResponse(BaseModel):
 
 
 def _get_vision_model() -> str:
-    """获取视觉模型，优先环境变量"""
+    """获取视觉模型，优先环境变量（与 vision_providers 默认一致）"""
     return os.getenv(
         "WEB_READER_OCR_MODEL",
-        os.getenv("BROWSER_TOOL_VISION_MODEL", "bailian-qwen3-vl-plus-2025-12-19"),
+        os.getenv("BROWSER_TOOL_VISION_MODEL", "qwen3-vl-plus-2025-12-19"),
     )
 
 
@@ -59,7 +60,7 @@ async def ocr_image(req: OcrRequest):
     try:
         from backend.services.llm.llm_service import LLMService
 
-        model_name = _get_vision_model()
+        model_name = (req.model or "").strip() or _get_vision_model()
         llm = LLMService(model=model_name)
 
         messages = [

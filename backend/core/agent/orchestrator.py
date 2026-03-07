@@ -488,12 +488,26 @@ class UnifiedOrchestrator:
     
     async def _stream_work_assistant(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
         """工作助手专用：WORK_ASSISTANT_SYSTEM_PROMPT（软件架构师身份、管理学规范）"""
+        regenerate_msg_id = (context or {}).get("regenerate_from_message_id")
+        session_id = context.get("session_id") if context else None
+
+        if regenerate_msg_id and session_id:
+            msg = self.context_manager.get_message_by_id(session_id, regenerate_msg_id)
+            if not msg or msg.role != MessageRole.USER:
+                yield "错误：无法重新回答，未找到对应用户消息。"
+                return
+            task = msg.content or ""
+            ok = self.context_manager.truncate_after_message(session_id, regenerate_msg_id)
+            if not ok:
+                yield "错误：截断对话失败。"
+                return
+            # 不再次添加用户消息，仅生成并保存助手回复
+
+        if not session_id:
+            session_id = self.context_manager.create_session()
         selected_model = await self._select_model(task, context=context)
         if selected_model != self.llm_service.model:
             self.llm_service.set_model(selected_model)
-        session_id = context.get("session_id") if context else None
-        if not session_id:
-            session_id = self.context_manager.create_session()
         history = self.context_manager.get_messages_for_llm(session_id, max_messages=None, max_tokens=None)
         filtered_history = [msg for msg in history if msg["role"] in ["user", "assistant"]]
         if filtered_history:
@@ -510,7 +524,8 @@ class UnifiedOrchestrator:
             user_prompt=user_prompt,
             audit_meta=audit_meta,
         )
-        self.context_manager.add_message(session_id, MessageRole.USER, task)
+        if not regenerate_msg_id:
+            self.context_manager.add_message(session_id, MessageRole.USER, task)
         self.context_manager.add_message(session_id, MessageRole.ASSISTANT, response or "")
         self.llm_service.reset_model()
         for char in (response or ""):
@@ -1598,6 +1613,7 @@ class SkillMatcher:
         # 4. 构建 system_prompt 与 user_prompt（按 context_type 分支）
         ctx_type = (context or {}).get("context_type")
         is_work_assistant = ctx_type == "work_assistant"
+        planning_context = ""  # 任务分解时可能追加，需预先定义
 
         if is_work_assistant:
             # 工作助手：专用提示词，无文章注入
@@ -1614,52 +1630,15 @@ class SkillMatcher:
                 user_prompt = task
                 self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         else:
-            # 写文章场景：规划 + MediaWiki 参考 + 草稿 + 写作画像
-            planning_context = ""
-            if planning_files and task_plan_content:
-                planning_context = f"""
-
-【重要】任务规划文件已创建，请遵循以下规划执行任务：
-
-{task_plan_content[:2000]}  # 限制长度，避免上下文过长
-
-请在执行任务时：
-1. 参考 task_plan.md 中的目标和阶段
-2. 完成每个阶段后，更新阶段状态
-3. 将研究发现记录到 findings.md
-4. 将操作记录到 progress.md
-5. 遇到错误时，记录到 task_plan.md 的错误表
-"""
+            # 写文章场景：写作画像 + 前端参考块 + 用户提问，不参考历史、不调用工具
             system_prompt = get_article_writing_system_prompt(planning_context)
-            mw_reference = self._get_mw_reference_content(session_id)
-            current_article = self.context_manager.get_current_article(session_id) or ""
-            _patch_instruction = (
-                "【重要】当用户要求对文章做局部修改（如插入一段、改某节）时，请只输出一个 unified diff（patch），"
-                "表示从当前文章到修改后文章的差异。将 diff 放在 ```patch 与 ``` 的代码块之间，不要输出修改后的整篇文章。"
-                "diff 的上下文行必须与当前文章完全一致。若用户只是讨论或询问，可正常回复。\n\n"
-            )
-            task_with_article = (
-                (_patch_instruction + f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}")
-                if current_article.strip()
-                else task
-            )
-            if mw_reference:
-                task_with_article = mw_reference + task_with_article
+            # 参考信息仅来自前端参考块（task 中已含参考块 + 用户提问）
+            user_prompt = task
             profile_block = get_profile_block_for_prompt()
             if profile_block:
-                task_with_article = profile_block + "\n\n" + task_with_article
+                user_prompt = profile_block + "\n\n" + user_prompt
                 self.debug.log_orchestrator_step("注入写作画像", {"length": len(profile_block)})
-            filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
-            if filtered_history:
-                history_text = "\n".join([
-                    f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
-                    for msg in filtered_history
-                ])
-                user_prompt = f"【历史对话】\n{history_text}\n\n【当前用户问题】\n{task_with_article}"
-                self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history), "total_count": len(history)})
-            else:
-                user_prompt = task_with_article
-                self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+            self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
 
         # 4.5. 任务分解（阶段2：如果启用）
         execution_plan = None
@@ -2166,8 +2145,8 @@ class SkillMatcher:
         }
         yield StreamMessageBuilder.build_debug(debug_info)
         
-        # 获取工具定义（工作助手用 chat 工具，写文章用 article_writing 工具）
-        agent_for_tools = "chat" if is_work_assistant else "article_writing"
+        # 获取工具定义（工作助手不调用工具，写文章不调用工具，其他用 chat 工具）
+        agent_for_tools = "work_assistant" if is_work_assistant else "article_writing"
         tools = get_tools_for_llm_by_agent(agent_for_tools, self.tool_registry.get_tools_for_llm())
         tool_names = [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []
         debug_info = {

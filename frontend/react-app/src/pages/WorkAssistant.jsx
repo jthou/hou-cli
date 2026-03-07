@@ -1,16 +1,26 @@
 /**
- * 工作助手 - 通用对话入口，支持模型选择（具体模型名）、会话持久化
+ * 工作助手 - 通用对话入口，支持模型选择、会话持久化、参考块（与写文章概念和操作一致）
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import ChatInput from '../components/ChatInput'
 import MarkdownPreview from '../components/MarkdownPreview'
+import { useToast } from '../components/ToastModal'
 import { useSelectableModels } from '../hooks/useSelectableModels'
+import ModelSelector from '../components/ModelSelector'
+import { formatReferenceContext } from '../utils/referenceUtils'
+import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
+import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 
 const SESSION_TYPE = 'work_assistant'
 const STORAGE_KEY = 'work_assistant_selected_session'
 
 export default function WorkAssistant() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const toast = useToast()
+  const { providers, models: selectableModels, loading: modelsLoading } = useSelectableModels()
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState(() => {
@@ -28,10 +38,21 @@ export default function WorkAssistant() {
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
   const [selectedModel, setSelectedModel] = useState('auto')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const { models: selectableModels } = useSelectableModels()
+  const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const streamingContentRef = useRef('')
+  const {
+    referenceBlocks,
+    handleAddReferenceBlock,
+    handleUpdateReferenceBlock,
+    handleRemoveReferenceBlock,
+  } = useReferenceBlocks(selectedSessionId, referencePanelOpen)
+
+  const handleAddReferenceBlockAndOpen = () => {
+    setReferencePanelOpen(true)
+    handleAddReferenceBlock()
+  }
 
   const loadSessions = useCallback(() => {
     setSessionsLoading(true)
@@ -87,7 +108,7 @@ export default function WorkAssistant() {
       .then((r) => r.json())
       .then((d) => {
         if (d.success && Array.isArray(d.messages)) {
-          setMessages(d.messages.map((m) => ({ role: m.role, content: m.content })))
+          setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
         }
       })
       .catch(() => {})
@@ -97,6 +118,42 @@ export default function WorkAssistant() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
+
+  /** 从 AddReference 页跳回时聚焦指定会话 */
+  useEffect(() => {
+    const focusId = location.state?.focusSessionId
+    if (!focusId || typeof focusId !== 'string') return
+    navigate(location.pathname + location.search, { replace: true, state: {} })
+    setSelectedSessionId(focusId)
+    try {
+      sessionStorage.setItem(STORAGE_KEY, focusId)
+    } catch (_) {}
+  }, [location.state?.focusSessionId, location.pathname, location.search, navigate])
+
+  const handleDeleteSession = async (sessionId, e) => {
+    e?.stopPropagation?.()
+    if (!sessionId) return
+    const ok = await toast.confirm('确定删除该会话？删除后不可恢复，再次对话时不会带入该历史。')
+    if (!ok) return
+    try {
+      const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+      const d = await r.json()
+      if (d.success) {
+        loadSessions()
+        if (selectedSessionId === sessionId) {
+          setSelectedSessionId(null)
+          setMessages([])
+          try {
+            sessionStorage.removeItem(STORAGE_KEY)
+          } catch (_) {}
+        }
+      } else {
+        toast.error(d.error || '删除失败')
+      }
+    } catch (err) {
+      toast.error(err?.message || '删除失败')
+    }
+  }
 
   const handleNewSession = () => {
     fetch('/api/sessions', {
@@ -118,6 +175,102 @@ export default function WorkAssistant() {
     abortControllerRef.current?.abort()
   }
 
+  const handleRegenerate = async (messageId) => {
+    if (!selectedSessionId || !messageId || loading) return
+    const idx = messages.findIndex((m) => m.message_id === messageId)
+    if (idx >= 0) {
+      setMessages((prev) => prev.slice(0, idx + 1))
+    }
+    setLoading(true)
+    setStreamingContent('')
+    setStreamingToolCalls([])
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+    try {
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: '',
+          session_id: selectedSessionId,
+          context_type: SESSION_TYPE,
+          regenerate_from_message_id: messageId,
+          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
+        }),
+        signal: ac.signal,
+      })
+      if (!res.ok) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${res.statusText || res.status}` }])
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullContent = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const block of parts) {
+          const dataLines = block.split('\n').filter((l) => l.startsWith('data: '))
+          for (const dataLine of dataLines) {
+            try {
+              const obj = JSON.parse(dataLine.slice(6))
+              if (obj.status === 'streaming' && obj.content != null) {
+                const raw = String(obj.content)
+                if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:') && !raw.startsWith('__TOOL__:')) {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
+                }
+              } else if (obj.status === 'done') {
+                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+                  .then((r) => r.json())
+                  .then((d) => {
+                    if (d.success && Array.isArray(d.messages)) {
+                      setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+                    }
+                  })
+                  .catch(() => {})
+                setStreamingContent('')
+                streamingContentRef.current = ''
+              } else if (obj.status === 'error') {
+                setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
+                setStreamingContent('')
+              }
+            } catch (_) {}
+          }
+        }
+      }
+      if (buffer.trim()) {
+        try {
+          const dataLines = buffer.split('\n').filter((l) => l.startsWith('data: '))
+          for (const dataLine of dataLines) {
+            const obj = JSON.parse(dataLine.slice(6))
+            if (obj.status === 'done') {
+              fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+                .then((r) => r.json())
+                .then((d) => {
+                  if (d.success && Array.isArray(d.messages)) {
+                    setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+                  }
+                })
+                .catch(() => {})
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return
+      setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err?.message || '请求失败'}` }])
+    } finally {
+      setLoading(false)
+      abortControllerRef.current = null
+    }
+  }
+
   const handleSubmit = async (e) => {
     e?.preventDefault?.()
     const text = (input || '').trim()
@@ -136,6 +289,9 @@ export default function WorkAssistant() {
       loadSessions()
     }
 
+    const referenceContext = formatReferenceContext(referenceBlocks)
+    const messageForModel = referenceContext ? `${referenceContext}【用户本次提问】\n${text}` : text
+
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
@@ -150,7 +306,7 @@ export default function WorkAssistant() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: messageForModel,
           session_id: sessionId,
           context_type: SESSION_TYPE,
           ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
@@ -200,7 +356,6 @@ export default function WorkAssistant() {
                 }
               } else if (obj.status === 'done') {
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
-                setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
                 streamingContentRef.current = ''
@@ -214,6 +369,16 @@ export default function WorkAssistant() {
                     .then((d) => { if (d.success) loadSessions() })
                     .catch(() => {})
                 }
+                fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+                  .then((r) => r.json())
+                  .then((d) => {
+                    if (d.success && Array.isArray(d.messages)) {
+                      setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+                    } else {
+                      setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                    }
+                  })
+                  .catch(() => setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }]))
                 fullContent = ''
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
@@ -253,7 +418,6 @@ export default function WorkAssistant() {
               }
             } else if (obj.status === 'done') {
               const finalContent = fullContent.trim() || '（助手未返回内容）'
-              setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
               if (isFirstMessage && text) {
                 fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
                   method: 'PATCH',
@@ -265,6 +429,16 @@ export default function WorkAssistant() {
                   .catch(() => {})
               }
               setStreamingToolCalls([])
+              fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+                .then((r) => r.json())
+                .then((d) => {
+                  if (d.success && Array.isArray(d.messages)) {
+                    setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+                  } else {
+                    setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                  }
+                })
+                .catch(() => setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }]))
               fullContent = ''
             } else if (obj.status === 'error') {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
@@ -341,19 +515,33 @@ export default function WorkAssistant() {
             )}
             {!sessionsLoading &&
               sessions.map((s) => (
-                <button
+                <div
                   key={s.session_id}
-                  type="button"
-                  onClick={() => setSelectedSessionId(s.session_id)}
-                  className={`w-full text-left px-3 py-2 text-xs truncate ${
+                  className={`flex items-center gap-1 w-full px-3 py-2 text-xs rounded ${
                     selectedSessionId === s.session_id
                       ? 'bg-accent/20 text-accent'
                       : 'text-muted hover:bg-white/5 hover:text-fg'
                   }`}
-                  title={s.title || s.preview || s.session_id}
                 >
-                  {s.title || s.preview || `会话 ${s.session_id?.slice(0, 8)}`}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSessionId(s.session_id)}
+                    className="flex-1 min-w-0 text-left truncate"
+                    title={s.title || s.preview || s.session_id}
+                  >
+                    {s.title || s.preview || `会话 ${s.session_id?.slice(0, 8)}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteSession(s.session_id, e)}
+                    className="p-1 rounded text-muted hover:bg-red-500/20 hover:text-red-400 shrink-0 opacity-60 hover:opacity-100"
+                    title="删除会话（再次对话时不会带入该历史）"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               ))}
               </div>
             </>
@@ -372,7 +560,7 @@ export default function WorkAssistant() {
             )}
           {messages.map((msg, i) => (
             <div
-              key={i}
+              key={msg.message_id || i}
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
@@ -383,7 +571,20 @@ export default function WorkAssistant() {
                 }`}
               >
                 {msg.role === 'user' ? (
-                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm whitespace-pre-wrap flex-1 min-w-0">{msg.content}</p>
+                    {msg.message_id && (
+                      <button
+                        type="button"
+                        onClick={() => handleRegenerate(msg.message_id)}
+                        disabled={loading}
+                        className="shrink-0 px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5 disabled:opacity-50"
+                        title="要求 AI 重新回答此问题"
+                      >
+                        重新回答
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <div className="prose prose-invert prose-sm max-w-none">
                     <MarkdownPreview markdown={msg.content} theme="dark" />
@@ -432,18 +633,36 @@ export default function WorkAssistant() {
           )}
             <div ref={messagesEndRef} />
           </div>
-          <div className="shrink-0 border-t border-border bg-surface/50">
-          <div className="flex items-center gap-2 px-4 py-2">
-            <label className="text-xs text-muted shrink-0">模型</label>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="text-xs rounded border border-border bg-white/5 px-2 py-1.5 text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+          <div className="border-t border-border px-4 py-2">
+            <button
+              type="button"
+              onClick={() => setReferencePanelOpen((v) => !v)}
+              className="text-xs text-muted hover:text-fg flex items-center gap-1"
             >
-              {selectableModels.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
+              <span>{referencePanelOpen ? '收起参考信息' : '参考信息（可选）'}</span>
+              {referenceBlocks.filter((b) => (b.content || '').trim()).length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-white/10 text-[11px] text-muted">
+                  {referenceBlocks.filter((b) => (b.content || '').trim()).length}
+                </span>
+              )}
+            </button>
+            {referencePanelOpen && (
+              <ReferenceBlocksPanel
+                referenceBlocks={referenceBlocks}
+                onAdd={handleAddReferenceBlockAndOpen}
+                onUpdate={handleUpdateReferenceBlock}
+                onRemove={handleRemoveReferenceBlock}
+              />
+            )}
+          </div>
+          <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">
+            <ModelSelector
+              value={selectedModel}
+              onChange={setSelectedModel}
+              providers={providers}
+              models={selectableModels}
+              loading={modelsLoading}
+            />
             {loading && (
               <button
                 type="button"
@@ -462,7 +681,6 @@ export default function WorkAssistant() {
             disabled={loading || detailLoading}
             submitLabel="发送"
           />
-          </div>
         </div>
       </div>
     </div>

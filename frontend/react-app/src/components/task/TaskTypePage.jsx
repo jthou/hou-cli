@@ -3,6 +3,7 @@
  * 合并 WebSearch、UrlToWiki、VideoDownload 等页面的通用布局与逻辑，避免重复代码。
  */
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import TaskFormPage from './TaskFormPage'
 import TaskListByTypePanel from '../TaskListByTypePanel'
 import TaskDetailModal from './TaskDetailModal'
@@ -17,11 +18,17 @@ export default function TaskTypePage({
   showDetailModal = true,
   taskTypes = [],
 }) {
+  const navigate = useNavigate()
   const [detailTaskId, setDetailTaskId] = useState(null)
   const [refreshTrigger, setRefreshTrigger] = useState(undefined)
 
   const resolvedListTitle = listTitle ?? `${title}任务`
   const resolvedEmptyText = emptyText ?? `暂无${resolvedListTitle}`
+
+  const handleEditBeforeRestart = (task) => {
+    setDetailTaskId(null)
+    navigate('/tasks', { state: { editTask: task } })
+  }
 
   const rightContent = (
     <>
@@ -40,6 +47,7 @@ export default function TaskTypePage({
             setDetailTaskId(null)
             setRefreshTrigger((t) => (t ?? 0) + 1)
           }}
+          onEditBeforeRestart={handleEditBeforeRestart}
           taskTypes={taskTypes}
         />
       )}

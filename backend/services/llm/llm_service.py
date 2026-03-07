@@ -2,6 +2,7 @@
 import os
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 from openai import AsyncOpenAI, PermissionDeniedError, APIConnectionError
@@ -1077,3 +1078,36 @@ class LLMService:
             # 恢复原始模型（如果切换过）
             if model and model != self.model:
                 self.set_model(original_model)
+
+
+async def probe_model(model: str, timeout_seconds: float = 15.0) -> Dict[str, Any]:
+    """
+    对指定模型发起简单探测（发送 "hello"），用于模型可用性审计。
+
+    Args:
+        model: 模型名称（支持 "平台-模型" 格式）
+        timeout_seconds: 超时秒数，默认 15
+
+    Returns:
+        {"ok": True, "response": "模型回复", "duration_ms": 123} 或 {"ok": False, "error": "错误信息", "duration_ms": 123}
+    """
+    t0 = time.perf_counter()
+    try:
+        service = LLMService(model=model, max_tokens=10)
+        result = await asyncio.wait_for(
+            service.chat(user_prompt="hello", audit_meta={"is_probe": True}),
+            timeout=timeout_seconds,
+        )
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        if result is not None:
+            text = result if isinstance(result, str) else getattr(
+                result, "content", ""
+            ) or ""
+            return {"ok": True, "response": text, "duration_ms": duration_ms}
+        return {"ok": False, "error": "无响应", "duration_ms": duration_ms}
+    except asyncio.TimeoutError:
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        return {"ok": False, "error": "请求超时", "duration_ms": duration_ms}
+    except Exception as e:
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        return {"ok": False, "error": str(e), "duration_ms": duration_ms}

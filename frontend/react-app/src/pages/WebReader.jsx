@@ -10,10 +10,13 @@ import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/ToastModal'
 import { useExtensionReady } from '../hooks/useExtensionReady'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
+import { useSelectableModels } from '../hooks/useSelectableModels'
+import VisionModelSelector from '../components/VisionModelSelector'
 import { saveScreenshots, clearScreenshots, loadScreenshots, saveLastRead, loadLastRead } from '../utils/webReaderIndexedDB'
 
 const REQUEST_ID_PREFIX = 'web-reader-'
 const STORAGE_KEY_LAST_LEGACY = 'hou-cli-web-reader-last' // 迁移用
+const STORAGE_KEY_VISION_MODEL = 'hou-cli-web-reader-vision-model'
 const SAVE_DEBOUNCE_MS = 600
 
 export default function WebReader() {
@@ -27,9 +30,42 @@ export default function WebReader() {
   const [loadingOcr, setLoadingOcr] = useState(false)
   const extensionReady = useExtensionReady()
   const [viewMode, setViewMode] = useState('markdown') // 'text' | 'html' | 'markdown'
+  const {
+    vision_providers,
+    vision_default,
+    loading: modelsLoading,
+  } = useSelectableModels()
+  const [selectedVisionModel, setSelectedVisionModel] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY_VISION_MODEL) || ''
+    } catch {
+      return ''
+    }
+  })
   const timeoutRef = useRef(null)
   const ocrRequestedRef = useRef(null)
   const saveDebounceRef = useRef(null)
+
+  /** 持久化视觉模型选择 */
+  useEffect(() => {
+    if (!selectedVisionModel) return
+    try {
+      localStorage.setItem(STORAGE_KEY_VISION_MODEL, selectedVisionModel)
+    } catch (_) {}
+  }, [selectedVisionModel])
+
+  /** 加载后校验：若当前选择不在列表中，重置为默认 */
+  useEffect(() => {
+    if (modelsLoading || vision_providers.length === 0) return
+    const valid = vision_providers.some((p) =>
+      p.models?.some((m) => m.value === selectedVisionModel)
+    )
+    if (!valid && vision_default) {
+      setSelectedVisionModel(vision_default)
+    } else if (!valid && vision_providers[0]?.models?.[0]?.value) {
+      setSelectedVisionModel(vision_providers[0].models[0].value)
+    }
+  }, [modelsLoading, vision_providers, vision_default, selectedVisionModel])
 
   /** 恢复上次阅读内容（异步 IndexedDB，避免 localStorage 同步阻塞） */
   useEffect(() => {
@@ -206,11 +242,18 @@ export default function WebReader() {
     setLoadingOcr(true)
     const apiBase = window.location.origin
     const ocrUrl = `${apiBase}/api/web-reader/ocr`
+    const isValidModel = vision_providers.some((p) =>
+      p.models?.some((m) => m.value === selectedVisionModel)
+    )
+    const model =
+      (isValidModel ? selectedVisionModel : null) ||
+      vision_default ||
+      vision_providers[0]?.models?.[0]?.value
     const ocrOne = (img) =>
       fetch(ocrUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: img }),
+        body: JSON.stringify({ image: img, ...(model ? { model } : {}) }),
       }).then((r) => r.json())
     Promise.all(images.map(ocrOne))
       .then((results) => {
@@ -230,7 +273,13 @@ export default function WebReader() {
         setData((prev) => ({ ...prev, pendingOcr: false }))
       })
       .finally(() => setLoadingOcr(false))
-  }, [data?.screenshots, data?.pendingOcr])
+  }, [
+    data?.screenshots,
+    data?.pendingOcr,
+    selectedVisionModel,
+    vision_default,
+    vision_providers,
+  ])
 
   const handleRead = (e) => {
     e.preventDefault()
@@ -273,6 +322,14 @@ export default function WebReader() {
                 {loading ? '抓取中…' : loadingOcr ? '识别中…' : !extensionReady ? '等待扩展…' : '读取'}
               </button>
             </form>
+            <VisionModelSelector
+              value={selectedVisionModel}
+              onChange={setSelectedVisionModel}
+              providers={vision_providers}
+              defaultModel={vision_default}
+              loading={modelsLoading}
+              className="mt-2"
+            />
             {!extensionReady && <ExtensionNotReadyHint />}
             {error && <p className="text-xs text-red-400">{error}</p>}
           </div>
@@ -379,7 +436,7 @@ export default function WebReader() {
                       theme="dark"
                       onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
                       sendToArticleLabel="加入写文章"
-                      onAddToReference={(c) => navigate('/article-writing', { state: { addToReference: c } })}
+                      onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
                     />
                   </div>
                 ) : viewMode === 'markdown' ? (
@@ -390,7 +447,7 @@ export default function WebReader() {
                       theme="dark"
                       onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
                       sendToArticleLabel="加入写文章"
-                      onAddToReference={(c) => navigate('/article-writing', { state: { addToReference: c } })}
+                      onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
                     />
                   </div>
                 ) : (

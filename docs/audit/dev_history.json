@@ -1,44 +1,44 @@
 {
-  "total_commits": 282,
+  "total_commits": 284,
   "authors": {
-    "侯金亭（Justin）": 239,
+    "侯金亭（Justin）": 241,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W09": 18,
+    "2026-W09": 20,
     "2026-W08": 26,
     "2026-W07": 2,
     "2026-W04": 1,
-    "2026-W03": 5
+    "2026-W03": 3
   },
   "files_changed": {
-    "backend/core/agent/orchestrator.py": 70,
-    "backend/api/routes.py": 31,
+    "backend/core/agent/orchestrator.py": 72,
+    "backend/api/routes.py": 32,
     "frontend/client/ipc_client.py": 29,
     "frontend/main.py": 26,
     "frontend/react-app/src/pages/TaskManagement.jsx": 25,
     "frontend/ui/command_handler.py": 25,
     "backend/infrastructure/execution/task_handlers.py": 21,
+    "Makefile": 20,
     "docs/design/02-weather-tool-design.md": 20,
-    "Makefile": 19,
     "frontend/ui/stream_handler.py": 19,
+    "backend/services/llm/llm_service.py": 18,
+    "frontend/react-app/src/components/Sidebar.jsx": 18,
     "env.example": 18,
-    "frontend/react-app/src/components/Sidebar.jsx": 17,
-    "backend/services/llm/llm_service.py": 17,
     "requirements.txt": 17,
+    "frontend/react-app/src/App.jsx": 16,
     "backend/api/task_queue_routes.py": 16,
-    "frontend/react-app/src/App.jsx": 15,
     "backend/main.py": 13,
     "frontend/ui/command_input.py": 13,
     "backend/api/tests/test_task_queue_routes.py": 12,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 12,
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
+    "frontend/react-app/src/pages/ArticleWriting.jsx": 11,
     "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
     "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
     "docs/todo/009-weather-tool-implementation.md": 11,
     "frontend/react-app/src/components/TaskResultDisplay.jsx": 10,
-    "frontend/react-app/src/pages/ArticleWriting.jsx": 10,
     "workflows/.gitkeep": 10,
     "backend/core/agent/tools/builtin/browser_tool.py": 10,
     "cli.py": 10,
@@ -63,5 +63,5 @@
     "backend/core/__init__.py": 9,
     "backend/core/agent/tests/__init__.py": 9
   },
-  "generated_at": "2026-03-06T04:24:18.715406Z"
+  "generated_at": "2026-03-07T09:18:20.505902Z"
 }
