@@ -1,15 +1,15 @@
 {
-  "total_commits": 285,
+  "total_commits": 286,
   "authors": {
-    "侯金亭（Justin）": 242,
+    "侯金亭（Justin）": 243,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W09": 21,
+    "2026-W09": 22,
     "2026-W08": 26,
     "2026-W07": 2,
     "2026-W04": 1,
-    "2026-W03": 2
+    "2026-W03": 1
   },
   "files_changed": {
     "backend/core/agent/orchestrator.py": 73,
@@ -28,11 +28,11 @@
     "frontend/react-app/src/App.jsx": 17,
     "requirements.txt": 17,
     "backend/api/task_queue_routes.py": 16,
+    "frontend/react-app/src/pages/ArticleWriting.jsx": 13,
+    "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
     "backend/main.py": 13,
     "frontend/ui/command_input.py": 13,
-    "frontend/react-app/src/pages/ArticleWriting.jsx": 12,
     "backend/api/tests/test_task_queue_routes.py": 12,
-    "frontend/react-app/src/pages/WechatDraftPage.jsx": 12,
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
     "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
@@ -52,6 +52,7 @@
     "docs/design/streaming-response.md": 10,
     "docs/troubleshooting/llm-service-not-configured.md": 10,
     "requirements-dev.txt": 10,
+    "frontend/react-app/package.json": 9,
     "backend/infrastructure/execution/task_worker.py": 9,
     "backend/infrastructure/storage/task_queue_db.py": 9,
     "backend/externals/browser-use": 9,
@@ -60,8 +61,7 @@
     "backend/__init__.py": 9,
     "backend/api/__init__.py": 9,
     "backend/api/tests/__init__.py": 9,
-    "backend/core/__init__.py": 9,
-    "backend/core/agent/tests/__init__.py": 9
+    "backend/core/__init__.py": 9
   },
-  "generated_at": "2026-03-07T12:50:15.878435Z"
+  "generated_at": "2026-03-07T14:32:36.855963Z"
 }

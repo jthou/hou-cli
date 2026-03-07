@@ -7,7 +7,7 @@ import MarkdownPreview from './MarkdownPreview'
 import MarkdownActionButtons from './MarkdownActionButtons'
 
 const textareaCls =
-  'flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
+  'w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
 
 /**
  * @param {Object} props
@@ -52,41 +52,46 @@ export default function MarkdownEditorPreview({
 
   return (
     <div className={`flex flex-col min-h-0 ${className}`.trim()}>
-      {editable && (
-        <div className="shrink-0 flex items-center gap-2 mb-2">
-          <button
-            type="button"
-            onClick={() => setViewMode('preview')}
-            className={`px-2 py-1 rounded text-xs ${viewMode === 'preview' ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
-          >
-            预览
-          </button>
-          <button
-            type="button"
-            onClick={enterEdit}
-            className={`px-2 py-1 rounded text-xs ${viewMode === 'edit' ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
-          >
-            编辑
-          </button>
-        </div>
-      )}
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+      <div className="flex-1 min-h-[320px] overflow-hidden flex flex-col">
         {viewMode === 'edit' ? (
-          <textarea
-            value={editDraft}
-            onChange={(e) => {
-              setEditDraft(e.target.value)
-              onContentChange?.(e.target.value)
-            }}
-            placeholder="在此编辑 Markdown 内容…"
-            className={textareaCls}
-            spellCheck={false}
-          />
+          <div className="flex-1 min-h-0 relative">
+            <textarea
+              value={editDraft}
+              onChange={(e) => {
+                setEditDraft(e.target.value)
+                onContentChange?.(e.target.value)
+              }}
+              placeholder="在此编辑 Markdown 内容…"
+              className={`${textareaCls} absolute inset-0`}
+              spellCheck={false}
+            />
+          </div>
         ) : (
-          <MarkdownPreview markdown={effectiveContent || ''} className="min-h-[200px]" theme={theme} />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <MarkdownPreview markdown={effectiveContent || ''} className="min-h-full p-4" theme={theme} />
+          </div>
         )}
       </div>
-      <div className="shrink-0 px-4 py-3 border-t border-border bg-white/[0.02]">
+      <div className="shrink-0 px-4 py-3 border-t border-border bg-white/[0.02] flex flex-wrap items-center gap-2">
+        {editable && (
+          <>
+            <button
+              type="button"
+              onClick={() => setViewMode('preview')}
+              className={`px-2 py-1 rounded text-xs ${viewMode === 'preview' ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
+            >
+              预览
+            </button>
+            <button
+              type="button"
+              onClick={enterEdit}
+              className={`px-2 py-1 rounded text-xs ${viewMode === 'edit' ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
+            >
+              编辑
+            </button>
+            <span className="text-border/60">|</span>
+          </>
+        )}
         <MarkdownActionButtons
           content={effectiveContent}
           onCopy={onCopy}
@@ -95,6 +100,7 @@ export default function MarkdownEditorPreview({
           showMediaWiki={showMediaWiki}
           onAddToReference={onAddToReference}
           extra={footerExtra}
+          className="flex-1"
         />
       </div>
     </div>

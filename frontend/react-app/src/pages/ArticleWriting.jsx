@@ -94,6 +94,7 @@ export default function ArticleWriting() {
     handleAddReferenceBlock,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
+    reloadBlocks,
   } = useReferenceBlocks(selectedSessionId, referencePanelOpen)
   const messagesEndRef = useRef(null)
   const messagesScrollRef = useRef(null)
@@ -143,7 +144,7 @@ export default function ArticleWriting() {
     loadSessions()
   }, [loadSessions])
 
-  /** 从 AddReference 页跳回时聚焦指定会话 */
+  /** 从 AddReference 页跳回时聚焦指定会话并重新加载参考块（AddReference 刚写入，避免内存中的旧数据覆盖） */
   useEffect(() => {
     const focusId = location.state?.focusSessionId
     if (!focusId || typeof focusId !== 'string') return
@@ -152,7 +153,8 @@ export default function ArticleWriting() {
     try {
       sessionStorage.setItem(STORAGE_KEY_SELECTED_SESSION, focusId)
     } catch (_) {}
-  }, [location.state?.focusSessionId, location.pathname, location.search, navigate])
+    reloadBlocks(focusId)
+  }, [location.state?.focusSessionId, location.pathname, location.search, navigate, reloadBlocks])
 
   /** 接收来自 url_to_wiki 等「发送到写文章」的 initialMarkdown，创建新会话并填入 */
   useEffect(() => {

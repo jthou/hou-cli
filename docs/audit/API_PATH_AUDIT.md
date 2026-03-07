@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 106
+- 后端路由数: 107
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -26,6 +26,7 @@ GET /api/models/selectable
 GET /api/network/audit/env
 GET /api/network/audit/history
 GET /api/network/audit/targets
+GET /api/pdf/page-range-text
 GET /api/pdf/page-text
 GET /api/pdf/view
 GET /api/search/availability
@@ -145,6 +146,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/network/audit/history
 - /api/network/audit/run
 - /api/network/audit/targets
+- /api/pdf/page-range-text
 - /api/pdf/page-text
 - /api/pdf/resolve
 - /api/pdf/upload-from-extension

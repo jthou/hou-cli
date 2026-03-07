@@ -108,7 +108,7 @@ export default function MediaWikiReader() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Wiki阅读"
-        subtitle="按多个关键词从 MediaWiki 中抓取现有页面，用于阅读和修改。适合基于已有知识库做查阅，不会抓取外部网页。"
+        subtitle="按多个关键词从 MediaWiki 中抓取现有页面，适合基于已有知识库做查阅，不会抓取外部网页。"
       />
 
       <div className="flex-1 overflow-hidden flex min-h-0">
@@ -284,9 +284,6 @@ export default function MediaWikiReader() {
                                   theme="dark"
                                   onAddToReference={(content) =>
                                     navigate('/add-reference', { state: { addToReference: content } })
-                                  }
-                                  onSendToArticle={(md) =>
-                                    navigate('/article-writing', { state: { initialMarkdown: md } })
                                   }
                                 />
                               </div>

@@ -4,7 +4,6 @@ import { htmlToMd } from '../utils/mdToHtml'
 import MarkdownPreview from '../components/MarkdownPreview'
 import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
 import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
-import ExtensionInstallFooter from '../components/ExtensionInstallFooter'
 import PasteButton from '../components/PasteButton'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/ToastModal'
@@ -299,7 +298,7 @@ export default function WebReader() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="网页阅读"
-        subtitle="通过浏览器扩展抓取网页正文，复用当前浏览器的登录态（Cookie）。微信读书使用截图 + Qwen-VL OCR 提取，需配置 BAILIAN_API_KEY。"
+        subtitle="通过浏览器扩展抓取网页正文，可写入 MediaWiki。微信读书使用截图 + Qwen-VL OCR，需配置 BAILIAN_API_KEY。"
       />
 
       <div className="flex-1 overflow-hidden flex">
@@ -375,7 +374,6 @@ export default function WebReader() {
               </div>
             )}
           </div>
-          <ExtensionInstallFooter />
         </div>
 
         <div className="min-w-0 flex-1 overflow-y-auto bg-white/[0.02] p-6">
@@ -434,8 +432,7 @@ export default function WebReader() {
                       onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v } : null))}
                       editable
                       theme="dark"
-                      onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
-                      sendToArticleLabel="加入写文章"
+                      showMediaWiki
                       onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
                     />
                   </div>
@@ -443,10 +440,10 @@ export default function WebReader() {
                   <div className="flex-1 min-h-0 p-4 flex flex-col">
                     <MarkdownEditorPreview
                       content={data.markdown || ''}
-                      editable={false}
+                      onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v } : null))}
+                      editable
                       theme="dark"
-                      onSendToArticle={(c) => navigate('/article-writing', { state: { initialMarkdown: c } })}
-                      sendToArticleLabel="加入写文章"
+                      showMediaWiki
                       onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
                     />
                   </div>

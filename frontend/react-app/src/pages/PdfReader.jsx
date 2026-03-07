@@ -1,11 +1,8 @@
-import { useState, useEffect } from 'react'
-import { useSelectableModels } from '../hooks/useSelectableModels'
-import ModelSelector from '../components/ModelSelector'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import MarkdownPreview from '../components/MarkdownPreview'
 import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
-import ExtensionInstallFooter from '../components/ExtensionInstallFooter'
 import PasteButton from '../components/PasteButton'
 import PageHeader from '../components/PageHeader'
 import { useExtensionReady } from '../hooks/useExtensionReady'
@@ -23,21 +20,11 @@ export default function PdfReader() {
   const [loadingPage, setLoadingPage] = useState(false)
   const [error, setError] = useState(null)
 
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('')
-  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
-  useEffect(() => {
-    if (defaultModel && !selectedModel) setSelectedModel(defaultModel)
-    else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
-  }, [defaultModel, selectedModel, selectableModels])
-
   const [mergedPages, setMergedPages] = useState([]) // { page, text }[]
-  const [useCurrentPageContext, setUseCurrentPageContext] = useState(true)
-  const [useMergedContext, setUseMergedContext] = useState(false)
+  const [useLayout, setUseLayout] = useState(true)
+  const [rangeInput, setRangeInput] = useState('1-1') // 支持 1-8、1,3,5、1-3,5,7-9
+  const [loadingRange, setLoadingRange] = useState(false)
   const [sourceInput, setSourceInput] = useState('')
-  const [downloadStatus, setDownloadStatus] = useState('')
   const [sourceOriginal, setSourceOriginal] = useState('')
   const [recentSources, setRecentSources] = useState([])
 
@@ -47,6 +34,7 @@ export default function PdfReader() {
   const [mwSubmitting, setMwSubmitting] = useState(false)
   const extensionReady = useExtensionReady()
   const [loadingResolve, setLoadingResolve] = useState(false)
+  const saveLastRef = useRef(null)
 
   const pdfViewUrl =
     filePath && filePath.trim()
@@ -66,6 +54,67 @@ export default function PdfReader() {
       // ignore
     }
   }, [])
+
+  /** 恢复上次抓取内容 */
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return
+      const raw = localStorage.getItem('pdf_reader_last')
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (!saved?.filePath) return
+      setFilePath(saved.filePath || '')
+      setSourceInput(saved.sourceInput || saved.filePath || '')
+      setSourceOriginal(saved.sourceOriginal || saved.filePath || '')
+      setPageCount(saved.pageCount ?? null)
+      setCurrentPage(saved.currentPage ?? 1)
+      setPageText(saved.pageText || '')
+      setMergedPages(Array.isArray(saved.mergedPages) ? saved.mergedPages : [])
+      setRangeInput(
+        saved.rangeInput ||
+        (saved.rangeFrom != null && saved.rangeTo != null
+          ? `${saved.rangeFrom}-${saved.rangeTo}`
+          : '1-1')
+      )
+      setUseLayout(saved.useLayout !== false)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  /** 保存上次抓取内容（防抖） */
+  useEffect(() => {
+    if (!filePath || (!pageText && mergedPages.length === 0)) return
+    if (saveLastRef.current) clearTimeout(saveLastRef.current)
+    saveLastRef.current = setTimeout(() => {
+      saveLastRef.current = null
+      try {
+        const toSave = {
+          filePath,
+          sourceInput,
+          sourceOriginal,
+          pageCount,
+          currentPage,
+          pageText,
+          mergedPages,
+          rangeInput,
+          useLayout,
+        }
+        localStorage.setItem('pdf_reader_last', JSON.stringify(toSave))
+      } catch {
+        // ignore
+      }
+    }, 500)
+    return () => {
+      if (saveLastRef.current) clearTimeout(saveLastRef.current)
+    }
+  }, [filePath, sourceInput, sourceOriginal, pageCount, currentPage, pageText, mergedPages, rangeInput, useLayout])
+
+  useEffect(() => {
+    if (pageCount && pageCount > 1 && rangeInput === '1-1') {
+      setRangeInput(`1-${pageCount}`)
+    }
+  }, [pageCount])
 
   const saveRecentSource = (original, path) => {
     if (!original && !path) return
@@ -88,8 +137,6 @@ export default function PdfReader() {
     })
   }
 
-  const isCurrentPageSelected = mergedPages.some((p) => p.page === currentPage)
-
   const mergedPagesSorted = [...mergedPages].sort((a, b) => a.page - b.page)
 
   const mergedPreviewText = mergedPagesSorted
@@ -98,22 +145,6 @@ export default function PdfReader() {
       return `## 第 ${p.page} 页\n\n${body}`
     })
     .join('\n\n---\n\n')
-
-  const handleToggleCurrentPageInMerge = () => {
-    const text = (pageText || '').trim()
-    if (isCurrentPageSelected) {
-      setMergedPages((prev) => prev.filter((p) => p.page !== currentPage))
-      return
-    }
-    if (!text) {
-      toast?.warning?.('当前页没有可加入合并的文字内容')
-      return
-    }
-    setMergedPages((prev) => {
-      const others = prev.filter((p) => p.page !== currentPage)
-      return [...others, { page: currentPage, text }]
-    })
-  }
 
   const handleClearMergedPages = () => {
     setMergedPages([])
@@ -139,18 +170,6 @@ export default function PdfReader() {
     )
   }
 
-  const handleSendToArticle = () => {
-    const content =
-      mergedPagesSorted.length > 0
-        ? mergedPreviewText
-        : (pageText || '').trim() || ''
-    if (!content.trim()) {
-      toast?.warning?.('没有可发送的内容')
-      return
-    }
-    navigate('/article-writing', { state: { initialMarkdown: content } })
-  }
-
   const handleAddToReference = () => {
     const content =
       mergedPagesSorted.length > 0
@@ -160,7 +179,7 @@ export default function PdfReader() {
       toast?.warning?.('没有可添加的内容')
       return
     }
-    navigate('/article-writing', { state: { addToReference: content } })
+    navigate('/add-reference', { state: { addToReference: content } })
   }
 
   const handleFileChange = async (e) => {
@@ -180,15 +199,13 @@ export default function PdfReader() {
       setFilePath(json.path)
       setSourceInput(json.path)
       setSourceOriginal(json.path)
-      setDownloadStatus(`已保存到服务器: ${json.path}`)
       saveRecentSource(json.path, json.path)
       setPageCount(null)
       setCurrentPage(1)
       setPageText('')
       setError(null)
       setMergedPages([])
-      setUseCurrentPageContext(true)
-      setUseMergedContext(false)
+      setRangeInput('1-1')
       await fetchPage(json.path, 1)
     } catch (err) {
       const msg = err.message || String(err)
@@ -208,6 +225,7 @@ export default function PdfReader() {
       const params = new URLSearchParams({
         file_path: path,
         page: String(page),
+        layout: String(useLayout),
       })
       const res = await fetch(`/api/pdf/page-text?${params.toString()}`)
       const json = await res.json()
@@ -226,6 +244,52 @@ export default function PdfReader() {
     }
   }
 
+  const fetchPageRange = async () => {
+    if (!filePath || !pageCount) return
+    const spec = (rangeInput || '').trim()
+    setLoadingRange(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams({
+        file_path: filePath,
+        layout: String(useLayout),
+      })
+      if (spec) {
+        params.set('pages', spec)
+      } else {
+        params.set('page_from', '1')
+        params.set('page_to', String(pageCount))
+      }
+      const res = await fetch(`/api/pdf/page-range-text?${params.toString()}`)
+      const json = await res.json()
+      if (!json.success) {
+        throw new Error(json.detail || json.error || '读取失败')
+      }
+      const pages = Array.isArray(json.pages) ? json.pages : []
+      if (pages.length === 0 && !(json.text || '').trim()) {
+        toast?.warning?.('该范围内未提取到文字')
+        return
+      }
+      setMergedPages((prev) => {
+        const byPage = new Map(prev.map((x) => [x.page, x]))
+        pages.forEach((p) => byPage.set(p.page, { page: p.page, text: p.text || '' }))
+        return Array.from(byPage.values())
+      })
+      const pgList = (json.pages || []).map((p) => p.page)
+      toast?.info?.(
+        `已提取 ${pgList.length} 页` +
+          (pgList.length <= 5 ? `：${pgList.join(', ')}` : `：${pgList.slice(0, 3).join(', ')}…`) +
+          (useLayout ? '（保持排版）' : '')
+      )
+    } catch (err) {
+      const msg = err.message || String(err)
+      setError(msg)
+      toast?.error?.(msg)
+    } finally {
+      setLoadingRange(false)
+    }
+  }
+
   const handleResolveAndLoad = async (srcOverride) => {
     const raw = srcOverride ?? sourceInput
     const src = (raw || '').trim()
@@ -239,17 +303,14 @@ export default function PdfReader() {
       return
     }
     setLoadingResolve(true)
-    setDownloadStatus('加载中…')
     setError(null)
     try {
       let resolvedPath
       if (isUrl) {
-        setDownloadStatus('通过扩展获取 PDF…')
         const extRes = await requestPdfFromExtension(src, 60000)
         if (!extRes.success || !extRes.base64) {
           throw new Error(extRes.error || '扩展获取失败')
         }
-        setDownloadStatus('上传到服务器…')
         const uploadRes = await fetch('/api/pdf/upload-from-extension', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -260,9 +321,7 @@ export default function PdfReader() {
           throw new Error(uploadJson.detail || uploadJson.message || '上传失败')
         }
         resolvedPath = uploadJson.file_path
-        setDownloadStatus(`已通过扩展加载: ${src.split('/').slice(-1)[0] || src}`)
       } else {
-        setDownloadStatus('解析本地路径…')
         const res = await fetch('/api/pdf/resolve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -273,7 +332,6 @@ export default function PdfReader() {
           throw new Error(json.detail || json.message || '解析失败')
         }
         resolvedPath = json.file_path
-        setDownloadStatus(`已解析本地路径: ${resolvedPath.split('/').slice(-1)[0] || resolvedPath}`)
       }
       setFilePath(resolvedPath)
       setSourceOriginal(src)
@@ -281,100 +339,15 @@ export default function PdfReader() {
       setCurrentPage(1)
       setPageText('')
       setMergedPages([])
-      setUseCurrentPageContext(true)
-      setUseMergedContext(false)
+      setRangeInput('1-1')
       saveRecentSource(src, resolvedPath)
       await fetchPage(resolvedPath, 1)
     } catch (err) {
       const msg = err.message || String(err)
-      setDownloadStatus(`加载失败: ${msg}`)
       setError(msg)
       toast.error('加载 PDF 失败: ' + msg)
     } finally {
       setLoadingResolve(false)
-    }
-  }
-
-  const handleChangePage = async (delta) => {
-    if (!filePath || !pageCount) return
-    const target = currentPage + delta
-    if (target < 1 || target > pageCount) return
-    await fetchPage(filePath, target)
-  }
-
-  const handleGotoPage = async (page) => {
-    if (!filePath || !pageCount) return
-    if (!page || page < 1 || page > pageCount) return
-    await fetchPage(filePath, page)
-  }
-
-  const handleSend = async (e) => {
-    e.preventDefault()
-    if (!input.trim()) return
-    const question = input.trim()
-    setInput('')
-
-    const nextMessages = [...messages, { role: 'user', content: question }]
-    setMessages(nextMessages)
-    setSending(true)
-    try {
-      const historyText = nextMessages
-        .map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`)
-        .join('\n')
-
-      const MAX_CONTEXT = 4000
-      let pdfContextParts = []
-
-      if (useCurrentPageContext) {
-        const text = (pageText || '').trim()
-        if (text) {
-          const truncated =
-            text.length > MAX_CONTEXT
-              ? text.slice(0, MAX_CONTEXT) + '\n...[内容过长，已截断]'
-              : text
-          const pageInfo = filePath
-            ? `（文件: ${filePath.split('/').slice(-1)[0] || filePath} 第 ${currentPage} 页）`
-            : ''
-          pdfContextParts.push(`下面是 PDF 第 ${currentPage} 页${pageInfo} 的文字内容：\n\n${truncated}\n`)
-        }
-      }
-
-      if (useMergedContext && mergedPagesSorted.length > 0) {
-        const mergedText = mergedPreviewText.trim()
-        if (mergedText) {
-          const truncated =
-            mergedText.length > MAX_CONTEXT * 2
-              ? mergedText.slice(0, MAX_CONTEXT * 2) + '\n...[合并内容过长，已截断]'
-              : mergedText
-          pdfContextParts.push(
-            `下面是用户从多个 PDF 页中选择并合并的重点内容（按页码排序）：\n\n${truncated}\n`
-          )
-        }
-      }
-
-      const pdfContext = pdfContextParts.length > 0 ? pdfContextParts.join('\n') + '\n' : ''
-
-      const prompt = `${pdfContext}${historyText}\n\n请基于以上 PDF 内容（如有）和对话历史，回答用户的最新问题。`
-
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: prompt,
-          context_type: 'pdf_reader',
-          ...(selectedModel ? { model: selectedModel } : {}),
-        }),
-      })
-      const json = await res.json()
-      if (json.status !== 'success' || !json.response) {
-        throw new Error(json.error || '回答失败')
-      }
-      setMessages((prev) => [...prev, { role: 'assistant', content: json.response }])
-    } catch (err) {
-      const msg = err.message || String(err)
-      toast.error('提问失败: ' + msg)
-    } finally {
-      setSending(false)
     }
   }
 
@@ -429,13 +402,13 @@ export default function PdfReader() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="PDF阅读"
-        subtitle="支持本地 PDF 或在线 URL（在线需安装 Hou CLI 扩展）。可提取页文字、合并多页、写入 MediaWiki。"
+        subtitle="支持本地 PDF 或在线 URL（在线需安装 Hou CLI 扩展）。可写入 MediaWiki。"
       />
       <div className="flex-1 flex overflow-hidden">
-        {/* 左侧：PDF 选择 + 浏览器原生 PDF 预览 + 页文字 */}
-        <div className="flex flex-col w-1/2 border-r border-border shrink-0 min-w-0">
-          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
-          <section className="space-y-3">
+        {/* 左侧：PDF 选择 + 浏览器原生 PDF 预览 + 提取控件 */}
+        <div className="flex flex-col w-1/2 border-r border-border shrink-0 min-w-0 min-h-0">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-6 gap-4">
+          <section className="shrink-0 space-y-3">
             <h2 className="text-sm font-semibold text-white">选择 PDF</h2>
             <form
               onSubmit={(e) => {
@@ -485,11 +458,6 @@ export default function PdfReader() {
                     : '加载'}
               </button>
             </form>
-            {downloadStatus && (
-              <p className="mt-1 text-[11px] text-muted break-all">
-                {downloadStatus}
-              </p>
-            )}
             {!extensionReady && (
               <div className="mt-2">
                 <ExtensionNotReadyHint compact />
@@ -556,234 +524,89 @@ export default function PdfReader() {
           </section>
 
           {filePath && pdfViewUrl && (
-            <section className="space-y-2">
-              <h2 className="text-sm font-semibold text-white">PDF 预览</h2>
-              <div className="border border-border rounded-lg bg-black overflow-hidden">
+            <section className="flex-1 min-h-0 flex flex-col">
+              <h2 className="text-sm font-semibold text-white shrink-0">PDF 预览</h2>
+              <div className="flex-1 min-h-0 border border-border rounded-lg bg-black overflow-hidden">
                 <iframe
                   src={pdfViewUrl}
                   title="PDF 预览"
-                  className="w-full h-[420px] bg-black"
+                  className="w-full h-full bg-black"
                 />
               </div>
-              <p className="text-[11px] text-muted">
-                使用浏览器自带的 PDF 工具栏进行缩放、翻页、下载等操作。
-              </p>
             </section>
           )}
 
           {filePath && (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-muted">
-                  当前来源:{' '}
-                  <span className="break-all">
-                    {sourceOriginal || filePath}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-muted">
-                <span>
-                  页码:
-                  {' '}
-                  {pageCount ? `${currentPage} / ${pageCount}` : '未知'}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleChangePage(-1)}
-                    disabled={!filePath || currentPage <= 1 || loadingPage}
-                    className="px-2 py-1 border border-border rounded text-xs text-muted hover:text-fg hover:bg-white/5 disabled:opacity-50"
-                  >
-                    上一页
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleChangePage(1)}
-                    disabled={!filePath || (pageCount && currentPage >= pageCount) || loadingPage}
-                    className="px-2 py-1 border border-border rounded text-xs text-muted hover:text-fg hover:bg-white/5 disabled:opacity-50"
-                  >
-                    下一页
-                  </button>
+            <section className="shrink-0 space-y-3">
+              <div className="flex flex-nowrap items-center gap-3 text-xs text-muted">
+                <span className="shrink-0">共 {pageCount ?? '?'} 页</span>
+                <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0">
                   <input
-                    type="number"
-                    min={1}
-                    max={pageCount || undefined}
-                    value={currentPage}
-                    onChange={(e) => {
-                      const v = Number(e.target.value) || 1
-                      setCurrentPage(v)
-                    }}
-                    onBlur={(e) => {
-                      const v = Number(e.target.value) || 1
-                      handleGotoPage(v)
-                    }}
-                    className="w-16 px-2 py-1 bg-white/5 border border-border rounded text-xs text-white focus:border-accent focus:outline-none"
+                    type="checkbox"
+                    checked={useLayout}
+                    onChange={(e) => setUseLayout(e.target.checked)}
+                    className="rounded border-border bg-transparent text-accent focus:ring-accent"
                   />
-                </div>
-              </div>
-              {loadingPage ? (
-                <p className="text-xs text-muted">加载第 {currentPage} 页内容中…</p>
-              ) : error ? (
-                <p className="text-xs text-red-400">错误: {error}</p>
-              ) : (
-                <>
-                  <div className="mt-2 border border-border rounded-lg bg-black/30 max-h-[260px] overflow-auto p-3 text-xs text-muted whitespace-pre-wrap leading-relaxed">
-                    {pageText || '该页未提取到文字内容。'}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
-                    <div className="flex items-center gap-2">
+                  <span>保持原文缩进排版</span>
+                </label>
+                {pageCount > 1 && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span>提取范围:</span>
+                    <input
+                      type="text"
+                      value={rangeInput}
+                      onChange={(e) => setRangeInput(e.target.value)}
+                      placeholder={`1-${pageCount} 或 1,3,5`}
+                      className="w-24 px-1.5 py-1 bg-white/5 border border-border rounded text-xs text-white placeholder-muted focus:border-accent focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={fetchPageRange}
+                      disabled={loadingRange || !filePath}
+                      className="px-2 py-1 border border-border rounded text-xs text-muted hover:text-fg hover:bg-white/5 disabled:opacity-50"
+                    >
+                      {loadingRange ? '提取中…' : '提取多页'}
+                    </button>
+                    {mergedPagesSorted.length > 0 && (
                       <button
                         type="button"
-                        onClick={handleToggleCurrentPageInMerge}
-                        className={`px-2.5 py-1 rounded border text-[11px] ${
-                          isCurrentPageSelected
-                            ? 'border-accent/60 text-accent bg-accent/10'
-                            : 'border-border text-muted hover:text-fg hover:bg-white/5'
-                        }`}
+                        onClick={handleClearMergedPages}
+                        className="px-2 py-1 rounded border border-border text-[11px] text-muted hover:text-red-400 hover:border-red-400/60"
                       >
-                        {isCurrentPageSelected ? '已加入合并' : '将本页加入合并'}
+                        清空
                       </button>
-                      {mergedPagesSorted.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleClearMergedPages}
-                          className="px-2 py-1 rounded border border-border text-[11px] text-muted hover:text-red-400 hover:border-red-400/60"
-                        >
-                          清空已选页
-                        </button>
-                      )}
-                    </div>
-                    {mergedPagesSorted.length > 0 && (
-                      <div className="text-right">
-                        <span>
-                          已选 {mergedPagesSorted.length} 页：{' '}
-                          {mergedPagesSorted
-                            .map((p) => p.page)
-                            .sort((a, b) => a - b)
-                            .slice(0, 6)
-                            .join(', ')}
-                          {mergedPagesSorted.length > 6 ? '…' : ''}
-                        </span>
-                      </div>
                     )}
                   </div>
-                </>
-              )}
+                )}
+              </div>
+              {loadingPage && <p className="text-xs text-muted">加载中…</p>}
+              {error && <p className="text-xs text-red-400">错误: {error}</p>}
             </section>
           )}
           </div>
-          <ExtensionInstallFooter />
         </div>
 
-        {/* 右侧：合并预览 + 对话窗口 */}
-        <div className="w-1/2 overflow-y-auto p-6 flex flex-col">
-          <h2 className="text-sm font-semibold text-white mb-3">基于 PDF 的问答</h2>
-
-          {mergedPagesSorted.length > 0 && (
-            <section className="mb-4 border border-border rounded-lg bg-white/5 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-white">合并预览（发送到写文章的草稿）</h3>
+        {/* 右侧：合并预览 + 操作按钮 */}
+        <div className="w-1/2 overflow-y-auto p-6 flex flex-col min-h-0">
+          {!filePath && (
+            <div className="flex-1 flex items-center justify-center text-sm text-muted">
+              选择并加载 PDF 后，可在此查看合并预览并进行复制、添加到参考或写入 MediaWiki。
+            </div>
+          )}
+          {mergedPagesSorted.length > 0 && filePath && (
+            <section className="flex-1 min-h-0 flex flex-col border border-border rounded-lg bg-white/5 p-3">
+              <div className="shrink-0 flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold text-white">合并预览</h3>
                 <span className="text-[11px] text-muted">
                   共 {mergedPagesSorted.length} 页 · 约 {mergedPreviewText.length} 字
                 </span>
               </div>
-              <div className="max-h-40 overflow-auto border border-border/60 rounded bg-black/20 p-2">
+              <div className="flex-1 min-h-0 overflow-auto border border-border/60 rounded bg-black/20 p-2">
                 <MarkdownPreview
                   markdown={mergedPreviewText}
                   className="min-h-[120px]"
                   theme="dark"
                 />
-              </div>
-            </section>
-          )}
-
-          <div className="flex-1 border border-border rounded-lg bg-white/5 p-3 overflow-y-auto space-y-2 text-xs">
-            {messages.length === 0 && (
-              <p className="text-muted">
-                先在左侧选择 PDF 并加载某一页，然后在下面输入问题，模型会结合该页文字和上下文对话回答。
-              </p>
-            )}
-            {messages.map((m, idx) => (
-              <div
-                key={idx}
-                className={`rounded-lg px-3 py-2 ${
-                  m.role === 'user'
-                    ? 'bg-accent/20 text-accent'
-                    : 'bg-black/30 text-muted'
-                }`}
-              >
-                <div className="text-[11px] font-semibold mb-1">
-                  {m.role === 'user' ? '你' : '助手'}
-                </div>
-                <div className="whitespace-pre-wrap break-words text-xs">
-                  {m.content}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted">
-              <span className="font-semibold">本次提问上下文：</span>
-              <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={useCurrentPageContext}
-                  onChange={(e) => setUseCurrentPageContext(e.target.checked)}
-                  className="rounded border-border bg-transparent text-accent focus:ring-accent"
-                />
-                <span>包含当前页文字</span>
-              </label>
-              <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={useMergedContext}
-                  onChange={(e) => setUseMergedContext(e.target.checked)}
-                  disabled={mergedPagesSorted.length === 0}
-                  className="rounded border-border bg-transparent text-accent focus:ring-accent disabled:opacity-40"
-                />
-                <span>
-                  包含合并文本
-                  {mergedPagesSorted.length > 0 && `（已选 ${mergedPagesSorted.length} 页）`}
-                </span>
-              </label>
-            </div>
-            <div className="flex items-center gap-2 mb-2">
-              <ModelSelector
-                value={selectedModel}
-                onChange={setSelectedModel}
-                providers={providers}
-                models={selectableModels}
-                loading={modelsLoading}
-              />
-            </div>
-            <form onSubmit={handleSend} className="flex items-center gap-2">
-              <textarea
-                rows={2}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="输入你想根据 PDF 内容提问的问题…"
-                className="flex-1 px-3 py-2 bg-white/5 border border-border rounded-lg text-xs text-white placeholder-muted focus:border-accent focus:outline-none resize-none"
-              />
-              <button
-                type="submit"
-                disabled={sending || !input.trim()}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium disabled:opacity-50"
-              >
-                {sending ? '发送中…' : '发送'}
-              </button>
-            </form>
-          </div>
-
-          {mergedPagesSorted.length > 0 && (
-            <section className="mt-4 border border-border rounded-lg bg-white/5 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-white">合并预览（将写入 MediaWiki 的全文）</h3>
-                <span className="text-[11px] text-muted">
-                  共 {mergedPagesSorted.length} 页 · 约 {mergedPreviewText.length} 字
-                </span>
-              </div>
-              <div className="max-h-64 overflow-auto border border-border/60 rounded bg-black/20 p-2 text-[11px] text-muted whitespace-pre-wrap leading-relaxed">
-                {mergedPreviewText}
               </div>
             </section>
           )}
@@ -799,17 +622,10 @@ export default function PdfReader() {
               </button>
               <button
                 type="button"
-                onClick={handleSendToArticle}
-                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
-              >
-                加入写文章
-              </button>
-              <button
-                type="button"
                 onClick={handleAddToReference}
                 className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
               >
-                添加到参考信息
+                添加到参考
               </button>
               <button
                 type="button"

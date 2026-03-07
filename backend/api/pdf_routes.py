@@ -117,6 +117,40 @@ async def resolve_pdf_source(payload: PdfResolveRequest):
     }
 
 
+def _extract_pdf_text_with_layout(pdf_path: Path, page_numbers: list[int]) -> str:
+    """用 pdfminer 提取文本，保持原文缩进与排版。"""
+    try:
+        from pdfminer.high_level import extract_text as pdfminer_extract_text
+
+        raw = pdfminer_extract_text(str(pdf_path), page_numbers=page_numbers)
+        if raw and raw.strip():
+            return raw.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_pdf_text_fallback(pdf_path: Path, page_numbers: list[int]) -> str:
+    """回退：用 pdfplumber 提取。"""
+    try:
+        import pdfplumber  # type: ignore
+    except ImportError:
+        return ""
+    parts = []
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        for i in page_numbers:
+            if 0 <= i < len(pdf.pages):
+                pg = pdf.pages[i]
+                try:
+                    pg = pg.dedupe_chars(tolerance=3)
+                except Exception:
+                    pass
+                t = pg.extract_text()
+                if t:
+                    parts.append(t.strip())
+    return "\n\n".join(parts)
+
+
 @router.get("/pdf/page-text")
 async def get_pdf_page_text(
     file_path: str = Query(
@@ -124,8 +158,9 @@ async def get_pdf_page_text(
         description="服务器上的 PDF 绝对路径（如上传、扩展获取后返回的 path）",
     ),
     page: int = Query(1, ge=1, description="要提取的页码，从 1 开始"),
+    layout: bool = Query(True, description="保持原文缩进与排版（默认 True，使用 pdfminer）"),
 ):
-    """读取指定 PDF 的某一页文本内容。仅支持本地路径（扩展获取的 PDF 会先保存到临时文件）。"""
+    """读取指定 PDF 的某一页文本内容。layout=True 时用 pdfminer 保持缩进排版。"""
     try:
         pdf_path = _resolve_local_pdf(file_path)
         if not pdf_path.exists():
@@ -133,37 +168,151 @@ async def get_pdf_page_text(
         if pdf_path.suffix.lower() != ".pdf":
             raise HTTPException(status_code=400, detail="文件不是 PDF 格式")
 
+        page_count = 0
         try:
             import pdfplumber  # type: ignore
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                page_count = len(pdf.pages)
         except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="pdfplumber 未安装，请确认后端已安装依赖: pip install pdfplumber",
-            )
+            pass
+        if page_count == 0:
+            try:
+                from pdfminer.high_level import extract_pages
+                page_count = sum(1 for _ in extract_pages(str(pdf_path)))
+            except Exception:
+                raise HTTPException(status_code=500, detail="无法读取 PDF 页数")
 
-        text: Optional[str] = ""
-        page_count = 0
-        with pdfplumber.open(str(pdf_path)) as pdf:
-            page_count = len(pdf.pages)
-            if page < 1 or page > page_count:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"页码超出范围: 1–{page_count}",
-                )
-            pg = pdf.pages[page - 1]
-            text = pg.extract_text() or ""
+        if page < 1 or page > page_count:
+            raise HTTPException(status_code=400, detail=f"页码超出范围: 1–{page_count}")
+
+        page_numbers = [page - 1]
+        if layout:
+            text = _extract_pdf_text_with_layout(pdf_path, page_numbers)
+            if not text:
+                text = _extract_pdf_text_fallback(pdf_path, page_numbers)
+        else:
+            text = _extract_pdf_text_fallback(pdf_path, page_numbers)
 
         return {
             "success": True,
             "file_path": str(pdf_path),
             "page": page,
             "page_count": page_count,
-            "text": text,
+            "text": text or "",
         }
     except HTTPException:
         raise
     except Exception as e:
         debug_log(f"get_pdf_page_text failed: {e}", level="error")
+        raise HTTPException(status_code=500, detail=f"读取 PDF 失败: {e}")
+
+
+def _parse_pages_spec(spec: str, page_count: int) -> list[int]:
+    """解析页码规格：支持 1-8、1,3,5、1-3,5,7-9 等格式。返回 0-based 页码列表。"""
+    if not spec or not spec.strip():
+        return []
+    seen: set[int] = set()
+    for part in spec.replace("，", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            try:
+                lo = max(1, int(a.strip()))
+                hi = min(page_count, int(b.strip()))
+                if lo <= hi:
+                    for p in range(lo, hi + 1):
+                        seen.add(p - 1)
+            except ValueError:
+                continue
+        else:
+            try:
+                p = int(part.strip())
+                if 1 <= p <= page_count:
+                    seen.add(p - 1)
+            except ValueError:
+                continue
+    return sorted(seen)
+
+
+@router.get("/pdf/page-range-text")
+async def get_pdf_page_range_text(
+    file_path: str = Query(
+        ...,
+        description="服务器上的 PDF 绝对路径",
+    ),
+    page_from: int = Query(1, ge=1, description="起始页（含），pages 未传时使用"),
+    page_to: int = Query(1, ge=1, description="结束页（含），pages 未传时使用"),
+    pages: Optional[str] = Query(
+        None,
+        description="跳着抓取：如 1,3,5 或 1-3,5,7-9。传此参数时忽略 page_from/page_to",
+    ),
+    layout: bool = Query(True, description="保持原文缩进与排版"),
+):
+    """提取多页文本（含首尾），返回合并文本及每页明细。支持 pages 参数跳着抓取。"""
+    try:
+        pdf_path = _resolve_local_pdf(file_path)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {file_path}")
+        if pdf_path.suffix.lower() != ".pdf":
+            raise HTTPException(status_code=400, detail="文件不是 PDF 格式")
+
+        page_count = 0
+        try:
+            import pdfplumber  # type: ignore
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                page_count = len(pdf.pages)
+        except ImportError:
+            try:
+                from pdfminer.high_level import extract_pages
+                page_count = sum(1 for _ in extract_pages(str(pdf_path)))
+            except Exception:
+                pass
+        if page_count == 0:
+            raise HTTPException(status_code=500, detail="无法读取 PDF 页数")
+
+        if pages and pages.strip():
+            page_numbers = _parse_pages_spec(pages, page_count)
+            if not page_numbers:
+                raise HTTPException(status_code=400, detail="pages 格式无效，示例：1-8 或 1,3,5 或 1-3,5,7-9")
+        else:
+            if page_from > page_to:
+                page_from, page_to = page_to, page_from
+            if page_to > page_count:
+                page_to = page_count
+            if page_from < 1:
+                page_from = 1
+            page_numbers = list(range(page_from - 1, page_to))
+
+        pages_detail = []
+        for pn in page_numbers:
+            pg_num = pn + 1
+            if layout:
+                pg_text = _extract_pdf_text_with_layout(pdf_path, [pn])
+                if not pg_text:
+                    pg_text = _extract_pdf_text_fallback(pdf_path, [pn])
+            else:
+                pg_text = _extract_pdf_text_fallback(pdf_path, [pn])
+            pages_detail.append({"page": pg_num, "text": pg_text or ""})
+        text = "\n\n".join(p["text"] for p in pages_detail if p["text"])
+        pg_nums = [p["page"] for p in pages_detail]
+        resp_page_from = min(pg_nums) if pg_nums else page_from
+        resp_page_to = max(pg_nums) if pg_nums else page_to
+
+        return {
+            "success": True,
+            "file_path": str(pdf_path),
+            "page_from": resp_page_from,
+            "page_to": resp_page_to,
+            "page_count": page_count,
+            "text": text,
+            "pages": pages_detail,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"get_pdf_page_range_text failed: {e}", level="error")
         raise HTTPException(status_code=500, detail=f"读取 PDF 失败: {e}")
 
 

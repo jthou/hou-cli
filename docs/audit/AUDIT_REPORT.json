@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-07T12:50:07.008926Z",
+  "generated_at": "2026-03-07T14:32:27.213451Z",
   "code_stats": {
-    "total_files": 1054,
-    "total_lines": 301865,
+    "total_files": 1053,
+    "total_lines": 301834,
     "by_language": {
       "other": {
         "files": 22,
@@ -10,27 +10,27 @@
       },
       "markdown": {
         "files": 368,
-        "lines": 96032
+        "lines": 96034
       },
       "python": {
         "files": 504,
-        "lines": 88915
+        "lines": 89064
       },
       "shell": {
         "files": 33,
         "lines": 2094
       },
       "jsx": {
-        "files": 76,
-        "lines": 14659
+        "files": 75,
+        "lines": 14465
       },
       "javascript": {
         "files": 31,
-        "lines": 4888
+        "lines": 4898
       },
       "json": {
         "files": 8,
-        "lines": 4653
+        "lines": 4655
       },
       "html": {
         "files": 2,
@@ -59,8 +59,8 @@
         "lines": 1107
       },
       "frontend": {
-        "files": 131,
-        "lines": 28280
+        "files": 130,
+        "lines": 28096
       },
       "config": {
         "files": 2,
@@ -76,7 +76,7 @@
       },
       "backend": {
         "files": 432,
-        "lines": 132153
+        "lines": 132302
       },
       "shared": {
         "files": 8,
@@ -84,7 +84,7 @@
       },
       "docs": {
         "files": 318,
-        "lines": 88807
+        "lines": 88811
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -107,20 +107,20 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-07T12:50:15.667042Z"
+    "generated_at": "2026-03-07T14:32:36.656898Z"
   },
   "dev_history": {
-    "total_commits": 285,
+    "total_commits": 286,
     "authors": {
-      "侯金亭（Justin）": 242,
+      "侯金亭（Justin）": 243,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W09": 21,
+      "2026-W09": 22,
       "2026-W08": 26,
       "2026-W07": 2,
       "2026-W04": 1,
-      "2026-W03": 2
+      "2026-W03": 1
     },
     "files_changed": {
       "backend/core/agent/orchestrator.py": 73,
@@ -139,11 +139,11 @@
       "frontend/react-app/src/App.jsx": 17,
       "requirements.txt": 17,
       "backend/api/task_queue_routes.py": 16,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 13,
+      "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
       "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
-      "frontend/react-app/src/pages/WechatDraftPage.jsx": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
@@ -163,6 +163,7 @@
       "docs/design/streaming-response.md": 10,
       "docs/troubleshooting/llm-service-not-configured.md": 10,
       "requirements-dev.txt": 10,
+      "frontend/react-app/package.json": 9,
       "backend/infrastructure/execution/task_worker.py": 9,
       "backend/infrastructure/storage/task_queue_db.py": 9,
       "backend/externals/browser-use": 9,
@@ -171,10 +172,9 @@
       "backend/__init__.py": 9,
       "backend/api/__init__.py": 9,
       "backend/api/tests/__init__.py": 9,
-      "backend/core/__init__.py": 9,
-      "backend/core/agent/tests/__init__.py": 9
+      "backend/core/__init__.py": 9
     },
-    "generated_at": "2026-03-07T12:50:15.878435Z"
+    "generated_at": "2026-03-07T14:32:36.855963Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -198,6 +198,7 @@
       "GET /api/network/audit/env",
       "GET /api/network/audit/history",
       "GET /api/network/audit/targets",
+      "GET /api/pdf/page-range-text",
       "GET /api/pdf/page-text",
       "GET /api/pdf/view",
       "GET /api/search/availability",
@@ -286,7 +287,7 @@
       "PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle"
     ],
     "frontend_fetches": [],
-    "backend_path_count": 106,
+    "backend_path_count": 107,
     "frontend_fetch_count": 0,
     "unused_by_frontend": [
       "/api/audit/report",
@@ -315,6 +316,7 @@
       "/api/network/audit/history",
       "/api/network/audit/run",
       "/api/network/audit/targets",
+      "/api/pdf/page-range-text",
       "/api/pdf/page-text",
       "/api/pdf/resolve",
       "/api/pdf/upload-from-extension",

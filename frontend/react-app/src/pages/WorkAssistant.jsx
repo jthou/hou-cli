@@ -47,6 +47,7 @@ export default function WorkAssistant() {
     handleAddReferenceBlock,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
+    reloadBlocks,
   } = useReferenceBlocks(selectedSessionId, referencePanelOpen)
 
   const handleAddReferenceBlockAndOpen = () => {
@@ -124,7 +125,7 @@ export default function WorkAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
 
-  /** 从 AddReference 页跳回时聚焦指定会话 */
+  /** 从 AddReference 页跳回时聚焦指定会话并重新加载参考块 */
   useEffect(() => {
     const focusId = location.state?.focusSessionId
     if (!focusId || typeof focusId !== 'string') return
@@ -133,7 +134,8 @@ export default function WorkAssistant() {
     try {
       sessionStorage.setItem(STORAGE_KEY, focusId)
     } catch (_) {}
-  }, [location.state?.focusSessionId, location.pathname, location.search, navigate])
+    reloadBlocks(focusId)
+  }, [location.state?.focusSessionId, location.pathname, location.search, navigate, reloadBlocks])
 
   const handleDeleteSession = async (sessionId, e) => {
     e?.stopPropagation?.()

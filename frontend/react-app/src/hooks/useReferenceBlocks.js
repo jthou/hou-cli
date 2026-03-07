@@ -41,6 +41,15 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
     })
   }, [selectedSessionId])
 
+  const reloadBlocks = useCallback((sessionIdOverride) => {
+    const sid = sessionIdOverride ?? selectedSessionId
+    if (!sid) return
+    loadReferenceBlocks(sid).then((blocks) => {
+      setReferenceBlocks(blocks)
+      referenceBlocksLoadedRef.current = true
+    })
+  }, [selectedSessionId])
+
   /** 参考块按会话：切换会话时保存旧会话、加载新会话 */
   useEffect(() => {
     if (!selectedSessionId) {
@@ -53,7 +62,7 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
     const prevSessionId = prevSelectedSessionIdRef.current
     prevSelectedSessionIdRef.current = selectedSessionId
 
-    if (prevSessionId && referenceBlocksRef.current.length > 0) {
+    if (prevSessionId && prevSessionId !== selectedSessionId && referenceBlocksRef.current.length > 0) {
       runWhenIdle(() => saveReferenceBlocks(prevSessionId, referenceBlocksRef.current).catch(() => {}))
     }
 
@@ -98,5 +107,6 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
     handleAddReferenceBlock,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
+    reloadBlocks,
   }
 }
