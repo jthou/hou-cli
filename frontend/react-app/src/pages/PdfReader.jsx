@@ -26,8 +26,12 @@ export default function PdfReader() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('auto')
-  const { providers, models: selectableModels, loading: modelsLoading } = useSelectableModels()
+  const [selectedModel, setSelectedModel] = useState('')
+  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
+  useEffect(() => {
+    if (defaultModel && !selectedModel) setSelectedModel(defaultModel)
+    else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
+  }, [defaultModel, selectedModel, selectableModels])
 
   const [mergedPages, setMergedPages] = useState([]) // { page, text }[]
   const [useCurrentPageContext, setUseCurrentPageContext] = useState(true)
@@ -358,7 +362,7 @@ export default function PdfReader() {
         body: JSON.stringify({
           message: prompt,
           context_type: 'pdf_reader',
-          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
+          ...(selectedModel ? { model: selectedModel } : {}),
         }),
       })
       const json = await res.json()

@@ -13,7 +13,6 @@ import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
 import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
-
 const WECHAT_MP_API = {
   drafts: (params = {}) => {
     const q = new URLSearchParams({
@@ -292,13 +291,15 @@ export default function WechatDraftPage() {
                   <h2 className="text-lg font-semibold text-white truncate flex-1">
                     {news?.title ?? '无标题'}
                   </h2>
-                  <button
-                    type="button"
-                    onClick={openEditForm}
-                    className="shrink-0 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
-                  >
-                    编辑（创建更新任务）
-                  </button>
+                  <div className="shrink-0 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={openEditForm}
+                      className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium"
+                    >
+                      编辑（创建更新任务）
+                    </button>
+                  </div>
                 </div>
                 {news?.thumb_media_id && (
                   <div>

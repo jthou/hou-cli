@@ -325,13 +325,15 @@ class ModelRegistry:
         # 检查是否是明确的百炼平台模型
         if model_lower in cls.BAILIAN_MODELS:
             # 特殊处理：deepseek 模型可能在两个平台都存在
-            # 如果模型名称包含版本号（如 v3.2, 3.2），优先判断为百炼平台
+            # DeepSeek 平台仅有无版本号模型（chat/coder/reasoner）
+            # 带版本号的（r1, v2, v2.5, v3, v3.2 等）均为百炼平台
             if "deepseek" in model_lower:
-                if any(pattern in model_lower for pattern in ["v3.2", "3.2", "v3.1", "3.1", "-exp"]):
+                if any(
+                    pattern in model_lower
+                    for pattern in ["-r1", "-v2", "-v2.5", "-v3", "v3.2", "3.2", "v3.1", "3.1", "-exp"]
+                ):
                     return "bailian"
-                # 对于 deepseek-chat 等基础模型，如果两个平台都有，优先使用 DeepSeek 平台
-                # 除非明确指定使用百炼平台（通过 "bailian-" 前缀）
-                # 这里默认返回 "deepseek"，因为 DeepSeek 平台是官方平台
+                # deepseek-chat, deepseek-coder, deepseek-reasoner 无版本号 -> DeepSeek 平台
                 return "deepseek"
             return "bailian"
         

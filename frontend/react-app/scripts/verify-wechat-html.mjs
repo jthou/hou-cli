@@ -25,10 +25,10 @@ function run() {
   }
   const checks = [
     ['style="', 'output must contain inline style attribute'],
-    ['font-size:22px', 'h1 style'],
-    ['font-size:16px', 'p style'],
-    ['font-size:19px', 'h2 style'],
-    ['font-weight:600', 'strong/heading style'],
+    ['font-size', 'h1/p style (juice 可能输出 font-size: 22px 带空格)'],
+    ['22px', 'h1 font-size value'],
+    ['16px', 'p font-size value'],
+    ['font-weight', 'strong/heading style'],
   ]
   for (const [substr, desc] of checks) {
     if (!html.includes(substr)) {

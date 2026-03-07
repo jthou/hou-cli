@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-03-07T09:18:10.626592Z",
+  "generated_at": "2026-03-07T12:50:07.008926Z",
   "code_stats": {
-    "total_files": 1052,
-    "total_lines": 300918,
+    "total_files": 1054,
+    "total_lines": 301865,
     "by_language": {
       "other": {
         "files": 22,
         "lines": 87131
       },
       "markdown": {
-        "files": 367,
-        "lines": 96021
+        "files": 368,
+        "lines": 96032
       },
       "python": {
-        "files": 503,
-        "lines": 88655
+        "files": 504,
+        "lines": 88915
       },
       "shell": {
         "files": 33,
@@ -22,15 +22,15 @@
       },
       "jsx": {
         "files": 76,
-        "lines": 14478
+        "lines": 14659
       },
       "javascript": {
         "files": 31,
-        "lines": 4822
+        "lines": 4888
       },
       "json": {
         "files": 8,
-        "lines": 4233
+        "lines": 4653
       },
       "html": {
         "files": 2,
@@ -38,7 +38,7 @@
       },
       "css": {
         "files": 3,
-        "lines": 527
+        "lines": 536
       },
       "yaml": {
         "files": 7,
@@ -56,11 +56,11 @@
       },
       "extension": {
         "files": 6,
-        "lines": 1101
+        "lines": 1107
       },
       "frontend": {
         "files": 131,
-        "lines": 27612
+        "lines": 28280
       },
       "config": {
         "files": 2,
@@ -75,16 +75,16 @@
         "lines": 7992
       },
       "backend": {
-        "files": 431,
-        "lines": 131893
+        "files": 432,
+        "lines": 132153
       },
       "shared": {
         "files": 8,
         "lines": 549
       },
       "docs": {
-        "files": 317,
-        "lines": 88794
+        "files": 318,
+        "lines": 88807
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -107,45 +107,45 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-07T09:18:20.292020Z"
+    "generated_at": "2026-03-07T12:50:15.667042Z"
   },
   "dev_history": {
-    "total_commits": 284,
+    "total_commits": 285,
     "authors": {
-      "侯金亭（Justin）": 241,
+      "侯金亭（Justin）": 242,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W09": 20,
+      "2026-W09": 21,
       "2026-W08": 26,
       "2026-W07": 2,
       "2026-W04": 1,
-      "2026-W03": 3
+      "2026-W03": 2
     },
     "files_changed": {
-      "backend/core/agent/orchestrator.py": 72,
-      "backend/api/routes.py": 32,
+      "backend/core/agent/orchestrator.py": 73,
+      "backend/api/routes.py": 33,
       "frontend/client/ipc_client.py": 29,
+      "frontend/react-app/src/pages/TaskManagement.jsx": 26,
       "frontend/main.py": 26,
-      "frontend/react-app/src/pages/TaskManagement.jsx": 25,
       "frontend/ui/command_handler.py": 25,
       "backend/infrastructure/execution/task_handlers.py": 21,
       "Makefile": 20,
       "docs/design/02-weather-tool-design.md": 20,
+      "backend/services/llm/llm_service.py": 19,
       "frontend/ui/stream_handler.py": 19,
-      "backend/services/llm/llm_service.py": 18,
       "frontend/react-app/src/components/Sidebar.jsx": 18,
       "env.example": 18,
+      "frontend/react-app/src/App.jsx": 17,
       "requirements.txt": 17,
-      "frontend/react-app/src/App.jsx": 16,
       "backend/api/task_queue_routes.py": 16,
       "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 11,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
@@ -174,7 +174,7 @@
       "backend/core/__init__.py": 9,
       "backend/core/agent/tests/__init__.py": 9
     },
-    "generated_at": "2026-03-07T09:18:20.505902Z"
+    "generated_at": "2026-03-07T12:50:15.878435Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -212,6 +212,7 @@
       "GET /api/settings/llm-audit/list",
       "GET /api/settings/model-availability-audit/models",
       "GET /api/settings/model-config-audit",
+      "GET /api/settings/model-stats",
       "GET /api/settings/system-prompt-audit/prompts",
       "GET /api/storage/config",
       "GET /api/system/cpu",
@@ -285,7 +286,7 @@
       "PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle"
     ],
     "frontend_fetches": [],
-    "backend_path_count": 105,
+    "backend_path_count": 106,
     "frontend_fetch_count": 0,
     "unused_by_frontend": [
       "/api/audit/report",
@@ -334,6 +335,7 @@
       "/api/settings/model-availability-audit/models",
       "/api/settings/model-availability-audit/probe",
       "/api/settings/model-config-audit",
+      "/api/settings/model-stats",
       "/api/settings/system-prompt-audit/prompts",
       "/api/storage/config",
       "/api/system/cpu",

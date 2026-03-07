@@ -7,9 +7,9 @@ router = APIRouter()
 # Agent/组件 -> 模型映射（与 orchestrator、browser_tool 等实际使用一致）
 # 每项: (agent_id, name, model_keys_or_expr, description)
 AGENT_MODEL_MAPPING = [
-    ("chat", "通用对话", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "按任务智能选择"),
+    ("chat", "通用对话", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("work_assistant", "工作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
-    ("article_writing", "写文章", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "按任务智能选择"),
+    ("article_writing", "写文章", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("orchestrator_selector", "智能编排选择器", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("skill_matching", "技能匹配", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("model_selector", "模型选择", ["REASONING_MODEL"], "固定使用推理模型"),
@@ -146,6 +146,55 @@ PROVIDER_LABELS = {
     "theturbogateway": "TheTurbo.ai 网关",
 }
 
+# 对话/编码/推理模型（写文章、工作助手等）按供应商分组
+# DeepSeek 平台：仅无版本号模型（chat/coder/reasoner）
+# 百炼平台：带版本号的 deepseek-* 及 qwen 等
+CHAT_MODELS_BY_PROVIDER = {
+    "deepseek": [
+        ("deepseek-chat", "DeepSeek Chat"),
+        ("deepseek-coder", "DeepSeek Coder"),
+        ("deepseek-reasoner", "DeepSeek Reasoner"),
+    ],
+    "bailian": [
+        ("qwen3-max", "Qwen3 Max"),
+        ("qwen-plus-2025-12-01", "Qwen Plus"),
+        ("qwen-flash", "Qwen Flash"),
+        ("qwen-max-2025-01-25", "Qwen Max"),
+        ("qwen-turbo-latest", "Qwen Turbo"),
+        ("qwen3-coder-plus-2025-09-23", "Qwen3 Coder Plus"),
+        ("qwen3-coder-flash", "Qwen3 Coder Flash"),
+        ("qwen3-vl-plus-2025-12-19", "Qwen3-VL Plus"),
+        ("qwen3-vl-flash-2025-10-15", "Qwen3-VL Flash"),
+        ("qwen-vl-max-2025-08-13", "Qwen-VL Max"),
+        ("qwq-plus", "QWQ Plus"),
+        ("qvq-max-latest", "QVQ Max"),
+        ("qvq-plus-latest", "QVQ Plus"),
+        ("deepseek-r1", "DeepSeek R1（百炼）"),
+        ("deepseek-v2", "DeepSeek V2（百炼）"),
+        ("deepseek-v2.5", "DeepSeek V2.5（百炼）"),
+        ("deepseek-v3", "DeepSeek V3（百炼）"),
+        ("deepseek-v3.2", "DeepSeek V3.2（百炼）"),
+        ("deepseek-chat", "DeepSeek Chat（百炼）"),
+        ("deepseek-coder", "DeepSeek Coder（百炼）"),
+        ("deepseek-reasoner", "DeepSeek Reasoner（百炼）"),
+    ],
+    "theturbogateway": [
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-4o-mini", "GPT-4o Mini"),
+        ("gpt-5", "GPT-5"),
+        ("gpt-5-mini", "GPT-5 Mini"),
+        ("o3", "O3"),
+        ("o3-mini", "O3 Mini"),
+        ("claude-opus-4-20250514", "Claude Opus 4"),
+        ("claude-sonnet-4-20250514", "Claude Sonnet 4"),
+        ("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"),
+        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+        ("sonar", "Sonar"),
+        ("sonar-pro", "Sonar Pro"),
+    ],
+}
+
 # 视觉模型（OCR/截图识别）按供应商分组
 VISION_MODELS_BY_PROVIDER = {
     "bailian": [
@@ -192,7 +241,7 @@ def _get_vision_providers():
 async def get_selectable_models():
     """
     返回前端可选的模型列表，按供应商分组。
-    - providers: [{ id, label, models: [{value, label}] }]
+    - providers: [{ id, label, models: [{value, label}] }]，含各供应商可选模型列表
     - models: 扁平列表（向后兼容）
     """
     from backend.services.llm.model_registry import ModelRegistry
@@ -200,37 +249,41 @@ async def get_selectable_models():
     chat_model = os.getenv("CHAT_MODEL", "deepseek-chat")
     code_model = os.getenv("CODE_MODEL", "deepseek-coder")
     reasoning_model = os.getenv("REASONING_MODEL", "deepseek-reasoner")
+    configured_vals = {chat_model, code_model, reasoning_model} - {""}
 
-    configured = []
-    for val in (chat_model, code_model, reasoning_model):
-        if val and val not in {m["value"] for m in configured}:
-            configured.append({"value": val, "label": val})
-
+    # 使用完整模型列表，确保配置的模型在列表中（若不在则追加）
     by_provider = {}
-    for m in configured:
-        provider, _ = ModelRegistry.parse_model_name(m["value"])
-        if provider not in by_provider:
-            by_provider[provider] = []
-        by_provider[provider].append(m)
+    for p in ["deepseek", "bailian", "theturbogateway"]:
+        models = CHAT_MODELS_BY_PROVIDER.get(p, [])
+        items = [{"value": v, "label": lbl} for v, lbl in models]
+        by_provider[p] = items
+
+    # 确保 .env 中配置的模型在列表中
+    for val in configured_vals:
+        if not val:
+            continue
+        provider, _ = ModelRegistry.parse_model_name(val)
+        if provider in by_provider:
+            seen = {m["value"] for m in by_provider[provider]}
+            if val not in seen:
+                by_provider[provider].append({"value": val, "label": val})
 
     provider_order = ["deepseek", "bailian", "theturbogateway"]
     providers = []
     for p in provider_order:
-        if p in by_provider:
-            providers.append({
-                "id": p,
-                "label": PROVIDER_LABELS.get(p, p),
-                "models": by_provider[p],
-            })
-    for p in by_provider:
-        if p not in provider_order:
+        if p in by_provider and by_provider[p]:
             providers.append({
                 "id": p,
                 "label": PROVIDER_LABELS.get(p, p),
                 "models": by_provider[p],
             })
 
-    models = [{"value": "auto", "label": "智能选择"}] + configured
+    flat = []
+    for p in provider_order:
+        if p in by_provider:
+            flat.extend(by_provider[p])
+    # 已移除「智能选择」，用户需显式选择模型
+    models = flat
     # 视觉模型（OCR/截图识别）：按供应商分组，供网页阅读等使用
     vision_providers = _get_vision_providers()
     return {
@@ -238,4 +291,22 @@ async def get_selectable_models():
         "models": models,
         "providers": providers,
         "vision_providers": vision_providers,
+        "default_model": chat_model,  # 默认使用对话模型
     }
+
+
+@router.get("/settings/model-stats")
+async def get_model_stats(days: int = 30):
+    """
+    模型使用统计：响应时间、接受次数，按综合得分排名。
+    - call_count: 调用次数
+    - avg_response_ms: 平均响应时间（毫秒）
+    - accepted_count: 被接受修改次数（写文章场景点击「接受修改」）
+    - score: 综合得分（接受次数权重高，响应越快越好）
+    """
+    try:
+        from backend.services.llm.model_stats import get_model_stats as _get_stats
+        stats = _get_stats(days=min(max(1, days), 90))
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        return {"success": False, "error": str(e), "stats": []}

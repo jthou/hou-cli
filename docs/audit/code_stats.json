@@ -1,18 +1,18 @@
 {
-  "total_files": 1052,
-  "total_lines": 300918,
+  "total_files": 1054,
+  "total_lines": 301865,
   "by_language": {
     "other": {
       "files": 22,
       "lines": 87131
     },
     "markdown": {
-      "files": 367,
-      "lines": 96021
+      "files": 368,
+      "lines": 96032
     },
     "python": {
-      "files": 503,
-      "lines": 88655
+      "files": 504,
+      "lines": 88915
     },
     "shell": {
       "files": 33,
@@ -20,15 +20,15 @@
     },
     "jsx": {
       "files": 76,
-      "lines": 14478
+      "lines": 14659
     },
     "javascript": {
       "files": 31,
-      "lines": 4822
+      "lines": 4888
     },
     "json": {
       "files": 8,
-      "lines": 4233
+      "lines": 4653
     },
     "html": {
       "files": 2,
@@ -36,7 +36,7 @@
     },
     "css": {
       "files": 3,
-      "lines": 527
+      "lines": 536
     },
     "yaml": {
       "files": 7,
@@ -54,11 +54,11 @@
     },
     "extension": {
       "files": 6,
-      "lines": 1101
+      "lines": 1107
     },
     "frontend": {
       "files": 131,
-      "lines": 27612
+      "lines": 28280
     },
     "config": {
       "files": 2,
@@ -73,16 +73,16 @@
       "lines": 7992
     },
     "backend": {
-      "files": 431,
-      "lines": 131893
+      "files": 432,
+      "lines": 132153
     },
     "shared": {
       "files": 8,
       "lines": 549
     },
     "docs": {
-      "files": 317,
-      "lines": 88794
+      "files": 318,
+      "lines": 88807
     },
     "hou_cli.egg-info": {
       "files": 5,
@@ -105,5 +105,5 @@
       "lines": 33896
     }
   },
-  "generated_at": "2026-03-07T09:18:20.292020Z"
+  "generated_at": "2026-03-07T12:50:15.667042Z"
 }

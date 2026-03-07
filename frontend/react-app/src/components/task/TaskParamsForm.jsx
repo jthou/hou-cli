@@ -11,9 +11,47 @@ import WechatOutboundIpHint from '../WechatOutboundIpHint'
 import WechatMaterialImagePicker from '../WechatMaterialImagePicker'
 import { useToast } from '../ToastModal'
 import { formatWechatMpError } from '../../utils/wechatMpError'
+import { mdToHtmlForWechat } from '../../utils/mdToHtml'
 
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
 const labelCls = 'block text-sm text-muted mb-1'
+
+/** 复制按钮，用于公众号表单各字段旁 */
+function CopyBtn({ text, asHtml = false, label = '复制', toast }) {
+  const handleCopy = () => {
+    if (!text) {
+      toast?.warning?.('暂无内容')
+      return
+    }
+    const doCopy = () => {
+      if (asHtml && typeof text === 'string' && text.includes('<')) {
+        // 包裹为完整 HTML 文档，部分编辑器（如公众号）解析粘贴时更易保留样式
+        const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${text}</body></html>`
+        return navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([wrapped], { type: 'text/html' }),
+            'text/plain': new Blob([text.replace(/<[^>]+>/g, '')], { type: 'text/plain' }),
+          }),
+        ])
+      }
+      return navigator.clipboard.writeText(text)
+    }
+    doCopy().then(
+      () => toast?.info?.(`已复制${label}，可粘贴到公众号对应位置`),
+      () => toast?.error?.('复制失败')
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="shrink-0 px-2.5 py-1.5 text-xs rounded border border-border text-muted hover:bg-white/10 hover:text-fg"
+      title={`复制${label}`}
+    >
+      复制
+    </button>
+  )
+}
 
 export default function TaskParamsForm({
   taskType,
@@ -57,9 +95,54 @@ export default function TaskParamsForm({
       .finally(() => setDraftsLoading(false))
   }, [isWechatUpdate])
 
-  const customFieldRender = (fieldKey, { value, onChange }) => {
-    if (fieldKey === 'content' && taskType === 'wechat_mp_draft')
-      return <WechatDraftEditor value={value ?? ''} onChange={onChange} />
+  const customFieldRender = (fieldKey, { value, onChange, label }) => {
+    if (fieldKey === 'title' && isWechatDraft) {
+      const text = (metadata?.title ?? value ?? '').toString()
+      return (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className={labelCls + ' mb-0'}>{label || '标题'} *</label>
+            <CopyBtn text={text} label="标题" toast={toast} />
+          </div>
+          <input
+            value={text}
+            onChange={(e) => setMetadata((m) => ({ ...m, title: e.target.value }))}
+            placeholder="公众号图文标题"
+            className={inputCls}
+          />
+        </div>
+      )
+    }
+    if (fieldKey === 'author' && isWechatDraft) {
+      const text = (metadata?.author ?? value ?? '').toString()
+      return (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className={labelCls + ' mb-0'}>{label || '作者'}</label>
+            <CopyBtn text={text} label="作者" toast={toast} />
+          </div>
+          <input
+            value={text}
+            onChange={(e) => setMetadata((m) => ({ ...m, author: e.target.value }))}
+            placeholder="选填"
+            className={inputCls}
+          />
+        </div>
+      )
+    }
+    if (fieldKey === 'content' && taskType === 'wechat_mp_draft') {
+      const md = value ?? ''
+      const html = md ? mdToHtmlForWechat(md) : ''
+      return (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className={labelCls + ' mb-0'}>正文（Markdown）</label>
+            <CopyBtn text={html} asHtml label="正文" toast={toast} />
+          </div>
+          <WechatDraftEditor value={md} onChange={onChange} />
+        </div>
+      )
+    }
     if (fieldKey === 'digest' && taskType === 'wechat_mp_draft') {
       const DIGEST_MAX = 120
       const text = (metadata?.digest ?? value ?? '').toString()
@@ -67,7 +150,10 @@ export default function TaskParamsForm({
       const over = len > DIGEST_MAX
       return (
         <div className="space-y-1">
-          <label className="block text-sm text-muted mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className="block text-sm text-muted mb-0">摘要（不超过 120 字，超限接口报 45004）</label>
+            <CopyBtn text={text} label="摘要" toast={toast} />
+          </div>
           <textarea
             value={text}
             onChange={(e) => setMetadata((m) => ({ ...m, digest: e.target.value }))}
@@ -193,7 +279,17 @@ export default function TaskParamsForm({
                 alt="封面预览"
                 className="w-20 h-20 object-cover rounded border border-border shrink-0"
               />
-              <p className="text-xs text-green-400/90 pt-1">封面 media_id: {metadata.thumb_media_id}</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-xs text-green-400/90">封面 media_id: {metadata.thumb_media_id}</p>
+                <a
+                  href={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(metadata.thumb_media_id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-accent hover:underline"
+                >
+                  下载封面
+                </a>
+              </div>
             </div>
           )}
           <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG，WebP 将自动转为 PNG；≤2MB；也可直接填已有素材的 media_id</p>

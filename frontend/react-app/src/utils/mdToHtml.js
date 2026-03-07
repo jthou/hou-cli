@@ -3,8 +3,10 @@
  * - 编辑与预览用 Markdown → mdToHtml() → HTML 渲染。
  * - 编辑已有草稿时，接口返回的 content 为 HTML，用 htmlToMd() 转成 Markdown 再放入编辑器。
  * - 提交任务/定时任务时，metadata.content 必须为 HTML，由 prepareWechatDraftMetadata 或 prepareMetadataForSubmit 统一转换。
+ * - 粘贴到公众号编辑页时，使用 juice 做 CSS 内联化，提升样式保留率。
  */
 import TurndownService from 'turndown'
+import juice from 'juice'
 import { mdToWiki } from './wikiMdConvert.js'
 import { mdToHtmlCore } from './mdToHtmlCore.js'
 
@@ -23,30 +25,32 @@ export { mdToHtmlCore } from './mdToHtmlCore.js'
  * @returns {string} HTML 字符串
  */
 export function mdToHtml(md) {
-  return mdToHtmlCore(md)
+  let out = mdToHtmlCore(md)
+  out = styleNumberedHeadings(out)
+  return out
 }
 
 /**
- * 公众号正文内联样式（微信只保留内联 style，不支持 <style> 与 class 样式）。
- * 单位用 px 更稳妥，参考：font-size/color/line-height/margin/padding 等均支持。
+ * 公众号正文内联样式，与 WechatDraftPreview.css 完全一致，确保复制到微信后与预览一致。
+ * 字体：-apple-system 等；颜色：#24292f（GitHub 灰）；单位用 px 更稳妥。
  */
 const WECHAT_INLINE_STYLES = {
-  p: 'font-size:16px;line-height:1.6;color:#333333;margin:0 0 16px 0;',
-  h1: 'font-size:22px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
-  h2: 'font-size:19px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
-  h3: 'font-size:17px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
-  h4: 'font-size:16px;font-weight:600;color:#333333;margin:16px 0 8px 0;line-height:1.4;',
-  blockquote: 'color:#57606a;font-size:15px;margin:0 0 16px 0;padding-left:12px;border-left:4px solid #d0d7de;line-height:1.6;',
-  ul: 'margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#333333;',
-  ol: 'margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#333333;',
-  li: 'margin-bottom:4px;',
-  code: 'background-color:#f5f5f5;color:#333333;font-size:14px;padding:2px 6px;border-radius:4px;',
-  pre: 'background-color:#f5f5f5;color:#333333;font-size:14px;line-height:1.5;margin:0 0 16px 0;padding:12px;border-radius:6px;overflow-x:auto;',
-  strong: 'font-weight:600;color:#333333;',
+  p: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;line-break:anywhere;color:#24292f;margin:0 0 16px 0;',
+  h1: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:22px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
+  h2: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:20px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
+  h3: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:17px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;',
+  h4: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;',
+  blockquote: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;color:#57606a;font-size:15px;margin:0 0 16px 0;padding-left:12px;border-left:4px solid #d0d7de;line-height:1.6;',
+  ul: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#24292f;',
+  ol: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#24292f;',
+  li: 'font-size:16px;line-height:1.6;line-break:anywhere;color:#24292f;margin-bottom:12px;',
+  code: 'font-family:ui-monospace,monospace;background-color:#f6f8fa;color:#24292f;font-size:14px;padding:2px 6px;border:1px solid #d0d7de;border-radius:4px;',
+  pre: 'font-family:ui-monospace,monospace;background-color:#f6f8fa;color:#24292f;font-size:14px;line-height:1.5;margin:0 0 16px 0;padding:12px;border:1px solid #d0d7de;border-radius:6px;overflow-x:auto;',
+  strong: 'font-weight:bold;color:#24292f;',
   em: 'font-style:italic;color:#57606a;',
   a: 'color:#0969da;text-decoration:none;',
-  hr: 'border:0;border-top:1px solid #e1e4e8;margin:24px 0;',
-  img: 'max-width:100%;height:auto;',
+  hr: 'border:0;border-top:1px solid #d0d7de;margin:24px 0;',
+  img: 'max-width:100%;height:auto;border:1px solid #d0d7de;border-radius:6px;',
 }
 
 /** 无 DOM 时用正则给开标签注入 style（兜底，确保一定提交内联样式） */
@@ -113,8 +117,58 @@ function addWechatInlineStyles(html) {
   return addWechatInlineStylesFallback(html)
 }
 
+/** 公众号主题 CSS（与 WechatDraftPreview.css 完全一致，供 juice 内联化） */
+const WECHAT_THEME_CSS = `
+  #wechat-content { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; line-break: anywhere; color: #24292f; }
+  #wechat-content p { font-size: 16px; line-height: 1.6; line-break: anywhere; color: #24292f; margin: 0 0 16px 0; }
+  #wechat-content h1 { font-size: 22px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+  #wechat-content h2 { font-size: 20px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+  #wechat-content h3 { font-size: 17px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; }
+  #wechat-content h4 { font-size: 16px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; }
+  #wechat-content blockquote { color: #57606a; font-size: 15px; margin: 0 0 16px 0; padding-left: 12px; border-left: 4px solid #d0d7de; line-height: 1.6; }
+  #wechat-content ul { margin: 0 0 16px 0; padding-left: 24px; line-height: 1.6; color: #24292f; }
+  #wechat-content ol { margin: 0 0 16px 0; padding-left: 24px; line-height: 1.6; color: #24292f; }
+  #wechat-content li { font-size: 16px; line-height: 1.6; line-break: anywhere; color: #24292f; margin-bottom: 12px; }
+  #wechat-content code { font-family: ui-monospace, monospace; background-color: #f6f8fa; color: #24292f; font-size: 14px; padding: 2px 6px; border: 1px solid #d0d7de; border-radius: 4px; }
+  #wechat-content pre { font-family: ui-monospace, monospace; background-color: #f6f8fa; color: #24292f; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0; padding: 12px; border: 1px solid #d0d7de; border-radius: 6px; overflow-x: auto; }
+  #wechat-content strong, #wechat-content b { font-weight: bold; color: #24292f; }
+  #wechat-content em, #wechat-content i { font-style: italic; color: #57606a; }
+  #wechat-content a { color: #0969da; text-decoration: none; }
+  #wechat-content hr { border: 0; border-top: 1px solid #d0d7de; margin: 24px 0; }
+  #wechat-content img { max-width: 100%; height: auto; border: 1px solid #d0d7de; border-radius: 6px; }
+`
+
+/** 微信粘贴：代码块空格用 \\u00A0 防被合并，换行用 <br>（参考 bm.md） */
+function wechatCodeBlockFixes(html) {
+  return html.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_, content) => {
+    const fixed = content
+      .replace(/^( +)/gm, (spaces) => '\u00A0'.repeat(spaces.length))
+      .replace(/\n/g, '<br>')
+    return `<pre>${fixed}</pre>`
+  })
+}
+
+/** 带数字的章节标题：数字比标题大 1–2 号，如 ## 01 电力基建 */
+const CH_NUM_COLOR = '#24292f'
+const CH_NUM_STYLES = { h1: '28px', h2: '26px', h3: '20px', h4: '18px' }
+function styleNumberedHeadings(html) {
+  return html.replace(/<h([1-4])>(\d{1,2})(\s)/g, (_, level, num, space) => {
+    const size = CH_NUM_STYLES[`h${level}`] || '24px'
+    return `<h${level}><span class="ch-num" style="font-size:${size};color:${CH_NUM_COLOR};font-weight:600">${num}</span>${space}`
+  })
+}
+
+/** 防止微信在标签边界插入 section 导致换行。采用相对安全的格式：1) 冒号移入加粗 2) 句号移入加粗 3) li 内容用 span 包裹，减少块级边界 */
+function preventCjkLineBreaks(html) {
+  return html
+    .replace(/(<(?:strong|b)>[\s\S]*?)(<\/(?:strong|b)>)(：)/g, '$1$3$2')
+    .replace(/(<(?:strong|b)>[\s\S]*?)(\d+)(倍|个|元|%)(<\/(?:strong|b)>)(。)/g, '$1$2$3$5$4')
+    .replace(/<li([^>]*)>([\s\S]*?)<\/li>/gi, (_, attrs, content) => `<li${attrs}><span style="display:inline">${content}</span></li>`)
+}
+
 /**
- * 转为带内联样式的 HTML，专供提交公众号草稿使用，便于公众号内展示与系统预览一致。
+ * 转为带内联样式的 HTML，专供提交公众号草稿及粘贴到公众号编辑页使用。
+ * 使用 juice 做 CSS 内联化，提升粘贴时样式保留率（参考 bm.md、Markdown Nice）。
  * @param {string} md - Markdown 文本
  * @returns {string} 带 style 属性的 HTML
  */
@@ -122,8 +176,17 @@ export function mdToHtmlForWechat(md) {
   if (md == null || typeof md !== 'string') return ''
   const trimmed = md.trim()
   if (!trimmed) return ''
-  const raw = mdToHtml(trimmed)
-  return addWechatInlineStyles(raw)
+  let raw = mdToHtml(trimmed)
+  raw = wechatCodeBlockFixes(raw)
+  const wrapped = `<section id="wechat-content">${raw}</section>`
+  try {
+    let inlined = juice(wrapped, { extraCss: WECHAT_THEME_CSS, removeStyleTags: true })
+    const match = inlined.match(/<section id="wechat-content">([\s\S]*?)<\/section>/)
+    let out = match ? match[1].trim() : inlined.replace(/^<section[^>]*>|<\/section>$/g, '').trim()
+    return preventCjkLineBreaks(out)
+  } catch (_) {
+    return preventCjkLineBreaks(addWechatInlineStyles(raw))
+  }
 }
 
 const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })

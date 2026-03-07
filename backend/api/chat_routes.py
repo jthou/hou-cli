@@ -366,6 +366,14 @@ async def apply_patch_article(request: ApplyPatchArticleRequest):
             request.session_id, new_content, source="user"
         )
         article = orchestrator.context_manager.get_current_article(request.session_id) if ok else None
+        if ok:
+            try:
+                from backend.services.llm.model_stats import get_last_model_for_session, record_acceptance
+                model = get_last_model_for_session(request.session_id)
+                if model:
+                    record_acceptance(model, request.session_id)
+            except Exception:
+                pass
         return {"article": article, "status": "success" if ok else "error", "success": ok}
     except ValueError as e:
         return {"article": None, "status": "error", "success": False, "error": str(e)}

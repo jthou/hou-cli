@@ -11,7 +11,8 @@ import { useState, useEffect } from 'react'
  * }}
  */
 export function useSelectableModels() {
-  const [models, setModels] = useState([{ value: 'auto', label: '智能选择' }])
+  const [models, setModels] = useState([])
+  const [defaultModel, setDefaultModel] = useState('')
   const [providers, setProviders] = useState([])
   const [vision_providers, setVisionProviders] = useState([])
   const [vision_default, setVisionDefault] = useState('')
@@ -24,6 +25,7 @@ export function useSelectableModels() {
       .then((d) => {
         if (!cancelled && d.success) {
           if (Array.isArray(d.models)) setModels(d.models)
+          if (d.default_model) setDefaultModel(d.default_model)
           if (Array.isArray(d.providers)) setProviders(d.providers)
           const vp = d.vision_providers
           if (vp?.providers) setVisionProviders(vp.providers)
@@ -32,7 +34,8 @@ export function useSelectableModels() {
       })
       .catch(() => {
         if (!cancelled) {
-          setModels([{ value: 'auto', label: '智能选择' }])
+          setModels([])
+          setDefaultModel('')
           setProviders([])
           setVisionProviders([])
           setVisionDefault('')
@@ -44,5 +47,5 @@ export function useSelectableModels() {
     return () => { cancelled = true }
   }, [])
 
-  return { models, providers, vision_providers, vision_default, loading }
+  return { models, defaultModel, providers, vision_providers, vision_default, loading }
 }

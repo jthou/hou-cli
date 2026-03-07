@@ -82,9 +82,12 @@ export default function ArticleWriting() {
   const [wechatGeneratingField, setWechatGeneratingField] = useState(null) // 'title'|'digest'|'author'|'cover'
   const [wechatCoverPrompt, setWechatCoverPrompt] = useState('')
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
-  /** 模型选择：auto=智能选择，或具体模型名 */
-  const [selectedModel, setSelectedModel] = useState('auto')
-  const { providers, models: selectableModels, loading: modelsLoading } = useSelectableModels()
+  const [selectedModel, setSelectedModel] = useState('')
+  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
+  useEffect(() => {
+    if (defaultModel && !selectedModel) setSelectedModel(defaultModel)
+    else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
+  }, [defaultModel, selectedModel, selectableModels])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const {
     referenceBlocks,
@@ -307,7 +310,7 @@ export default function ArticleWriting() {
           session_id: selectedSessionId,
           current_article: article || undefined,
           context_type: 'article_writing',
-          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
+          ...(selectedModel ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
       })

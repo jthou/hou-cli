@@ -20,7 +20,7 @@ export default function WorkAssistant() {
   const location = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
-  const { providers, models: selectableModels, loading: modelsLoading } = useSelectableModels()
+  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState(() => {
@@ -36,7 +36,7 @@ export default function WorkAssistant() {
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
-  const [selectedModel, setSelectedModel] = useState('auto')
+  const [selectedModel, setSelectedModel] = useState('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   const messagesEndRef = useRef(null)
@@ -53,6 +53,11 @@ export default function WorkAssistant() {
     setReferencePanelOpen(true)
     handleAddReferenceBlock()
   }
+
+  useEffect(() => {
+    if (defaultModel && !selectedModel) setSelectedModel(defaultModel)
+    else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
+  }, [defaultModel, selectedModel, selectableModels])
 
   const loadSessions = useCallback(() => {
     setSessionsLoading(true)
@@ -195,7 +200,7 @@ export default function WorkAssistant() {
           session_id: selectedSessionId,
           context_type: SESSION_TYPE,
           regenerate_from_message_id: messageId,
-          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
+          ...(selectedModel ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
       })
@@ -309,7 +314,7 @@ export default function WorkAssistant() {
           message: messageForModel,
           session_id: sessionId,
           context_type: SESSION_TYPE,
-          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
+          ...(selectedModel ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
       })
@@ -555,7 +560,7 @@ export default function WorkAssistant() {
             )}
             {!detailLoading && messages.length === 0 && !streamingContent && (
               <div className="text-center py-12 text-muted text-sm">
-                输入消息开始对话，支持智能选择或指定具体模型。
+                输入消息开始对话，可在下方选择模型。
               </div>
             )}
           {messages.map((msg, i) => (

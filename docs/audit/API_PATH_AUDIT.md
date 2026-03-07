@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 105
+- 后端路由数: 106
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -40,6 +40,7 @@ GET /api/settings/llm-audit/dates
 GET /api/settings/llm-audit/list
 GET /api/settings/model-availability-audit/models
 GET /api/settings/model-config-audit
+GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
 GET /api/storage/config
 GET /api/system/cpu
@@ -164,6 +165,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/settings/model-availability-audit/models
 - /api/settings/model-availability-audit/probe
 - /api/settings/model-config-audit
+- /api/settings/model-stats
 - /api/settings/system-prompt-audit/prompts
 - /api/storage/config
 - /api/system/cpu

@@ -1,8 +1,11 @@
-/* 公众号草稿正文预览：明亮风格，!important 防止被全局/深色主题覆盖 */
+/* 公众号草稿正文预览：与 mdToHtmlForWechat 输出完全一致，确保复制到微信后样式一致 */
 .wechat-draft-preview {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.6;
   word-wrap: break-word;
+  line-break: anywhere; /* 避免中文避首标点（如全角冒号）强制在标点处换行 */
+  color: #24292f;
 }
 
 .wechat-draft-preview--empty {
@@ -15,7 +18,7 @@
 
 /* 子元素强制明亮色，避免继承 body 的 var(--color-fg) */
 .wechat-draft-preview p {
-  margin: 0 0 1em 0;
+  margin: 0 0 16px 0;
   color: #24292f !important;
 }
 
@@ -25,13 +28,18 @@
 .wechat-draft-preview h4 {
   color: #24292f !important;
   font-weight: 600;
-  margin: 1em 0 0.5em 0;
+  margin: 16px 0 8px 0;
 }
 
-.wechat-draft-preview h1 { font-size: 1.35em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.25em; }
-.wechat-draft-preview h2 { font-size: 1.2em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.25em; }
-.wechat-draft-preview h3 { font-size: 1.08em; }
-.wechat-draft-preview h4 { font-size: 1em; }
+.wechat-draft-preview h1 { font-size: 22px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+.wechat-draft-preview h2 { font-size: 20px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+.wechat-draft-preview h3 { font-size: 17px; }
+.wechat-draft-preview h4 { font-size: 16px; }
+/* 带数字的章节标题：数字大 1–2 号 */
+.wechat-draft-preview h1 .ch-num, .wechat-draft-preview h2 .ch-num,
+.wechat-draft-preview h3 .ch-num, .wechat-draft-preview h4 .ch-num {
+  font-weight: 600;
+}
 
 .wechat-draft-preview strong,
 .wechat-draft-preview b {
@@ -58,8 +66,8 @@
   background-color: #f6f8fa !important;
   color: #24292f !important;
   font-family: ui-monospace, monospace;
-  font-size: 0.9em;
-  padding: 0.15em 0.4em;
+  font-size: 14px;
+  padding: 2px 6px;
   border: 1px solid #d0d7de;
   border-radius: 4px;
 }
@@ -68,9 +76,9 @@
   background-color: #f6f8fa !important;
   color: #24292f !important;
   font-family: ui-monospace, monospace;
-  font-size: 0.9em;
+  font-size: 14px;
   line-height: 1.5;
-  margin: 0 0 1em 0;
+  margin: 0 0 16px 0;
   padding: 12px;
   border: 1px solid #d0d7de;
   border-radius: 6px;
@@ -86,27 +94,28 @@
 
 .wechat-draft-preview blockquote {
   color: #57606a !important;
-  font-size: 0.95em;
-  margin: 0 0 1em 0;
+  font-size: 15px;
+  margin: 0 0 16px 0;
   padding-left: 12px;
   border-left: 4px solid #d0d7de;
 }
 
 .wechat-draft-preview ul,
 .wechat-draft-preview ol {
-  margin: 0 0 1em 0;
-  padding-left: 1.5em;
+  margin: 0 0 16px 0;
+  padding-left: 24px;
 }
 
 .wechat-draft-preview li {
-  margin-bottom: 0.25em;
+  margin-bottom: 12px;
+  line-height: 1.6;
   color: #24292f !important;
 }
 
 .wechat-draft-preview hr {
   border: 0;
   border-top: 1px solid #d0d7de;
-  margin: 1.5em 0;
+  margin: 24px 0;
 }
 
 .wechat-draft-preview img {
@@ -117,7 +126,7 @@
 }
 
 .wechat-draft-preview div {
-  margin: 0 0 1em 0;
+  margin: 0 0 16px 0;
   color: #24292f !important;
 }
 

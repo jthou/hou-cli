@@ -21,6 +21,8 @@ function getModelForProbe(item) {
 export default function SettingsModelConfigAudit() {
   const [data, setData] = useState(null)
   const [availability, setAvailability] = useState({ models: [], unique_models: [] })
+  const [modelStats, setModelStats] = useState([])
+  const [statsDays, setStatsDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [retryKey, setRetryKey] = useState(0)
@@ -37,13 +39,19 @@ export default function SettingsModelConfigAudit() {
         return r.json()
       }),
       fetch('/api/settings/model-availability-audit/models').then((r) => r.json()),
+      fetch(`/api/settings/model-stats?days=${statsDays}`).then((r) => r.json()),
     ])
-      .then(([configRes, availRes]) => {
+      .then(([configRes, availRes, statsRes]) => {
         if (configRes.success) {
           setData(configRes)
         } else {
           setError(configRes.error || '加载失败')
           setData(null)
+        }
+        if (statsRes.success && Array.isArray(statsRes.stats)) {
+          setModelStats(statsRes.stats)
+        } else {
+          setModelStats([])
         }
         if (availRes.success) {
           let byProvider = availRes.models_by_provider || {}
@@ -78,7 +86,7 @@ export default function SettingsModelConfigAudit() {
 
   useEffect(() => {
     load()
-  }, [retryKey])
+  }, [retryKey, statsDays])
 
   const handleProbeOne = (model) => {
     if (!model) return
@@ -157,6 +165,78 @@ export default function SettingsModelConfigAudit() {
         )}
         {!loading && !error && data && (
           <div className="space-y-8">
+            <section>
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <h2 className="text-base font-medium text-white">模型使用统计与排名</h2>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted">统计范围</span>
+                  <select
+                    value={statsDays}
+                    onChange={(e) => setStatsDays(Number(e.target.value))}
+                    className="text-xs rounded border border-border bg-white/5 px-2 py-1.5 text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value={7}>最近 7 天</option>
+                    <option value={30}>最近 30 天</option>
+                    <option value={90}>最近 90 天</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-muted mb-3">
+                响应时间来自 LLM 审计；接受次数为写文章场景点击「接受修改」的次数。综合得分 = 接受次数×10 + 速度得分（响应越快越高）。
+              </p>
+              <div className="rounded-lg border border-border bg-white/[0.02] overflow-x-auto min-w-[720px]">
+                <table className="w-full text-sm table-fixed">
+                  <colgroup>
+                    <col style={{ width: '60px' }} />
+                    <col style={{ width: '28%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '14%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2.5 text-center text-muted font-medium align-middle">排名</th>
+                      <th className="px-4 py-2.5 text-left text-muted font-medium align-middle">模型</th>
+                      <th className="px-4 py-2.5 text-right text-muted font-medium align-middle tabular-nums">调用次数</th>
+                      <th className="px-4 py-2.5 text-right text-muted font-medium align-middle tabular-nums">平均响应</th>
+                      <th className="px-4 py-2.5 text-right text-muted font-medium align-middle tabular-nums">接受次数</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modelStats.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-muted text-sm">
+                          暂无统计（需有 LLM 调用记录）
+                        </td>
+                      </tr>
+                    ) : (
+                      modelStats.map((s, i) => (
+                        <tr key={s.model} className="border-b border-border/50 last:border-0">
+                          <td className="px-4 py-2.5 text-center text-muted font-medium tabular-nums">
+                            {i + 1}
+                          </td>
+                          <td className="px-4 py-2.5 align-middle font-mono text-cyan-400/90 text-xs">
+                            {s.model}
+                          </td>
+                          <td className="px-4 py-2.5 align-middle text-right text-muted tabular-nums">
+                            {s.call_count ?? '—'}
+                          </td>
+                          <td className="px-4 py-2.5 align-middle text-right text-muted tabular-nums">
+                            {s.avg_response_ms != null ? `${Math.round(s.avg_response_ms)} ms` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 align-middle text-right tabular-nums">
+                            <span className={s.accepted_count > 0 ? 'text-emerald-400' : 'text-muted'}>
+                              {s.accepted_count ?? 0}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <section>
               <h2 className="text-base font-medium text-white mb-3">API Key 状态</h2>
               <div className="rounded-lg border border-border bg-white/[0.02] overflow-x-auto min-w-[720px]">
