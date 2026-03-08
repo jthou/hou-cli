@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-08T01:29:15.187488Z",
+  "generated_at": "2026-03-08T07:14:36.572760Z",
   "code_stats": {
-    "total_files": 1054,
-    "total_lines": 302183,
+    "total_files": 1056,
+    "total_lines": 302971,
     "by_language": {
       "other": {
         "files": 22,
@@ -10,27 +10,27 @@
       },
       "markdown": {
         "files": 368,
-        "lines": 96034
+        "lines": 96038
       },
       "python": {
         "files": 504,
-        "lines": 89064
+        "lines": 89222
       },
       "shell": {
         "files": 33,
         "lines": 2094
       },
       "jsx": {
-        "files": 76,
-        "lines": 14712
+        "files": 77,
+        "lines": 15259
       },
       "javascript": {
-        "files": 31,
-        "lines": 4961
+        "files": 32,
+        "lines": 5034
       },
       "json": {
         "files": 8,
-        "lines": 4691
+        "lines": 4697
       },
       "html": {
         "files": 2,
@@ -56,11 +56,11 @@
       },
       "extension": {
         "files": 6,
-        "lines": 1109
+        "lines": 1113
       },
       "frontend": {
-        "files": 131,
-        "lines": 28445
+        "files": 133,
+        "lines": 29065
       },
       "config": {
         "files": 2,
@@ -76,7 +76,7 @@
       },
       "backend": {
         "files": 432,
-        "lines": 132302
+        "lines": 132460
       },
       "shared": {
         "files": 8,
@@ -84,7 +84,7 @@
       },
       "docs": {
         "files": 318,
-        "lines": 88809
+        "lines": 88815
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -107,19 +107,18 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-08T01:29:23.974469Z"
+    "generated_at": "2026-03-08T07:14:46.021308Z"
   },
   "dev_history": {
-    "total_commits": 287,
+    "total_commits": 288,
     "authors": {
-      "侯金亭（Justin）": 244,
+      "侯金亭（Justin）": 245,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W09": 23,
+      "2026-W09": 24,
       "2026-W08": 26,
-      "2026-W07": 2,
-      "2026-W04": 1
+      "2026-W07": 2
     },
     "files_changed": {
       "backend/core/agent/orchestrator.py": 73,
@@ -131,24 +130,26 @@
       "backend/infrastructure/execution/task_handlers.py": 21,
       "Makefile": 20,
       "docs/design/02-weather-tool-design.md": 20,
+      "frontend/react-app/src/components/Sidebar.jsx": 19,
       "backend/services/llm/llm_service.py": 19,
       "frontend/ui/stream_handler.py": 19,
-      "frontend/react-app/src/components/Sidebar.jsx": 18,
+      "frontend/react-app/src/App.jsx": 18,
       "env.example": 18,
-      "frontend/react-app/src/App.jsx": 17,
       "requirements.txt": 17,
       "backend/api/task_queue_routes.py": 16,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 14,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 15,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
       "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
+      "frontend/react-app/package.json": 11,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
-      "frontend/react-app/package.json": 10,
+      "frontend/react-app/package-lock.json": 10,
+      "frontend/react-app/src/pages/MediaWikiReader.jsx": 10,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 10,
       "workflows/.gitkeep": 10,
       "backend/core/agent/tools/builtin/browser_tool.py": 10,
@@ -163,17 +164,15 @@
       "docs/design/streaming-response.md": 10,
       "docs/troubleshooting/llm-service-not-configured.md": 10,
       "requirements-dev.txt": 10,
-      "frontend/react-app/package-lock.json": 9,
-      "frontend/react-app/src/pages/MediaWikiReader.jsx": 9,
+      "frontend/react-app/src/pages/PdfReader.jsx": 9,
+      "frontend/react-app/src/utils/mdToHtml.js": 9,
       "backend/infrastructure/execution/task_worker.py": 9,
       "backend/infrastructure/storage/task_queue_db.py": 9,
       "backend/externals/browser-use": 9,
       "backend/README.md": 9,
-      "backend/REFACTOR_PLAN.md": 9,
-      "backend/__init__.py": 9,
-      "backend/api/__init__.py": 9
+      "backend/REFACTOR_PLAN.md": 9
     },
-    "generated_at": "2026-03-08T01:29:24.180505Z"
+    "generated_at": "2026-03-08T07:14:46.229573Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -208,6 +207,7 @@
       "GET /api/sessions/{session_id}",
       "GET /api/settings/kanban/board",
       "GET /api/settings/kanban/boards",
+      "GET /api/settings/llm-audit/daily-stats",
       "GET /api/settings/llm-audit/dates",
       "GET /api/settings/llm-audit/list",
       "GET /api/settings/model-availability-audit/models",
@@ -279,6 +279,7 @@
       "POST /api/tasks/{task_id}/cancel",
       "POST /api/tests/run",
       "POST /api/web-reader/ocr",
+      "POST /api/web-reader/summarize",
       "POST /api/wechat-mp/upload-article-image",
       "POST /api/wechat-mp/upload-cover",
       "PUT /api/chat/article",
@@ -286,7 +287,7 @@
       "PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle"
     ],
     "frontend_fetches": [],
-    "backend_path_count": 107,
+    "backend_path_count": 109,
     "frontend_fetch_count": 0,
     "unused_by_frontend": [
       "/api/audit/report",
@@ -331,6 +332,7 @@
       "/api/sessions/{id}/summary",
       "/api/settings/kanban/board",
       "/api/settings/kanban/boards",
+      "/api/settings/llm-audit/daily-stats",
       "/api/settings/llm-audit/dates",
       "/api/settings/llm-audit/list",
       "/api/settings/model-availability-audit/models",
@@ -378,6 +380,7 @@
       "/api/tools/list",
       "/api/version",
       "/api/web-reader/ocr",
+      "/api/web-reader/summarize",
       "/api/wechat-mp/cover-image",
       "/api/wechat-mp/drafts",
       "/api/wechat-mp/drafts/detail",

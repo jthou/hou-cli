@@ -19,6 +19,7 @@ import {
   saveLastReadForContext,
   loadLastReadForContext,
 } from '../utils/webReaderIndexedDB'
+import { fetchSummarize } from '../utils/summarizeApi'
 
 const REQUEST_ID_PREFIX = 'weread-reader-'
 const STORAGE_KEY_VISION_MODEL = 'hou-cli-weread-reader-vision-model'
@@ -118,25 +119,57 @@ export default function WereadReader() {
     }
   }, [location.state?.prefillUrl, location.state?.fetchData, navigate, doRead])
 
+  const handleRestoreLast = useCallback(async () => {
+    try {
+      const saved = await loadLastReadForContext('weread')
+      if (!saved?.url && !saved?.markdown && !saved?.content) {
+        toast?.info?.('暂无上次阅读记录')
+        return
+      }
+      let screenshots = null
+      if (saved.url) {
+        screenshots = await loadScreenshots(saved.url)
+      }
+      const hasContent = saved.markdown || saved.content
+      setData({
+        url: saved.url,
+        title: saved.title || '上次阅读',
+        markdown: saved.markdown || saved.content || '',
+        content: saved.content || saved.markdown || '',
+        screenshots: screenshots || undefined,
+        pendingOcr: !hasContent && screenshots?.length ? true : false,
+        summary: saved.summary ?? '',
+      })
+      if (saved.urlInput) setUrlInput(saved.urlInput)
+      setError(null)
+      toast?.info?.('已恢复上次阅读')
+    } catch (_) {
+      toast?.warning?.('恢复失败')
+    }
+  }, [toast])
+
+  /** 恢复上次阅读（正文或仅截图均可恢复） */
   useEffect(() => {
     if (data || loading || location.state?.prefillUrl || location.state?.fetchData) return
     let cancelled = false
     const run = async () => {
       try {
         const saved = await loadLastReadForContext('weread')
-        if (!saved?.markdown && !saved?.content) return
+        if (!saved?.url && !saved?.markdown && !saved?.content) return
         let screenshots = null
         if (saved.url) {
           screenshots = await loadScreenshots(saved.url)
         }
         if (cancelled) return
+        const hasContent = saved.markdown || saved.content
         setData({
           url: saved.url,
           title: saved.title || '上次阅读',
           markdown: saved.markdown || saved.content || '',
           content: saved.content || saved.markdown || '',
           screenshots: screenshots || undefined,
-          pendingOcr: false,
+          pendingOcr: !hasContent && screenshots?.length ? true : false,
+          summary: saved.summary ?? '',
         })
         if (saved.urlInput) setUrlInput(saved.urlInput)
       } catch (_) {}
@@ -145,8 +178,11 @@ export default function WereadReader() {
     return () => { cancelled = true }
   }, [location.state?.prefillUrl])
 
+  /** 保存上次阅读：有正文或截图时均存储，便于恢复 */
   useEffect(() => {
-    if (!data?.markdown && !data?.content) return
+    const hasContent = data?.markdown || data?.content
+    const hasScreenshots = data?.screenshots?.length && data?.url
+    if (!hasContent && !hasScreenshots) return
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
     saveDebounceRef.current = setTimeout(() => {
       saveDebounceRef.current = null
@@ -156,6 +192,7 @@ export default function WereadReader() {
         title: data.title,
         markdown: data.markdown || '',
         content: data.content || '',
+        summary: data.summary ?? '',
       }).catch(() => {})
     }, SAVE_DEBOUNCE_MS)
     if (data.screenshots?.length) {
@@ -166,7 +203,7 @@ export default function WereadReader() {
     return () => {
       if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
     }
-  }, [data?.url, data?.title, data?.markdown, data?.content, data?.screenshots, urlInput])
+  }, [data?.url, data?.title, data?.markdown, data?.content, data?.summary, data?.screenshots, urlInput])
 
   useEffect(() => {
     if (enlargedImageIndex == null || !data?.screenshots?.length) return
@@ -209,9 +246,17 @@ export default function WereadReader() {
     }
   }, [])
 
+  const runOcr = useCallback(() => {
+    const images = data?.screenshots || []
+    if (!images.length) return
+    ocrRequestedRef.current = null
+    setData((prev) => (prev ? { ...prev, pendingOcr: true } : null))
+  }, [data?.screenshots])
+
   useEffect(() => {
     const images = data?.screenshots || []
-    if (!images.length || !data?.pendingOcr || ocrRequestedRef.current === images[0]) return
+    const needsOcr = images.length && (data?.pendingOcr || (!(data?.markdown || data?.content) && ocrRequestedRef.current !== images[0]))
+    if (!needsOcr || ocrRequestedRef.current === images[0]) return
     ocrRequestedRef.current = images[0]
     setLoadingOcr(true)
     const ocrUrl = `${window.location.origin}/api/web-reader/ocr`
@@ -238,6 +283,7 @@ export default function WereadReader() {
           content: text,
           markdown: text,
           pendingOcr: false,
+          summary: '',
         }))
       })
       .catch((err) => {
@@ -279,8 +325,17 @@ export default function WereadReader() {
       />
 
       <div className="flex-1 overflow-hidden flex">
-        <div className="flex flex-col w-80 shrink-0 border-r border-border min-h-0">
+        <div className="flex flex-col flex-[0.382] min-w-0 border-r border-border min-h-0">
           <div className="shrink-0 p-4 space-y-2 min-w-0 overflow-hidden">
+            <div className="flex items-center justify-end gap-1 mb-1">
+              <button
+                type="button"
+                onClick={handleRestoreLast}
+                className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+              >
+                恢复
+              </button>
+            </div>
             <form onSubmit={handleRead} className="flex gap-2">
               <input
                 type="url"
@@ -309,27 +364,40 @@ export default function WereadReader() {
             {!extensionReady && <ExtensionNotReadyHint />}
             {error && <p className="text-xs text-red-400">{error}</p>}
           </div>
-          <div className="flex-1 min-h-0 border-t border-border overflow-auto w-full">
+          <div className="flex-1 min-h-0 border-t border-border overflow-auto w-full flex flex-col">
             {data?.screenshots?.length ? (
-              <div className="w-full py-2 space-y-2">
-                {data.screenshots.map((src, i) => (
-                  <img
-                    key={i}
-                    src={src}
-                    alt={`页面截图 ${i + 1}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setEnlargedImageIndex(i)}
-                    onKeyDown={(e) => e.key === 'Enter' && setEnlargedImageIndex(i)}
-                    className="w-full max-w-full h-auto object-contain bg-white rounded block cursor-pointer hover:ring-2 hover:ring-accent/50 transition-shadow"
-                  />
-                ))}
-                {data?.pendingOcr && (
-                  <p className="text-xs text-muted text-center">
+              <>
+                <div className="flex-1 min-h-0 overflow-y-auto py-2 space-y-2">
+                  {data.screenshots.map((src, i) => (
+                    <img
+                      key={i}
+                      src={src}
+                      alt={`页面截图 ${i + 1}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setEnlargedImageIndex(i)}
+                      onKeyDown={(e) => e.key === 'Enter' && setEnlargedImageIndex(i)}
+                      className="w-full max-w-full h-auto object-contain bg-white rounded block cursor-pointer hover:ring-2 hover:ring-accent/50 transition-shadow"
+                    />
+                  ))}
+                </div>
+                {data?.pendingOcr ? (
+                  <div className="shrink-0 px-3 py-2 text-xs text-muted text-center border-t border-border">
                     共 {data.screenshots.length} 张截图，正在识别…
-                  </p>
-                )}
-              </div>
+                  </div>
+                ) : !(data?.markdown || data?.content) ? (
+                  <div className="shrink-0 p-3 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={runOcr}
+                      disabled={loadingOcr}
+                      className="w-full px-3 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium disabled:opacity-50"
+                    >
+                      识别文字
+                    </button>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <div className="h-full flex items-center justify-center p-6 text-sm text-muted text-center">
                 {loading ? (
@@ -346,7 +414,7 @@ export default function WereadReader() {
           </div>
         </div>
 
-        <div className="min-w-0 flex-1 overflow-y-auto bg-white/[0.02] p-6">
+        <div className="min-w-0 flex-[0.618] overflow-y-auto bg-white/[0.02] p-6">
           {!data && !loading && !error && (
             <div className="h-full flex items-center justify-center text-sm text-muted">
               输入微信读书链接并点击「读取」，正文将在此展示。
@@ -379,12 +447,23 @@ export default function WereadReader() {
                   </div>
                 ) : (
                   <div className="flex-1 min-h-0 p-4 flex flex-col">
+                    {data.screenshots?.length && !(data.markdown || data.content) && (
+                      <div className="shrink-0 text-center text-sm text-muted mb-3">
+                        左侧点击「识别文字」提取正文
+                      </div>
+                    )}
                     <MarkdownEditorPreview
                       content={data.markdown || ''}
-                      onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v } : null))}
+                      onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v, summary: '' } : null))}
                       editable
                       theme="dark"
                       showMediaWiki
+                      sourceUrl={data.url || ''}
+                      showSummary
+                      summary={data.summary ?? ''}
+                      onSummaryChange={(v) => setData((prev) => (prev ? { ...prev, summary: v } : null))}
+                      onGenerateSummary={(content) => fetchSummarize(content)}
+                      onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
                       onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
                     />
                   </div>

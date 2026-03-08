@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
-import MarkdownPreview from '../components/MarkdownPreview'
+import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
 import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
 import PasteButton from '../components/PasteButton'
 import PageHeader from '../components/PageHeader'
@@ -9,6 +9,7 @@ import { useExtensionReady } from '../hooks/useExtensionReady'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 import { mdToWiki } from '../utils/wikiMdConvert'
 import { requestPdfFromExtension } from '../utils/extensionCookies'
+import { fetchSummarize } from '../utils/summarizeApi'
 
 export default function PdfReader() {
   const navigate = useNavigate()
@@ -34,7 +35,10 @@ export default function PdfReader() {
   const [mwSubmitting, setMwSubmitting] = useState(false)
   const extensionReady = useExtensionReady()
   const [loadingResolve, setLoadingResolve] = useState(false)
+  const [mergedEditedContent, setMergedEditedContent] = useState(null)
+  const [contentSummary, setContentSummary] = useState('')
   const saveLastRef = useRef(null)
+  const restoredRef = useRef(false)
 
   const pdfViewUrl =
     filePath && filePath.trim()
@@ -77,6 +81,8 @@ export default function PdfReader() {
           : '1-1')
       )
       setUseLayout(saved.useLayout !== false)
+      setContentSummary(saved.contentSummary ?? '')
+      restoredRef.current = true
     } catch {
       // ignore
     }
@@ -99,6 +105,7 @@ export default function PdfReader() {
           mergedPages,
           rangeInput,
           useLayout,
+          contentSummary,
         }
         localStorage.setItem('pdf_reader_last', JSON.stringify(toSave))
       } catch {
@@ -108,7 +115,7 @@ export default function PdfReader() {
     return () => {
       if (saveLastRef.current) clearTimeout(saveLastRef.current)
     }
-  }, [filePath, sourceInput, sourceOriginal, pageCount, currentPage, pageText, mergedPages, rangeInput, useLayout])
+  }, [filePath, sourceInput, sourceOriginal, pageCount, currentPage, pageText, mergedPages, rangeInput, useLayout, contentSummary])
 
   useEffect(() => {
     if (pageCount && pageCount > 1 && rangeInput === '1-1') {
@@ -139,6 +146,12 @@ export default function PdfReader() {
 
   const mergedPagesSorted = [...mergedPages].sort((a, b) => a.page - b.page)
 
+  useEffect(() => {
+    setMergedEditedContent(null)
+    if (!restoredRef.current) setContentSummary('')
+    restoredRef.current = false
+  }, [mergedPages])
+
   const mergedPreviewText = mergedPagesSorted
     .map((p) => {
       const body = (p.text || '').trim() || '(该页未提取到文字内容)'
@@ -148,6 +161,7 @@ export default function PdfReader() {
 
   const handleClearMergedPages = () => {
     setMergedPages([])
+    setMergedEditedContent(null)
   }
 
   const handlePasteFromClipboard = usePasteFromClipboard({
@@ -236,6 +250,7 @@ export default function PdfReader() {
       setPageCount(json.page_count || null)
       setCurrentPage(json.page || page)
       setPageText(json.text || '')
+      setContentSummary('')
     } catch (err) {
       const msg = err.message || String(err)
       setError(msg)
@@ -406,7 +421,7 @@ export default function PdfReader() {
       />
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧：PDF 选择 + 浏览器原生 PDF 预览 + 提取控件 */}
-        <div className="flex flex-col w-80 shrink-0 border-r border-border min-w-0 min-h-0">
+        <div className="flex flex-col flex-[0.382] min-w-0 border-r border-border min-h-0">
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-6 gap-4">
           <section className="shrink-0 space-y-3">
             <h2 className="text-sm font-semibold text-white">选择 PDF</h2>
@@ -523,22 +538,9 @@ export default function PdfReader() {
             )}
           </section>
 
-          {filePath && pdfViewUrl && (
-            <section className="flex-1 min-h-0 flex flex-col">
-              <h2 className="text-sm font-semibold text-white shrink-0">PDF 预览</h2>
-              <div className="flex-1 min-h-0 border border-border rounded-lg bg-black overflow-hidden">
-                <iframe
-                  src={pdfViewUrl}
-                  title="PDF 预览"
-                  className="w-full h-full bg-black"
-                />
-              </div>
-            </section>
-          )}
-
           {filePath && (
-            <section className="shrink-0 space-y-3">
-              <div className="flex flex-nowrap items-center gap-3 text-xs text-muted">
+            <section className="shrink-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                 <span className="shrink-0">共 {pageCount ?? '?'} 页</span>
                 <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0">
                   <input
@@ -583,61 +585,64 @@ export default function PdfReader() {
               {error && <p className="text-xs text-red-400">错误: {error}</p>}
             </section>
           )}
+
+          {filePath && pdfViewUrl && (
+            <section className="flex-1 min-h-0 flex flex-col">
+              <h2 className="text-sm font-semibold text-white shrink-0">PDF 预览</h2>
+              <div className="flex-1 min-h-0 border border-border rounded-lg bg-black overflow-hidden">
+                <iframe
+                  src={pdfViewUrl}
+                  title="PDF 预览"
+                  className="w-full h-full bg-black"
+                />
+              </div>
+            </section>
+          )}
           </div>
         </div>
 
-        {/* 右侧：合并预览 + 操作按钮 */}
-        <div className="w-1/2 overflow-y-auto p-6 flex flex-col min-h-0">
+        {/* 右侧：合并预览 + 操作按钮，占满剩余宽度 */}
+        <div className="flex-[0.618] min-w-0 overflow-y-auto p-6 flex flex-col min-h-0">
           {!filePath && (
             <div className="flex-1 flex items-center justify-center text-sm text-muted">
               选择并加载 PDF 后，可在此查看合并预览并进行复制、添加到参考或写入 MediaWiki。
             </div>
           )}
-          {mergedPagesSorted.length > 0 && filePath && (
-            <section className="flex-1 min-h-0 flex flex-col border border-border rounded-lg bg-white/5 p-3">
-              <div className="shrink-0 flex items-center justify-between mb-2">
-                <h3 className="text-xs font-semibold text-white">合并预览</h3>
-                <span className="text-[11px] text-muted">
+          {filePath && (pageText || mergedPagesSorted.length > 0) && (
+            <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border bg-white overflow-hidden">
+              {mergedPagesSorted.length > 0 && (
+                <div className="shrink-0 px-4 py-2 border-b border-border text-xs text-muted">
                   共 {mergedPagesSorted.length} 页 · 约 {mergedPreviewText.length} 字
-                </span>
-              </div>
-              <div className="flex-1 min-h-0 overflow-auto border border-border/60 rounded bg-black/20 p-2">
-                <MarkdownPreview
-                  markdown={mergedPreviewText}
-                  className="min-h-[120px]"
+                </div>
+              )}
+              <div className="flex-1 min-h-0 p-4 flex flex-col">
+                <MarkdownEditorPreview
+                  content={
+                    mergedPagesSorted.length > 0
+                      ? (mergedEditedContent ?? mergedPreviewText)
+                      : (pageText || '').trim()
+                  }
+                  onContentChange={(v) => {
+                    if (mergedPagesSorted.length > 0) {
+                      setMergedEditedContent(v)
+                    } else {
+                      setPageText(v)
+                    }
+                    setContentSummary('')
+                  }}
+                  editable
                   theme="dark"
+                  showMediaWiki
+                  showSummary
+                  summary={contentSummary}
+                  onSummaryChange={setContentSummary}
+                  onGenerateSummary={(content) => fetchSummarize(content)}
+                  onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
+                  onAddToReference={(content) =>
+                    navigate('/add-reference', { state: { addToReference: content } })
+                  }
                 />
               </div>
-            </section>
-          )}
-
-          {filePath && (pageText || mergedPagesSorted.length > 0) && (
-            <div className="mt-4 pt-3 border-t border-border flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleCopyContent}
-                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
-              >
-                复制
-              </button>
-              <button
-                type="button"
-                onClick={handleAddToReference}
-                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
-              >
-                添加到参考
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMwDialogOpen(true)
-                  setMwTitle('')
-                  setMwSummary('')
-                }}
-                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
-              >
-                写入 MediaWiki
-              </button>
             </div>
           )}
         </div>

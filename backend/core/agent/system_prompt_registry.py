@@ -25,7 +25,7 @@ def get_all_system_prompts() -> List[Dict[str, Any]]:
          "tools": get_tool_names_for_agent("work_assistant"), "category": "agent"},
         {"id": "chat", "name": "通用对话", "prompt": CHAT_SYSTEM_PROMPT,
          "tools": get_tool_names_for_agent("chat"), "category": "agent"},
-        {"id": "article_writing", "name": "写文章", "prompt": ARTICLE_WRITING_SYSTEM_PROMPT + ARTICLE_WRITING_NOTE,
+        {"id": "article_writing", "name": "写作助手", "prompt": ARTICLE_WRITING_SYSTEM_PROMPT + ARTICLE_WRITING_NOTE,
          "tools": get_tool_names_for_agent("article_writing"), "category": "agent"},
         # 编排/选择器：内部组件
         {"id": "orchestrator_selector", "name": "智能编排选择器", "prompt": ORCHESTRATOR_SELECTOR_AUDIT_PROMPT,

@@ -1,5 +1,5 @@
 /**
- * 公众号草稿正文：Markdown 编辑 + 预览（与写文章页共用 MarkdownPreview 组件）
+ * 公众号草稿正文：Markdown 编辑 + 预览（与写作助手页共用 MarkdownPreview 组件）
  * 「插入图片」会调用微信「上传图文消息内的图片」接口，得到的 URL 插入正文（公众号仅接受该来源的图片）。
  */
 import { useRef, useState } from 'react'

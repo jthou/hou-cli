@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
-import WikiPreview from '../components/WikiPreview'
+import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
 import PasteButton from '../components/PasteButton'
+import { wikiToMd } from '../utils/wikiMdConvert'
+import { fetchSummarize } from '../utils/summarizeApi'
 import { useToast } from '../components/ToastModal'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 
 const STORAGE_KEY_LAST = 'mediawiki_reader_last'
+const STORAGE_KEY_SUMMARIES = 'mediawiki_reader_summaries'
 
 export default function MediaWikiReader() {
   const navigate = useNavigate()
@@ -17,6 +20,15 @@ export default function MediaWikiReader() {
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [selectedPage, setSelectedPage] = useState(null)
+  const [editedMarkdown, setEditedMarkdown] = useState(null)
+  const [summaryPerPage, setSummaryPerPage] = useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_SUMMARIES)
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  })
 
   const handlePasteFromClipboard = usePasteFromClipboard({
     onPaste: (text) => setTermsInput(text),
@@ -109,6 +121,29 @@ export default function MediaWikiReader() {
   useEffect(() => {
     if (!data) setSelectedPage(null)
   }, [data])
+  useEffect(() => {
+    setEditedMarkdown(null)
+  }, [selectedPage])
+
+  useEffect(() => {
+    try {
+      if (Object.keys(summaryPerPage).length > 0) {
+        localStorage.setItem(STORAGE_KEY_SUMMARIES, JSON.stringify(summaryPerPage))
+      }
+    } catch {
+      // ignore
+    }
+  }, [summaryPerPage])
+
+  const pageKey = selectedPage?.title || selectedPage?.url || ''
+  const currentSummary = pageKey ? (summaryPerPage[pageKey] ?? '') : ''
+  const setCurrentSummary = useCallback(
+    (v) => {
+      if (!pageKey) return
+      setSummaryPerPage((prev) => ({ ...prev, [pageKey]: v ?? '' }))
+    },
+    [pageKey]
+  )
 
   return (
     <div className="flex flex-col h-full">
@@ -118,7 +153,7 @@ export default function MediaWikiReader() {
       />
 
       <div className="flex-1 overflow-hidden flex min-h-0">
-        <div className="w-80 shrink-0 flex flex-col border-r border-border bg-white/[0.02] min-h-0">
+        <div className="flex-[0.382] min-w-0 flex flex-col border-r border-border bg-white/[0.02] min-h-0">
           <div className="shrink-0 p-4 border-b border-border">
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
@@ -222,7 +257,7 @@ export default function MediaWikiReader() {
           </div>
         </div>
 
-        <div className="min-w-0 flex-1 overflow-y-auto bg-white/[0.02] p-6">
+        <div className="min-w-0 flex-[0.618] overflow-y-auto bg-white/[0.02] p-6">
           {!selectedPage && (
             <div className="h-full flex items-center justify-center text-sm text-muted">
               在左上输入关键词抓取后，点击左下页面列表中的条目，即可在此预览。
@@ -243,9 +278,20 @@ export default function MediaWikiReader() {
                   在新标签页打开
                 </a>
               </div>
-              <WikiPreview
-                wikiText={selectedPage.content || ''}
+              <MarkdownEditorPreview
+                content={editedMarkdown ?? wikiToMd(selectedPage.content || '')}
+                onContentChange={(v) => {
+                  setEditedMarkdown(v)
+                  setCurrentSummary('')
+                }}
+                editable
                 theme="dark"
+                showMediaWiki
+                showSummary
+                summary={currentSummary}
+                onSummaryChange={setCurrentSummary}
+                onGenerateSummary={(content) => fetchSummarize(content)}
+                onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
                 onAddToReference={(content) =>
                   navigate('/add-reference', { state: { addToReference: content } })
                 }

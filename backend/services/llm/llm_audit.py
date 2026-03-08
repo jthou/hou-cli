@@ -188,6 +188,56 @@ def read_audit_records(
         conn.close()
 
 
+def get_daily_token_stats(from_date: str, to_date: str) -> List[Dict[str, Any]]:
+    """
+    按日聚合 token 消耗（仅统计 direction=response 且含 usage 的记录）。
+    返回 [{date, prompt_tokens, completion_tokens, total_tokens, call_count}, ...]，按日期降序。
+    """
+    if from_date > to_date:
+        from_date, to_date = to_date, from_date
+    conn = _get_conn()
+    if conn is None:
+        return []
+    try:
+        cur = conn.execute(
+            """
+            SELECT record FROM llm_audit
+            WHERE substr(ts, 1, 10) BETWEEN ? AND ?
+            """,
+            (from_date, to_date),
+        )
+        by_date: Dict[str, Dict[str, int]] = {}
+        for row in cur.fetchall():
+            try:
+                rec = json.loads(row[0])
+                if rec.get("direction") != "response":
+                    continue
+                usage = rec.get("usage")
+                if not usage or not isinstance(usage, dict):
+                    continue
+                date_str = (rec.get("ts") or "")[:10]
+                if not date_str:
+                    continue
+                if date_str not in by_date:
+                    by_date[date_str] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "call_count": 0}
+                d = by_date[date_str]
+                d["call_count"] += 1
+                d["prompt_tokens"] += usage.get("prompt_tokens") or 0
+                d["completion_tokens"] += usage.get("completion_tokens") or 0
+                d["total_tokens"] += usage.get("total_tokens") or 0
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return [
+            {"date": d, "prompt_tokens": v["prompt_tokens"], "completion_tokens": v["completion_tokens"], "total_tokens": v["total_tokens"], "call_count": v["call_count"]}
+            for d, v in sorted(by_date.items(), reverse=True)
+        ]
+    except Exception as e:
+        logger.warning("按日聚合 token 消耗失败: %s", e)
+        return []
+    finally:
+        conn.close()
+
+
 def read_audit_records_range(
     from_date: str,
     to_date: str,

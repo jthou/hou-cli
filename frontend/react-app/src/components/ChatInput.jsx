@@ -1,6 +1,6 @@
 /**
  * 多行聊天输入框：Enter 换行，Ctrl+Enter（或 Cmd+Enter）发送。
- * 供写文章、对话等场景复用。
+ * 供写作助手、对话等场景复用。
  *
  * @param {string} [props.value] - 受控输入值
  * @param {(v: string) => void} [props.onChange] - 输入变化回调

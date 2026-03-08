@@ -7,7 +7,7 @@ import { saveReferenceBlocks, loadReferenceBlocks } from '../utils/articleWritin
 import { generateReferenceBlockId } from '../utils/referenceUtils'
 import { runWhenIdle } from '../utils/runWhenIdle'
 
-export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
+export function useReferenceBlocks(selectedSessionId, referencePanelOpen, contextType = 'article_writing') {
   const [referenceBlocks, setReferenceBlocks] = useState([])
   const referenceBlocksRef = useRef(referenceBlocks)
   referenceBlocksRef.current = referenceBlocks
@@ -19,11 +19,11 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
     setReferenceBlocks((prev) => {
       const next = [...prev, { id: generateReferenceBlockId(), title: '', content: '' }]
       if (selectedSessionId) {
-        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, next).catch(() => {}))
+        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, next, contextType).catch(() => {}))
       }
       return next
     })
-  }, [selectedSessionId])
+  }, [selectedSessionId, contextType])
 
   const handleUpdateReferenceBlock = useCallback((id, field, value) => {
     setReferenceBlocks((prev) =>
@@ -35,20 +35,20 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
     setReferenceBlocks((prev) => {
       const next = prev.filter((b) => b.id !== id)
       if (selectedSessionId) {
-        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, next).catch(() => {}))
+        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, next, contextType).catch(() => {}))
       }
       return next
     })
-  }, [selectedSessionId])
+  }, [selectedSessionId, contextType])
 
   const reloadBlocks = useCallback((sessionIdOverride) => {
     const sid = sessionIdOverride ?? selectedSessionId
     if (!sid) return
-    loadReferenceBlocks(sid).then((blocks) => {
+    loadReferenceBlocks(sid, contextType).then((blocks) => {
       setReferenceBlocks(blocks)
       referenceBlocksLoadedRef.current = true
     })
-  }, [selectedSessionId])
+  }, [selectedSessionId, contextType])
 
   /** 参考块按会话：切换会话时保存旧会话、加载新会话 */
   useEffect(() => {
@@ -63,44 +63,44 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen) {
     prevSelectedSessionIdRef.current = selectedSessionId
 
     if (prevSessionId && prevSessionId !== selectedSessionId && referenceBlocksRef.current.length > 0) {
-      runWhenIdle(() => saveReferenceBlocks(prevSessionId, referenceBlocksRef.current).catch(() => {}))
+      runWhenIdle(() => saveReferenceBlocks(prevSessionId, referenceBlocksRef.current, contextType).catch(() => {}))
     }
 
-    loadReferenceBlocks(selectedSessionId).then((blocks) => {
+    loadReferenceBlocks(selectedSessionId, contextType).then((blocks) => {
       if (cancelled) return
       setReferenceBlocks(blocks)
       referenceBlocksLoadedRef.current = true
     })
     return () => { cancelled = true }
-  }, [selectedSessionId])
+  }, [selectedSessionId, contextType])
 
   /** 参考块持久化：面板关闭时写入 */
   useEffect(() => {
     if (!referenceBlocksLoadedRef.current || !selectedSessionId) return
     if (prevReferencePanelOpenRef.current && !referencePanelOpen) {
-      runWhenIdle(() => saveReferenceBlocks(selectedSessionId, referenceBlocks).catch(() => {}))
+      runWhenIdle(() => saveReferenceBlocks(selectedSessionId, referenceBlocks, contextType).catch(() => {}))
     }
     prevReferencePanelOpenRef.current = referencePanelOpen
-  }, [referencePanelOpen, referenceBlocks, selectedSessionId])
+  }, [referencePanelOpen, referenceBlocks, selectedSessionId, contextType])
 
   /** 内容变更时防抖写入 */
   useEffect(() => {
     if (!referenceBlocksLoadedRef.current || !selectedSessionId) return
     const id = setTimeout(() => {
-      saveReferenceBlocks(selectedSessionId, referenceBlocks).catch(() => {})
+      saveReferenceBlocks(selectedSessionId, referenceBlocks, contextType).catch(() => {})
     }, 800)
     return () => clearTimeout(id)
-  }, [referenceBlocks, selectedSessionId])
+  }, [referenceBlocks, selectedSessionId, contextType])
 
   /** 组件卸载时保存当前会话参考块 */
   useEffect(() => {
     return () => {
       const blocks = referenceBlocksRef.current
       if (referenceBlocksLoadedRef.current && selectedSessionId && blocks?.length > 0) {
-        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, blocks).catch(() => {}), { timeout: 0 })
+        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, blocks, contextType).catch(() => {}), { timeout: 0 })
       }
     }
-  }, [selectedSessionId])
+  }, [selectedSessionId, contextType])
 
   return {
     referenceBlocks,

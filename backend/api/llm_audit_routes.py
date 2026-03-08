@@ -6,6 +6,25 @@ from fastapi import APIRouter
 router = APIRouter()
 
 
+@router.get("/settings/llm-audit/daily-stats")
+async def get_llm_audit_daily_stats(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    """
+    按日聚合 token 消耗（prompt_tokens、completion_tokens、total_tokens、call_count）。
+    需传 from_date 和 to_date（YYYY-MM-DD），不传则返回空列表。
+    """
+    if not from_date or not to_date:
+        return {"success": True, "stats": []}
+    try:
+        from backend.services.llm.llm_audit import get_daily_token_stats
+        stats = get_daily_token_stats(from_date, to_date)
+        return {"success": True, "stats": stats, "from_date": from_date, "to_date": to_date}
+    except Exception as e:
+        return {"success": False, "error": str(e), "stats": []}
+
+
 @router.get("/settings/llm-audit/dates")
 async def list_llm_audit_dates():
     """返回已有审计文件的日期列表，格式 YYYY-MM-DD，降序。"""

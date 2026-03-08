@@ -182,7 +182,7 @@ export default function SettingsModelConfigAudit() {
                 </div>
               </div>
               <p className="text-xs text-muted mb-3">
-                响应时间来自 LLM 审计；接受次数为写文章场景点击「接受修改」的次数。综合得分 = 接受次数×10 + 速度得分（响应越快越高）。
+                响应时间来自 LLM 审计；接受次数为写作助手场景点击「接受修改」的次数。综合得分 = 接受次数×10 + 速度得分（响应越快越高）。
               </p>
               <div className="rounded-lg border border-border bg-white/[0.02] overflow-x-auto min-w-[720px]">
                 <table className="w-full text-sm table-fixed">
@@ -340,7 +340,7 @@ export default function SettingsModelConfigAudit() {
                 </table>
               </div>
               <p className="text-xs text-muted mt-2">
-                CHAT_MODEL、CODE_MODEL、REASONING_MODEL 对应写文章、工作助手等页面的模型选择下拉。
+                CHAT_MODEL、CODE_MODEL、REASONING_MODEL 对应写作助手、工作助手等页面的模型选择下拉。
               </p>
             </section>
 

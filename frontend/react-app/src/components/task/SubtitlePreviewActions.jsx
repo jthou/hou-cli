@@ -1,5 +1,5 @@
 /**
- * 字幕预览与操作：复制、发送到写文章、添加到参考、写入 MediaWiki
+ * 字幕预览与操作：复制、发送到写作助手、添加到参考、写入 MediaWiki
  * 基于 DraftPreviewActions 的纯文本格式封装。
  */
 import DraftPreviewActions from './DraftPreviewActions'

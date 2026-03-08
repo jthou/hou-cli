@@ -1,10 +1,10 @@
 import { NavLink } from 'react-router-dom'
 import BackendStatus from './BackendStatus'
 
-// 分组：智能工具、阅读工具、任务工具、文档、协作、工具、设置、开发
+// 分组：智能工具、阅读工具、任务工具、文档、协作、设置、开发
 const navItems = [
   { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
-  { path: '/article-writing', icon: '✍️', label: '公众号写作', group: 'smart_tools' },
+  { path: '/article-writing', icon: '✍️', label: '写作助手', group: 'smart_tools' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },
   { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'read' },
@@ -21,7 +21,7 @@ const navItems = [
   { path: '/pdf-to-wiki', icon: '📄', label: 'PDF转Wiki', group: 'task_tools' },
   { path: '/wiki-directory', icon: '📚', label: 'Wiki目录', group: 'docs' },
   { path: '/settings/kanban', icon: '🗂️', label: 'Wiki看板', group: 'wiki' },
-  { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
+  { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'task_tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/llm-audit', icon: '📜', label: 'LLM审计', group: 'settings' },
@@ -40,12 +40,11 @@ const GROUP_META = {
   task_tools: { label: '任务工具', icon: '🛠️' },
   docs: { label: '文档', icon: '📄' },
   wiki: { label: '协作', icon: '🗂️' },
-  tools: { label: '工具', icon: '🔧' },
   settings: { label: '设置', icon: '⚙️' },
   dev: { label: '开发', icon: '🧪' },
 }
 
-const GROUP_ORDER = ['smart_tools', 'read', 'task_tools', 'docs', 'wiki', 'tools', 'settings', 'dev']
+const GROUP_ORDER = ['smart_tools', 'read', 'task_tools', 'docs', 'wiki', 'settings', 'dev']
 
 export default function Sidebar({ open, onToggle }) {
   const itemsByGroup = GROUP_ORDER.map(groupId => ({

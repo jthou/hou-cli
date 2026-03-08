@@ -1,5 +1,5 @@
 /**
- * Markdown 操作按钮：复制、发送到写文章、写入 MediaWiki
+ * Markdown 操作按钮：复制、发送到写作助手、写入 MediaWiki
  * 供 MarkdownEditorPreview、ArticleWriting 等复用
  * 写入 MediaWiki 与同步到公众号草稿均通过任务队列，可在任务管理中审计。
  */
@@ -12,22 +12,24 @@ import { useToast } from './ToastModal'
  * @param {Object} props
  * @param {string} [props.content] - 当前 Markdown 内容
  * @param {(content: string) => void} [props.onCopy] - 复制回调，默认使用剪贴板
- * @param {(content: string) => void} [props.onSendToArticle] - 发送到写文章回调，不传则隐藏
- * @param {string} [props.sendToArticleLabel='发送到写文章'] - 按钮文案
+ * @param {(content: string) => void} [props.onSendToArticle] - 发送到写作助手回调，不传则隐藏
+ * @param {string} [props.sendToArticleLabel='发送到写作助手'] - 按钮文案
  * @param {boolean} [props.showMediaWiki=true] - 是否显示写入 MediaWiki
  * @param {(content: string) => void} [props.onAddToReference] - 添加到参考回调，不传则隐藏
  * @param {React.ReactNode} [props.extra] - 额外按钮（如「同步到公众号草稿」）
  * @param {string} [props.className] - 容器类名
+ * @param {string} [props.sourceUrl] - 原文链接（如微信读书 URL），写入 MediaWiki 时自动追加到文末
  */
 export default function MarkdownActionButtons({
   content = '',
   onCopy,
   onSendToArticle,
-  sendToArticleLabel = '发送到写文章',
+  sendToArticleLabel = '发送到写作助手',
   showMediaWiki = true,
   onAddToReference,
   extra,
   className = '',
+  sourceUrl = '',
 }) {
   const toast = useToast()
   const navigate = useNavigate()
@@ -65,7 +67,10 @@ export default function MarkdownActionButtons({
   }
 
   const handleMwDialogOpen = () => {
-    const trimmed = (content || '').trim()
+    let trimmed = (content || '').trim()
+    if (sourceUrl?.trim()) {
+      trimmed = trimmed + '\n\n---\n\n原文链接：[' + sourceUrl.trim() + '](' + sourceUrl.trim() + ')'
+    }
     setMwMdState(trimmed)
     setMwWikitextState(mdToWiki(trimmed))
     setMwTitle('')

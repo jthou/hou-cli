@@ -1,6 +1,6 @@
 /**
  * 共用 Markdown 预览：接收 Markdown 文本，用与公众号草稿一致的样式渲染（mdToHtml + WechatDraftPreview）。
- * 写文章页「文章预览」与公众号草稿「预览」均使用此组件，保证一致。
+ * 写作助手页「文章预览」与公众号草稿「预览」均使用此组件，保证一致。
  */
 import { useMemo } from 'react'
 import WechatDraftPreview from './WechatDraftPreview'

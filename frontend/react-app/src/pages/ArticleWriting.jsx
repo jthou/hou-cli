@@ -1,5 +1,5 @@
 /**
- * 写文章 - 与公众号草稿一致：左侧会话列表，中间对话，右侧文章预览（Markdown 预览与微信草稿一致）。
+ * 写作助手 - 与公众号草稿一致：左侧会话列表，中间对话，右侧文章预览（Markdown 预览与微信草稿一致）。
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -9,6 +9,53 @@ import MarkdownPreview from '../components/MarkdownPreview'
 import MarkdownActionButtons from '../components/MarkdownActionButtons'
 import ChatInput from '../components/ChatInput'
 import ArticleDiffView from '../components/ArticleDiffView'
+import { fetchSummarize } from '../utils/summarizeApi'
+
+function ArticleSummaryTab({ summary, onSummaryChange, onGenerateSummary, onSummaryError, content }) {
+  const [loading, setLoading] = useState(false)
+  const handleGenerate = useCallback(async () => {
+    if (!onGenerateSummary || !(content || '').trim()) return
+    setLoading(true)
+    try {
+      const result = await onGenerateSummary(content)
+      onSummaryChange?.(result ?? '')
+    } catch (err) {
+      onSummaryChange?.('')
+      onSummaryError?.(err instanceof Error ? err : new Error(String(err)))
+    } finally {
+      setLoading(false)
+    }
+  }, [content, onGenerateSummary, onSummaryChange, onSummaryError])
+  /** 进入摘要标签且无摘要时，自动生成 */
+  useEffect(() => {
+    if (!summary?.trim() && (content || '').trim() && onGenerateSummary && !loading) {
+      handleGenerate()
+    }
+  }, [])
+  return (
+    <div className="flex-1 min-h-0 flex flex-col gap-2">
+      <div className="shrink-0 flex justify-between items-center gap-2">
+        {onGenerateSummary && (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={loading || !(content || '').trim()}
+            className="px-2 py-1 text-xs rounded border border-border text-muted hover:bg-white/10 disabled:opacity-50"
+          >
+            {loading ? '生成中…' : summary ? '重新生成' : '生成摘要'}
+          </button>
+        )}
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto text-sm text-muted [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-1.5 [&_h3]:mb-0.5 [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4">
+        {summary ? (
+          <MarkdownPreview markdown={summary} theme="dark" className="p-0 min-h-0 text-sm" />
+        ) : (
+          <p className="text-xs text-muted/70 italic">点击「生成摘要」由 AI 生成结构化分层摘要。</p>
+        )}
+      </div>
+    </div>
+  )
+}
 import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../utils/mdToHtml'
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
@@ -29,6 +76,8 @@ const WECHAT_MP_API = {
 
 const ARTICLE_SESSION_TYPE = 'article_writing'
 const STORAGE_KEY_SELECTED_SESSION = 'article_writing_selected_session_id'
+
+const getSummaryStorageKey = (sessionId) => `article_writing_summaries_${sessionId || ''}`
 
 export default function ArticleWriting() {
   const toast = useToast()
@@ -64,6 +113,8 @@ export default function ArticleWriting() {
   /** 预览区是否为编辑模式；编辑时的草稿内容 */
   const [editMode, setEditMode] = useState(false)
   const [editDraft, setEditDraft] = useState('')
+  /** 预览区标签：'content' 正文 | 'summary' 摘要 */
+  const [previewTab, setPreviewTab] = useState('content')
   /** 流式输出时当前已接收的助手回复内容（未结束时累积显示） */
   const [streamingContent, setStreamingContent] = useState('')
   /** 流式过程中收到的工具调用（调用了什么、结果如何） */
@@ -89,13 +140,15 @@ export default function ArticleWriting() {
     else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
   }, [defaultModel, selectedModel, selectableModels])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /** 摘要按版本存储：{ [revisionId|'current']: summary } */
+  const [summaryPerVersion, setSummaryPerVersion] = useState({})
   const {
     referenceBlocks,
     handleAddReferenceBlock,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,
-  } = useReferenceBlocks(selectedSessionId, referencePanelOpen)
+  } = useReferenceBlocks(selectedSessionId, referencePanelOpen, ARTICLE_SESSION_TYPE)
   const messagesEndRef = useRef(null)
   const messagesScrollRef = useRef(null)
   const abortControllerRef = useRef(null)
@@ -156,7 +209,7 @@ export default function ArticleWriting() {
     reloadBlocks(focusId)
   }, [location.state?.focusSessionId, location.pathname, location.search, navigate, reloadBlocks])
 
-  /** 接收来自 url_to_wiki 等「发送到写文章」的 initialMarkdown，创建新会话并填入 */
+  /** 接收来自 url_to_wiki 等「发送到写作助手」的 initialMarkdown，创建新会话并填入 */
   useEffect(() => {
     const state = location.state
     const initialMarkdown = state?.initialMarkdown
@@ -615,6 +668,11 @@ export default function ArticleWriting() {
         return
       }
       setArticle(d.article)
+      setSummaryPerVersion((prev) => {
+        const next = { ...prev }
+        delete next.current
+        return next
+      })
       loadRevisions()
       toast?.info?.('已更新文章，可在「同步到公众号草稿」中按需生成标题、摘要、封面')
     } catch (e) {
@@ -625,6 +683,7 @@ export default function ArticleWriting() {
   const enterEditMode = () => {
     setEditDraft(previewContent ?? '')
     setEditMode(true)
+    setPreviewTab('content')
   }
   const exitEditMode = () => {
     setEditMode(false)
@@ -643,6 +702,11 @@ export default function ArticleWriting() {
           setPreviewRevisionId(null)
           setShowDiffView(false)
           setEditMode(false)
+          setSummaryPerVersion((prev) => {
+            const next = { ...prev }
+            delete next.current
+            return next
+          })
           loadRevisions()
         } else {
           toast?.error?.(d.error || '保存失败')
@@ -786,6 +850,34 @@ export default function ArticleWriting() {
     return rev?.content ?? article ?? ''
   }, [article, previewRevisionId, revisions])
 
+  /** 当前预览对应的版本 key：'current' 或 revision.id */
+  const summaryVersionKey = previewRevisionId ?? 'current'
+  const currentSummary = summaryPerVersion[summaryVersionKey] ?? ''
+
+  /** 从 localStorage 加载摘要 */
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setSummaryPerVersion({})
+      return
+    }
+    try {
+      const raw = localStorage.getItem(getSummaryStorageKey(selectedSessionId))
+      setSummaryPerVersion(raw ? JSON.parse(raw) : {})
+    } catch {
+      setSummaryPerVersion({})
+    }
+  }, [selectedSessionId])
+
+  /** 持久化摘要到 localStorage */
+  useEffect(() => {
+    if (!selectedSessionId || Object.keys(summaryPerVersion).length === 0) return
+    try {
+      localStorage.setItem(getSummaryStorageKey(selectedSessionId), JSON.stringify(summaryPerVersion))
+    } catch {
+      // ignore
+    }
+  }, [selectedSessionId, summaryPerVersion])
+
   /** 打开「同步到公众号草稿」时拉取 schema、当前文章、以及已生成的元数据（标题、摘要、作者、封面）预填 */
   useEffect(() => {
     if (outputDialog !== 'wechat' || !previewContent) return
@@ -819,7 +911,7 @@ export default function ArticleWriting() {
       })
   }, [outputDialog, previewContent, selectedSessionId])
 
-  /** 写文章场景固定为「新增草稿」，不展示「操作类型」；更新草稿需在任务管理里选定已有草稿（media_id） */
+  /** 写作助手场景固定为「新增草稿」，不展示「操作类型」；更新草稿需在任务管理里选定已有草稿（media_id） */
   const wechatOutputSchemaForForm = useMemo(() => {
     const { operation: _o, ...rest } = wechatOutputSchema
     return rest
@@ -843,6 +935,11 @@ export default function ArticleWriting() {
       if (d.status === 'success' && d.article != null) {
         setArticle(d.article)
         setPreviewRevisionId(null)
+        setSummaryPerVersion((prev) => {
+          const next = { ...prev }
+          delete next.current
+          return next
+        })
         loadRevisions()
         setPatchDialogOpen(false)
         setPatchAnchor('')
@@ -868,6 +965,11 @@ export default function ArticleWriting() {
       .then((d) => {
         if (d.status === 'success' && d.article != null) {
           setArticle(d.article)
+          setSummaryPerVersion((prev) => {
+            const next = { ...prev }
+            delete next.current
+            return next
+          })
           loadRevisions()
           toast?.info?.('已恢复该版本')
         } else {
@@ -908,12 +1010,12 @@ export default function ArticleWriting() {
   return (
     <div className="flex flex-col h-full min-h-0">
       <PageHeader
-        title="公众号写作"
-        subtitle="左侧为公众号写作会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可点击生成标题、摘要、作者、封面建议。"
+        title="写作助手"
+        subtitle="左侧为写作助手会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可点击生成标题、摘要、作者、封面建议。"
       />
 
       <div className="flex-1 flex min-h-0">
-        {/* 左侧：写文章会话列表（与公众号草稿左侧一致） */}
+        {/* 左侧：写作助手会话列表（与公众号草稿左侧一致） */}
         <div
           className={`shrink-0 border-r border-border bg-white/[0.02] overflow-hidden transition-all duration-200 ${
             sidebarCollapsed ? 'w-8' : 'w-72 flex flex-col'
@@ -925,7 +1027,7 @@ export default function ArticleWriting() {
                 type="button"
                 onClick={() => setSidebarCollapsed(false)}
                 className="px-1.5 py-1 rounded border border-border text-[11px] text-muted hover:bg-white/5"
-                title="展开写文章会话列表"
+                title="展开写作助手会话列表"
               >
                 展开
               </button>
@@ -945,7 +1047,7 @@ export default function ArticleWriting() {
                     type="button"
                     onClick={() => setSidebarCollapsed(true)}
                     className="px-2 py-2 rounded-lg border border-border text-xs text-muted hover:text-fg hover:bg-white/5"
-                    title="收起写文章会话列表"
+                    title="收起写作助手会话列表"
                   >
                     收起
                   </button>
@@ -966,7 +1068,7 @@ export default function ArticleWriting() {
                 {sessionsLoading ? (
                   <div className="p-4 text-center text-muted text-sm">加载中…</div>
                 ) : sessions.length === 0 ? (
-                  <div className="p-4 text-muted text-sm">暂无写文章会话，点击上方新建</div>
+                  <div className="p-4 text-muted text-sm">暂无写作助手会话，点击上方新建</div>
                 ) : (
                   <ul className="p-2 space-y-1">
                     {sessions.map((s) => (
@@ -1029,7 +1131,7 @@ export default function ArticleWriting() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden border-r border-border">
           {!selectedSessionId ? (
             <div className="flex-1 flex items-center justify-center text-muted text-sm">
-              请在左侧选择或新建一个写文章会话
+              请在左侧选择或新建一个写作助手会话
             </div>
           ) : detailLoading ? (
             <div className="flex-1 flex items-center justify-center text-muted text-sm">
@@ -1264,17 +1366,35 @@ export default function ArticleWriting() {
         {/* 右侧：文章预览 */}
         <div className="w-[560px] shrink-0 flex flex-col min-h-0 bg-white/[0.02] overflow-hidden">
           <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-            <h2 className="text-sm font-medium text-muted">文章预览</h2>
             <div className="flex items-center gap-2">
-              {previewContent && !editMode && (
-                <button
-                  type="button"
-                  onClick={enterEditMode}
-                  className="text-xs px-2 py-1 rounded border border-border text-cyan-400 hover:bg-cyan-500/10"
-                >
-                  编辑
-                </button>
+              <h2 className="text-sm font-medium text-muted">文章预览</h2>
+              {previewContent && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setEditMode(false); setPreviewTab('content') }}
+                    className={`text-xs px-2 py-1 rounded ${!editMode && previewTab === 'content' ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
+                  >
+                    预览
+                  </button>
+                  <button
+                    type="button"
+                    onClick={enterEditMode}
+                    className={`text-xs px-2 py-1 rounded ${editMode ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditMode(false); setPreviewTab('summary') }}
+                    className={`text-xs px-2 py-1 rounded ${!editMode && previewTab === 'summary' ? 'bg-accent text-white' : 'border border-border text-muted hover:bg-white/10'}`}
+                  >
+                    摘要
+                  </button>
+                </>
               )}
+            </div>
+            <div className="flex items-center gap-2">
               {editMode && (
                 <>
                   <button
@@ -1293,7 +1413,7 @@ export default function ArticleWriting() {
                   </button>
                 </>
               )}
-              {selectedSessionId && article && (
+              {previewContent && (
                 <button
                   type="button"
                   onClick={() => { setPatchAnchor(''); setPatchContent(''); setPatchDialogOpen(true) }}
@@ -1353,32 +1473,44 @@ export default function ArticleWriting() {
             </div>
           )}
           <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-2 bg-[#f6f8fa]">
-            {previewRevisionId != null && (
-              <div className="shrink-0 flex items-center justify-between gap-2 rounded-lg px-3 py-2 bg-cyan-500/10 border border-cyan-500/30 text-sm flex-wrap">
-                <span className="text-cyan-300">
-                  正在查看历史版本 · {revisions.find((r) => r.id === previewRevisionId)?.created_at?.slice(0, 19).replace('T', ' ') ?? ''}
-                </span>
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showDiffView}
-                      onChange={(e) => setShowDiffView(e.target.checked)}
-                      className="rounded border-border"
-                    />
-                    差异对比
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => { setPreviewRevisionId(null); setShowDiffView(false) }}
-                    className="px-2 py-1 text-xs rounded border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
-                  >
-                    返回当前
-                  </button>
-                </div>
-              </div>
-            )}
-            {editMode ? (
+            {previewTab === 'summary' ? (
+              <ArticleSummaryTab
+                summary={currentSummary}
+                onSummaryChange={(v) =>
+                  setSummaryPerVersion((prev) => ({ ...prev, [summaryVersionKey]: v ?? '' }))
+                }
+                onGenerateSummary={(content) => fetchSummarize(content)}
+                onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
+                content={previewContent}
+              />
+            ) : (
+              <>
+                {previewRevisionId != null && (
+                  <div className="shrink-0 flex items-center justify-between gap-2 rounded-lg px-3 py-2 bg-cyan-500/10 border border-cyan-500/30 text-sm flex-wrap">
+                    <span className="text-cyan-300">
+                      正在查看历史版本 · {revisions.find((r) => r.id === previewRevisionId)?.created_at?.slice(0, 19).replace('T', ' ') ?? ''}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showDiffView}
+                          onChange={(e) => setShowDiffView(e.target.checked)}
+                          className="rounded border-border"
+                        />
+                        差异对比
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => { setPreviewRevisionId(null); setShowDiffView(false) }}
+                        className="px-2 py-1 text-xs rounded border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                      >
+                        返回当前
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {editMode ? (
                 <div className="flex-1 min-h-0 flex flex-col gap-2">
                   <textarea
                     value={editDraft}
@@ -1405,6 +1537,8 @@ export default function ArticleWriting() {
                   {selectedSessionId ? '点击对话中助手回复的「接受修改」可更新文章，并作为后续润色/续写的上下文。' : '选择会话后，此处显示该会话的文章草稿。'}
                 </p>
               )}
+              </>
+            )}
           </div>
           {previewContent && (
             <div className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-center gap-3 bg-black/20">

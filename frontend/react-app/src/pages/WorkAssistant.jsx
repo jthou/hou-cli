@@ -1,5 +1,5 @@
 /**
- * 工作助手 - 通用对话入口，支持模型选择、会话持久化、参考块（与写文章概念和操作一致）
+ * 工作助手 - 通用对话入口，支持模型选择、会话持久化、参考块（与写作助手概念和操作一致）
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -48,7 +48,7 @@ export default function WorkAssistant() {
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,
-  } = useReferenceBlocks(selectedSessionId, referencePanelOpen)
+  } = useReferenceBlocks(selectedSessionId, referencePanelOpen, SESSION_TYPE)
 
   const handleAddReferenceBlockAndOpen = () => {
     setReferencePanelOpen(true)

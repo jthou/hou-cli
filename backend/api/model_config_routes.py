@@ -9,7 +9,7 @@ router = APIRouter()
 AGENT_MODEL_MAPPING = [
     ("chat", "通用对话", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("work_assistant", "工作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
-    ("article_writing", "写文章", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
+    ("article_writing", "写作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("orchestrator_selector", "智能编排选择器", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("skill_matching", "技能匹配", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("model_selector", "模型选择", ["REASONING_MODEL"], "固定使用推理模型"),
@@ -146,7 +146,7 @@ PROVIDER_LABELS = {
     "theturbogateway": "TheTurbo.ai 网关",
 }
 
-# 对话/编码/推理模型（写文章、工作助手等）按供应商分组
+# 对话/编码/推理模型（写作助手、工作助手等）按供应商分组
 # DeepSeek 平台：仅无版本号模型（chat/coder/reasoner）
 # 百炼平台：带版本号的 deepseek-* 及 qwen 等
 CHAT_MODELS_BY_PROVIDER = {
@@ -301,7 +301,7 @@ async def get_model_stats(days: int = 30):
     模型使用统计：响应时间、接受次数，按综合得分排名。
     - call_count: 调用次数
     - avg_response_ms: 平均响应时间（毫秒）
-    - accepted_count: 被接受修改次数（写文章场景点击「接受修改」）
+    - accepted_count: 被接受修改次数（写作助手场景点击「接受修改」）
     - score: 综合得分（接受次数权重高，响应越快越好）
     """
     try:

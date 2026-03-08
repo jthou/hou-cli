@@ -1,4 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
 import PageHeader from '../components/PageHeader'
 
 const PAGE_SIZE = 20
@@ -14,7 +23,7 @@ const DIRECTION_CLASS = {
 }
 
 function RecordCard({ record }) {
-  const { ts, direction, model, payload, audit_id, session_id, ...rest } = record
+  const { ts, direction, model, payload, audit_id, session_id, usage, ...rest } = record
   const dirClass = DIRECTION_CLASS[direction] || 'bg-slate-500/20 text-slate-400'
   const label = DIRECTION_LABEL[direction] ?? direction
 
@@ -60,6 +69,11 @@ function RecordCard({ record }) {
         <span className={`text-xs font-medium px-2 py-0.5 rounded ${dirClass}`}>{label}</span>
         <span className="text-xs text-muted">{ts}</span>
         <span className="text-xs text-muted">{model}</span>
+        {usage && (usage.prompt_tokens != null || usage.completion_tokens != null || usage.total_tokens != null) && (
+          <span className="text-xs text-amber-400/90" title="输入/输出/合计 tokens">
+            {[usage.prompt_tokens ?? '-', usage.completion_tokens ?? '-', usage.total_tokens ?? '-'].join(' / ')} tokens
+          </span>
+        )}
         {audit_id && <span className="text-xs text-muted">audit_id: {audit_id}</span>}
         {session_id && <span className="text-xs text-violet-400">session: {session_id.slice(0, 8)}…</span>}
       </div>
@@ -86,6 +100,28 @@ export default function SettingsLlmAudit() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [dailyStats, setDailyStats] = useState([])
+  const [chartMode, setChartMode] = useState('day') // 'day' | 'week' | 'month'
+
+  const chartData = useMemo(() => {
+    if (!Array.isArray(dailyStats) || dailyStats.length === 0) return []
+    const toD = new Date((toDate || '') + 'T12:00:00')
+    const windowDays = chartMode === 'week' ? 7 : chartMode === 'month' ? 30 : null
+    const fromD = windowDays ? new Date(toD) : null
+    if (fromD && windowDays) fromD.setDate(fromD.getDate() - windowDays + 1)
+    const windowStart = fromD ? fromD.toISOString().slice(0, 10) : null
+    const filtered = windowStart
+      ? dailyStats.filter((s) => (s.date || '') >= windowStart && (s.date || '') <= (toDate || ''))
+      : dailyStats
+    return filtered.map((s) => ({
+      name: (s.date || '').slice(5) || '-',
+      fullName: s.date,
+      total_tokens: s.total_tokens ?? 0,
+      prompt_tokens: s.prompt_tokens ?? 0,
+      completion_tokens: s.completion_tokens ?? 0,
+      call_count: s.call_count ?? 0,
+    })).reverse()
+  }, [dailyStats, chartMode, toDate])
 
   useEffect(() => {
     fetch('/api/settings/llm-audit/dates')
@@ -100,10 +136,22 @@ export default function SettingsLlmAudit() {
       .catch(() => {})
   }, [])
 
+  const loadDailyStats = useCallback(() => {
+    if (!fromDate || !toDate) return
+    setDailyStats([])
+    fetch(`/api/settings/llm-audit/daily-stats?from_date=${encodeURIComponent(fromDate)}&to_date=${encodeURIComponent(toDate)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success && Array.isArray(d.stats)) setDailyStats(d.stats)
+      })
+      .catch(() => {})
+  }, [fromDate, toDate])
+
   const loadRecords = useCallback(() => {
     if (!fromDate || !toDate) return
     setLoading(true)
     setError(null)
+    loadDailyStats()
     const params = new URLSearchParams({
       from_date: fromDate,
       to_date: toDate,
@@ -128,7 +176,7 @@ export default function SettingsLlmAudit() {
         setTotal(0)
       })
       .finally(() => setLoading(false))
-  }, [fromDate, toDate, page])
+  }, [fromDate, toDate, page, loadDailyStats])
 
   useEffect(() => {
     loadRecords()
@@ -187,6 +235,78 @@ export default function SettingsLlmAudit() {
               onChange={(e) => { setToDate(e.target.value); setPage(1) }}
               className="bg-black/20 border border-border rounded px-3 py-1.5 text-sm text-white [color-scheme:dark]"
             />
+          </div>
+        )}
+
+        {dailyStats.length > 0 && (
+          <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-medium text-amber-400/90">Token 消耗</h3>
+              <div className="flex gap-1">
+                {['day', 'week', 'month'].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setChartMode(m)}
+                    className={`px-2 py-1 text-xs rounded ${chartMode === m ? 'bg-amber-500/30 text-amber-200' : 'text-muted hover:bg-white/5'}`}
+                  >
+                    {m === 'day' ? '全部' : m === 'week' ? '近7天' : '近30天'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {chartData.length > 0 && (
+              <div className="space-y-4 mb-4">
+                {[
+                  { key: 'prompt_tokens', label: '输入 tokens', color: '#22d3ee' },
+                  { key: 'completion_tokens', label: '输出 tokens', color: '#34d399' },
+                  { key: 'total_tokens', label: '合计 tokens', color: '#f59e0b' },
+                ].map(({ key, label, color }) => (
+                  <div key={key} className="h-[140px] w-full">
+                    <p className="text-xs text-muted mb-1">{label}</p>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <LineChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="2 2" stroke="rgba(255,255,255,0.08)" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000 ? (v / 1000) + 'k' : v} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'rgba(30,41,59,0.95)', border: '1px solid #475569', borderRadius: 8 }}
+                          labelStyle={{ color: '#94a3b8' }}
+                          formatter={(val) => [(val ?? 0).toLocaleString(), label]}
+                          labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || payload?.[0]?.payload?.name || ''}
+                        />
+                        <Line type="monotone" dataKey={key} stroke={color} strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ))}
+              </div>
+            )}
+            <h4 className="text-xs font-medium text-amber-400/70 mb-2">明细</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-muted border-b border-border/50">
+                    <th className="py-1.5 pr-4">日期</th>
+                    <th className="py-1.5 pr-4">调用次数</th>
+                    <th className="py-1.5 pr-4">输入 tokens</th>
+                    <th className="py-1.5 pr-4">输出 tokens</th>
+                    <th className="py-1.5">合计 tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyStats.map((s) => (
+                    <tr key={s.date} className="border-b border-border/30">
+                      <td className="py-1.5 pr-4">{(s.date || '').slice(0, 10)}</td>
+                      <td className="py-1.5 pr-4">{s.call_count ?? 0}</td>
+                      <td className="py-1.5 pr-4">{s.prompt_tokens?.toLocaleString() ?? '-'}</td>
+                      <td className="py-1.5 pr-4">{s.completion_tokens?.toLocaleString() ?? '-'}</td>
+                      <td className="py-1.5">{s.total_tokens?.toLocaleString() ?? '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

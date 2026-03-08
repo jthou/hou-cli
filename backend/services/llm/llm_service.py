@@ -620,22 +620,32 @@ class LLMService:
         # 收集思考过程（如果支持）
         thinking_chunks = []
         content_chunks = []
+        last_usage = None
         
         try:
-            stream = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    stream=True,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens
-                ),
-                timeout=timeout
-            )
+            create_params = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+            }
+            try:
+                stream = await asyncio.wait_for(
+                    self.client.chat.completions.create(**{**create_params, "stream_options": {"include_usage": True}}),
+                    timeout=timeout
+                )
+            except Exception:
+                stream = await asyncio.wait_for(
+                    self.client.chat.completions.create(**create_params),
+                    timeout=timeout
+                )
             
             # 流式响应中断处理
             try:
                 async for chunk in stream:
+                    if getattr(chunk, "usage", None):
+                        last_usage = {k: getattr(chunk.usage, k, None) for k in ("prompt_tokens", "completion_tokens", "total_tokens") if hasattr(chunk.usage, k)}
                     # 检查 chunk 是否有 choices
                     if not hasattr(chunk, 'choices') or not chunk.choices:
                         continue
@@ -687,15 +697,18 @@ class LLMService:
                 thinking = "".join(thinking_chunks)
                 self.debug.log_llm_thinking(thinking)
 
-            # 审计：记录流式响应完整内容
+            # 审计：记录流式响应完整内容（含 token 统计）
             full_response = "".join(content_chunks)
             try:
                 from backend.services.llm.llm_audit import append_audit, _response_summary
+                meta = dict(audit_meta or {}, audit_id=audit_id)
+                if last_usage:
+                    meta["usage"] = last_usage
                 append_audit(
                     "response",
                     self.model,
                     _response_summary(full_response, self.model),
-                    meta=dict(audit_meta or {}, audit_id=audit_id),
+                    meta=meta,
                 )
             except Exception as e:
                 logger.debug("LLM 审计写入流式响应记录失败: %s", e)
@@ -821,12 +834,21 @@ class LLMService:
         except Exception as e:
             logger.debug("LLM 审计写入请求记录失败: %s", e)
 
+        last_usage = None
         try:
-            stream = await asyncio.wait_for(
-                self.client.chat.completions.create(**request_params),
-                timeout=timeout,
-            )
+            try:
+                stream = await asyncio.wait_for(
+                    self.client.chat.completions.create(**{**request_params, "stream_options": {"include_usage": True}}),
+                    timeout=timeout,
+                )
+            except Exception:
+                stream = await asyncio.wait_for(
+                    self.client.chat.completions.create(**request_params),
+                    timeout=timeout,
+                )
             async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    last_usage = {k: getattr(chunk.usage, k, None) for k in ("prompt_tokens", "completion_tokens", "total_tokens") if hasattr(chunk.usage, k)}
                 if not hasattr(chunk, "choices") or not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
@@ -877,10 +899,13 @@ class LLMService:
 
             try:
                 from backend.services.llm.llm_audit import append_audit, _response_summary
+                meta = dict(audit_meta or {}, audit_id=audit_id)
+                if last_usage:
+                    meta["usage"] = last_usage
                 if "tool_calls" in out:
-                    append_audit("response", self.model, {"tool_calls": len(out["tool_calls"])}, meta=dict(audit_meta or {}, audit_id=audit_id))
+                    append_audit("response", self.model, {"tool_calls": len(out["tool_calls"])}, meta=meta)
                 else:
-                    append_audit("response", self.model, _response_summary(full_content, self.model), meta=dict(audit_meta or {}, audit_id=audit_id))
+                    append_audit("response", self.model, _response_summary(full_content, self.model), meta=meta)
             except Exception as e:
                 logger.debug("LLM 审计写入流式响应记录失败: %s", e)
 

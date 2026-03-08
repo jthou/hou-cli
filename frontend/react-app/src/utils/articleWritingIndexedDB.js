@@ -1,7 +1,7 @@
 /**
- * IndexedDB 持久化写文章参考块（按会话存储）
+ * IndexedDB 持久化参考块（按会话、按类型存储）
  * 参考块可含大量正文，用 IndexedDB 避免 5MB 限制
- * 每个会话有独立的参考块
+ * 写作助手与工作助手的参考块按 contextType 隔离：article_writing_${sessionId} / work_assistant_${sessionId}
  */
 
 const DB_NAME = 'hou-cli-article-writing'
@@ -9,8 +9,15 @@ const DB_VERSION = 2
 const STORE_NAME = 'reference_blocks'
 const KEY_REFERENCE_BLOCKS_LEGACY = 'reference_blocks'
 
-function keyForSession(sessionId) {
+/** 旧版 key（无类型前缀），用于迁移 */
+function legacyKeyForSession(sessionId) {
   return sessionId ? `reference_blocks_${sessionId}` : null
+}
+
+/** 新版 key（含 contextType 前缀） */
+function keyForSession(sessionId, contextType = 'article_writing') {
+  if (!sessionId) return null
+  return `${contextType}_${sessionId}`
 }
 
 let dbPromise = null
@@ -32,12 +39,13 @@ function openDB() {
 }
 
 /**
- * 保存参考块到 IndexedDB（按会话）
+ * 保存参考块到 IndexedDB（按会话、按类型）
  * @param {string} sessionId - 会话 ID
  * @param {Array<{id: string, title: string, content: string}>} blocks
+ * @param {string} [contextType='article_writing'] - 上下文类型：article_writing | work_assistant
  */
-export async function saveReferenceBlocks(sessionId, blocks) {
-  const key = keyForSession(sessionId)
+export async function saveReferenceBlocks(sessionId, blocks, contextType = 'article_writing') {
+  const key = keyForSession(sessionId, contextType)
   if (!key) return
   try {
     const db = await openDB()
@@ -58,12 +66,13 @@ export async function saveReferenceBlocks(sessionId, blocks) {
 }
 
 /**
- * 从 IndexedDB 读取参考块（按会话）
+ * 从 IndexedDB 读取参考块（按会话、按类型）
  * @param {string} sessionId - 会话 ID
+ * @param {string} [contextType='article_writing'] - 上下文类型：article_writing | work_assistant
  * @returns {Promise<Array<{id: string, title: string, content: string}>>}
  */
-export async function loadReferenceBlocks(sessionId) {
-  const key = keyForSession(sessionId)
+export async function loadReferenceBlocks(sessionId, contextType = 'article_writing') {
+  const key = keyForSession(sessionId, contextType)
   if (!key) return []
   try {
     const db = await openDB()
@@ -78,23 +87,45 @@ export async function loadReferenceBlocks(sessionId) {
           resolve(blocks)
           return
         }
-        // 尝试迁移：先 IndexedDB 旧 key，再 sessionStorage
-        let legacy = await loadLegacyReferenceBlocks()
-        if (legacy.length === 0) {
-          try {
-            const raw = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('article_writing_reference_blocks')
-            const parsed = raw ? JSON.parse(raw) : []
-            legacy = Array.isArray(parsed) ? parsed : []
-            if (legacy.length > 0) {
-              sessionStorage.removeItem('article_writing_reference_blocks')
+        // 迁移：尝试旧版 key（reference_blocks_${sessionId}），若有则迁移到新版
+        const legacyKey = legacyKeyForSession(sessionId)
+        if (legacyKey) {
+          const legacyReq = store.get(legacyKey)
+          legacyReq.onsuccess = async () => {
+            const legacyRecord = legacyReq.result
+            const legacyBlocks = legacyRecord?.blocks
+            if (Array.isArray(legacyBlocks) && legacyBlocks.length > 0) {
+              await saveReferenceBlocks(sessionId, legacyBlocks, contextType)
+              await deleteKey(legacyKey)
+              resolve(legacyBlocks)
+              return
             }
-          } catch (_) {}
+            // 再尝试全局旧 key 与 sessionStorage（仅 article_writing）
+            if (contextType === 'article_writing') {
+              let legacy = await loadLegacyReferenceBlocks()
+              if (legacy.length === 0) {
+                try {
+                  const raw = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('article_writing_reference_blocks')
+                  const parsed = raw ? JSON.parse(raw) : []
+                  legacy = Array.isArray(parsed) ? parsed : []
+                  if (legacy.length > 0) {
+                    sessionStorage.removeItem('article_writing_reference_blocks')
+                  }
+                } catch (_) {}
+              }
+              if (legacy.length > 0) {
+                await saveReferenceBlocks(sessionId, legacy, contextType)
+                await deleteLegacyReferenceBlocks()
+              }
+              resolve(legacy.length > 0 ? legacy : [])
+            } else {
+              resolve([])
+            }
+          }
+          legacyReq.onerror = () => resolve([])
+          return
         }
-        if (legacy.length > 0) {
-          await saveReferenceBlocks(sessionId, legacy)
-          await deleteLegacyReferenceBlocks()
-        }
-        resolve(legacy.length > 0 ? legacy : [])
+        resolve([])
       }
       req.onerror = () => reject(req.error)
     })
@@ -122,6 +153,20 @@ async function loadLegacyReferenceBlocks() {
   } catch {
     return []
   }
+}
+
+/** 删除指定 key 的记录（迁移后清理旧版按会话 key） */
+async function deleteKey(key) {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      store.delete(key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (_) {}
 }
 
 /** 删除旧版全局参考块（迁移后清理） */

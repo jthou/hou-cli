@@ -115,7 +115,7 @@ export default function UrlToWikiInline({
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-xs text-muted">
-                抓取指定 URL 的正文并生成 Markdown 草稿，不会直接写入 MediaWiki。任务完成后可在任务详情中发送到写文章或选择写入 Wiki。
+                抓取指定 URL 的正文并生成 Markdown 草稿，不会直接写入 MediaWiki。任务完成后可在任务详情中发送到写作助手或选择写入 Wiki。
               </p>
               <TaskMetadataFormFields
                 schema={schema}

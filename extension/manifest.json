@@ -33,7 +33,11 @@
         "http://localhost:8080/*",
         "http://127.0.0.1:8080/*",
         "http://localhost:5000/*",
-        "http://127.0.0.1:5000/*"
+        "http://127.0.0.1:5000/*",
+        "http://www.jthou.com/*",
+        "https://www.jthou.com/*",
+        "http://www.jthou.com:8081/*",
+        "https://www.jthou.com:8081/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"

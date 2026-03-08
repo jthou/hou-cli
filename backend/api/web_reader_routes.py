@@ -31,6 +31,42 @@ class OcrResponse(BaseModel):
     error: Optional[str] = None
 
 
+class SummarizeRequest(BaseModel):
+    """内容摘要请求"""
+    content: str
+    model: Optional[str] = None
+
+
+class SummarizeResponse(BaseModel):
+    success: bool
+    summary: Optional[str] = None
+    error: Optional[str] = None
+
+
+SUMMARY_PROMPT = """请对以下文本生成**结构化、分层摘要**，尽可能覆盖原文所有重要内容。
+
+**输出格式要求**（使用 Markdown）：
+1. 按主题/章节分层，使用 ## 一级标题、### 二级标题
+2. 每层下用 - 或 1. 2. 3. 列出要点
+3. 三级结构：一级主题 → 二级要点 → 三级细节（如有）
+4. 尽量覆盖原文所有段落、论点、数据、结论，不遗漏重要信息
+5. 保留关键术语、数字、人名、时间等
+6. 只输出摘要内容，不要添加「本文介绍了」等前言或总结语
+
+**示例结构**：
+## 一、主题A
+- 要点1
+  - 细节或子要点
+- 要点2
+## 二、主题B
+### 2.1 子主题
+- 内容...
+### 2.2 子主题
+- 内容...
+## 三、...
+"""
+
+
 def _get_vision_model() -> str:
     """获取视觉模型，优先环境变量（与 vision_providers 默认一致）"""
     return os.getenv(
@@ -79,3 +115,31 @@ async def ocr_image(req: OcrRequest):
     except Exception as e:
         logger.exception("OCR 失败")
         return OcrResponse(success=False, error=str(e))
+
+
+@router.post("/summarize", response_model=SummarizeResponse)
+async def summarize_content(req: SummarizeRequest):
+    """
+    对正文内容生成 LLM 摘要，供 MarkdownEditorPreview 等使用。
+    """
+    content = (req.content or "").strip()
+    if not content:
+        return SummarizeResponse(success=False, error="内容为空")
+
+    try:
+        from backend.services.llm.llm_service import LLMService
+
+        model_name = (req.model or "").strip() or os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        llm = LLMService(model=model_name, max_tokens=4000)
+
+        messages = [
+            {"role": "system", "content": SUMMARY_PROMPT},
+            {"role": "user", "content": content[:50000]},  # 限制长度
+        ]
+
+        summary = await llm.chat(messages=messages)
+        return SummarizeResponse(success=True, summary=(summary or "").strip())
+
+    except Exception as e:
+        logger.exception("摘要生成失败")
+        return SummarizeResponse(success=False, error=str(e))

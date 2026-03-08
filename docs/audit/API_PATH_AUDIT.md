@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 107
+- 后端路由数: 109
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -37,6 +37,7 @@ GET /api/sessions/search
 GET /api/sessions/{session_id}
 GET /api/settings/kanban/board
 GET /api/settings/kanban/boards
+GET /api/settings/llm-audit/daily-stats
 GET /api/settings/llm-audit/dates
 GET /api/settings/llm-audit/list
 GET /api/settings/model-availability-audit/models
@@ -108,6 +109,7 @@ POST /api/task-queue/upload-input-file
 POST /api/tasks/{task_id}/cancel
 POST /api/tests/run
 POST /api/web-reader/ocr
+POST /api/web-reader/summarize
 POST /api/wechat-mp/upload-article-image
 POST /api/wechat-mp/upload-cover
 PUT /api/chat/article
@@ -162,6 +164,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/{id}/summary
 - /api/settings/kanban/board
 - /api/settings/kanban/boards
+- /api/settings/llm-audit/daily-stats
 - /api/settings/llm-audit/dates
 - /api/settings/llm-audit/list
 - /api/settings/model-availability-audit/models
@@ -209,6 +212,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/tools/list
 - /api/version
 - /api/web-reader/ocr
+- /api/web-reader/summarize
 - /api/wechat-mp/cover-image
 - /api/wechat-mp/drafts
 - /api/wechat-mp/drafts/detail

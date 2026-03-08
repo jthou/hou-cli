@@ -1,6 +1,7 @@
 /**
  * 会话选择区块：新建会话 + 会话列表
  * 供 AddReference 等页面复用
+ * @param {string} [typeBadge] - 会话项上的类型标签（如「写作助手」「工作助手」），便于识别归属
  */
 const SESSION_BTN_CLS = 'w-full text-left px-4 py-3 rounded-lg border border-border bg-white/5 hover:bg-white/10 text-white text-sm'
 
@@ -10,6 +11,7 @@ export default function SessionSelectSection({
   onSelect,
   onNewAndAdd,
   emptyMessage = '暂无会话',
+  typeBadge,
 }) {
   return (
     <section>
@@ -26,14 +28,23 @@ export default function SessionSelectSection({
             onClick={() => onSelect(s.session_id)}
             className={SESSION_BTN_CLS}
           >
-            <span className="font-medium truncate block">
-              {(s.title || s.preview || '未命名会话').slice(0, 40)}
-            </span>
-            {s.updated_at && (
-              <span className="text-muted text-xs block mt-0.5">
-                {new Date(s.updated_at).toLocaleString()}
-              </span>
-            )}
+            <div className="flex items-start gap-2">
+              {typeBadge && (
+                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/10 text-muted">
+                  {typeBadge}
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <span className="font-medium truncate block">
+                  {(s.title || s.preview || '未命名会话').slice(0, 40)}
+                </span>
+                {s.updated_at && (
+                  <span className="text-muted text-xs block mt-0.5">
+                    {new Date(s.updated_at).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
           </button>
         ))}
         {sessions.length === 0 && (

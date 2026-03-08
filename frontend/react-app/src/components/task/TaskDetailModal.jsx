@@ -17,6 +17,8 @@ const TASK_API = {
     fetch(`/api/task-queue/tasks/${taskId}`, { method: 'DELETE' }).then((r) => r.json()),
   softDelete: (taskId) =>
     fetch(`/api/task-queue/tasks/${taskId}/soft-delete`, { method: 'POST' }).then((r) => r.json()),
+  cancel: (taskId) =>
+    fetch(`/api/task-queue/tasks/${taskId}/cancel`, { method: 'POST' }).then((r) => r.json()),
 }
 
 export default function TaskDetailModal({
@@ -35,6 +37,7 @@ export default function TaskDetailModal({
   const [requeueing, setRequeueing] = useState(false)
   const [patchingResult, setPatchingResult] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [queueStatus, setQueueStatus] = useState(null)
 
   useEffect(() => {
@@ -94,6 +97,18 @@ export default function TaskDetailModal({
           {err && <p className="text-red-400">{err}</p>}
           {!loading && !err && task && (
             <div className="space-y-4">
+              {task.status === 'queued' && (
+                <div className="p-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10">
+                  <div className="text-cyan-400/90 text-xs font-medium mb-1">即将执行</div>
+                  <p className="text-sm text-cyan-200/90">
+                    {task.task_type === 'mediawiki_write' && (task.metadata?.title || task.resolved_metadata?.title)
+                      ? `写入 MediaWiki 页面：${task.metadata?.title || task.resolved_metadata?.title}`
+                      : task.task_type === 'url_to_wiki' && (task.metadata?.url || task.resolved_metadata?.url)
+                        ? `抓取并转换：${(task.metadata?.url || task.resolved_metadata?.url || '').slice(0, 50)}…`
+                        : task.task_name || `${task.task_type} 任务`}
+                  </p>
+                </div>
+              )}
               {task.result != null && task.status === 'completed' && (
                 <div>
                   <div className="text-muted text-xs mb-2">执行结果</div>
@@ -331,6 +346,32 @@ export default function TaskDetailModal({
                   {restarting ? '重新执行中...' : '重新执行'}
                 </button>
               </>
+            )}
+            {['queued', 'running'].includes(task.status) && (
+              <button
+                disabled={cancelling}
+                onClick={async () => {
+                  const ok = await toast.confirm('确定取消该任务？取消后将不再执行。')
+                  if (!ok) return
+                  setCancelling(true)
+                  try {
+                    const res = await TASK_API.cancel(task.task_id)
+                    if (res.success) {
+                      if (onRefresh) onRefresh()
+                      onClose()
+                    } else {
+                      toast.error(res.detail || res.message || '取消失败')
+                    }
+                  } catch (e) {
+                    toast.error('取消失败: ' + (e?.message || String(e)))
+                  }
+                  setCancelling(false)
+                }}
+                className="px-4 py-2 text-sm border border-amber-500/50 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                title="取消任务，移出队列"
+              >
+                {cancelling ? '取消中...' : '取消'}
+              </button>
             )}
             {task.deleted_at ? (
               <>

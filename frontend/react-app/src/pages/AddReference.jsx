@@ -1,5 +1,5 @@
 /**
- * 统一添加参考：将内容加入写文章或工作助手的会话上下文
+ * 统一添加参考：将内容加入写作助手或工作助手的会话上下文
  * 从 Wiki、网页阅读、字幕、草稿等页面跳转，选择目标会话后添加并跳转
  */
 import { useEffect, useState } from 'react'
@@ -63,17 +63,17 @@ export default function AddReference() {
         return
       }
       targetSessionId = res.session_id
-      await saveReferenceBlocks(targetSessionId, [newBlock])
+      await saveReferenceBlocks(targetSessionId, [newBlock], sessionType)
     } else {
-      const existing = await loadReferenceBlocks(targetSessionId)
-      await saveReferenceBlocks(targetSessionId, [...existing, newBlock])
+      const existing = await loadReferenceBlocks(targetSessionId, sessionType)
+      await saveReferenceBlocks(targetSessionId, [...existing, newBlock], sessionType)
     }
     if (!targetSessionId) return
     if (sessionType === ARTICLE_TYPE) {
       try {
         sessionStorage.setItem(ARTICLE_STORAGE_KEY, targetSessionId)
       } catch (_) {}
-      toast?.info?.('已添加到写文章会话')
+      toast?.info?.('已添加到写作助手会话')
       navigate('/article-writing', { replace: true, state: { focusSessionId: targetSessionId } })
     } else {
       try {
@@ -100,12 +100,12 @@ export default function AddReference() {
       toast?.error?.(res.error || '创建会话失败')
       return
     }
-    await saveReferenceBlocks(res.session_id, [newBlock])
+    await saveReferenceBlocks(res.session_id, [newBlock], sessionType)
     if (sessionType === ARTICLE_TYPE) {
       try {
         sessionStorage.setItem(ARTICLE_STORAGE_KEY, res.session_id)
       } catch (_) {}
-      toast?.info?.('已创建写文章会话并添加')
+      toast?.info?.('已创建写作助手会话并添加')
       navigate('/article-writing', { replace: true, state: { focusSessionId: res.session_id } })
     } else {
       try {
@@ -120,25 +120,27 @@ export default function AddReference() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="添加到参考" subtitle="选择目标会话，将内容加入其参考上下文" />
-      <div className="flex-1 overflow-y-auto p-6 max-w-2xl">
-        <p className="text-sm text-muted mb-4 line-clamp-2">
+      <PageHeader title="添加到参考" subtitle="选择目标会话，将内容加入写作助手或工作助手的参考上下文" />
+      <div className="flex-1 overflow-y-auto p-6">
+        <p className="text-sm text-muted mb-4 line-clamp-2 max-w-4xl">
           {content.slice(0, 120)}
           {content.length > 120 ? '…' : ''}
         </p>
         {loading ? (
           <p className="text-muted text-sm">加载会话列表…</p>
         ) : (
-          <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
             <SessionSelectSection
-              title="写文章"
+              title="写作助手"
+              typeBadge="写作助手"
               sessions={articleSessions}
               onSelect={(id) => handleSelect(ARTICLE_TYPE, id)}
               onNewAndAdd={() => handleNewAndAdd(ARTICLE_TYPE)}
-              emptyMessage="暂无写文章会话"
+              emptyMessage="暂无写作助手会话"
             />
             <SessionSelectSection
               title="工作助手"
+              typeBadge="工作助手"
               sessions={workSessions}
               onSelect={(id) => handleSelect(WORK_TYPE, id)}
               onNewAndAdd={() => handleNewAndAdd(WORK_TYPE)}

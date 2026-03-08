@@ -12,6 +12,7 @@ import { useToast } from '../components/ToastModal'
 import { useExtensionReady } from '../hooks/useExtensionReady'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 import { saveLastReadForContext, loadLastReadForContext } from '../utils/webReaderIndexedDB'
+import { fetchSummarize } from '../utils/summarizeApi'
 
 const REQUEST_ID_PREFIX = 'web-reader-'
 const STORAGE_KEY_LAST_LEGACY = 'hou-cli-web-reader-last' // 迁移用
@@ -56,6 +57,7 @@ export default function WebReader() {
           markdown: saved.markdown || saved.content || '',
           content: saved.content || saved.markdown || '',
           html: saved.html || '',
+          summary: saved.summary ?? '',
         })
         if (saved.urlInput) setUrlInput(saved.urlInput)
         if (saved.viewMode) setViewMode(saved.viewMode)
@@ -79,12 +81,13 @@ export default function WebReader() {
         content: data.content || '',
         html: data.html || '',
         viewMode,
+        summary: data.summary ?? '',
       }).catch(() => {})
     }, SAVE_DEBOUNCE_MS)
     return () => {
       if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
     }
-  }, [data?.url, data?.title, data?.markdown, data?.content, data?.html, urlInput, viewMode])
+  }, [data?.url, data?.title, data?.markdown, data?.content, data?.html, data?.summary, urlInput, viewMode])
 
   const buildHtmlForPreviewIframe = (d) => {
     const base = d.fullPageHtml || d.html
@@ -196,7 +199,7 @@ export default function WebReader() {
       />
 
       <div className="flex-1 overflow-hidden flex">
-        <div className="flex flex-col w-80 shrink-0 border-r border-border min-h-0">
+        <div className="flex flex-col flex-[0.382] min-w-0 border-r border-border min-h-0">
           <div className="shrink-0 p-4 space-y-2">
             <form onSubmit={handleRead} className="flex gap-2">
               <input
@@ -238,7 +241,7 @@ export default function WebReader() {
           </div>
         </div>
 
-        <div className="min-w-0 flex-1 overflow-y-auto bg-white/[0.02] p-6">
+        <div className="min-w-0 flex-[0.618] overflow-y-auto bg-white/[0.02] p-6">
           {!data && !loading && !error && (
             <div className="h-full flex items-center justify-center text-sm text-muted">
               输入 URL 并点击「读取网页」，正文将在此展示。
@@ -285,10 +288,16 @@ export default function WebReader() {
                   <div className="flex-1 min-h-0 p-4 flex flex-col">
                     <MarkdownEditorPreview
                       content={data.markdown || ''}
-                      onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v } : null))}
+                      onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v, summary: '' } : null))}
                       editable
                       theme="dark"
                       showMediaWiki
+                      sourceUrl={data.url || ''}
+                      showSummary
+                      summary={data.summary ?? ''}
+                      onSummaryChange={(v) => setData((prev) => (prev ? { ...prev, summary: v } : null))}
+                      onGenerateSummary={(content) => fetchSummarize(content)}
+                      onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
                       onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
                     />
                   </div>

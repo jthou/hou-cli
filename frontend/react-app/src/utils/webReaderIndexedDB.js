@@ -150,10 +150,13 @@ export async function loadLastRead() {
 
 /**
  * 按上下文保存/读取上次阅读（web 与 weread 分离）
+ * weread 支持仅保存 url+title+urlInput（有截图但未识别时），便于恢复
  * @param {'web'|'weread'} context
  */
 export async function saveLastReadForContext(context, state) {
-  if (!state?.markdown && !state?.content) return
+  const hasContent = state?.markdown || state?.content
+  const hasWereadScreenshots = context === 'weread' && state?.url
+  if (!hasContent && !hasWereadScreenshots) return
   const key = context === 'weread' ? KEY_LAST_READ_WEREAD : KEY_LAST_READ_WEB
   try {
     const db = await openDB()
@@ -179,7 +182,9 @@ export async function loadLastReadForContext(context) {
       const req = store.get(key)
       req.onsuccess = () => {
         const record = req.result
-        if (!record?.markdown && !record?.content) {
+        const hasContent = record?.markdown || record?.content
+        const hasWereadUrl = context === 'weread' && record?.url
+        if (!hasContent && !hasWereadUrl) {
           resolve(null)
           return
         }

@@ -1,5 +1,5 @@
 /**
- * 草稿预览与操作：复制、发送到写文章、添加到参考、写入 MediaWiki
+ * 草稿预览与操作：复制、发送到写作助手、添加到参考、写入 MediaWiki
  * 统一 SubtitlePreviewActions 与 MarkdownDraftActions 的交互与布局。
  * @param {Object} props
  * @param {string} props.content - 内容（纯文本或 Markdown）
@@ -7,7 +7,7 @@
  * @param {string} [props.copyLabel] - 复制按钮文案
  * @param {string} [props.suggestTitle] - 建议的 MediaWiki 页面标题
  * @param {string} [props.sourceUrl] - 来源 URL（可选）
- * @param {string} [props.sourceType] - 发送到写文章时的来源类型
+ * @param {string} [props.sourceType] - 发送到写作助手时的来源类型
  * @param {string} [props.summaryText] - 展开区域摘要文案
  * @param {Function} [props.onWriteSuccess] - 写入 MediaWiki 成功回调
  */
@@ -139,7 +139,7 @@ export default function DraftPreviewActions({
               {effectiveCopyLabel}
             </button>
             <button type="button" className={BTN_CLS} onClick={handleSendToArticle}>
-              发送到写文章
+              发送到写作助手
             </button>
             <button type="button" className={BTN_CLS} onClick={handleAddToReference}>
               添加到参考

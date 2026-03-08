@@ -21,8 +21,9 @@ export default function ExtensionNotReadyHint({ onRetry, className = '', compact
           <code className="bg-white/5 px-1 rounded">extension</code> 目录）
         </li>
         <li>
-          本页通过 <code className="bg-white/5 px-1 rounded">localhost</code> 或{' '}
-          <code className="bg-white/5 px-1 rounded">127.0.0.1</code> 访问（当前：{' '}
+          本页通过 <code className="bg-white/5 px-1 rounded">localhost</code>、{' '}
+          <code className="bg-white/5 px-1 rounded">127.0.0.1</code> 或{' '}
+          <code className="bg-white/5 px-1 rounded">www.jthou.com</code> 访问（当前：{' '}
           <code className="bg-white/5 px-1 rounded">{host}</code>）
         </li>
         <li>在 Chrome/Edge 中打开，非编辑器内置浏览器</li>

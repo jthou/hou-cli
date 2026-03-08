@@ -249,7 +249,7 @@ async def get_session_detail(session_id: str):
 
 @router.post("/sessions")
 async def create_session(request: Optional[CreateSessionRequest] = None):
-    """创建新会话；可传 metadata，如 { \"type\": \"article_writing\" } 标记写文章会话"""
+    """创建新会话；可传 metadata，如 { \"type\": \"article_writing\" } 标记写作助手会话"""
     try:
         orchestrator = get_orchestrator()
         metadata = getattr(request, "metadata", None) if request else None
