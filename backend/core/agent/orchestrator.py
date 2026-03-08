@@ -53,7 +53,7 @@ from backend.core.agent.system_prompt_templates import (
     MODEL_SELECTOR_PROMPT,
     SHORT_CHAT_SYSTEM_PROMPT,
 )
-from backend.core.agent.agent_tools_registry import get_tools_for_llm_by_agent
+from backend.core.agent.agent_tools_registry import get_tools_for_llm_by_agent, get_tool_names_for_agent
 from backend.core.agent.writing_profile import get_profile_block_for_prompt
 
 
@@ -192,8 +192,8 @@ class UnifiedOrchestrator:
         # 初始化自动代码执行器
         self._init_auto_code_executor()
         
-        # 统一的技能匹配服务
-        self.skill_matcher = SkillMatcher(self.skill_registry)
+        # 统一的技能匹配服务（使用嵌套类）
+        self.skill_matcher = UnifiedOrchestrator.SkillMatcher(self.skill_registry)
     
     async def process(self, task: str, context: Optional[Dict] = None) -> str:
         """智能处理任务，使用LLM决定如何协调agents和tools"""
@@ -478,8 +478,18 @@ class UnifiedOrchestrator:
         
         # 工作助手：直接使用 WORK_ASSISTANT_SYSTEM_PROMPT，跳过编排选择器
         ctx_type = (context or {}).get("context_type")
+        session_id = context.get("session_id") if context else None
+        if not ctx_type and session_id:
+            session_obj = self.context_manager.get_session(session_id)
+            if session_obj and session_obj.metadata:
+                ctx_type = session_obj.metadata.get("type")
         if ctx_type == "work_assistant":
             async for chunk in self._stream_work_assistant(task, context):
+                yield chunk
+            return
+        # 通用对话：应走 CHAT_SYSTEM_PROMPT 流程，避免编排选择器误选 get_weather 等工具
+        if ctx_type == "general_chat":
+            async for chunk in self._stream_general_chat_fallback(task, context):
                 yield chunk
             return
         # 其他场景：使用流式智能编排
@@ -530,7 +540,76 @@ class UnifiedOrchestrator:
         self.llm_service.reset_model()
         for char in (response or ""):
             yield char
-    
+
+    async def _stream_general_chat_fallback(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
+        """通用对话专用：使用 CHAT_SYSTEM_PROMPT，避免编排选择器误选工具（如 get_weather）"""
+        session_id = context.get("session_id") if context else None
+        if not session_id:
+            session_id = self.context_manager.create_session(metadata={"type": "general_chat"})
+        history = self.context_manager.get_messages_for_llm(session_id, max_messages=None, max_tokens=None)
+        system_prompt = CHAT_SYSTEM_PROMPT
+        session_obj = self.context_manager.get_session(session_id)
+        session_meta = (session_obj.metadata or {}) if session_obj else {}
+        tool_names = get_tool_names_for_agent("general_chat")
+        enabled = session_meta.get("enabled_tools")
+        if isinstance(enabled, list) and len(enabled) > 0:
+            tool_names = [t for t in tool_names if t in set(enabled)]
+        tools_list_str = "、".join(tool_names) if tool_names else "（无）"
+        system_prompt = system_prompt + f"\n\n【可用工具列表】当用户问「你有什么工具」「你能做什么」时，直接以文字回答，不要调用任何工具。可用工具：{tools_list_str}"
+        persona = (session_meta.get("persona") or "").strip()
+        if persona:
+            system_prompt = f"【身份】{persona}\n\n{system_prompt}"
+        filtered_history = [msg for msg in history if msg["role"] in ["user", "assistant"]]
+        if filtered_history:
+            history_text = "\n".join([
+                f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
+                for msg in filtered_history
+            ])
+            user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
+        else:
+            user_prompt = task
+        tools = get_tools_for_llm_by_agent("general_chat", self.tool_registry.get_tools_for_llm())
+        t = (task or "").strip()
+        if any(k in t for k in ("你有什么工具", "你能做什么", "有哪些工具", "你能调用哪些工具", "你会用哪些工具")):
+            tools = []
+        enabled = session_meta.get("enabled_tools")
+        if isinstance(enabled, list) and len(enabled) > 0 and tools:
+            name_set = set(enabled)
+            tools = [t for t in tools if (t.get("function") or {}).get("name") in name_set]
+        selected_model = await self._select_model(task, context=context)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
+        try:
+            if tools:
+                full_response = ""
+                async for chunk in self._chat_with_tools_stream(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    tools=tools,
+                    planning_files=None,
+                    session_id=session_id,
+                    context=context,
+                ):
+                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:") or chunk.startswith("__STATUS__:"):
+                        yield chunk
+                    else:
+                        full_response = (full_response or "") + chunk
+                        yield chunk
+            else:
+                audit_meta = {"session_id": session_id} if session_id else None
+                full_response = ""
+                async for chunk in self.llm_service.stream_chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    audit_meta=audit_meta,
+                ):
+                    full_response += chunk
+                    yield chunk
+            self.context_manager.add_message(session_id, MessageRole.USER, task)
+            self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_response or "")
+        finally:
+            self.llm_service.reset_model()
+
     async def _stream_intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
         """流式智能编排agents和tools"""
         # 用户指定模型时优先使用
@@ -609,11 +688,11 @@ class UnifiedOrchestrator:
     async def _stream_execute_tool(self, tool_name: str, params: Dict, session_id: str) -> AsyncIterator[str]:
         """流式执行指定的tool"""
         logger.info(f"流式执行tool: {tool_name}，参数: {params}")
-        # 从工具注册表获取工具并执行
+        # 从工具注册表获取工具并执行（使用 execute_async 支持同步/异步工具）
         tool = self.tool_registry.get_tool(tool_name)
         if tool:
             try:
-                result = await tool.execute(**params)
+                result = await self.tool_registry.execute_async(tool_name, **params)
                 if result.success:
                     result_str = str(result.data) if result.data else result.message
                     for char in f"工具 {tool_name} 执行成功: ":
@@ -1075,64 +1154,48 @@ class UnifiedOrchestrator:
                 return code_model
         return chat_model
 
-
-class SkillMatcher:
-    """统一的技能匹配服务"""
-    
-    def __init__(self, skill_registry):
-        self.skill_registry = skill_registry
+    class SkillMatcher:
+        """统一的技能匹配服务（嵌套于 UnifiedOrchestrator）"""
         
-    async def match(self, task: str) -> Optional[SkillResult]:
-        """
-        Use LLM to intelligently match the most suitable skill
-        
-        Args:
-            task: User task description
+        def __init__(self, skill_registry):
+            self.skill_registry = skill_registry
             
-        Returns:
-            Matched skill or None
-        """
-        # 获取所有可用技能列表
-        available_skills = list(self.skill_registry._skills.keys())
-        
-        if not available_skills:
-            return None
-        
-        # 构建技能描述
-        skills_description = "\n".join([
-            f"- {skill_name}: {self.skill_registry._skills[skill_name].description}" 
-            for skill_name in available_skills
-        ])
-        
-        system_prompt = get_skill_matching_prompt(skills_description)
-        
-        user_prompt = f"用户需求：{task}"
-        
-        try:
-            from backend.services.llm.llm_service import LLMService
-            llm_service = LLMService()
-            response = await llm_service.chat(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt
-            )
+        async def match(self, task: str) -> Optional[SkillResult]:
+            """
+            Use LLM to intelligently match the most suitable skill
             
-            import json
-            result = json.loads(response)
-            
-            skill_name = result.get("skill_name", "none")
-            if skill_name != "none" and skill_name in self.skill_registry._skills:
-                return self.skill_registry._skills[skill_name]
-            else:
+            Args:
+                task: User task description
+                
+            Returns:
+                Matched skill or None
+            """
+            available_skills = list(self.skill_registry._skills.keys())
+            if not available_skills:
                 return None
-        except Exception as e:
-            logger.warning(f"技能匹配失败，回退到传统匹配: {e}")
-            # 回退到传统技能匹配
-            return await self.skill_registry.match(task)
+            skills_description = "\n".join([
+                f"- {skill_name}: {self.skill_registry._skills[skill_name].description}"
+                for skill_name in available_skills
+            ])
+            system_prompt = get_skill_matching_prompt(skills_description)
+            user_prompt = f"用户需求：{task}"
+            try:
+                from backend.services.llm.llm_service import LLMService
+                llm_service = LLMService()
+                response = await llm_service.chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt
+                )
+                import json
+                result = json.loads(response)
+                skill_name = result.get("skill_name", "none")
+                if skill_name != "none" and skill_name in self.skill_registry._skills:
+                    return self.skill_registry._skills[skill_name]
+                return None
+            except Exception as e:
+                logger.warning(f"技能匹配失败，回退到传统匹配: {e}")
+                return await self.skill_registry.match(task)
 
-
-        
-    
-    
     def _build_execution_feedback(self, execution_results: list) -> str:
         """构建执行结果反馈消息"""
         feedback = "代码执行完成：\n\n"
@@ -1269,6 +1332,10 @@ class SkillMatcher:
         
         # 构建消息列表（工作助手用 WORK_ASSISTANT_SYSTEM_PROMPT，其他用 CHAT_SYSTEM_PROMPT）
         ctx_type = (context or {}).get("context_type")
+        if not ctx_type and session_id:
+            session_obj = self.context_manager.get_session(session_id)
+            if session_obj and session_obj.metadata:
+                ctx_type = session_obj.metadata.get("type")
         system_prompt = WORK_ASSISTANT_SYSTEM_PROMPT if ctx_type == "work_assistant" else CHAT_SYSTEM_PROMPT
 
         # 构建 user_prompt（工作助手不注入文章相关上下文）
@@ -1617,11 +1684,17 @@ class SkillMatcher:
         
         # 4. 构建 system_prompt 与 user_prompt（按 context_type 分支）
         ctx_type = (context or {}).get("context_type")
+        # 兜底：若 context 未传 context_type，从 session metadata 读取（避免 WebSocket 等入口未传导致误用 SHORT_CHAT）
+        if not ctx_type and session_id:
+            session_obj = self.context_manager.get_session(session_id)
+            if session_obj and session_obj.metadata:
+                ctx_type = session_obj.metadata.get("type")
         is_work_assistant = ctx_type == "work_assistant"
+        is_general_chat = ctx_type == "general_chat"
         planning_context = ""  # 任务分解时可能追加，需预先定义
 
         if is_work_assistant:
-            # 工作助手：专用提示词，无文章注入
+            # 工作助手：专用提示词，无文章注入，不调用工具
             system_prompt = WORK_ASSISTANT_SYSTEM_PROMPT
             filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
             if filtered_history:
@@ -1630,6 +1703,33 @@ class SkillMatcher:
                     for msg in filtered_history
                 ])
                 user_prompt = f"【历史对话】\n{history_text}\n\n【当前用户问题】\n{task}"
+                self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history)})
+            else:
+                user_prompt = task
+                self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+        elif is_general_chat:
+            # 通用对话：CHAT 提示词，可调用全部工具，支持历史+参考块
+            # 支持 session metadata 中的 persona（限定身份）与 enabled_tools（工具选择）
+            system_prompt = CHAT_SYSTEM_PROMPT
+            session_obj = self.context_manager.get_session(session_id) if session_id else None
+            session_meta = (session_obj.metadata or {}) if session_obj else {}
+            tool_names = get_tool_names_for_agent("general_chat")
+            enabled = session_meta.get("enabled_tools")
+            if isinstance(enabled, list) and len(enabled) > 0:
+                tool_names = [t for t in tool_names if t in set(enabled)]
+            tools_list_str = "、".join(tool_names) if tool_names else "（无）"
+            system_prompt = system_prompt + f"\n\n【可用工具列表】当用户问「你有什么工具」「你能做什么」时，直接以文字回答，不要调用任何工具。可用工具：{tools_list_str}"
+            persona = (session_meta.get("persona") or "").strip()
+            if persona:
+                system_prompt = f"【身份】{persona}\n\n{system_prompt}"
+                self.debug.log_orchestrator_step("应用限定身份", {"persona_len": len(persona)})
+            filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
+            if filtered_history:
+                history_text = "\n".join([
+                    f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
+                    for msg in filtered_history
+                ])
+                user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
                 self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history)})
             else:
                 user_prompt = task
@@ -2154,9 +2254,29 @@ class SkillMatcher:
         }
         yield StreamMessageBuilder.build_debug(debug_info)
         
-        # 获取工具定义（工作助手不调用工具，写文章不调用工具，其他用 chat 工具）
-        agent_for_tools = "work_assistant" if is_work_assistant else "article_writing"
+        # 获取工具定义（工作助手/写文章不调用工具，通用对话用 chat 工具）
+        if is_work_assistant:
+            agent_for_tools = "work_assistant"
+        elif is_general_chat:
+            agent_for_tools = "general_chat"
+        else:
+            agent_for_tools = "article_writing"
         tools = get_tools_for_llm_by_agent(agent_for_tools, self.tool_registry.get_tools_for_llm())
+        # 通用对话：用户仅询问工具列表时，不传入工具，强制模型用文字回答（避免误调用 get_weather 等）
+        if is_general_chat and tools:
+            t = (task or "").strip()
+            if any(k in t for k in ("你有什么工具", "你能做什么", "有哪些工具", "你能调用哪些工具", "你会用哪些工具")):
+                tools = []
+                self.debug.log_orchestrator_step("工具列表询问", {"action": "不传工具，强制文字回答"})
+        # 通用对话：若 session metadata 中有 enabled_tools，则仅使用该子集
+        if is_general_chat and session_id and tools:
+            session_obj = self.context_manager.get_session(session_id)
+            if session_obj and session_obj.metadata:
+                enabled = session_obj.metadata.get("enabled_tools")
+                if isinstance(enabled, list) and len(enabled) > 0:
+                    name_set = set(enabled)
+                    tools = [t for t in tools if (t.get("function") or {}).get("name") in name_set]
+                    self.debug.log_orchestrator_step("按会话工具选择过滤", {"enabled_count": len(enabled), "result_count": len(tools)})
         tool_names = [t.get("function", {}).get("name", "unknown") for t in tools] if tools else []
         debug_info = {
             "type": "debug",

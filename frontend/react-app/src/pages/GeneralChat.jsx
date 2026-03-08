@@ -1,5 +1,5 @@
 /**
- * 工作助手 - 通用对话入口，支持模型选择、会话持久化、参考块（与写作助手概念和操作一致）
+ * 通用对话 - 可调用全部工具，支持会话持久化、参考块（与工作助手、写作助手设计一致）
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -13,10 +13,10 @@ import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 
-const SESSION_TYPE = 'work_assistant'
-const STORAGE_KEY = 'work_assistant_selected_session'
+const SESSION_TYPE = 'general_chat'
+const STORAGE_KEY = 'general_chat_selected_session'
 
-export default function WorkAssistant() {
+export default function GeneralChat() {
   const location = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
@@ -39,6 +39,11 @@ export default function WorkAssistant() {
   const [selectedModel, setSelectedModel] = useState('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [sessionPersona, setSessionPersona] = useState('')
+  const [sessionEnabledTools, setSessionEnabledTools] = useState([])
+  const [availableTools, setAvailableTools] = useState([])
+  const [settingsSaving, setSettingsSaving] = useState(false)
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const streamingContentRef = useRef('')
@@ -54,6 +59,53 @@ export default function WorkAssistant() {
     setReferencePanelOpen(true)
     handleAddReferenceBlock()
   }
+
+  const handleSaveSettings = async () => {
+    if (!selectedSessionId || settingsSaving) return
+    setSettingsSaving(true)
+    try {
+      const meta = {
+        persona: (sessionPersona || '').trim(),
+        enabled_tools: sessionEnabledTools,
+      }
+      const r = await fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metadata: meta }),
+      })
+      const d = await r.json()
+      if (d.success) {
+        toast.success('设置已保存')
+      } else {
+        toast.error(d.error || '保存失败')
+      }
+    } catch (err) {
+      toast.error(err?.message || '保存失败')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  const toggleTool = (name) => {
+    if (availableTools.length === 0) return
+    setSessionEnabledTools((prev) => {
+      const allNames = availableTools.map((t) => t.name)
+      if (prev.length === 0) {
+        // 当前为「全部」：取消勾选 = 排除该项
+        return allNames.filter((n) => n !== name)
+      }
+      const has = prev.includes(name)
+      if (has) {
+        const next = prev.filter((n) => n !== name)
+        return next.length === 0 ? [] : next
+      }
+      const next = [...prev, name]
+      return next.length === allNames.length ? [] : next
+    })
+  }
+
+  const selectAllTools = () => setSessionEnabledTools(availableTools.map((t) => t.name))
+  const clearTools = () => setSessionEnabledTools([])
 
   useEffect(() => {
     if (defaultModel && !selectedModel) setSelectedModel(defaultModel)
@@ -106,6 +158,8 @@ export default function WorkAssistant() {
     if (!selectedSessionId) {
       setMessages([])
       setDetailLoading(false)
+      setSessionPersona('')
+      setSessionEnabledTools([])
       return
     }
     if (loading) return // 发送中不覆盖，避免新建会话时清空刚添加的用户消息
@@ -117,10 +171,29 @@ export default function WorkAssistant() {
         if (d.success && Array.isArray(d.messages)) {
           setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
         }
+        if (d.success && d.session?.metadata) {
+          const meta = d.session.metadata
+          setSessionPersona(meta.persona || '')
+          setSessionEnabledTools(Array.isArray(meta.enabled_tools) ? meta.enabled_tools : [])
+        } else {
+          setSessionPersona('')
+          setSessionEnabledTools([])
+        }
       })
       .catch(() => {})
       .finally(() => setDetailLoading(false))
-  }, [selectedSessionId, loading])
+  }, [selectedSessionId])
+
+  useEffect(() => {
+    if (settingsPanelOpen && availableTools.length === 0) {
+      fetch('/api/tools/list?agent=general_chat')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.success && Array.isArray(d.tools)) setAvailableTools(d.tools)
+        })
+        .catch(() => {})
+    }
+  }, [settingsPanelOpen, availableTools.length])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -272,7 +345,9 @@ export default function WorkAssistant() {
       }
     } catch (err) {
       if (err?.name === 'AbortError') return
-      setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err?.message || '请求失败'}` }])
+      const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
+      const msg = isNetworkError ? '无法连接后端。请确认后端已启动（默认端口 8081）。' : (err?.message || '请求失败')
+      setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${msg}` }])
     } finally {
       setLoading(false)
       abortControllerRef.current = null
@@ -370,6 +445,8 @@ export default function WorkAssistant() {
                 setStreamingContent('')
                 setStreamingToolCalls([])
                 streamingContentRef.current = ''
+                // 实验：先乐观追加助手回复，避免 fetch 返回时后端尚未持久化导致内容被覆盖而一闪而逝
+                setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 if (isFirstMessage && text) {
                   fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
                     method: 'PATCH',
@@ -384,12 +461,14 @@ export default function WorkAssistant() {
                   .then((r) => r.json())
                   .then((d) => {
                     if (d.success && Array.isArray(d.messages)) {
-                      setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
-                    } else {
-                      setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                      setMessages((prev) => {
+                        const apiCount = d.messages.length
+                        if (apiCount >= prev.length) return d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
+                        return prev
+                      })
                     }
                   })
-                  .catch(() => setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }]))
+                  .catch(() => {})
                 fullContent = ''
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
@@ -429,6 +508,8 @@ export default function WorkAssistant() {
               }
             } else if (obj.status === 'done') {
               const finalContent = fullContent.trim() || '（助手未返回内容）'
+              setStreamingToolCalls([])
+              setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
               if (isFirstMessage && text) {
                 fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
                   method: 'PATCH',
@@ -439,17 +520,18 @@ export default function WorkAssistant() {
                   .then((d) => { if (d.success) loadSessions() })
                   .catch(() => {})
               }
-              setStreamingToolCalls([])
               fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
                 .then((r) => r.json())
                 .then((d) => {
                   if (d.success && Array.isArray(d.messages)) {
-                    setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
-                  } else {
-                    setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                    setMessages((prev) => {
+                      const apiCount = d.messages.length
+                      if (apiCount >= prev.length) return d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
+                      return prev
+                    })
                   }
                 })
-                .catch(() => setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }]))
+                .catch(() => {})
               fullContent = ''
             } else if (obj.status === 'error') {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
@@ -463,7 +545,9 @@ export default function WorkAssistant() {
       }
     } catch (err) {
       if (err?.name === 'AbortError') return
-      setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err?.message || '请求失败'}` }])
+      const isNetworkError = err?.message === 'Failed to fetch' || err?.name === 'TypeError'
+      const msg = isNetworkError ? '无法连接后端。请确认后端已启动（默认端口 8081）。' : (err?.message || '请求失败')
+      setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${msg}` }])
     } finally {
       setLoading(false)
       abortControllerRef.current = null
@@ -472,7 +556,7 @@ export default function WorkAssistant() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="工作助手" subtitle="通用对话入口，可指定具体模型" />
+      <PageHeader title="通用对话" subtitle="可调用全部工具（搜索、浏览器、下载等），支持会话与参考信息" />
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧会话列表（可收缩） */}
         <div
@@ -566,7 +650,7 @@ export default function WorkAssistant() {
             )}
             {!detailLoading && messages.length === 0 && !streamingContent && (
               <div className="text-center py-12 text-muted text-sm">
-                输入消息开始对话，可在下方选择模型。
+                输入消息开始对话，可调用搜索、浏览器、下载等工具。可在下方选择模型。
               </div>
             )}
           {messages.map((msg, i) => (
@@ -645,18 +729,34 @@ export default function WorkAssistant() {
             <div ref={messagesEndRef} />
           </div>
           <div className="border-t border-border px-4 py-2">
-            <button
-              type="button"
-              onClick={() => setReferencePanelOpen((v) => !v)}
-              className="text-xs text-muted hover:text-fg flex items-center gap-1"
-            >
-              <span>{referencePanelOpen ? '收起参考信息' : '参考信息（可选）'}</span>
-              {referenceBlocks.filter((b) => (b.content || '').trim()).length > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-white/10 text-[11px] text-muted">
-                  {referenceBlocks.filter((b) => (b.content || '').trim()).length}
-                </span>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setReferencePanelOpen((v) => !v)}
+                className="text-xs text-muted hover:text-fg flex items-center gap-1"
+              >
+                <span>{referencePanelOpen ? '收起参考信息' : '参考信息（可选）'}</span>
+                {referenceBlocks.filter((b) => (b.content || '').trim()).length > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-white/10 text-[11px] text-muted">
+                    {referenceBlocks.filter((b) => (b.content || '').trim()).length}
+                  </span>
+                )}
+              </button>
+              {selectedSessionId && (
+                <button
+                  type="button"
+                  onClick={() => setSettingsPanelOpen((v) => !v)}
+                  className="text-xs text-muted hover:text-fg flex items-center gap-1"
+                >
+                  <span>{settingsPanelOpen ? '收起会话设置' : '会话设置'}</span>
+                  {(sessionPersona || sessionEnabledTools.length > 0) && (
+                    <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-white/10 text-[11px] text-muted">
+                      {(sessionPersona ? 1 : 0) + (sessionEnabledTools.length > 0 ? 1 : 0)}
+                    </span>
+                  )}
+                </button>
               )}
-            </button>
+            </div>
             {referencePanelOpen && (
               <ReferenceBlocksPanel
                 referenceBlocks={referenceBlocks}
@@ -664,6 +764,51 @@ export default function WorkAssistant() {
                 onUpdate={handleUpdateReferenceBlock}
                 onRemove={handleRemoveReferenceBlock}
               />
+            )}
+            {settingsPanelOpen && selectedSessionId && (
+              <div className="mt-3 p-3 rounded-lg border border-border bg-surface/50 space-y-3">
+                <div>
+                  <label className="block text-xs text-muted mb-1">限定身份（可选）</label>
+                  <textarea
+                    value={sessionPersona}
+                    onChange={(e) => setSessionPersona(e.target.value)}
+                    placeholder="例如：你是一位资深 Python 工程师，擅长代码审查与重构。"
+                    className="w-full px-3 py-2 text-sm rounded border border-border bg-bg text-fg placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent resize-none"
+                    rows={2}
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs text-muted">工具选择（空=全部）</label>
+                    <div className="flex gap-1">
+                      <button type="button" onClick={selectAllTools} className="text-[11px] text-muted hover:text-fg">全选</button>
+                      <span className="text-muted">|</span>
+                      <button type="button" onClick={clearTools} className="text-[11px] text-muted hover:text-fg">清空</button>
+                    </div>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto flex flex-wrap gap-2 p-2 rounded border border-border bg-bg">
+                    {availableTools.length === 0 && <span className="text-xs text-muted">加载中…</span>}
+                    {availableTools.map((t) => (
+                      <label key={t.name} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sessionEnabledTools.length === 0 || sessionEnabledTools.includes(t.name)}
+                          onChange={() => toggleTool(t.name)}
+                        />
+                        <span title={t.description}>{t.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveSettings}
+                  disabled={settingsSaving}
+                  className="px-3 py-1.5 text-xs rounded bg-accent hover:opacity-90 text-white disabled:opacity-50"
+                >
+                  {settingsSaving ? '保存中…' : '保存设置'}
+                </button>
+              </div>
             )}
           </div>
           <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">

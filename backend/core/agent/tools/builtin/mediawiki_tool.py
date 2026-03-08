@@ -100,18 +100,15 @@ class MediaWikiTool(Tool):
         super().__init__(
             name="mediawiki",
             description=(
-                "访问和操作 MediaWiki 网站。可以搜索页面、读取页面内容、编辑现有页面、创建新页面，"
-                "也可以对多个关键词批量搜索并读取多篇文章内容。"
-                "\n使用示例："
-                "- 搜索：operation='search', query='关键词'"
-                "- 读取：operation='read', title='页面标题'"
-                "- 编辑：operation='edit', title='页面标题', content='新内容'"
-                "- 创建：operation='create', title='页面标题', content='内容'"
-                "- 批量搜索并读取：operation='search_read', terms='网文抓取, hou-cli', per_term_limit=5"
-                "\n重要提示："
-                "当输出 MediaWiki 页面列表时，请使用 format_page_link() 或 format_page_list_with_links() 函数"
-                "为每个页面标题添加可点击的链接。这些函数可以从 backend.services.mediawiki.utils 导入。"
-                "链接格式为 Markdown：[页面标题](URL)，可以在支持 Markdown 的终端中点击打开浏览器。"
+                "访问和操作 MediaWiki 网站。支持搜索、读取、编辑、创建页面，以及批量搜索并读取多篇文章。"
+                "\n操作与参数对应："
+                "- search：搜索页面，需 query（关键词）"
+                "- read：读取页面，需 title（页面标题）"
+                "- edit：编辑页面，需 title、content"
+                "- create：创建页面，需 title、content"
+                "- info：获取页面信息，需 title"
+                "- search_read：按关键词搜索并批量读取文章内容，需 terms 或 query"
+                "\n返回的 results 中已包含 title_link（Markdown 链接格式），直接展示给用户即可。"
             ),
             parameters=parameters
         )

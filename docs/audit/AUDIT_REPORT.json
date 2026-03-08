@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-08T07:25:23.356191Z",
+  "generated_at": "2026-03-08T14:23:29.994831Z",
   "code_stats": {
-    "total_files": 1056,
-    "total_lines": 303138,
+    "total_files": 1058,
+    "total_lines": 304457,
     "by_language": {
       "other": {
         "files": 22,
@@ -13,16 +13,16 @@
         "lines": 96040
       },
       "python": {
-        "files": 504,
-        "lines": 89341
+        "files": 505,
+        "lines": 89793
       },
       "shell": {
         "files": 33,
         "lines": 2094
       },
       "jsx": {
-        "files": 77,
-        "lines": 15303
+        "files": 78,
+        "lines": 16172
       },
       "javascript": {
         "files": 32,
@@ -30,7 +30,7 @@
       },
       "json": {
         "files": 8,
-        "lines": 4699
+        "lines": 4697
       },
       "html": {
         "files": 2,
@@ -59,8 +59,8 @@
         "lines": 1113
       },
       "frontend": {
-        "files": 133,
-        "lines": 29109
+        "files": 134,
+        "lines": 29978
       },
       "config": {
         "files": 2,
@@ -75,8 +75,8 @@
         "lines": 7992
       },
       "backend": {
-        "files": 432,
-        "lines": 132579
+        "files": 433,
+        "lines": 133031
       },
       "shared": {
         "files": 8,
@@ -84,7 +84,7 @@
       },
       "docs": {
         "files": 318,
-        "lines": 88819
+        "lines": 88817
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -107,21 +107,20 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-08T07:25:32.489422Z"
+    "generated_at": "2026-03-08T14:23:38.868700Z"
   },
   "dev_history": {
-    "total_commits": 289,
+    "total_commits": 290,
     "authors": {
-      "侯金亭（Justin）": 246,
+      "侯金亭（Justin）": 247,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W09": 25,
-      "2026-W08": 26,
-      "2026-W07": 1
+      "2026-W09": 26,
+      "2026-W08": 26
     },
     "files_changed": {
-      "backend/core/agent/orchestrator.py": 73,
+      "backend/core/agent/orchestrator.py": 74,
       "backend/api/routes.py": 33,
       "frontend/client/ipc_client.py": 29,
       "frontend/react-app/src/pages/TaskManagement.jsx": 26,
@@ -141,17 +140,17 @@
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
       "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
+      "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
       "frontend/react-app/package.json": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
+      "frontend/react-app/src/components/TaskResultDisplay.jsx": 11,
       "frontend/react-app/package-lock.json": 11,
-      "frontend/react-app/src/pages/MediaWikiReader.jsx": 11,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
       "frontend/react-app/src/pages/PdfReader.jsx": 10,
-      "frontend/react-app/src/components/TaskResultDisplay.jsx": 10,
       "workflows/.gitkeep": 10,
       "backend/core/agent/tools/builtin/browser_tool.py": 10,
       "cli.py": 10,
@@ -172,7 +171,7 @@
       "backend/infrastructure/execution/task_worker.py": 9,
       "backend/infrastructure/storage/task_queue_db.py": 9
     },
-    "generated_at": "2026-03-08T07:25:32.690354Z"
+    "generated_at": "2026-03-08T14:23:39.093805Z"
   },
   "api_audit": {
     "backend_routes": [

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hou CLI 网页阅读助手",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "配合 Hou CLI 网页阅读、PDF 阅读、视频下载等功能，复用浏览器登录态",
   "permissions": [
     "scripting",

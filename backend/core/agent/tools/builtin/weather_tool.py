@@ -266,8 +266,8 @@ class WeatherToolWrapper(Tool):
                 ToolParameter(
                     name="location",
                     type="string",
-                    description="城市名称，例如：'北京'、'上海'。系统会自动将城市名称转换为城市ID",
-                    required=True
+                    description="城市名称，例如：'北京'、'上海'。未提供时默认北京",
+                    required=False
                 ),
                 ToolParameter(
                     name="days",
@@ -292,14 +292,10 @@ class WeatherToolWrapper(Tool):
             ToolResult: 执行结果
         """
         try:
-            location = kwargs.get("location")
-            days = kwargs.get("days", 1)
-            
+            location = (kwargs.get("location") or "").strip()
             if not location:
-                return ToolResult(
-                    success=False,
-                    error="Location parameter is required"
-                )
+                location = "北京"
+            days = kwargs.get("days", 1)
             
             # 获取实时天气
             weather_data = self.weather_tool.get_current_weather(location)

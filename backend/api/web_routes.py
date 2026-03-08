@@ -63,7 +63,11 @@ async def websocket_chat(websocket: WebSocket):
                 from backend.api.chat_routes import get_orchestrator
                 from backend.api.stream_sender import SSEFormatter
                 orchestrator = get_orchestrator()
-                context = {"session_id": session_id} if session_id else {}
+                context = {}
+                if session_id:
+                    context["session_id"] = session_id
+                if data.get("context_type"):
+                    context["context_type"] = data["context_type"]
                 async for chunk in orchestrator.stream_process(message, context=context):
                     if chunk:
                         formatted = SSEFormatter.format_chunk(chunk, "streaming")

@@ -4,6 +4,7 @@ import BackendStatus from './BackendStatus'
 // 分组：智能工具、阅读工具、任务工具、文档、协作、设置、开发
 const navItems = [
   { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
+  { path: '/general-chat', icon: '💬', label: '通用对话', group: 'smart_tools' },
   { path: '/article-writing', icon: '✍️', label: '写作助手', group: 'smart_tools' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },

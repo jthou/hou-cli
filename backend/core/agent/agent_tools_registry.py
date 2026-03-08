@@ -7,33 +7,36 @@ from typing import Dict, List
 # ---------------------------------------------------------------------------
 # 各 agent 配备的工具名称（与 ToolRegistry 中注册的 tool.name 一致）
 # ---------------------------------------------------------------------------
+CHAT_TOOLS = [
+    "browser",
+    "browser_navigate",
+    "browser_click",
+    "browser_fill",
+    "browser_search",
+    "browser_extract",
+    "google_search",
+    "wikipedia",
+    "mediawiki",
+    "web_fetch",
+    "video_downloader",
+    "execute_code",
+    "whisper",
+    "ffmpeg",
+    "get_weather",
+    "file_search",
+    "file_organizer",
+    "pdf_parser",
+    "zhihu_zhida",
+    "kanban_board",
+    "image_generation",
+    "text_to_image_prompt",
+]
+
 AGENT_TOOLS: Dict[str, List[str]] = {
-    "chat": [
-        "browser",
-        "browser_navigate",
-        "browser_click",
-        "browser_fill",
-        "browser_search",
-        "browser_extract",
-        "google_search",
-        "wikipedia",
-        "mediawiki",
-        "web_fetch",
-        "video_downloader",
-        "execute_code",
-        "whisper",
-        "ffmpeg",
-        "get_weather",
-        "file_search",
-        "file_organizer",
-        "pdf_parser",
-        "zhihu_zhida",
-        "kanban_board",
-        "image_generation",
-        "text_to_image_prompt",
-    ],
+    "chat": CHAT_TOOLS,
     "article_writing": [],  # 写文章仅依据参考信息+用户提问，不调用工具
     "work_assistant": [],   # 工作助手不调用工具，仅基于知识作答
+    "general_chat": CHAT_TOOLS,  # 通用对话：可调用全部工具，支持会话+参考块
     # 以下 agent 在审计页有系统提示但无 LLM 工具调用，tools 为空
     "orchestrator_selector": [],
     "skill_matching": [],

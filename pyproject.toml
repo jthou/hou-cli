@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hou-cli"
-version = "1.0.4"
+version = "1.0.5"
 description = "LLM Agent CLI Tool with Rich UI and Multi-Agent Collaboration"
 readme = "README.md"
 requires-python = ">=3.10"

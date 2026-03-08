@@ -4,6 +4,7 @@ import { ToastProvider } from './components/ToastModal'
 import Sidebar from './components/Sidebar'
 import Home from './pages/Home'
 import WorkAssistant from './pages/WorkAssistant'
+import GeneralChat from './pages/GeneralChat'
 import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
@@ -46,6 +47,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/work-assistant" element={<WorkAssistant />} />
+              <Route path="/general-chat" element={<GeneralChat />} />
               <Route path="/tasks" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />

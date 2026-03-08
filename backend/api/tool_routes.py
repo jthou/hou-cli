@@ -1,6 +1,8 @@
 """工具相关路由"""
+from typing import Optional
 from fastapi import APIRouter
 from backend.core.agent.orchestrator import Orchestrator
+from backend.core.agent.agent_tools_registry import get_tool_names_for_agent
 from shared.debug_utils import debug_log
 
 router = APIRouter()
@@ -23,7 +25,7 @@ def get_orchestrator():
     return _orchestrator
 
 @router.get("/tools/list")
-async def list_tools():
+async def list_tools(agent: Optional[str] = None):
     """获取可用工具列表"""
     try:
         orchestrator = get_orchestrator()
@@ -54,6 +56,11 @@ async def list_tools():
                 "description": tool_desc
             }
             tools_info.append(tool_info)
+        
+        # 若指定 agent，仅返回该 agent 配备的工具
+        if agent:
+            allowed_names = set(get_tool_names_for_agent(agent))
+            tools_info = [t for t in tools_info if t["name"] in allowed_names]
         
         return {
             "success": True,

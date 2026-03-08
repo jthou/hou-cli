@@ -46,7 +46,7 @@ class StreamReceiver:
         # #endregion
         
         url = f"{self.base_url}/api/chat/stream"
-        payload = {"message": message}
+        payload = {"message": message, "context_type": "general_chat"}
         if session_id:
             payload["session_id"] = session_id
         

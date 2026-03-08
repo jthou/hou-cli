@@ -193,6 +193,17 @@ class Tool(ABC):
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（用于 LLM Function Calling）"""
+        properties = {}
+        for param in self.parameters:
+            prop = {
+                "type": param.type,
+                "description": param.description,
+            }
+            if param.enum:
+                prop["enum"] = param.enum
+            if param.default is not None:
+                prop["default"] = param.default
+            properties[param.name] = prop
         return {
             "type": "function",
             "function": {
@@ -200,13 +211,7 @@ class Tool(ABC):
                 "description": self.description,
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        param.name: {
-                            "type": param.type,
-                            "description": param.description,
-                        }
-                        for param in self.parameters
-                    },
+                    "properties": properties,
                     "required": [param.name for param in self.parameters if param.required],
                 }
             }
