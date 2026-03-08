@@ -406,7 +406,7 @@ export default function PdfReader() {
       />
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧：PDF 选择 + 浏览器原生 PDF 预览 + 提取控件 */}
-        <div className="flex flex-col w-1/2 border-r border-border shrink-0 min-w-0 min-h-0">
+        <div className="flex flex-col w-80 shrink-0 border-r border-border min-w-0 min-h-0">
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-6 gap-4">
           <section className="shrink-0 space-y-3">
             <h2 className="text-sm font-semibold text-white">选择 PDF</h2>

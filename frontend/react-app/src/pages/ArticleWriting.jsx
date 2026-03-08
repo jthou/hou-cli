@@ -13,7 +13,7 @@ import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../uti
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
-import { formatReferenceContext } from '../utils/referenceUtils'
+import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import { useSelectableModels } from '../hooks/useSelectableModels'
@@ -1082,7 +1082,7 @@ export default function ArticleWriting() {
                             theme="dark"
                           />
                         ) : (
-                          m.content
+                          extractUserQuestionForDisplay(m.content)
                         )}
                       </div>
                       {m.role === 'user' && (

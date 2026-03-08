@@ -31,10 +31,11 @@
   margin: 16px 0 8px 0;
 }
 
-.wechat-draft-preview h1 { font-size: 22px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-.wechat-draft-preview h2 { font-size: 20px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-.wechat-draft-preview h3 { font-size: 17px; }
-.wechat-draft-preview h4 { font-size: 16px; }
+/* 正文 16px，章节标题比正文大两号，标题下分割线 */
+.wechat-draft-preview h1 { font-size: 24px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+.wechat-draft-preview h2 { font-size: 22px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+.wechat-draft-preview h3 { font-size: 20px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+.wechat-draft-preview h4 { font-size: 18px; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
 /* 带数字的章节标题：数字大 1–2 号 */
 .wechat-draft-preview h1 .ch-num, .wechat-draft-preview h2 .ch-num,
 .wechat-draft-preview h3 .ch-num, .wechat-draft-preview h4 .ch-num {
@@ -180,7 +181,9 @@
 }
 
 .wechat-draft-preview--dark h1,
-.wechat-draft-preview--dark h2 {
+.wechat-draft-preview--dark h2,
+.wechat-draft-preview--dark h3,
+.wechat-draft-preview--dark h4 {
   border-bottom-color: #d0d7de !important;
 }
 

@@ -31,6 +31,7 @@ import PdfReader from './pages/PdfReader'
 import WikiDirectory from './pages/WikiDirectory'
 import MediaWikiReader from './pages/MediaWikiReader'
 import WebReader from './pages/WebReader'
+import WereadReader from './pages/WereadReader'
 import AddReference from './pages/AddReference'
 
 export default function App() {
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="/pdf-reader" element={<PdfReader />} />
               <Route path="/mediawiki-reader" element={<MediaWikiReader />} />
               <Route path="/web-reader" element={<WebReader />} />
+              <Route path="/weread-reader" element={<WereadReader />} />
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />

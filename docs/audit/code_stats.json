@@ -1,6 +1,6 @@
 {
-  "total_files": 1053,
-  "total_lines": 301834,
+  "total_files": 1054,
+  "total_lines": 302183,
   "by_language": {
     "other": {
       "files": 22,
@@ -19,16 +19,16 @@
       "lines": 2094
     },
     "jsx": {
-      "files": 75,
-      "lines": 14465
+      "files": 76,
+      "lines": 14712
     },
     "javascript": {
       "files": 31,
-      "lines": 4898
+      "lines": 4961
     },
     "json": {
       "files": 8,
-      "lines": 4655
+      "lines": 4691
     },
     "html": {
       "files": 2,
@@ -36,7 +36,7 @@
     },
     "css": {
       "files": 3,
-      "lines": 536
+      "lines": 539
     },
     "yaml": {
       "files": 7,
@@ -54,11 +54,11 @@
     },
     "extension": {
       "files": 6,
-      "lines": 1107
+      "lines": 1109
     },
     "frontend": {
-      "files": 130,
-      "lines": 28096
+      "files": 131,
+      "lines": 28445
     },
     "config": {
       "files": 2,
@@ -82,7 +82,7 @@
     },
     "docs": {
       "files": 318,
-      "lines": 88811
+      "lines": 88809
     },
     "hou_cli.egg-info": {
       "files": 5,
@@ -105,5 +105,5 @@
       "lines": 33896
     }
   },
-  "generated_at": "2026-03-07T14:32:36.656898Z"
+  "generated_at": "2026-03-08T01:29:23.974469Z"
 }

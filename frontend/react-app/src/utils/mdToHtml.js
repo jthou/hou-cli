@@ -31,15 +31,16 @@ export function mdToHtml(md) {
 }
 
 /**
- * 公众号正文内联样式，与 WechatDraftPreview.css 完全一致，确保复制到微信后与预览一致。
- * 字体：-apple-system 等；颜色：#24292f（GitHub 灰）；单位用 px 更稳妥。
+ * 公众号正文内联样式。正文 16px，章节标题比正文大两号（h2=22px, h3=20px, h4=18px）。
+ * 所有标题下带分割线（border-bottom），API 推送时尽量保留。
  */
+const BODY_FONT_SIZE = '16px'
 const WECHAT_INLINE_STYLES = {
-  p: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;line-break:anywhere;color:#24292f;margin:0 0 16px 0;',
-  h1: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:22px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
-  h2: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:20px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
-  h3: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:17px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;',
-  h4: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;',
+  p: `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:${BODY_FONT_SIZE};line-height:1.6;line-break:anywhere;color:#24292f;margin:0 0 16px 0;`,
+  h1: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:24px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
+  h2: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:22px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
+  h3: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:20px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
+  h4: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;font-size:18px;font-weight:600;color:#24292f;margin:16px 0 8px 0;line-height:1.4;border-bottom:1px solid #d0d7de;padding-bottom:0.3em;',
   blockquote: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;color:#57606a;font-size:15px;margin:0 0 16px 0;padding-left:12px;border-left:4px solid #d0d7de;line-height:1.6;',
   ul: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#24292f;',
   ol: 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Helvetica,Arial,sans-serif;margin:0 0 16px 0;padding-left:24px;line-height:1.6;color:#24292f;',
@@ -49,7 +50,7 @@ const WECHAT_INLINE_STYLES = {
   strong: 'font-weight:bold;color:#24292f;',
   em: 'font-style:italic;color:#57606a;',
   a: 'color:#0969da;text-decoration:none;',
-  hr: 'border:0;border-top:1px solid #d0d7de;margin:24px 0;',
+  hr: 'border:0;border-top:1px solid #d0d7de;margin:8px 0 16px 0;',
   img: 'max-width:100%;height:auto;border:1px solid #d0d7de;border-radius:6px;',
 }
 
@@ -117,14 +118,14 @@ function addWechatInlineStyles(html) {
   return addWechatInlineStylesFallback(html)
 }
 
-/** 公众号主题 CSS（与 WechatDraftPreview.css 完全一致，供 juice 内联化） */
+/** 公众号主题 CSS（供 juice 内联化）。正文 16px，章节标题大两号，标题下分割线。 */
 const WECHAT_THEME_CSS = `
   #wechat-content { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; line-break: anywhere; color: #24292f; }
   #wechat-content p { font-size: 16px; line-height: 1.6; line-break: anywhere; color: #24292f; margin: 0 0 16px 0; }
-  #wechat-content h1 { font-size: 22px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-  #wechat-content h2 { font-size: 20px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-  #wechat-content h3 { font-size: 17px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; }
-  #wechat-content h4 { font-size: 16px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; }
+  #wechat-content h1 { font-size: 24px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+  #wechat-content h2 { font-size: 22px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+  #wechat-content h3 { font-size: 20px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
+  #wechat-content h4 { font-size: 18px; font-weight: 600; color: #24292f; margin: 16px 0 8px 0; line-height: 1.4; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
   #wechat-content blockquote { color: #57606a; font-size: 15px; margin: 0 0 16px 0; padding-left: 12px; border-left: 4px solid #d0d7de; line-height: 1.6; }
   #wechat-content ul { margin: 0 0 16px 0; padding-left: 24px; line-height: 1.6; color: #24292f; }
   #wechat-content ol { margin: 0 0 16px 0; padding-left: 24px; line-height: 1.6; color: #24292f; }

@@ -11,13 +11,13 @@ marked.setOptions({
 })
 
 /**
- * 移除 HTML 中的空列表项（如 <li></li>、<li> </li>），避免公众号显示空 bullet。
+ * 移除 HTML 中的空列表项（如 <li></li>、<li> </li>、<li><br></li>、<li><p></p></li>），避免公众号显示空 bullet。
  * @param {string} html - HTML 字符串
  * @returns {string} 移除空 li 后的 HTML
  */
 export function removeEmptyListItems(html) {
   if (typeof html !== 'string') return html
-  return html.replace(/<li(?:\s[^>]*)?>\s*<\/li>/gi, '')
+  return html.replace(/<li(?:\s[^>]*)?>(\s|&nbsp;|<br\s*\/?>|<p>\s*<\/p>)*<\/li>/gi, '')
 }
 
 /**

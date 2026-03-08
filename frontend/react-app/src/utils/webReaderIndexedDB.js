@@ -8,6 +8,8 @@ const DB_VERSION = 1
 const STORE_NAME = 'screenshots'
 const KEY_LAST = 'last'
 const KEY_LAST_READ = 'last_read'
+const KEY_LAST_READ_WEB = 'last_read_web'
+const KEY_LAST_READ_WEREAD = 'last_read_weread'
 
 let dbPromise = null
 
@@ -142,6 +144,52 @@ export async function loadLastRead() {
     })
   } catch (e) {
     console.warn('[WebReader] IndexedDB loadLastRead failed:', e)
+    return null
+  }
+}
+
+/**
+ * 按上下文保存/读取上次阅读（web 与 weread 分离）
+ * @param {'web'|'weread'} context
+ */
+export async function saveLastReadForContext(context, state) {
+  if (!state?.markdown && !state?.content) return
+  const key = context === 'weread' ? KEY_LAST_READ_WEREAD : KEY_LAST_READ_WEB
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      store.put({ key, ...state, updatedAt: Date.now() })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (e) {
+    console.warn('[WebReader] IndexedDB saveLastReadForContext failed:', e)
+  }
+}
+
+export async function loadLastReadForContext(context) {
+  const key = context === 'weread' ? KEY_LAST_READ_WEREAD : KEY_LAST_READ_WEB
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly')
+      const store = tx.objectStore(STORE_NAME)
+      const req = store.get(key)
+      req.onsuccess = () => {
+        const record = req.result
+        if (!record?.markdown && !record?.content) {
+          resolve(null)
+          return
+        }
+        const { key: _k, updatedAt, ...rest } = record || {}
+        resolve(rest)
+      }
+      req.onerror = () => reject(req.error)
+    })
+  } catch (e) {
+    console.warn('[WebReader] IndexedDB loadLastReadForContext failed:', e)
     return null
   }
 }

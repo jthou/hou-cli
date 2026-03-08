@@ -322,12 +322,14 @@ async function fetchWereadScreenshot(url, createdByUs, tabId) {
   }
 
   const all = await chrome.tabs.query({ currentWindow: true })
+  const wereadReader = all.find((t) => /\/weread-reader/.test(t.url || ''))
   const webReader = all.find((t) => /\/web-reader/.test(t.url || ''))
+  const targetTab = wereadReader || webReader
   if (createdByUs && tabId) {
-    if (webReader?.id) await chrome.tabs.update(webReader.id, { active: true }).catch(() => {})
+    if (targetTab?.id) await chrome.tabs.update(targetTab.id, { active: true }).catch(() => {})
     await chrome.tabs.remove(tabId).catch(() => {})
-  } else if (tabId && webReader?.id) {
-    await chrome.tabs.update(webReader.id, { active: true }).catch(() => {})
+  } else if (tabId && targetTab?.id) {
+    await chrome.tabs.update(targetTab.id, { active: true }).catch(() => {})
   }
 
   if (screenshots.length === 0) {

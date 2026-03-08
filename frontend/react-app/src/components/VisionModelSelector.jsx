@@ -44,12 +44,12 @@ export default function VisionModelSelector({
   const currentModels = selectedProviderObj?.models ?? firstProvider?.models ?? []
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={`flex items-center gap-2 min-w-0 ${className}`}>
       <label className="text-xs text-muted shrink-0">视觉模型</label>
       <select
         value={selectedProvider || firstProvider?.id}
         onChange={handleProviderChange}
-        className={selectClass}
+        className={`${selectClass} min-w-0 shrink`}
         disabled={loading}
       >
         {providers.map((p) => (
@@ -65,7 +65,7 @@ export default function VisionModelSelector({
             : currentModels[0]?.value
         }
         onChange={handleModelChange}
-        className={selectClass}
+        className={`${selectClass} min-w-0 flex-1`}
         disabled={loading || currentModels.length === 0}
       >
         {currentModels.map((m) => (

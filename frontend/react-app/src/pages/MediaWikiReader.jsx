@@ -16,6 +16,7 @@ export default function MediaWikiReader() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
+  const [selectedPage, setSelectedPage] = useState(null)
 
   const handlePasteFromClipboard = usePasteFromClipboard({
     onPaste: (text) => setTermsInput(text),
@@ -103,6 +104,11 @@ export default function MediaWikiReader() {
   const totalPages = data?.total_pages ?? 0
   const terms = data?.terms ?? []
   const results = data?.results ?? []
+  const allPages = results.flatMap((g) => (g.pages || []).map((p) => ({ ...p, term: g.term })))
+
+  useEffect(() => {
+    if (!data) setSelectedPage(null)
+  }, [data])
 
   return (
     <div className="flex flex-col h-full">
@@ -112,189 +118,138 @@ export default function MediaWikiReader() {
       />
 
       <div className="flex-1 overflow-hidden flex min-h-0">
-        <div className="flex-1 overflow-y-auto p-6 max-w-2xl">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <label className="block text-sm text-muted">
-                  关键词列表（每词抓取若干篇文章）
-                </label>
-                <div className="flex items-center gap-2">
-                  <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板粘贴" />
-                  <button
-                    type="button"
-                    onClick={handleRestoreLast}
-                    className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
-                  >
-                    恢复上次
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearLast}
-                    className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
-                  >
-                    清空
-                  </button>
-                </div>
-              </div>
-              <textarea
-                value={termsInput}
-                onChange={(e) => setTermsInput(e.target.value)}
-                rows={5}
-                className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none resize-y"
-                placeholder={
-                  '每行一个关键词，或用逗号分隔多个关键词。\n' +
-                  '例如：产品名、标签、日期、周次等。'
-                }
-              />
-              <p className="mt-1 text-xs text-muted">
-                支持换行或逗号分隔，工具会去重。
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4">
+        <div className="w-80 shrink-0 flex flex-col border-r border-border bg-white/[0.02] min-h-0">
+          <div className="shrink-0 p-4 border-b border-border">
+            <form onSubmit={handleSubmit} className="space-y-3">
               <div>
-                <label className="block text-sm text-muted mb-1">
-                每个关键词抓取篇数 / 随机抓取篇数
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                max={50}
-                  value={perTermLimit}
-                  onChange={(e) => setPerTermLimit(Number(e.target.value) || 5)}
-                  className="w-24 px-3 py-2 bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-sm text-muted">
+                    关键词列表
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板粘贴" />
+                    <button
+                      type="button"
+                      onClick={handleRestoreLast}
+                      className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+                    >
+                      恢复
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearLast}
+                      className="px-2 py-1 text-[11px] rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={termsInput}
+                  onChange={(e) => setTermsInput(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none resize-y text-sm"
+                  placeholder="每行一个关键词，或逗号分隔。留空随机抓取。"
                 />
               </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="mt-5 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50"
-              >
-                {loading ? '抓取中…' : '抓取 MediaWiki 文章'}
-              </button>
-            </div>
 
-            {error && (
-              <div className="mt-2 text-sm text-red-400">
-                {error}
+              <div className="flex items-center gap-2">
+                <div>
+                  <label className="block text-[11px] text-muted mb-0.5">每词篇数</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={perTermLimit}
+                    onChange={(e) => setPerTermLimit(Number(e.target.value) || 5)}
+                    className="w-16 px-2 py-1.5 text-sm bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="mt-4 px-3 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50"
+                >
+                  {loading ? '抓取中…' : '抓取'}
+                </button>
               </div>
-            )}
 
-            {data && (
-              <div className="mt-4 text-xs text-muted">
-                {terms.length === 1 && terms[0] === '随机'
-                  ? <>随机抓取到 {totalPages} 篇文章。</>
-                  : <>共 {terms.length} 个关键词，抓取到 {totalPages} 篇文章。</>}
-              </div>
+              {error && (
+                <div className="text-xs text-red-400">{error}</div>
+              )}
+
+              {data && (
+                <div className="text-[11px] text-muted">
+                  {terms.length === 1 && terms[0] === '随机'
+                    ? <>随机 {totalPages} 篇</>
+                    : <>{terms.length} 词 · {totalPages} 篇</>}
+                </div>
+              )}
+            </form>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto p-3">
+            {loading && (
+              <div className="py-4 text-center text-sm text-muted">抓取中…</div>
             )}
-            <p className="mt-1 text-xs text-muted">
-              不填关键词时，将从主命名空间的所有页面中随机抓取上述篇数。
-            </p>
-          </form>
+            {!loading && data && allPages.length === 0 && (
+              <div className="py-4 text-center text-sm text-muted">未找到匹配的页面</div>
+            )}
+            {!loading && allPages.length > 0 && (
+              <ul className="space-y-1.5">
+                {allPages.map((page, idx) => (
+                  <li key={`${page.title}-${idx}`}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPage(page)}
+                      className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                        selectedPage === page
+                          ? 'border-accent bg-accent/20 text-accent'
+                          : 'border-border/60 bg-black/20 text-fg hover:border-accent/60 hover:bg-white/5'
+                      }`}
+                    >
+                      <span className="font-medium block truncate">{page.title || page.url}</span>
+                      {page.term && (
+                        <span className="text-[11px] text-muted truncate block">
+                          {page.term}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
-        <div className="min-w-0 flex-1 border-l border-border overflow-y-auto bg-white/[0.02] p-6">
-          {!data && !loading && !error && (
+        <div className="min-w-0 flex-1 overflow-y-auto bg-white/[0.02] p-6">
+          {!selectedPage && (
             <div className="h-full flex items-center justify-center text-sm text-muted">
-              在左侧输入关键词或留空直接抓取，即可在此看到可点击打开的 MediaWiki 页面列表。
+              在左上输入关键词抓取后，点击左下页面列表中的条目，即可在此预览。
             </div>
           )}
-
-          {loading && (
-            <div className="h-full flex items-center justify-center text-sm text-muted">
-              抓取中，请稍候…
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="h-full flex items-center justify-center">
-              <p className="text-sm text-red-400">{error}</p>
-            </div>
-          )}
-
-          {data && results.length === 0 && (
-            <div className="h-full flex items-center justify-center text-sm text-muted">
-              未找到匹配的页面，请尝试其他关键词或增加抓取篇数。
-            </div>
-          )}
-          {data && results.length > 0 && (
-            <div className="space-y-6">
-              {results.map((group) => (
-                <div
-                  key={group.term}
-                  className="border border-border rounded-xl bg-white/5 p-4"
+          {selectedPage && (
+            <div className="max-w-3xl">
+              <div className="flex items-baseline justify-between gap-3 mb-4">
+                <h2 className="text-lg font-medium text-white truncate">
+                  {selectedPage.title || selectedPage.url}
+                </h2>
+                <a
+                  href={selectedPage.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted hover:text-accent shrink-0"
                 >
-                  <div className="flex items-baseline justify-between gap-3 mb-3">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-white">
-                        关键词：
-                      </span>
-                      <span className="text-sm text-accent">
-                        {group.term}
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted">
-                      抓取 {group.count} / {group.requested_limit} 篇
-                    </span>
-                  </div>
-                  {group.pages.length === 0 ? (
-                    <p className="text-sm text-muted">
-                      未找到匹配的页面。
-                    </p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {group.pages.map((page, idx) => (
-                        <li
-                          key={`${page.title}-${idx}`}
-                          className="border border-border/60 rounded-lg bg-black/20 px-3 py-2"
-                        >
-                          <div className="flex flex-col min-w-0">
-                            <a
-                              href={page.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-accent hover:underline break-all"
-                            >
-                              {page.title || page.url}
-                            </a>
-                            <span className="text-xs text-muted mt-0.5 break-words">
-                              {Array.isArray(page.categories) && page.categories.length
-                                ? `分类：${page.categories.join(' / ')}`
-                                : '无分类'}
-                            </span>
-                            <a
-                              href={page.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-muted hover:text-accent mt-1 break-all"
-                            >
-                              {page.url}
-                            </a>
-                          </div>
-                          {page.content && (
-                            <details className="mt-2 text-xs">
-                              <summary className="cursor-pointer text-muted hover:text-fg">
-                                预览页面内容
-                              </summary>
-                              <div className="mt-1 border border-border/60 rounded bg-white/5 p-2">
-                                <WikiPreview
-                                  wikiText={page.content}
-                                  className="min-h-[120px]"
-                                  theme="dark"
-                                  onAddToReference={(content) =>
-                                    navigate('/add-reference', { state: { addToReference: content } })
-                                  }
-                                />
-                              </div>
-                            </details>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
+                  在新标签页打开
+                </a>
+              </div>
+              <WikiPreview
+                wikiText={selectedPage.content || ''}
+                theme="dark"
+                onAddToReference={(content) =>
+                  navigate('/add-reference', { state: { addToReference: content } })
+                }
+              />
             </div>
           )}
         </div>

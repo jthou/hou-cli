@@ -1,25 +1,26 @@
 import { NavLink } from 'react-router-dom'
 import BackendStatus from './BackendStatus'
 
-// 分组：任务、创作、阅读、抓取、媒体、文档、协作、管道、工具、设置、开发
+// 分组：智能工具、阅读工具、任务工具、文档、协作、工具、设置、开发
 const navItems = [
-  { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'tasks' },
-  { path: '/tasks', icon: '📋', label: '任务中心', group: 'tasks' },
-  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'create' },
-  { path: '/article-writing', icon: '✍️', label: '公众号写作', group: 'create' },
+  { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
+  { path: '/article-writing', icon: '✍️', label: '公众号写作', group: 'smart_tools' },
+  { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },
   { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'read' },
+  { path: '/weread-reader', icon: '📱', label: '微信读书', group: 'read' },
   { path: '/pdf-reader', icon: '📘', label: 'PDF阅读', group: 'read' },
-  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'scrape' },
-  { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'scrape' },
-  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'media' },
-  { path: '/image-generation', icon: '🖼️', label: '图片生成', group: 'media' },
-  { path: '/video-extract-audio', icon: '🎧', label: '音频提取', group: 'media' },
-  { path: '/speech-to-text', icon: '🎤', label: '字幕提取', group: 'media' },
-  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF转Wiki', group: 'docs' },
+  { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'task_tools' },
+  { path: '/tasks', icon: '📋', label: '任务中心', group: 'task_tools' },
+  { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'task_tools' },
+  { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'task_tools' },
+  { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'task_tools' },
+  { path: '/image-generation', icon: '🖼️', label: '图片生成', group: 'task_tools' },
+  { path: '/video-extract-audio', icon: '🎧', label: '音频提取', group: 'task_tools' },
+  { path: '/speech-to-text', icon: '🎤', label: '字幕提取', group: 'task_tools' },
+  { path: '/pdf-to-wiki', icon: '📄', label: 'PDF转Wiki', group: 'task_tools' },
   { path: '/wiki-directory', icon: '📚', label: 'Wiki目录', group: 'docs' },
   { path: '/settings/kanban', icon: '🗂️', label: 'Wiki看板', group: 'wiki' },
-  { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'pipeline' },
   { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
@@ -34,20 +35,17 @@ const navItems = [
 ]
 
 const GROUP_META = {
-  tasks: { label: '任务', icon: '📋' },
-  create: { label: '创作', icon: '✏️' },
-  read: { label: '阅读', icon: '📖' },
-  scrape: { label: '抓取', icon: '🔍' },
-  media: { label: '媒体', icon: '🎬' },
+  smart_tools: { label: '智能工具', icon: '🤖' },
+  read: { label: '阅读工具', icon: '📖' },
+  task_tools: { label: '任务工具', icon: '🛠️' },
   docs: { label: '文档', icon: '📄' },
   wiki: { label: '协作', icon: '🗂️' },
-  pipeline: { label: '管道', icon: '🔀' },
   tools: { label: '工具', icon: '🔧' },
   settings: { label: '设置', icon: '⚙️' },
   dev: { label: '开发', icon: '🧪' },
 }
 
-const GROUP_ORDER = ['tasks', 'create', 'read', 'scrape', 'media', 'docs', 'wiki', 'pipeline', 'tools', 'settings', 'dev']
+const GROUP_ORDER = ['smart_tools', 'read', 'task_tools', 'docs', 'wiki', 'tools', 'settings', 'dev']
 
 export default function Sidebar({ open, onToggle }) {
   const itemsByGroup = GROUP_ORDER.map(groupId => ({

@@ -2,6 +2,18 @@
  * 参考块相关工具函数，供 ArticleWriting、WorkAssistant、AddReference 等复用
  */
 
+/** 从用户消息中提取「用户本次提问」部分用于展示，避免参考块长文导致排版混乱 */
+export function extractUserQuestionForDisplay(content) {
+  if (!content || typeof content !== 'string') return content || ''
+  const marker = '【用户本次提问】'
+  const idx = content.indexOf(marker)
+  if (idx >= 0) {
+    const after = content.slice(idx + marker.length).trimStart()
+    return after || content
+  }
+  return content
+}
+
 /** 从内容推导参考块标题：取首行或前 80 字，截断至 50 字 */
 export function deriveRefTitle(content) {
   const trimmed = (content || '').trim()

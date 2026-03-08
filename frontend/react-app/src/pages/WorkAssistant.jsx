@@ -9,7 +9,7 @@ import MarkdownPreview from '../components/MarkdownPreview'
 import { useToast } from '../components/ToastModal'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
-import { formatReferenceContext } from '../utils/referenceUtils'
+import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 
@@ -473,58 +473,55 @@ export default function WorkAssistant() {
         {/* 左侧会话列表（可收缩） */}
         <div
           className={`shrink-0 flex flex-col border-r border-border bg-surface/30 transition-[width] ${
-            sidebarCollapsed ? 'w-8' : 'w-52'
+            sidebarCollapsed ? 'w-8' : 'w-72'
           }`}
         >
           {sidebarCollapsed ? (
-            <div className="flex flex-col items-center py-2">
+            <div className="h-full flex flex-col items-center justify-start pt-3">
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed(false)}
-                className="p-2 rounded text-muted hover:text-fg hover:bg-white/5"
+                className="px-1.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
                 title="展开会话列表"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                展开
               </button>
             </div>
           ) : (
             <>
-              <div className="shrink-0 p-2 border-b border-border flex justify-between items-center">
-                <span className="text-xs font-medium text-muted">会话</span>
-                <div className="flex items-center gap-1">
+              <div className="shrink-0 p-3 border-b border-border space-y-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleNewSession}
-                    className="text-xs px-2 py-1 rounded border border-border text-muted hover:text-fg hover:bg-white/5"
+                    className="flex-1 py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
                   >
-                    + 新建
+                    新建会话
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarCollapsed(true)}
-                    className="p-1 rounded text-muted hover:text-fg hover:bg-white/5"
+                    className="px-2 py-2 rounded-lg border border-border text-xs text-muted hover:text-fg hover:bg-white/5"
                     title="收起会话列表"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
+                    收起
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto py-2">
+              <div className="flex-1 overflow-y-auto">
             {sessionsLoading && (
-              <div className="px-3 py-2 text-xs text-muted">加载中…</div>
+              <div className="p-4 text-center text-muted text-sm">加载中…</div>
             )}
             {!sessionsLoading && sessions.length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted">暂无会话</div>
+              <div className="p-4 text-muted text-sm">暂无会话，点击上方新建</div>
             )}
             {!sessionsLoading &&
-              sessions.map((s) => (
+              sessions.length > 0 && (
+              <ul className="p-2 space-y-1">
+              {sessions.map((s) => (
+                <li key={s.session_id} className="flex items-center gap-1 rounded-lg overflow-hidden">
                 <div
-                  key={s.session_id}
-                  className={`flex items-center gap-1 w-full px-3 py-2 text-xs rounded ${
+                  className={`flex-1 flex items-center gap-1 min-w-0 px-3 py-2.5 text-sm rounded-lg ${
                     selectedSessionId === s.session_id
                       ? 'bg-accent/20 text-accent'
                       : 'text-muted hover:bg-white/5 hover:text-fg'
@@ -549,7 +546,10 @@ export default function WorkAssistant() {
                     </svg>
                   </button>
                 </div>
+              </li>
               ))}
+              </ul>
+            )}
               </div>
             </>
           )}
@@ -579,7 +579,7 @@ export default function WorkAssistant() {
               >
                 {msg.role === 'user' ? (
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm whitespace-pre-wrap flex-1 min-w-0">{msg.content}</p>
+                    <p className="text-sm whitespace-pre-wrap flex-1 min-w-0">{extractUserQuestionForDisplay(msg.content)}</p>
                     {msg.message_id && (
                       <button
                         type="button"
