@@ -1544,9 +1544,14 @@ class SkillMatcher:
                 is_complex = False
             
             if is_complex:
+                # 写作助手、工作助手不调用工具，禁止走自主执行（避免误用 file_parser 等）
+                ctx_type = (context or {}).get("context_type")
+                skip_autonomous = ctx_type in ("article_writing", "work_assistant")
+
                 # 检查是否使用自主执行模式
                 autonomous_execution_enabled = (
-                    os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
+                    not skip_autonomous
+                    and os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
                 )
                 
                 if autonomous_execution_enabled and self.autonomous_executor:
@@ -1713,8 +1718,12 @@ class SkillMatcher:
                     yield StreamMessageBuilder.build_debug(debug_info)
         
         # 5. 检查是否启用自主执行（优先于技能匹配）
+        # 写作助手、工作助手不调用工具，禁止走自主执行
+        ctx_type_for_auto = (context or {}).get("context_type")
+        skip_autonomous_for_ctx = ctx_type_for_auto in ("article_writing", "work_assistant")
         autonomous_execution_enabled = (
-            os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
+            not skip_autonomous_for_ctx
+            and os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
         )
         
         if autonomous_execution_enabled and self.autonomous_executor:

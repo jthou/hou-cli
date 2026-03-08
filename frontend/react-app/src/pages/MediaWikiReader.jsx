@@ -16,6 +16,7 @@ export default function MediaWikiReader() {
   const toast = useToast()
   const [termsInput, setTermsInput] = useState('')
   const [perTermLimit, setPerTermLimit] = useState(5)
+  const [emptyMode, setEmptyMode] = useState('recent') // 'recent' | 'random'，关键词留空时的抓取方式
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
@@ -42,6 +43,8 @@ export default function MediaWikiReader() {
       const saved = JSON.parse(raw)
       if (saved?.termsInput != null) setTermsInput(String(saved.termsInput))
       if (saved?.perTermLimit != null) setPerTermLimit(Number(saved.perTermLimit) || 5)
+      if (saved?.emptyMode === 'random' || saved?.emptyMode === 'recent') setEmptyMode(saved.emptyMode)
+      if (saved?.data && Array.isArray(saved.data?.results)) setData(saved.data)
     } catch {
       // ignore
     }
@@ -57,7 +60,9 @@ export default function MediaWikiReader() {
       const saved = JSON.parse(raw)
       if (saved?.termsInput != null) setTermsInput(String(saved.termsInput))
       if (saved?.perTermLimit != null) setPerTermLimit(Number(saved.perTermLimit) || 5)
-      toast?.info?.('已恢复上次关键词')
+      if (saved?.emptyMode === 'random' || saved?.emptyMode === 'recent') setEmptyMode(saved.emptyMode)
+      if (saved?.data && Array.isArray(saved.data?.results)) setData(saved.data)
+      toast?.info?.('已恢复上次记录')
     } catch {
       toast?.warning?.('恢复失败')
     }
@@ -67,6 +72,7 @@ export default function MediaWikiReader() {
     try {
       if (localStorage.getItem(STORAGE_KEY_LAST)) {
         localStorage.removeItem(STORAGE_KEY_LAST)
+        setData(null)
         toast?.info?.('已清空上次记录')
       } else {
         toast?.warning?.('暂无上次记录')
@@ -89,6 +95,10 @@ export default function MediaWikiReader() {
         params.set('terms', raw)
         params.set('per_term_limit', String(perTermLimit || 5))
         res = await fetch(`/api/mediawiki/search-read?${params.toString()}`)
+      } else if (emptyMode === 'recent') {
+        const params = new URLSearchParams()
+        params.set('count', String(perTermLimit || 5))
+        res = await fetch(`/api/mediawiki/recent-read?${params.toString()}`)
       } else {
         const params = new URLSearchParams()
         params.set('count', String(perTermLimit || 5))
@@ -102,10 +112,15 @@ export default function MediaWikiReader() {
       try {
         localStorage.setItem(
           STORAGE_KEY_LAST,
-          JSON.stringify({ termsInput: (termsInput || '').trim(), perTermLimit: perTermLimit || 5 })
+          JSON.stringify({
+            termsInput: (termsInput || '').trim(),
+            perTermLimit: perTermLimit || 5,
+            emptyMode,
+            data: json,
+          })
         )
       } catch {
-        // ignore
+        // ignore (可能因内容过大超出 quota)
       }
     } catch (err) {
       setError(err.message || String(err))
@@ -184,11 +199,11 @@ export default function MediaWikiReader() {
                   onChange={(e) => setTermsInput(e.target.value)}
                   rows={4}
                   className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none resize-y text-sm"
-                  placeholder="每行一个关键词，或逗号分隔。留空随机抓取。"
+                  placeholder="每行一个关键词，或逗号分隔。留空可抓取最新更改或随机文章。"
                 />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <label className="block text-[11px] text-muted mb-0.5">每词篇数</label>
                   <input
@@ -200,6 +215,33 @@ export default function MediaWikiReader() {
                     className="w-16 px-2 py-1.5 text-sm bg-white/5 border border-border rounded-lg text-white focus:border-accent focus:outline-none"
                   />
                 </div>
+                {!termsInput.trim() && (
+                  <div>
+                    <label className="block text-[11px] text-muted mb-1">关键词留空时</label>
+                    <div className="flex gap-2">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="emptyMode"
+                          checked={emptyMode === 'recent'}
+                          onChange={() => setEmptyMode('recent')}
+                          className="text-accent"
+                        />
+                        <span className="text-sm">最新更改</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="emptyMode"
+                          checked={emptyMode === 'random'}
+                          onChange={() => setEmptyMode('random')}
+                          className="text-accent"
+                        />
+                        <span className="text-sm">随机</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={loading}
@@ -217,7 +259,9 @@ export default function MediaWikiReader() {
                 <div className="text-[11px] text-muted">
                   {terms.length === 1 && terms[0] === '随机'
                     ? <>随机 {totalPages} 篇</>
-                    : <>{terms.length} 词 · {totalPages} 篇</>}
+                    : terms.length === 1 && terms[0] === '最新更改'
+                      ? <>最新更改 {totalPages} 篇</>
+                      : <>{terms.length} 词 · {totalPages} 篇</>}
                 </div>
               )}
             </form>

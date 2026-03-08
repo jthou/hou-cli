@@ -204,6 +204,76 @@ async def search_and_read_mediawiki(
         )
 
 
+@router.get("/mediawiki/recent-read")
+async def recent_read_mediawiki(
+    count: int = 10,
+):
+    """
+    获取最近修改的 n 篇 MediaWiki 文章的完整内容。
+
+    - count: 文章数量，默认 10，范围 1–50。
+    """
+    try:
+        try:
+            n = int(count)
+        except (TypeError, ValueError):
+            n = 10
+        if n < 1:
+            n = 1
+        if n > 50:
+            n = 50
+
+        client = get_mediawiki_client()
+        titles = client.get_recently_changed_pages(limit=n, namespace=0)
+        if not titles:
+            raise HTTPException(
+                status_code=404,
+                detail="MediaWiki 中暂无最近修改的页面。",
+            )
+
+        pages = []
+        for title in titles:
+            page = client.get_page(title)
+            if not page:
+                continue
+            pages.append(
+                {
+                    "title": page.title,
+                    "url": page.url,
+                    "categories": page.categories,
+                    "content": page.content,
+                }
+            )
+
+        results = [
+            {
+                "term": "最新更改",
+                "requested_limit": n,
+                "count": len(pages),
+                "pages": pages,
+            }
+        ]
+
+        return {
+            "success": True,
+            "terms": ["最新更改"],
+            "per_term_limit": n,
+            "total_pages": len(pages),
+            "results": results,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(
+            f"MediaWiki recent-read failed: {str(e)}",
+            level="error",
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Recent-read failed: {str(e)}",
+        )
+
+
 @router.get("/mediawiki/random-read")
 async def random_read_mediawiki(
     count: int = 5,

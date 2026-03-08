@@ -377,6 +377,46 @@ class MediaWikiClientService:
             return page.categories
         return []
     
+    def get_recently_changed_pages(
+        self,
+        limit: int = 10,
+        namespace: int = 0
+    ) -> List[str]:
+        """获取最近修改的页面标题列表（按修改时间倒序，去重）
+
+        Args:
+            limit: 返回的页面数量
+            namespace: 命名空间（0 为主命名空间）
+
+        Returns:
+            List[str]: 页面标题列表
+        """
+        self._ensure_connected()
+
+        def _get_recent():
+            seen = set()
+            result = []
+            # 多请求一些以应对同一页面多次编辑
+            rclimit = min(500, max(limit * 5, 50))
+            data = self.site.api(
+                "query",
+                list="recentchanges",
+                rcnamespace=namespace,
+                rctype="edit|new",
+                rclimit=rclimit,
+                rcprop="title",
+            )
+            for rc in data.get("query", {}).get("recentchanges", []):
+                title = rc.get("title", "").strip()
+                if title and title not in seen:
+                    seen.add(title)
+                    result.append(title)
+                    if len(result) >= limit:
+                        break
+            return result
+
+        return self._retry_on_error(_get_recent)
+
     def get_all_pages(
         self,
         namespace: int = 0,

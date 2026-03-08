@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 109
+- 后端路由数: 110
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -19,6 +19,7 @@ GET /api/heartbeat/status
 GET /api/latex/render
 GET /api/mediawiki/pages/{title:path}
 GET /api/mediawiki/random-read
+GET /api/mediawiki/recent-read
 GET /api/mediawiki/search
 GET /api/mediawiki/search-read
 GET /api/mediawiki/sync/status
@@ -139,6 +140,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/latex/render
 - /api/mediawiki/pages/{id}
 - /api/mediawiki/random-read
+- /api/mediawiki/recent-read
 - /api/mediawiki/search
 - /api/mediawiki/search-read
 - /api/mediawiki/sync

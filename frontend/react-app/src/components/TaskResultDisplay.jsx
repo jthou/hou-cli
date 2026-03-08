@@ -310,11 +310,22 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
 
   if (taskType === 'wechat_mp_draft' && result.data) {
     const d = result.data
+    const wechatDraftUrl = 'https://mp.weixin.qq.com/'
     return (
       <div className="space-y-2 text-muted">
         {result.summary && <p className="text-green-400">{result.summary}</p>}
         {d.media_id && <p><span className="text-muted">media_id </span><code className="text-cyan-300 break-all text-xs">{d.media_id}</code></p>}
         {d.message && <p className="text-muted">{d.message}</p>}
+        <p>
+          <a
+            href={wechatDraftUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-cyan-300 hover:underline"
+          >
+            打开公众号草稿箱 →
+          </a>
+        </p>
       </div>
     )
   }
