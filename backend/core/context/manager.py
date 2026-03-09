@@ -5,12 +5,19 @@ import uuid
 from backend.core.context.models import Message, MessageRole, Session
 from backend.core.context.storage.base import StorageBackend
 from backend.core.context.storage.file import FileStorageBackend
+from backend.core.context.storage.jsonl import JsonlStorageBackend
 from backend.core.context.compression.base import CompressionStrategy
 from backend.core.context.compression.time_window import TimeWindowCompression
 from backend.core.context.retrieval.base import RetrievalEngine
 from backend.core.context.retrieval.keyword import KeywordRetrievalEngine
 from backend.core.context.long_term_memory.base import LongTermMemory
 from backend.core.context.long_term_memory.models import Memory, MemoryType
+from backend.core.context.budget import (
+    enforce_history_budget,
+    DEFAULT_MAX_HISTORY_BYTES,
+    DEFAULT_MAX_SINGLE_MESSAGE_BYTES,
+)
+from backend.core.context.sanitize import sanitize_messages_for_llm
 
 
 class ContextManager:
@@ -25,37 +32,46 @@ class ContextManager:
         storage_dir: Optional[Path] = None,
         default_max_messages: int = 10,
         default_max_tokens: Optional[int] = None,
-        auto_save_to_memory: bool = False
+        auto_save_to_memory: bool = False,
+        use_jsonl_storage: bool = True,
+        max_history_bytes: Optional[int] = None,
+        max_single_message_bytes: Optional[int] = None,
     ):
         """
         初始化上下文管理器
-        
+
         Args:
-            storage_backend: 存储后端（默认：FileStorageBackend，持久化）
+            storage_backend: 存储后端（默认：JsonlStorageBackend 或 FileStorageBackend）
             compression_strategy: 压缩策略（默认：TimeWindowCompression）
             retrieval_engine: 检索引擎（默认：KeywordRetrievalEngine）
             long_term_memory: 长期记忆（可选）
-            storage_dir: 存储目录（仅当使用默认 FileStorageBackend 时有效）
+            storage_dir: 存储目录（仅当使用默认存储时有效）
             default_max_messages: 默认最大消息数
             default_max_tokens: 默认最大 token 数
             auto_save_to_memory: 是否自动保存到长期记忆
+            use_jsonl_storage: 是否使用 JSONL append-only 存储（默认 True）
+            max_history_bytes: 历史总字节预算（None 使用默认 512KB）
+            max_single_message_bytes: 单条消息最大字节（None 使用默认 128KB）
         """
-        # 默认使用 FileStorageBackend（持久化）
         if storage_backend is None:
-            # 如果未指定 storage_dir，使用项目配置目录
             if storage_dir is None:
                 from shared.platform_utils import get_app_data_dir
                 storage_dir = get_app_data_dir() / "contexts"
-            self.storage = FileStorageBackend(storage_dir=storage_dir)
+            if use_jsonl_storage:
+                self.storage = JsonlStorageBackend(storage_dir=storage_dir)
+            else:
+                self.storage = FileStorageBackend(storage_dir=storage_dir)
         else:
             self.storage = storage_backend
-        
+
         self.compression = compression_strategy or TimeWindowCompression()
         self.retrieval = retrieval_engine or KeywordRetrievalEngine()
         self.long_term_memory = long_term_memory
         self.auto_save_to_memory = auto_save_to_memory
         self.default_max_messages = default_max_messages
         self.default_max_tokens = default_max_tokens
+        self.max_history_bytes = max_history_bytes or DEFAULT_MAX_HISTORY_BYTES
+        self.max_single_message_bytes = max_single_message_bytes or DEFAULT_MAX_SINGLE_MESSAGE_BYTES
     
     def create_session(self, metadata: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -81,25 +97,30 @@ class ContextManager:
         role: MessageRole,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
-        save_to_memory: Optional[bool] = None
+        save_to_memory: Optional[bool] = None,
+        idempotency_key: Optional[str] = None,
     ) -> str:
         """
         添加消息
-        
+
         Args:
             session_id: 会话 ID
             role: 消息角色
             content: 消息内容
             metadata: 消息元数据
             save_to_memory: 是否保存到长期记忆（None 使用 auto_save_to_memory）
-            
+            idempotency_key: 幂等键，相同 key 的消息只保存一次（防重试重复写入）
+
         Returns:
             消息 ID
         """
+        meta = dict(metadata or {})
+        if idempotency_key:
+            meta["idempotency_key"] = idempotency_key
         message = Message(
             role=role,
             content=content,
-            metadata=metadata or {}
+            metadata=meta,
         )
         
         # 保存到上下文
@@ -159,31 +180,39 @@ class ContextManager:
         self,
         session_id: str,
         max_messages: Optional[int] = None,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        apply_budget: bool = True,
+        apply_sanitize: bool = True,
     ) -> List[Dict[str, str]]:
         """
-        获取用于 LLM 的消息格式
-        
+        获取用于 LLM 的消息格式（含字节预算、消息清洗）
+
         Args:
             session_id: 会话 ID
             max_messages: 最大消息数（None 表示不限制）
             max_tokens: 最大 token 数（None 表示不限制）
-            
+            apply_budget: 是否应用字节预算（超大单条替换、总字节截断）
+            apply_sanitize: 是否应用消息清洗（strip envelope、截断、脱敏）
+
         Returns:
             LLM 格式的消息列表
         """
-        # 如果 max_messages 和 max_tokens 都为 None，则不压缩，获取完整历史
         if max_messages is None and max_tokens is None:
             messages = self.get_messages(session_id, compressed=False)
         else:
             messages = self.get_messages(session_id, max_messages, max_tokens)
-        return [
-            {
-                "role": msg.role.value,
-                "content": msg.content
-            }
-            for msg in messages
-        ]
+
+        raw = [{"role": msg.role.value, "content": msg.content or ""} for msg in messages]
+
+        if apply_sanitize:
+            raw = sanitize_messages_for_llm(raw)
+        if apply_budget:
+            raw = enforce_history_budget(
+                raw,
+                max_bytes=self.max_history_bytes,
+                max_single_message_bytes=self.max_single_message_bytes,
+            )
+        return raw
     
     def search_messages(
         self,

@@ -77,16 +77,43 @@ class DatabaseStorageBackend(StorageBackend):
         return sqlite3.connect(self.db_path)
     
     def save_message(self, session_id: str, message: Message) -> bool:
-        """保存消息"""
+        """保存消息（支持幂等：metadata.idempotency_key 已存在则跳过）"""
+        idempotency_key = (message.metadata or {}).get("idempotency_key")
+        if idempotency_key:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT message_id FROM messages WHERE session_id = ? AND json_extract(metadata, '$.idempotency_key') = ?",
+                    (session_id, idempotency_key),
+                )
+                if cursor.fetchone():
+                    return True  # 已存在，跳过
+            except sqlite3.OperationalError:
+                # 旧版 SQLite 可能无 json_extract，回退到逐条检查
+                cursor.execute(
+                    "SELECT metadata FROM messages WHERE session_id = ?",
+                    (session_id,),
+                )
+                for (meta_json,) in cursor.fetchall():
+                    try:
+                        meta = json.loads(meta_json or "{}")
+                        if meta.get("idempotency_key") == idempotency_key:
+                            return True
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+            finally:
+                conn.close()
+
         if not message.message_id:
             message.message_id = str(uuid.uuid4())
-        
+
         conn = self._get_conn()
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute("""
-                INSERT OR REPLACE INTO messages 
+                INSERT OR REPLACE INTO messages
                 (message_id, session_id, role, content, timestamp, metadata)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (
