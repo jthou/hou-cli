@@ -1,6 +1,6 @@
 {
   "total_files": 1067,
-  "total_lines": 311656,
+  "total_lines": 311652,
   "by_language": {
     "other": {
       "files": 23,
@@ -20,7 +20,7 @@
     },
     "jsx": {
       "files": 78,
-      "lines": 16189
+      "lines": 16185
     },
     "javascript": {
       "files": 32,
@@ -58,7 +58,7 @@
     },
     "frontend": {
       "files": 135,
-      "lines": 32453
+      "lines": 32449
     },
     "plans": {
       "files": 6,
@@ -109,5 +109,5 @@
       "lines": 33896
     }
   },
-  "generated_at": "2026-03-09T01:22:06.904922Z"
+  "generated_at": "2026-03-09T01:44:36.693962Z"
 }

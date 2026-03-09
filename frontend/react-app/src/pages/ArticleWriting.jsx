@@ -778,7 +778,6 @@ export default function ArticleWriting() {
       if (data.success) {
         toast?.info?.('任务已创建，可在任务管理中查看执行状态')
         setOutputDialog(null)
-        navigate('/tasks', { state: data.task_id ? { detailTaskId: data.task_id } : {} })
       } else {
         toast?.error?.(formatWechatMpError('创建任务失败', new Error(data.detail || data.message || '创建任务失败')))
       }
