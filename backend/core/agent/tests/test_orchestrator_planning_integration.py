@@ -92,19 +92,19 @@ class TestOrchestratorPlanningIntegration:
         mock_skill = MagicMock()
         mock_skill.name = "video_downloader"
         mock_skill.description = "视频下载技能"
-        mock_skill.match = MagicMock(return_value=True)
+        mock_skill.parameters = []
         
-        # Mock 技能执行结果
+        # Mock 技能执行结果（SkillResult 使用 success/data/error，无 result 字段）
         from backend.core.agent.skills.base import SkillResult
         skill_result = SkillResult(
             success=True,
-            result="视频下载成功",
-            data={"url": "https://example.com/video.mp4"}
+            data={"url": "https://example.com/video.mp4", "result": "视频下载成功"}
         )
         mock_skill.execute = AsyncMock(return_value=skill_result)
         
-        # 注册技能到技能注册表
+        # 注册技能并 mock match 直接返回（绕过 LLM/传统匹配）
         orchestrator.skill_registry.register(mock_skill)
+        orchestrator.skill_registry.match = AsyncMock(return_value=mock_skill)
         
         # 执行任务
         task = "下载视频 https://example.com/video.mp4"
@@ -133,9 +133,14 @@ class TestOrchestratorPlanningIntegration:
         mock_response.tool_calls[0].id = "call_123"
         mock_response.content = None
         
-        # Mock LLM Service
+        # Mock LLM Service（stream_chat/stream_chat_with_tools 需返回 async generator）
+        async def mock_stream_gen(*args, out_result=None, **kwargs):
+            if out_result is not None:
+                out_result["content"] = "完成"
+            yield "chunk"
         orchestrator.llm_service.chat = AsyncMock(return_value=mock_response)
-        orchestrator.llm_service.stream_chat = AsyncMock()
+        orchestrator.llm_service.stream_chat = mock_stream_gen
+        orchestrator.llm_service.stream_chat_with_tools = mock_stream_gen
         
         # Mock 工具执行
         from backend.core.agent.tools.base import ToolResult
@@ -239,11 +244,11 @@ class TestOrchestratorPlanningIntegration:
         self, orchestrator, clear_task_manager
     ):
         """测试长任务的进度更新同时更新任务管理器和规划文件"""
-        # Mock 一个长任务技能
+        # Mock 一个长任务技能（需 mock skill_registry.match 以绕过 LLM/传统匹配）
         mock_skill = MagicMock()
         mock_skill.name = "video_downloader"
         mock_skill.description = "视频下载技能"
-        mock_skill.match = MagicMock(return_value=True)
+        mock_skill.parameters = []
         
         # Mock 进度回调
         progress_calls = []
@@ -251,14 +256,14 @@ class TestOrchestratorPlanningIntegration:
         def mock_progress_callback(progress_or_message, message=""):
             progress_calls.append((progress_or_message, message))
         
-        # Mock 技能执行
+        # Mock 技能执行（SkillResult 使用 success/data/error，无 result 字段）
         from backend.core.agent.skills.base import SkillResult
-        skill_result = SkillResult(
-            success=True,
-            result="下载完成"
-        )
+        skill_result = SkillResult(success=True, data={"result": "下载完成"})
+        
+        execute_called = []
         
         async def mock_execute(parameters, context):
+            execute_called.append(True)
             # 模拟进度更新
             if 'progress_callback' in context:
                 context['progress_callback'](10, "开始下载")
@@ -268,6 +273,7 @@ class TestOrchestratorPlanningIntegration:
         
         mock_skill.execute = mock_execute
         orchestrator.skill_registry.register(mock_skill)
+        orchestrator.skill_registry.match = AsyncMock(return_value=mock_skill)
         
         # 执行任务
         task = "下载视频 https://example.com/video.mp4"
@@ -276,7 +282,6 @@ class TestOrchestratorPlanningIntegration:
         async for chunk in orchestrator.stream_process(task):
             messages.append(chunk)
         
-        # 验证进度回调被调用
-        # 注意：由于是异步执行，进度更新可能在后台进行
-        assert mock_skill.execute.called
+        # 验证技能被执行
+        assert len(execute_called) > 0, "技能 execute 应被调用"
 

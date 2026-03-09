@@ -481,22 +481,6 @@ export default function SettingsModelConfigAudit() {
               </div>
             </section>
 
-            {data.model_token_limits?.current && (
-              <section>
-                <h2 className="text-base font-medium text-white mb-3">Token 限制（当前默认模型）</h2>
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-                  <p className="text-sm text-amber-200/90">
-                    最大上下文：<strong>{data.model_token_limits.current[0]?.toLocaleString()}</strong> tokens
-                    {' · '}
-                    最大输出：<strong>{data.model_token_limits.current[1]?.toLocaleString()}</strong> tokens
-                  </p>
-                  <p className="text-xs text-muted mt-2">
-                    LLM_MAX_TOKENS 控制单次输出上限；若输出被截断，会在响应末尾追加警告。详见 docs/design/model-token-limits.md
-                  </p>
-                </div>
-              </section>
-            )}
-
             <section>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-medium text-white">模型可用性（.env 解析）</h2>

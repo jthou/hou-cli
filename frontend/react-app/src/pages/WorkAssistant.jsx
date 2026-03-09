@@ -66,8 +66,9 @@ export default function WorkAssistant() {
       .then((r) => r.json())
       .then((d) => {
         if (d.sessions) setSessions(d.sessions)
+        if (d.error) toast?.error?.(`加载会话列表失败：${d.error}`)
       })
-      .catch(() => {})
+      .catch((e) => toast?.error?.(e?.message || '加载会话列表失败'))
       .finally(() => setSessionsLoading(false))
   }, [])
 
@@ -116,9 +117,11 @@ export default function WorkAssistant() {
       .then((d) => {
         if (d.success && Array.isArray(d.messages)) {
           setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+        } else if (d.error) {
+          toast?.error?.(`加载历史失败：${d.error}`)
         }
       })
-      .catch(() => {})
+      .catch((e) => toast?.error?.(e?.message || '加载历史失败'))
       .finally(() => setDetailLoading(false))
   }, [selectedSessionId, loading])
 

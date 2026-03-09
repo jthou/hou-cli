@@ -18,7 +18,7 @@ class TestSecureExecutor:
         """测试阻止危险命令"""
         request = ExecutionRequest(
             code="rm -rf /",
-            language="bash",
+            language="zsh",
             timeout=10
         )
         result = await executor.execute_code_safely(request)
@@ -78,6 +78,30 @@ class TestSecureExecutor:
         
         assert result.success is False
         assert "too long" in result.error.lower() or "limit" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_block_obfuscated_code(self, executor):
+        """测试阻止混淆代码"""
+        request = ExecutionRequest(
+            code="eval(base64.b64decode('aGVsbG8='))",
+            language="python",
+            timeout=10
+        )
+        result = await executor.execute_code_safely(request)
+        assert result.success is False
+        assert "混淆" in result.error or "obfuscat" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_block_python_shell_bleed(self, executor):
+        """测试阻止 Python 中的 shell 变量注入"""
+        request = ExecutionRequest(
+            code="path = $PATH",
+            language="python",
+            timeout=10
+        )
+        result = await executor.execute_code_safely(request)
+        assert result.success is False
+        assert "shell" in result.error.lower() or "PATH" in result.error or "environ" in result.error
 
 
 

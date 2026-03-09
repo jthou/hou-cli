@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import WeatherResultDisplay from '../components/WeatherResultDisplay'
+import DiskResultDisplay from '../components/DiskResultDisplay'
 import TaskResultDisplay from '../components/TaskResultDisplay'
 
 function useLatestTask(taskType) {
@@ -92,6 +93,7 @@ function useLatestScheduledUrlToWiki() {
 
 export default function Home() {
   const { task: weatherTask, loading, error } = useLatestTask('weather_query')
+  const { task: diskScanTask, loading: diskScanLoading, error: diskScanError } = useLatestTask('disk_scan')
   const { task: urlToWikiTask, loading: urlToWikiLoading, error: urlToWikiError } = useLatestScheduledUrlToWiki()
   const { task: webSearchTask, loading: webSearchLoading, error: webSearchError } = useLatestTask('web_search')
 
@@ -122,6 +124,33 @@ export default function Home() {
                   任务 ID #{weatherTask.task_id?.slice(0, 8)} · 创建于 {weatherTask.created_at}
                 </div>
                 <WeatherResultDisplay result={weatherTask.result} />
+              </div>
+            )}
+          </section>
+
+          <section className="border border-border rounded-xl bg-surface/40 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-white">最近一次磁盘扫描</h2>
+              <Link
+                to="/disk-scan"
+                className="text-xs text-muted hover:text-accent"
+              >
+                更多 →
+              </Link>
+            </div>
+            {diskScanLoading && <span className="text-xs text-muted">加载中…</span>}
+            {diskScanError && (
+              <p className="text-xs text-red-400">加载失败：{diskScanError}</p>
+            )}
+            {!diskScanLoading && !diskScanError && !diskScanTask && (
+              <p className="text-xs text-muted">暂无已完成的磁盘扫描任务。</p>
+            )}
+            {!diskScanLoading && !diskScanError && diskScanTask && (
+              <div className="space-y-3">
+                <div className="text-xs text-muted">
+                  任务 ID #{diskScanTask.task_id?.slice(0, 8)} · 创建于 {diskScanTask.created_at}
+                </div>
+                <DiskResultDisplay result={diskScanTask.result?.result || diskScanTask.result} />
               </div>
             )}
           </section>

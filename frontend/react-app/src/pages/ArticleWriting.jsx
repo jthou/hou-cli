@@ -2,7 +2,7 @@
  * 写作助手 - 与公众号草稿一致：左侧会话列表，中间对话，右侧文章预览（Markdown 预览与微信草稿一致）。
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../components/ToastModal'
 import PageHeader from '../components/PageHeader'
 import MarkdownPreview from '../components/MarkdownPreview'
@@ -63,6 +63,7 @@ import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
+import WritingProfileForm from '../components/WritingProfileForm'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
 
@@ -133,6 +134,8 @@ export default function ArticleWriting() {
   const [wechatGeneratingField, setWechatGeneratingField] = useState(null) // 'title'|'digest'|'author'|'cover'
   const [wechatCoverPrompt, setWechatCoverPrompt] = useState('')
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
+  /** 参考信息面板内标签：'blocks' 参考块 | 'profile' 写作画像 */
+  const [referenceTab, setReferenceTab] = useState('blocks')
   const [selectedModel, setSelectedModel] = useState('')
   const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
   useEffect(() => {
@@ -168,8 +171,12 @@ export default function ArticleWriting() {
       .then((d) => {
         const list = Array.isArray(d.sessions) ? d.sessions : []
         setSessions(list)
+        if (d.error) toast?.error?.(`加载会话列表失败：${d.error}`)
       })
-      .catch(() => setSessions([]))
+      .catch((e) => {
+        setSessions([])
+        toast?.error?.(e?.message || '加载会话列表失败')
+      })
       .finally(() => setSessionsLoading(false))
   }, [listSort])
 
@@ -295,12 +302,14 @@ export default function ArticleWriting() {
           setMessages(
             sessionRes.messages.map((m) => ({ role: m.role, content: m.content }))
           )
+        } else if (sessionRes?.error) {
+          toast?.error?.(`加载历史失败：${sessionRes.error}`)
         }
         if (articleRes.status === 'success' && articleRes.article != null) {
           setArticle(articleRes.article)
         }
       })
-      .catch(() => {})
+      .catch((e) => toast?.error?.(e?.message || '加载历史失败'))
       .finally(() => setDetailLoading(false))
     loadRevisions()
   }, [selectedSessionId, loadRevisions])
@@ -778,6 +787,7 @@ export default function ArticleWriting() {
       if (data.success) {
         toast?.info?.('任务已创建，可在任务管理中查看执行状态')
         setOutputDialog(null)
+        navigate('/tasks', { state: data.task_id ? { detailTaskId: data.task_id } : {} })
       } else {
         toast?.error?.(formatWechatMpError('创建任务失败', new Error(data.detail || data.message || '创建任务失败')))
       }
@@ -1011,6 +1021,14 @@ export default function ArticleWriting() {
       <PageHeader
         title="写作助手"
         subtitle="左侧为写作助手会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可点击生成标题、摘要、作者、封面建议。"
+        actions={
+          <Link
+            to="/settings/writing-profile"
+            className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-fg hover:bg-white/10"
+          >
+            写作画像
+          </Link>
+        }
       />
 
       <div className="flex-1 flex min-h-0">
@@ -1333,12 +1351,39 @@ export default function ArticleWriting() {
                   )}
                 </button>
                 {referencePanelOpen && (
-                  <ReferenceBlocksPanel
-                    referenceBlocks={referenceBlocks}
-                    onAdd={handleAddReferenceBlockAndOpen}
-                    onUpdate={handleUpdateReferenceBlock}
-                    onRemove={handleRemoveReferenceBlock}
-                  />
+                  <div className="mt-2">
+                    <div className="flex gap-1 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setReferenceTab('blocks')}
+                        className={`px-2 py-1 text-xs rounded ${referenceTab === 'blocks' ? 'bg-accent/20 text-accent border border-accent/40' : 'border border-border text-muted hover:bg-white/5'}`}
+                      >
+                        参考块
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReferenceTab('profile')}
+                        className={`px-2 py-1 text-xs rounded ${referenceTab === 'profile' ? 'bg-accent/20 text-accent border border-accent/40' : 'border border-border text-muted hover:bg-white/5'}`}
+                      >
+                        写作画像
+                      </button>
+                    </div>
+                    {referenceTab === 'blocks' ? (
+                      <ReferenceBlocksPanel
+                        referenceBlocks={referenceBlocks}
+                        onAdd={handleAddReferenceBlockAndOpen}
+                        onUpdate={handleUpdateReferenceBlock}
+                        onRemove={handleRemoveReferenceBlock}
+                      />
+                    ) : (
+                      <div className="max-h-[40vh] overflow-y-auto">
+                        <WritingProfileForm
+                          showProfilePath={false}
+                          showSaveButton={true}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">

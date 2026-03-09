@@ -20,14 +20,16 @@
 | 一次性代码执行 | ✅ | ✅ 保留 | hou-cli |
 | 风险分级 | ✅ | ✅ 保留 | hou-cli |
 | AutoCodeExecutor | ✅ | ✅ 保留 | hou-cli |
-| 混淆检测 | ❌ | ✅ 新增 | OpenClaw |
-| Preflight（shell 注入） | ❌ | ✅ 新增 | OpenClaw |
-| 流式输出 | ❌ | ✅ 新增 | OpenClaw |
-| 后台执行 | ❌ | ✅ 新增 | OpenClaw |
-| process 管理 | ❌ | ✅ 新增 | OpenClaw |
-| allowlist + approval | ⚠️ 部分 | ✅ 完善 | OpenClaw |
-| PTY 支持 | ❌ | ⚠️ 可选 | OpenClaw |
+| 混淆检测 | ✅ | ✅ 新增 | OpenClaw |
+| Preflight（shell 注入） | ✅ | ✅ 新增 | OpenClaw |
+| 流式输出 | ✅ | ✅ 新增 | OpenClaw |
+| 后台执行 | ✅ | ✅ 新增 | OpenClaw |
+| process 管理 | ✅ | ✅ 新增 | OpenClaw |
+| allowlist + approval | ✅ | ✅ 完善 | OpenClaw |
+| PTY 支持 | ✅ | ⚠️ 可选 | OpenClaw |
 | Docker 沙箱 | ❌ | ⏸️ 暂缓 | OpenClaw |
+
+> **代码助手与执行器集成**：CodeAssistantAgent 输出含 markdown 代码块时，`_chat_with_tools_stream` 纯文本分支会调用 AutoCodeExecutor 执行并流式返回 `__TOOL__` 结果。
 
 > **allowlist + approval 必要性**：无审批时，大模型要删文件只能「全拒」或「全放」——全拒则用户无法通过 AI 删文件，全放则危险。allowlist 允许常见安全模式免审，approval 让用户对危险操作（rm、chmod 等）显式确认后执行。
 
@@ -55,6 +57,26 @@
 │  └────────────────────┘  └──────────────────┘                            │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 3.1.1 代码助手 Agent 与代码执行器关系
+
+```
+CodeAssistantAgent.stream_process()
+       │
+       ▼
+_chat_with_tools_stream (orchestrator)
+       │
+       ├── 路径 A：LLM 调用 execute_code 工具
+       │       → CodeExecutorTool.execute() → SecureExecutor
+       │
+       └── 路径 B：LLM 返回纯文本（含 ```python ... ```）
+               → AutoCodeExecutor.process_llm_output()
+               → 提取代码块 → SecureExecutor.execute_code_safely()
+               → 流式输出 __TOOL__ + 执行结果
+```
+
+- **路径 A**：LLM 通过 Function Calling 主动调用 execute_code，适合「写代码并执行」的明确指令
+- **路径 B**：LLM 输出 markdown 代码块但未调用工具时，AutoCodeExecutor 自动提取并执行，仅对 `context_type=code_assistant` 启用
 
 ### 3.2 工具职责划分
 

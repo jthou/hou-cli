@@ -7,7 +7,7 @@ import shutil
 import time
 import platform
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 import resource
 import psutil
 
@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 class SubprocessExecutor:
     """Subprocess 执行器（使用 subprocess + resource 限制）"""
     
-    # 语言映射表
+    # 语言映射表（暂时仅支持 python、zsh）
     LANGUAGE_MAPPING = {
         "python": {
             "executors": {
@@ -32,40 +32,16 @@ class SubprocessExecutor:
                 "darwin": ["python3", "python"],
                 "windows": ["python", "py"]
             },
-            "execute_method": "code"  # 可以直接用 -c 参数
-        },
-        "bash": {
-            "executors": {
-                "linux": ["bash"],
-                "darwin": ["bash"],
-                "windows": None  # Windows 不支持
-            },
-            "execute_method": "code"  # 可以直接用 -c 参数
+            "execute_method": "code"
         },
         "zsh": {
             "executors": {
                 "linux": ["zsh"],
                 "darwin": ["zsh"],
-                "windows": None  # Windows 不支持
+                "windows": None  # Windows 不支持 zsh
             },
-            "execute_method": "code"  # 可以直接用 -c 参数
+            "execute_method": "code"
         },
-        "powershell": {
-            "executors": {
-                "linux": ["pwsh"],  # PowerShell Core
-                "darwin": ["pwsh"],
-                "windows": ["powershell", "pwsh"]
-            },
-            "execute_method": "command"  # 使用 -Command 参数
-        },
-        "batch": {
-            "executors": {
-                "linux": None,  # Linux 不支持
-                "darwin": None,  # macOS 不支持
-                "windows": ["cmd", "cmd.exe"]
-            },
-            "execute_method": "file"  # 需要写入文件
-        }
     }
     
     def __init__(self):
@@ -151,12 +127,86 @@ class SubprocessExecutor:
         except Exception:
             # 如果设置失败，继续执行（某些系统可能不支持）
             pass
+
+    def _safe_decode(self, data: bytes) -> str:
+        """安全解码字节数据"""
+        if not data:
+            return ""
+        try:
+            return data.decode("utf-8", errors="replace")
+        except Exception:
+            for enc in ["latin-1", "cp1252", "gbk", "gb2312"]:
+                try:
+                    return data.decode(enc, errors="replace")
+                except Exception:
+                    continue
+            return data.decode("utf-8", errors="replace")
+
+    async def _run_communicate(
+        self,
+        process: asyncio.subprocess.Process,
+        timeout: int
+    ) -> tuple:
+        """使用 communicate 等待完成，返回 (output, error, exit_code)"""
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=timeout
+        )
+        output = self._safe_decode(stdout) if stdout else ""
+        error = self._safe_decode(stderr) if stderr else ""
+        return output, error, process.returncode or 0
+
+    async def _run_streaming(
+        self,
+        process: asyncio.subprocess.Process,
+        timeout: int,
+        on_stdout: Optional[Callable[[str], None]],
+        on_stderr: Optional[Callable[[str], None]],
+    ) -> tuple:
+        """逐块读取并回调，返回 (output, error, exit_code)"""
+        out_buf: list = []
+        err_buf: list = []
+
+        async def read_stream(stream, is_stderr: bool):
+            buf = out_buf if not is_stderr else err_buf
+            cb = on_stderr if is_stderr else on_stdout
+            while True:
+                try:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode("utf-8", errors="replace")
+                    buf.append(text)
+                    if cb:
+                        cb(text)
+                except Exception:
+                    break
+
+        await asyncio.wait_for(
+            asyncio.gather(
+                read_stream(process.stdout, False),
+                read_stream(process.stderr, True),
+                process.wait()
+            ),
+            timeout=timeout
+        )
+        output = "".join(out_buf)
+        error = "".join(err_buf)
+        return output, error, process.returncode or 0
     
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
-        """执行代码"""
+    async def execute(
+        self,
+        request: ExecutionRequest,
+        on_stdout: Optional[Callable[[str], None]] = None,
+        on_stderr: Optional[Callable[[str], None]] = None,
+    ) -> ExecutionResult:
+        """
+        执行代码。
+        若 on_stdout/on_stderr 非空，则逐块读取并回调；否则使用 communicate()。
+        """
         start_time = time.time()
         work_dir = None
-        
+
         try:
             # 检查语言支持
             if request.language not in self.LANGUAGE_MAPPING:
@@ -204,77 +254,19 @@ class SubprocessExecutor:
                     request.timeout
                 ) if platform.system() != "Windows" else None
             )
-            
-            # 等待执行完成或超时
+
+            use_streaming = on_stdout is not None or on_stderr is not None
+
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=request.timeout
-                )
-                
-                exit_code = process.returncode
-                # 使用更安全的编码处理，支持多种编码尝试
-                def safe_decode(data: bytes) -> str:
-                    """安全解码字节数据"""
-                    # #region agent log
-                    try:
-                        import json
-                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"开始解码","data":{"data_len":len(data) if data else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                            f.write('\n')
-                    except: pass
-                    # #endregion
-                    if not data:
-                        return ""
-                    # 首先尝试 UTF-8
-                    try:
-                        result = data.decode("utf-8", errors="replace")
-                        # #region agent log
-                        try:
-                            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"UTF-8解码成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                f.write('\n')
-                        except: pass
-                        # #endregion
-                        return result
-                    except Exception as e:
-                        # #region agent log
-                        try:
-                            debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"UTF-8解码失败，尝试其他编码","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                f.write('\n')
-                        except: pass
-                        # #endregion
-                        # 如果 UTF-8 失败，尝试其他常见编码
-                        for encoding in ["latin-1", "cp1252", "gbk", "gb2312"]:
-                            try:
-                                result = data.decode(encoding, errors="replace")
-                                # #region agent log
-                                try:
-                                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                                    with open(debug_log_path, 'a', encoding='utf-8') as f:
-                                        json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"executor.py:safe_decode","message":"其他编码解码成功","data":{"encoding":encoding,"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                                        f.write('\n')
-                                except: pass
-                                # #endregion
-                                return result
-                            except Exception:
-                                continue
-                        # 如果所有编码都失败，使用错误替换
-                        return data.decode("utf-8", errors="replace")
-                
-                output = safe_decode(stdout) if stdout else ""
-                error = safe_decode(stderr) if stderr else ""
-                
+                if use_streaming:
+                    output, error, exit_code = await self._run_streaming(
+                        process, request.timeout, on_stdout, on_stderr
+                    )
+                else:
+                    output, error, exit_code = await self._run_communicate(
+                        process, request.timeout
+                    )
             except asyncio.TimeoutError:
-                # 超时，终止进程
                 process.kill()
                 await process.wait()
                 return ExecutionResult(

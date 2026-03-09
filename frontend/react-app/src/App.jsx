@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar'
 import Home from './pages/Home'
 import WorkAssistant from './pages/WorkAssistant'
 import GeneralChat from './pages/GeneralChat'
+import CodeAssistant from './pages/CodeAssistant'
 import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
@@ -12,9 +13,11 @@ import ImageGeneration from './pages/ImageGeneration'
 import VideoExtractAudio from './pages/VideoExtractAudio'
 import SpeechToText from './pages/SpeechToText'
 import WeatherQuery from './pages/WeatherQuery'
+import DiskScan from './pages/DiskScan'
 import WebSearch from './pages/WebSearch'
 import ArticleWriting from './pages/ArticleWriting'
 import SettingsGeneral from './pages/SettingsGeneral'
+import SettingsWritingProfile from './pages/SettingsWritingProfile'
 import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
@@ -48,6 +51,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/work-assistant" element={<WorkAssistant />} />
               <Route path="/general-chat" element={<GeneralChat />} />
+              <Route path="/code-assistant" element={<CodeAssistant />} />
               <Route path="/tasks" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />
@@ -55,6 +59,7 @@ export default function App() {
               <Route path="/video-extract-audio" element={<VideoExtractAudio />} />
               <Route path="/speech-to-text" element={<SpeechToText />} />
               <Route path="/weather-query" element={<WeatherQuery />} />
+              <Route path="/disk-scan" element={<DiskScan />} />
               <Route path="/web-search" element={<WebSearch />} />
               <Route path="/article-writing" element={<ArticleWriting />} />
               <Route path="/add-reference" element={<AddReference />} />
@@ -67,6 +72,7 @@ export default function App() {
               <Route path="/weread-reader" element={<WereadReader />} />
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
+              <Route path="/settings/writing-profile" element={<SettingsWritingProfile />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
               <Route path="/settings/network-audit" element={<SettingsNetworkAudit />} />

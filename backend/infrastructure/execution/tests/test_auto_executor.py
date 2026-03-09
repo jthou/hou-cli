@@ -27,7 +27,7 @@ class TestCodeExtractor:
         assert "print('hello')" in blocks[0]["code"]
     
     def test_extract_bash_code(self, extractor):
-        """测试提取 bash 代码块"""
+        """测试提取 bash 代码块（标准化为 zsh）"""
         output = """
         ```bash
         echo "hello"
@@ -36,7 +36,7 @@ class TestCodeExtractor:
         blocks = extractor.extract_code_blocks(output)
         
         assert len(blocks) == 1
-        assert blocks[0]["language"] == "bash"
+        assert blocks[0]["language"] == "zsh"  # bash 映射为 zsh
         assert "echo" in blocks[0]["code"]
     
     def test_extract_multiple_blocks(self, extractor):
@@ -54,7 +54,7 @@ class TestCodeExtractor:
         
         assert len(blocks) == 2
         assert blocks[0]["language"] == "python"
-        assert blocks[1]["language"] == "bash"
+        assert blocks[1]["language"] == "zsh"  # bash 映射为 zsh
     
     def test_extract_no_code_blocks(self, extractor):
         """测试没有代码块的情况"""
@@ -64,10 +64,11 @@ class TestCodeExtractor:
         assert len(blocks) == 0
     
     def test_normalize_language(self, extractor):
-        """测试语言名称标准化"""
-        assert extractor._normalize_language("shell") == "bash"
-        assert extractor._normalize_language("sh") == "bash"
-        assert extractor._normalize_language("ps1") == "powershell"
+        """测试语言名称标准化（shell/sh/bash 映射为 zsh）"""
+        assert extractor._normalize_language("shell") == "zsh"
+        assert extractor._normalize_language("sh") == "zsh"
+        assert extractor._normalize_language("bash") == "zsh"
+        assert extractor._normalize_language("ps1") == "zsh"
         assert extractor._normalize_language("python") == "python"
 
 

@@ -2,6 +2,7 @@
 import json
 import uuid
 import shutil
+import threading
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
@@ -24,6 +25,7 @@ class FileStorageBackend(StorageBackend):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.sessions_file = self.storage_dir / "sessions.json"
+        self._sessions_lock = threading.Lock()
         self._load_sessions()
     
     def _get_session_dir(self, session_id: str) -> Path:
@@ -88,23 +90,53 @@ class FileStorageBackend(StorageBackend):
             return False
 
     def _load_sessions(self):
-        """加载会话列表"""
-        if self.sessions_file.exists():
+        """加载会话列表（单条解析失败不拖垮整体）"""
+        self.sessions = {}
+        if not self.sessions_file.exists():
+            return
+        try:
             with open(self.sessions_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                self.sessions = {
-                    s["session_id"]: Session.from_dict(s)
-                    for s in data.get("sessions", [])
-                }
-        else:
-            self.sessions = {}
+        except (json.JSONDecodeError, OSError):
+            return
+        for s in data.get("sessions", []):
+            if not isinstance(s, dict) or not s.get("session_id"):
+                continue
+            try:
+                self.sessions[s["session_id"]] = Session.from_dict(s)
+            except Exception:
+                continue
     
     def _save_sessions(self):
-        """保存会话列表"""
+        """保存会话列表（合并已有 metadata，避免用空覆盖有标题的会话）"""
+        with self._sessions_lock:
+            self._save_sessions_impl()
+
+    def _save_sessions_impl(self):
+        """实际写入逻辑（由 _save_sessions 加锁后调用）"""
+        existing = {}
+        if self.sessions_file.exists():
+            try:
+                with open(self.sessions_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for s in data.get("sessions", []):
+                        if isinstance(s, dict) and s.get("session_id"):
+                            existing[s["session_id"]] = s
+            except (json.JSONDecodeError, OSError):
+                pass
+        out = []
+        for s in self.sessions.values():
+            d = s.to_dict()
+            ex = existing.get(s.session_id)
+            if ex and isinstance(ex.get("metadata"), dict) and ex["metadata"]:
+                if not (d.get("metadata") or {}):
+                    d["metadata"] = ex["metadata"]
+                elif not (d.get("metadata") or {}).get("title") and ex["metadata"].get("title"):
+                    d.setdefault("metadata", {})["title"] = ex["metadata"]["title"]
+            out.append(d)
         with open(self.sessions_file, 'w', encoding='utf-8') as f:
-            json.dump({
-                "sessions": [s.to_dict() for s in self.sessions.values()]
-            }, f, ensure_ascii=False, indent=2)
+            json.dump({"sessions": out}, f, ensure_ascii=False, indent=2)
+
     
     def save_message(self, session_id: str, message: Message) -> bool:
         """保存消息（支持幂等：metadata.idempotency_key 已存在则跳过）"""
@@ -113,12 +145,21 @@ class FileStorageBackend(StorageBackend):
         
         messages_file = self._get_messages_file(session_id)
         
-        # 加载现有消息
+        # 加载现有消息（单条解析失败不拖垮）
         messages = []
         if messages_file.exists():
-            with open(messages_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                messages = [Message.from_dict(m) for m in data.get("messages", [])]
+            try:
+                with open(messages_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for m in data.get("messages", []):
+                        if not isinstance(m, dict):
+                            continue
+                        try:
+                            messages.append(Message.from_dict(m))
+                        except Exception:
+                            continue
+            except (json.JSONDecodeError, OSError):
+                pass
         
         # 幂等检查
         idempotency_key = (message.metadata or {}).get("idempotency_key")
@@ -138,13 +179,25 @@ class FileStorageBackend(StorageBackend):
                 "messages": [m.to_dict() for m in messages]
             }, f, ensure_ascii=False, indent=2)
         
-        # 如果会话不存在，自动创建会话
+        # 如果会话不存在，尝试从文件恢复（避免覆盖已有 metadata）
         if session_id not in self.sessions:
             from backend.core.context.models import Session
-            session = Session(
-                session_id=session_id,
-                metadata={}
-            )
+            session = None
+            if self.sessions_file.exists():
+                try:
+                    with open(self.sessions_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        for s in data.get("sessions", []):
+                            if isinstance(s, dict) and s.get("session_id") == session_id:
+                                try:
+                                    session = Session.from_dict(s)
+                                    break
+                                except Exception:
+                                    pass
+                except (json.JSONDecodeError, OSError):
+                    pass
+            if session is None:
+                session = Session(session_id=session_id, metadata={})
             self.sessions[session_id] = session
             self._save_sessions()
         else:
@@ -168,8 +221,14 @@ class FileStorageBackend(StorageBackend):
         
         with open(messages_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            messages = [Message.from_dict(m) for m in data.get("messages", [])]
-        
+        messages = []
+        for m in data.get("messages", []):
+            if not isinstance(m, dict):
+                continue
+            try:
+                messages.append(Message.from_dict(m))
+            except Exception:
+                continue
         # 应用 offset 和 limit
         if offset > 0:
             messages = messages[offset:]

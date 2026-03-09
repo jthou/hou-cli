@@ -5,6 +5,8 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.infrastructure.execution import SecureExecutor, ExecutionRequest
 from backend.infrastructure.execution.risk_detector import RiskDetector, RiskLevel
+from backend.infrastructure.execution.allowlist import get_allowlist_evaluator
+from backend.infrastructure.execution.approval import get_approval_manager
 
 # 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -24,7 +26,7 @@ class CodeExecutorTool(Tool):
     """代码执行工具
     
     允许 AI 助手在安全的沙盒环境中执行脚本代码。
-    支持 Python、bash、zsh、PowerShell、batch 等脚本语言。
+    当前仅支持 python、zsh。
     """
     
     def __init__(self):
@@ -70,9 +72,9 @@ class CodeExecutorTool(Tool):
             ToolParameter(
                 name="language",
                 type="string",
-                description="代码语言：python, bash, zsh, powershell, batch",
+                description="代码语言：python 或 zsh（当前仅支持此两种）",
                 required=True,
-                enum=["python", "bash", "zsh", "powershell", "batch"]
+                enum=["python", "zsh"]
             ),
             ToolParameter(
                 name="timeout",
@@ -85,6 +87,18 @@ class CodeExecutorTool(Tool):
                 name="explanation",
                 type="string",
                 description="代码说明（可选），用于记录执行目的",
+                required=False
+            ),
+            ToolParameter(
+                name="approval_token",
+                type="string",
+                description="用户确认后获得的 token（需审批时由前端传入）",
+                required=False
+            ),
+            ToolParameter(
+                name="approval_id",
+                type="string",
+                description="待审批请求 ID（返回 requires_approval 时一并返回，供前端调用 approve API）",
                 required=False
             )
         ]
@@ -99,30 +113,27 @@ class CodeExecutorTool(Tool):
                 "   - 例如：读取文件、处理数据、输出结果（一次性完成）"
                 "\n2. 系统操作和文件管理："
                 "   - 文件操作（创建、删除、移动、复制文件）"
-                "   - 系统命令（bash、zsh、powershell、batch）"
+                "   - 系统命令（zsh）"
                 "   - 环境检查和配置"
                 "\n3. 数据转换和验证："
                 "   - 一次性数据转换任务"
                 "   - 数据格式验证"
                 "   - 简单的数据处理（不需要保留中间结果）"
                 "\n4. 跨语言支持："
-                "   - 需要执行非 Python 代码（bash、zsh、powershell、batch）"
+                "   - 需要执行非 Python 代码（zsh）"
                 "\n支持的语言："
                 "- python: Python 脚本（跨平台）"
-                "- bash: Bash 脚本（Linux/macOS）"
-                "- zsh: Zsh 脚本（macOS）"
-                "- powershell: PowerShell 脚本（Windows/跨平台）"
-                "- batch: Batch 脚本（Windows）"
+                "- zsh: Zsh 脚本（Linux/macOS）"
                 "\n核心特性："
                 "- ✅ 独立执行：每次执行都是全新的环境，不保留之前的状态"
-                "- ✅ 多语言支持：支持 Python、bash、zsh、powershell、batch"
+                "- ✅ 多语言支持：支持 Python、zsh"
                 "- ✅ 系统操作：可以执行系统命令和文件操作"
                 "- ✅ 安全隔离：代码在隔离环境中执行"
                 "\n适用场景："
                 "- 一次性脚本任务：执行独立的脚本，不需要保留变量或状态"
                 "- 系统操作和文件管理：文件操作、系统命令、环境检查"
                 "- 数据转换和验证：一次性数据转换、格式验证、简单数据处理"
-                "- 跨语言支持：支持 Python、bash、zsh、powershell、batch 等多种语言"
+                "- 跨语言支持：支持 Python、zsh"
                 "\n核心原则（非常重要）："
                 "- 严格按照用户指令执行，不要添加额外的探索、检查或推理"
                 "- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作"
@@ -132,7 +143,7 @@ class CodeExecutorTool(Tool):
                 "\n示例场景："
                 "- '读取文件内容' → 使用 execute_code（一次性任务）"
                 "- '列出目录文件' → 使用 execute_code（系统操作）"
-                "- '执行 bash 脚本' → 使用 execute_code（多语言支持）"
+                "- '执行 shell 脚本' → 使用 execute_code（zsh）"
                 "- '分析数据并绘制图表' → 使用 execute_code（可以执行完整的数据分析脚本）"
                 "\n安全限制："
                 "- 代码在隔离环境中执行"
@@ -151,6 +162,8 @@ class CodeExecutorTool(Tool):
         
         self.executor = SecureExecutor()
         self.risk_detector = RiskDetector()
+        self.allowlist_evaluator = get_allowlist_evaluator()
+        self.approval_manager = get_approval_manager()
         self.interactive_executor: Optional[Any] = None
         if INTERACTIVE_AVAILABLE and _InteractiveExecutor is not None:
             try:
@@ -180,6 +193,8 @@ class CodeExecutorTool(Tool):
         language = kwargs.get("language")
         timeout = kwargs.get("timeout", 30)
         explanation = kwargs.get("explanation", "")
+        approval_token = kwargs.get("approval_token", "")
+        approval_id = kwargs.get("approval_id", "")
         
         if not code:
             return ToolResult(
@@ -197,10 +212,66 @@ class CodeExecutorTool(Tool):
         if timeout < 1 or timeout > 300:
             timeout = 30
         
-        # 检测风险
+        # 1. 若有 approval_token，校验后直接执行
+        if approval_token:
+            pending = self.approval_manager.verify_token(approval_token)
+            if not pending:
+                return ToolResult(
+                    success=False,
+                    error="审批 token 无效或已过期，请重新发起执行并确认",
+                    data={"requires_approval": False}
+                )
+            # 校验 code 与审批时一致
+            if pending.code and pending.code.strip() != code.strip():
+                return ToolResult(
+                    success=False,
+                    error="审批 token 与当前代码不一致，请重新发起执行并确认",
+                    data={"requires_approval": False}
+                )
+            # token 有效，跳过风险检查，直接执行（含 skip 黑名单/路径检查）
+            return await self._do_execute(
+                code, language, timeout, explanation,
+                skip_blacklist_check=True,
+                skip_path_check=True
+            )
+        
+        # 2. 代码助手场景：始终需用户确认（与 Cursor IDE 一致）
+        if kwargs.get("_require_approval_always"):
+            pending = self.approval_manager.create_pending(
+                command=code.split("\n")[0] if code else "",
+                workdir="",
+                language=language,
+                risk_level=RiskLevel.SAFE.value,
+                reason="代码助手执行前需用户确认",
+                code=code,
+                tool_name="execute_code"
+            )
+            return ToolResult(
+                success=False,
+                error="需要用户确认",
+                data={
+                    "risk_level": RiskLevel.SAFE.value,
+                    "reason": "代码助手执行前需用户确认",
+                    "requires_confirmation": True,
+                    "requires_password": False,
+                    "approval_id": pending.id,
+                    "language": language,
+                    "code": code,
+                    "explanation": explanation,
+                    "preview": {"command": code[:200], "risk_level": RiskLevel.SAFE.value}
+                }
+            )
+        
+        # 3. Allowlist：命中则免审直接执行（仅 zsh）
+        if language.lower() in ("zsh", "shell", "sh", "bash"):
+            allow_result = self.allowlist_evaluator.evaluate(code, workdir="", language=language)
+            if allow_result.satisfied:
+                return await self._do_execute(code, language, timeout, explanation)
+        
+        # 4. 风险检测
         risk_level, reason = self.risk_detector.detect_risk(code, language)
         
-        # 如果是严重风险，直接拒绝
+        # 5. 严重风险直接拒绝
         if not self.risk_detector.is_allowed(risk_level):
             return ToolResult(
                 success=False,
@@ -214,8 +285,17 @@ class CodeExecutorTool(Tool):
                 }
             )
         
-        # 如果需要确认，返回特殊状态（由 Orchestrator 处理确认流程）
+        # 6. 需确认：创建待审批，返回 approval_id
         if self.risk_detector.requires_confirmation(risk_level):
+            pending = self.approval_manager.create_pending(
+                command=code.split("\n")[0] if code else "",
+                workdir="",
+                language=language,
+                risk_level=risk_level.value,
+                reason=reason,
+                code=code,
+                tool_name="execute_code"
+            )
             return ToolResult(
                 success=False,
                 error="需要用户确认",
@@ -224,12 +304,27 @@ class CodeExecutorTool(Tool):
                     "reason": reason,
                     "requires_confirmation": True,
                     "requires_password": self.risk_detector.requires_password(risk_level),
+                    "approval_id": pending.id,
                     "language": language,
                     "code": code,
-                    "explanation": explanation
+                    "explanation": explanation,
+                    "preview": {"command": code[:200], "risk_level": risk_level.value}
                 }
             )
         
+        # 7. 安全级别，直接执行
+        return await self._do_execute(code, language, timeout, explanation)
+    
+    async def _do_execute(
+        self,
+        code: str,
+        language: str,
+        timeout: int,
+        explanation: str,
+        skip_blacklist_check: bool = False,
+        skip_path_check: bool = False
+    ) -> ToolResult:
+        """实际执行代码"""
         try:
             # 检测是否需要交互式输入
             use_interactive = False
@@ -252,16 +347,22 @@ class CodeExecutorTool(Tool):
                     input_handler=input_handler
                 )
             else:
-                # 使用普通执行器
+                # 使用普通执行器（支持流式输出 via progress_callback）
                 request = ExecutionRequest(
                     code=code,
                     language=language,
                     timeout=timeout,
                     explanation=explanation
                 )
-                
-                # 执行代码
-                result = await self.executor.execute_code_safely(request)
+                on_stdout = lambda line: self.report_progress(line) if line else None
+                on_stderr = lambda line: self.report_progress(line) if line else None
+                result = await self.executor.execute_code_safely(
+                    request,
+                    skip_blacklist_check=skip_blacklist_check,
+                    skip_path_check=skip_path_check,
+                    on_stdout=on_stdout,
+                    on_stderr=on_stderr
+                )
             
             # 安全处理输出和错误（清理无效字符）
             def safe_clean_text(text: str) -> str:

@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'react'
 import WeatherResultDisplay from './WeatherResultDisplay'
+import DiskResultDisplay from './DiskResultDisplay'
 import UrlToWikiInline from './task/UrlToWikiInline'
 import WebSearchResultItem from './task/WebSearchResultItem'
 import MarkdownDraftActions from './task/MarkdownDraftActions'
@@ -482,6 +483,9 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
 
   if (taskType === 'weather_query' && (result.result != null || result.summary || (String(result?.code) === '200' && Array.isArray(result.daily)))) {
     return <WeatherResultDisplay result={result} />
+  }
+  if (taskType === 'disk_scan' && (result.result?.result != null || result.result?.large_items)) {
+    return <DiskResultDisplay result={result.result} />
   }
   return <pre className="text-muted text-xs whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
 }

@@ -57,6 +57,9 @@ class ResultHandler:
             
             # 检查大小
             output_bytes = output.encode('utf-8', errors='replace')
+            suffix = "\n... (输出已截断，超过 10MB)"
+            suffix_bytes = suffix.encode('utf-8')
+            max_content_size = self.MAX_OUTPUT_SIZE - len(suffix_bytes)
             if len(output_bytes) > self.MAX_OUTPUT_SIZE:
                 # #region agent log
                 try:
@@ -68,13 +71,13 @@ class ResultHandler:
                         f.write('\n')
                 except: pass
                 # #endregion
-                # 安全截断：确保不截断多字节字符
-                truncated = output_bytes[:self.MAX_OUTPUT_SIZE]
+                # 安全截断：预留后缀空间，确保最终输出 <= MAX_OUTPUT_SIZE
+                truncated = output_bytes[:max_content_size]
                 # 尝试找到最后一个完整的 UTF-8 字符边界
                 while truncated and (truncated[-1] & 0xC0) == 0x80:
                     truncated = truncated[:-1]
                 truncated = truncated.decode('utf-8', errors='replace')
-                return truncated + "\n... (输出已截断，超过 10MB)"
+                return truncated + suffix
             
             return output
         except Exception as e:

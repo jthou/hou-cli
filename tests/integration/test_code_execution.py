@@ -88,12 +88,17 @@ class TestCodeExecutionIntegration:
         result = orchestrator.tool_registry.execute(
             'execute_code',
             code='rm -rf /',
-            language='bash',
+            language='zsh',
             timeout=10
         )
         
         assert result.success is False
-        assert 'dangerous' in result.error.lower() or 'not allowed' in result.error.lower()
+        assert (
+            "dangerous" in result.error.lower()
+            or "not allowed" in result.error.lower()
+            or "禁止" in result.error
+            or "危险" in result.error
+        )
         print("✅ 安全限制测试通过（工具调用模式）")
         
         # 测试自动提取模式下的安全限制
@@ -247,7 +252,13 @@ class TestCodeExecutionE2E:
         
         # 应该被安全限制阻止
         assert result.success is False
-        assert 'dangerous' in result.error.lower() or 'not allowed' in result.error.lower() or 'restricted' in result.error.lower()
+        assert (
+            "dangerous" in result.error.lower()
+            or "not allowed" in result.error.lower()
+            or "restricted" in result.error.lower()
+            or "禁止" in result.error
+            or "危险" in result.error
+        )
         print("✅ 端到端安全限制测试通过")
     
     @pytest.mark.asyncio

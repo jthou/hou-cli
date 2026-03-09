@@ -56,6 +56,11 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         short = (q[:25] + "…" if len(q) > 25 else q) if q else "网页搜索"
         return f"网页搜索 《{short}》 {ts}"
 
+    if task_type == "disk_scan":
+        user_only = meta.get("user_only", True) in (True, "true", "1", 1)
+        scope = "用户目录" if user_only else "全盘"
+        return f"磁盘扫描（{scope}） {ts}"
+
     if task_type == "weather_query":
         loc = meta.get("location", "")
         qt = meta.get("query_type")
@@ -111,6 +116,7 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
 
     type_names = {
         "weather_query": "天气查询",
+        "disk_scan": "磁盘扫描",
         "web_search": "网页搜索",
         "video_download": "视频下载",
 "speech_to_text": "字幕提取",

@@ -660,7 +660,8 @@ class StreamRenderer:
         """
         full_content = ""
         buffer = ""
-        
+        tool_streaming = ""  # 工具执行时的流式输出（execute_code/exec）
+
         # 初始化交互式执行器
         if not self.interactive_executor:
             self.interactive_executor = InteractiveExecutor(console)
@@ -715,6 +716,19 @@ class StreamRenderer:
                                 self._render_confirm_request(msg_data, console)
                             elif msg_type == "evaluation":
                                 self._render_evaluation_info(msg_data, console)
+                            elif msg_type == "progress":
+                                msg_text = msg_data.get("message", "")
+                                if msg_text:
+                                    tool_streaming += msg_text
+                                    display_content = full_content
+                                    if tool_streaming:
+                                        display_content += "\n[dim]" + tool_streaming.replace("\n", "\n  ") + "[/dim]"
+                                    if status_display:
+                                        display_content += "\n" + status_display
+                                    live.update(display_content)
+                            elif msg_type == "tool":
+                                tool_streaming = ""  # 工具完成，清空流式缓冲
+                                self._render_tool_info(msg_data, console)
                             elif msg_type == "status":
                                 # 状态更新：在同一行显示（不换行）
                                 # 简化显示：直接显示后端发送的消息
@@ -760,7 +774,7 @@ class StreamRenderer:
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
-                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:")):
+                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:", "__PROGRESS__:")):
                             display_content = full_content + buffer
                             if status_display:
                                 display_content = f"{display_content}\n{status_display}"

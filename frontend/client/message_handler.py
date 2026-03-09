@@ -79,6 +79,16 @@ class MessageHandler:
                 return {"type": "status", "data": data}
             except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
                 return None
+
+        # 工具进度（execute_code/exec 流式输出）
+        elif line.startswith("__PROGRESS__:"):
+            try:
+                json_str = line[12:]  # 移除 "__PROGRESS__:" 前缀
+                json_str = MessageHandler._clean_unicode(json_str)
+                data = json.loads(json_str)
+                return {"type": "progress", "data": data}
+            except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
+                return None
         
         # 普通内容
         else:
@@ -101,7 +111,7 @@ class MessageHandler:
         
         # 先检查是否有特殊标记（可能在行中间）
         # 处理可能在同一行中包含多个消息的情况
-        special_markers = ["__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:"]
+        special_markers = ["__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:", "__PROGRESS__:"]
         
         # 按行分割处理
         while "\n" in buffer:
@@ -200,7 +210,8 @@ class MessageHandler:
                 "__TOOL__:": "tool",
                 "__CONFIRM__:": "confirm",
                 "__EVALUATION__:": "evaluation",
-                "__STATUS__:": "status"
+                "__STATUS__:": "status",
+                "__PROGRESS__:": "progress"
             }
             
             msg_type = marker_map.get(marker)

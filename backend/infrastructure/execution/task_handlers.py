@@ -253,6 +253,18 @@ TASK_TYPES = {
             }
         }
     },
+    "disk_scan": {
+        "name": "磁盘空间扫描",
+        "description": "扫描磁盘占用，定位大目录。提交后任务在后台执行，可查看最近一次结果。",
+        "metadata_schema": {
+            "user_only": {
+                "type": "boolean",
+                "required": False,
+                "description": "仅扫描用户主目录（无需 sudo，推荐）",
+                "default": True
+            }
+        }
+    },
     "web_search": {
         "name": "网页搜索",
         "description": "使用 DuckDuckGo 执行关键词搜索，可定时执行",
@@ -660,6 +672,48 @@ TASK_TYPES = {
 
 def _to_bool(v) -> bool:
     return v in (True, "true", "1", 1)
+
+
+async def process_disk_scan_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理磁盘空间扫描任务：后台执行脚本，返回结构化结果"""
+    import asyncio
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+    user_only = _to_bool(metadata.get("user_only", True))
+
+    worker.update_task_progress(5, "开始磁盘扫描...")
+
+    def _run_scan():
+        import importlib.util
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
+        script_path = project_root / "scripts" / "disk_system_data_breakdown.py"
+        if not script_path.exists():
+            raise RuntimeError(f"脚本不存在: {script_path}")
+        spec = importlib.util.spec_from_file_location("disk_system_data_breakdown", script_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("无法加载磁盘扫描脚本")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.run_scan(user_only=user_only, verbose=False)
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_run_scan),
+            timeout=3600,  # 1 小时
+        )
+    except asyncio.TimeoutError:
+        raise RuntimeError("磁盘扫描超时（超过 1 小时）")
+    except Exception as e:
+        raise RuntimeError(f"磁盘扫描失败: {e}")
+
+    mode = "用户主目录" if result.get("user_only") else "全盘"
+    summary = f"扫描完成（{mode}）· 已用 {result.get('total_used_gb', 0):.0f} GB · ≥1GB 目录 {len(result.get('large_items', []))} 个"
+    return {
+        "status": "success",
+        "summary": summary,
+        "result": result,
+    }
 
 
 async def process_weather_query_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -2023,6 +2077,7 @@ def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
     worker.register_handler("video_download", process_video_download_task)
+    worker.register_handler("disk_scan", process_disk_scan_task)
     worker.register_handler("weather_query", process_weather_query_task)
     worker.register_handler("web_search", process_web_search_task)
     worker.register_handler("speech_to_text", process_speech_to_text_task)

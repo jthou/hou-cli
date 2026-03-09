@@ -21,6 +21,7 @@ from backend.api.wechat_mp_routes import router as wechat_mp_router
 from backend.api.latex_routes import router as latex_router
 from backend.api.tool_routes import router as tool_router
 from backend.api.kanban_routes import router as kanban_router
+from backend.api.writing_profile_routes import router as writing_profile_router
 from backend.api.heartbeat_routes import router as heartbeat_router
 from backend.api.version_routes import router as version_router
 from backend.api.storage_routes import router as storage_router
@@ -67,6 +68,7 @@ router.include_router(model_availability_router, tags=["model-availability-audit
 router.include_router(task_router, tags=["tasks"])
 router.include_router(audit_router, tags=["audit"])
 router.include_router(kanban_router, tags=["kanban"])
+router.include_router(writing_profile_router, tags=["writing-profile"])
 router.include_router(pdf_router, tags=["pdf"])
 router.include_router(web_reader_router)
 

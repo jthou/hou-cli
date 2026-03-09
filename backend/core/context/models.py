@@ -34,12 +34,35 @@ class Message:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
-        """从字典创建"""
+        """从字典创建（容错：role 大小写、timestamp 缺失、content 为 None）"""
+        raw_role = (data.get("role") or "user")
+        role_str = str(raw_role).lower().strip()
+        try:
+            role = MessageRole(role_str)
+        except ValueError:
+            role = (
+                MessageRole.USER if role_str in ("user", "human")
+                else MessageRole.ASSISTANT
+            )
+        content = data.get("content")
+        if content is None:
+            content = ""
+        content = str(content)
+        ts = data.get("timestamp")
+        if ts:
+            try:
+                timestamp = datetime.fromisoformat(
+                    str(ts).replace("Z", "+00:00")
+                )
+            except (ValueError, TypeError):
+                timestamp = datetime.now()
+        else:
+            timestamp = datetime.now()
         return cls(
-            role=MessageRole(data["role"]),
-            content=data["content"],
-            timestamp=datetime.fromisoformat(data["timestamp"]),
-            metadata=data.get("metadata", {}),
+            role=role,
+            content=content,
+            timestamp=timestamp,
+            metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
             message_id=data.get("message_id")
         )
 
@@ -63,11 +86,27 @@ class Session:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Session":
-        """从字典创建"""
+        """从字典创建（容错：缺失 created_at/updated_at/metadata）"""
+        sid = data.get("session_id") or ""
+        try:
+            created = datetime.fromisoformat(
+                str(data.get("created_at", "")).replace("Z", "+00:00")
+            ) if data.get("created_at") else datetime.now()
+        except (ValueError, TypeError):
+            created = datetime.now()
+        try:
+            updated = datetime.fromisoformat(
+                str(data.get("updated_at", "")).replace("Z", "+00:00")
+            ) if data.get("updated_at") else datetime.now()
+        except (ValueError, TypeError):
+            updated = datetime.now()
+        meta = data.get("metadata")
+        if not isinstance(meta, dict):
+            meta = {}
         return cls(
-            session_id=data["session_id"],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]),
-            metadata=data.get("metadata", {})
+            session_id=sid,
+            created_at=created,
+            updated_at=updated,
+            metadata=meta,
         )
 

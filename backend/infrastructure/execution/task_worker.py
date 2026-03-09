@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 TASK_TIMEOUT_SECONDS = {
     "video_download": 30 * 60,       # 30 分钟
     "weather_query": 60,             # 1 分钟
+    "disk_scan": 60 * 60,            # 1 小时
     "web_search": 60,                # 1 分钟
     "speech_to_text": 60 * 60,       # 1 小时
     "video_extract_audio": 30 * 60,  # 30 分钟

@@ -2,11 +2,13 @@
 import re
 import logging
 import os
-from typing import Optional
+from typing import Callable, Optional
 from pathlib import Path
 
 from backend.infrastructure.execution.executor import SubprocessExecutor
 from backend.infrastructure.execution.models import ExecutionRequest, ExecutionResult
+from backend.infrastructure.execution.obfuscation_detector import ObfuscationDetector
+from backend.infrastructure.execution.preflight import validate_code_for_shell_bleed
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +16,12 @@ logger = logging.getLogger(__name__)
 class SecureExecutor:
     """安全执行包装器
 
-    提供安全检查和命令过滤功能
+    提供安全检查和命令过滤功能。
+    当前仅支持 python、zsh。
     """
 
-    # 允许的语言
-    ALLOWED_LANGUAGES = ["python", "bash", "zsh", "powershell", "batch"]
+    # 允许的语言（暂时仅 python、zsh）
+    ALLOWED_LANGUAGES = ["python", "zsh"]
 
     # 命令白名单
     COMMAND_WHITELIST = [
@@ -45,6 +48,7 @@ class SecureExecutor:
     def __init__(self):
         """初始化安全执行器"""
         self.executor = SubprocessExecutor()
+        self.obfuscation_detector = ObfuscationDetector()
 
         # 从环境变量读取代码长度限制（单位：KB，默认10KB）
         max_code_kb = int(os.getenv("MAX_CODE_LENGTH_KB", "10"))
@@ -165,6 +169,11 @@ class SecureExecutor:
         error = self._validate_language(request.language)
         if error:
             return error
+
+        # 混淆检测
+        obf_result = self.obfuscation_detector.detect(request.code, request.language)
+        if obf_result.detected:
+            return f"禁止执行：检测到混淆/编码模式 ({', '.join(obf_result.reasons[:3])})"
         
         # 验证代码长度
         error = self._validate_code_length(request.code)
@@ -186,10 +195,12 @@ class SecureExecutor:
         return None
     
     async def execute_code_safely(
-        self, 
+        self,
         request: ExecutionRequest,
         skip_blacklist_check: bool = False,
-        skip_path_check: bool = False
+        skip_path_check: bool = False,
+        on_stdout: Optional[Callable[[str], None]] = None,
+        on_stderr: Optional[Callable[[str], None]] = None,
     ) -> ExecutionResult:
         """安全执行代码
         
@@ -201,6 +212,17 @@ class SecureExecutor:
         # 记录审计日志
         logger.info(f"Execution request: language={request.language}, code_length={len(request.code)}")
         
+        # Preflight：Python 代码中的 shell 变量注入检测
+        try:
+            validate_code_for_shell_bleed(request.code, request.language)
+        except ValueError as e:
+            return ExecutionResult(
+                success=False,
+                error=str(e),
+                language=request.language,
+                code=request.code
+            )
+
         # 验证请求（根据参数决定是否跳过某些检查）
         validation_error = self._validate_request(
             request, 
@@ -218,7 +240,11 @@ class SecureExecutor:
         
         # 执行代码
         try:
-            result = await self.executor.execute(request)
+            result = await self.executor.execute(
+                request,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr
+            )
             
             # 记录执行结果
             if result.success:

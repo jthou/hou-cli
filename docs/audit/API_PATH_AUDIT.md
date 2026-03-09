@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 111
+- 后端路由数: 115
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -46,6 +46,7 @@ GET /api/settings/model-availability-audit/models
 GET /api/settings/model-config-audit
 GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
+GET /api/settings/writing-profile
 GET /api/storage/config
 GET /api/system/cpu
 GET /api/system/disk
@@ -89,6 +90,8 @@ POST /api/chat/article/merge
 POST /api/chat/article/patch
 POST /api/chat/article/restore
 POST /api/chat/stream
+POST /api/execution/approve
+POST /api/execution/reject
 POST /api/mediawiki/pages/{title:path}
 POST /api/mediawiki/sync
 POST /api/network/audit/run
@@ -116,6 +119,7 @@ POST /api/wechat-mp/upload-article-image
 POST /api/wechat-mp/upload-cover
 PUT /api/chat/article
 PUT /api/chat/mw-sources
+PUT /api/settings/writing-profile
 PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 ```
 
@@ -137,6 +141,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/chat/article/revisions
 - /api/chat/mw-sources
 - /api/chat/stream
+- /api/execution/approve
+- /api/execution/reject
 - /api/heartbeat/status
 - /api/latex/render
 - /api/mediawiki/pages/{id}
@@ -176,6 +182,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/settings/model-config-audit
 - /api/settings/model-stats
 - /api/settings/system-prompt-audit/prompts
+- /api/settings/writing-profile
 - /api/storage/config
 - /api/system/cpu
 - /api/system/disk

@@ -1,6 +1,6 @@
 """测试 Orchestrator 错误信息格式"""
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from backend.core.agent.orchestrator import Orchestrator
 from backend.core.agent.skills.base import SkillResult
 
@@ -16,9 +16,10 @@ class TestOrchestratorErrorFormat:
     @pytest.mark.asyncio
     async def test_skill_failure_error_format(self, orchestrator):
         """测试技能执行失败时的错误信息格式"""
-        # 模拟技能执行失败
+        # 模拟技能执行失败（skill.parameters 供 _extract_skill_parameters 迭代）
         mock_skill = Mock()
         mock_skill.name = 'test_skill'
+        mock_skill.parameters = []
         mock_skill.execute = AsyncMock(return_value=SkillResult(
             success=False,
             error='Test error message',
@@ -26,7 +27,11 @@ class TestOrchestratorErrorFormat:
         ))
         
         orchestrator.skill_registry = Mock()
-        orchestrator.skill_registry.match = Mock(return_value=mock_skill)
+        orchestrator.skill_registry.match = AsyncMock(return_value=mock_skill)
+        orchestrator.evaluator = Mock()
+        orchestrator.evaluator.evaluate_conversation_turn = AsyncMock(
+            return_value={"overall_score": 80, "dimension_scores": {}, "evaluation": ""}
+        )
         
         # 执行流式处理
         chunks = []
@@ -48,13 +53,18 @@ class TestOrchestratorErrorFormat:
     @pytest.mark.asyncio
     async def test_skill_exception_error_format(self, orchestrator):
         """测试技能执行异常时的错误信息格式"""
-        # 模拟技能执行异常
+        # 模拟技能执行异常（skill.parameters 供 _extract_skill_parameters 迭代）
         mock_skill = Mock()
         mock_skill.name = 'test_skill'
+        mock_skill.parameters = []
         mock_skill.execute = AsyncMock(side_effect=Exception('Test exception'))
         
         orchestrator.skill_registry = Mock()
-        orchestrator.skill_registry.match = Mock(return_value=mock_skill)
+        orchestrator.skill_registry.match = AsyncMock(return_value=mock_skill)
+        orchestrator.evaluator = Mock()
+        orchestrator.evaluator.evaluate_conversation_turn = AsyncMock(
+            return_value={"overall_score": 80, "dimension_scores": {}, "evaluation": ""}
+        )
         
         # 执行流式处理
         chunks = []

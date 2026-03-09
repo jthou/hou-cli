@@ -45,12 +45,12 @@ class TestSubprocessExecutor:
         assert len(result.error) > 0
     
     @pytest.mark.asyncio
-    @pytest.mark.skipif(platform.system() == "Windows", reason="bash not available on Windows")
-    async def test_execute_bash_code(self, executor):
-        """测试执行 bash 代码（Linux/macOS）"""
+    @pytest.mark.skipif(platform.system() == "Windows", reason="zsh not available on Windows")
+    async def test_execute_zsh_code(self, executor):
+        """测试执行 zsh 代码（Linux/macOS）"""
         request = ExecutionRequest(
             code="echo 'hello'",
-            language="bash",
+            language="zsh",
             timeout=10
         )
         result = await executor.execute(request)
@@ -58,6 +58,7 @@ class TestSubprocessExecutor:
         assert result.success is True
         assert "hello" in result.output
         assert result.exit_code == 0
+        assert result.language == "zsh"
     
     @pytest.mark.asyncio
     async def test_execute_timeout(self, executor):
@@ -99,6 +100,33 @@ class TestSubprocessExecutor:
         assert result.resource_usage is not None
         assert result.resource_usage.execution_time_seconds > 0
     
+    @pytest.mark.asyncio
+    async def test_execute_with_streaming_callback(self, executor):
+        """测试流式回调"""
+        out_chunks = []
+        err_chunks = []
+
+        def on_stdout(s: str):
+            out_chunks.append(s)
+
+        def on_stderr(s: str):
+            err_chunks.append(s)
+
+        request = ExecutionRequest(
+            code="print('a'); print('b')",
+            language="python",
+            timeout=10
+        )
+        result = await executor.execute(
+            request,
+            on_stdout=on_stdout,
+            on_stderr=on_stderr
+        )
+        assert result.success is True
+        assert "a" in result.output and "b" in result.output
+        assert len(out_chunks) >= 1
+        assert "".join(out_chunks) == result.output
+
     @pytest.mark.asyncio
     async def test_working_dir_isolation(self, executor):
         """测试工作目录隔离"""

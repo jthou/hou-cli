@@ -13,10 +13,16 @@ import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 
-const SESSION_TYPE = 'general_chat'
-const STORAGE_KEY = 'general_chat_selected_session'
+const DEFAULT_SESSION_TYPE = 'general_chat'
+const DEFAULT_STORAGE_KEY = 'general_chat_selected_session'
 
-export default function GeneralChat() {
+export default function GeneralChat({
+  title = '通用对话',
+  subtitle = '可调用全部工具（搜索、浏览器、下载等），支持会话与参考信息',
+  sessionType = DEFAULT_SESSION_TYPE,
+  storageKey = DEFAULT_STORAGE_KEY,
+  defaultPersona = '',
+}) {
   const location = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
@@ -25,7 +31,7 @@ export default function GeneralChat() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState(() => {
     try {
-      return sessionStorage.getItem(STORAGE_KEY) || null
+      return sessionStorage.getItem(storageKey) || null
     } catch {
       return null
     }
@@ -53,7 +59,7 @@ export default function GeneralChat() {
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,
-  } = useReferenceBlocks(selectedSessionId, referencePanelOpen, SESSION_TYPE)
+  } = useReferenceBlocks(selectedSessionId, referencePanelOpen, sessionType)
 
   const handleAddReferenceBlockAndOpen = () => {
     setReferencePanelOpen(true)
@@ -114,14 +120,15 @@ export default function GeneralChat() {
 
   const loadSessions = useCallback(() => {
     setSessionsLoading(true)
-    fetch(`/api/sessions/list?type=${encodeURIComponent(SESSION_TYPE)}&limit=50`)
+        fetch(`/api/sessions/list?type=${encodeURIComponent(sessionType)}&limit=50`)
       .then((r) => r.json())
       .then((d) => {
         if (d.sessions) setSessions(d.sessions)
+        if (d.error) toast?.error?.(`加载会话列表失败：${d.error}`)
       })
-      .catch(() => {})
+      .catch((e) => toast?.error?.(e?.message || '加载会话列表失败'))
       .finally(() => setSessionsLoading(false))
-  }, [])
+  }, [sessionType])
 
   useEffect(() => {
     loadSessions()
@@ -138,21 +145,21 @@ export default function GeneralChat() {
       if (first) {
         setSelectedSessionId(first)
         try {
-          sessionStorage.setItem(STORAGE_KEY, first)
+          sessionStorage.setItem(storageKey, first)
         } catch (_) {}
       }
     }
-  }, [sessions, selectedSessionId])
+  }, [sessions, selectedSessionId, storageKey])
 
   useEffect(() => {
     try {
       if (selectedSessionId) {
-        sessionStorage.setItem(STORAGE_KEY, selectedSessionId)
+        sessionStorage.setItem(storageKey, selectedSessionId)
       } else {
-        sessionStorage.removeItem(STORAGE_KEY)
+        sessionStorage.removeItem(storageKey)
       }
     } catch (_) {}
-  }, [selectedSessionId])
+  }, [selectedSessionId, storageKey])
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -170,6 +177,8 @@ export default function GeneralChat() {
       .then((d) => {
         if (d.success && Array.isArray(d.messages)) {
           setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+        } else if (d.error) {
+          toast?.error?.(`加载历史失败：${d.error}`)
         }
         if (d.success && d.session?.metadata) {
           const meta = d.session.metadata
@@ -180,7 +189,7 @@ export default function GeneralChat() {
           setSessionEnabledTools([])
         }
       })
-      .catch(() => {})
+      .catch((e) => toast?.error?.(e?.message || '加载历史失败'))
       .finally(() => setDetailLoading(false))
   }, [selectedSessionId])
 
@@ -206,7 +215,7 @@ export default function GeneralChat() {
     navigate(location.pathname + location.search, { replace: true, state: {} })
     setSelectedSessionId(focusId)
     try {
-      sessionStorage.setItem(STORAGE_KEY, focusId)
+      sessionStorage.setItem(storageKey, focusId)
     } catch (_) {}
     reloadBlocks(focusId)
   }, [location.state?.focusSessionId, location.pathname, location.search, navigate, reloadBlocks])
@@ -225,7 +234,7 @@ export default function GeneralChat() {
           setSelectedSessionId(null)
           setMessages([])
           try {
-            sessionStorage.removeItem(STORAGE_KEY)
+            sessionStorage.removeItem(storageKey)
           } catch (_) {}
         }
       } else {
@@ -237,10 +246,12 @@ export default function GeneralChat() {
   }
 
   const handleNewSession = () => {
+    const meta = { type: sessionType }
+    if (defaultPersona) meta.persona = defaultPersona
     fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metadata: { type: SESSION_TYPE } }),
+      body: JSON.stringify({ metadata: meta }),
     })
       .then((r) => r.json())
       .then((d) => {
@@ -274,7 +285,7 @@ export default function GeneralChat() {
         body: JSON.stringify({
           message: '',
           session_id: selectedSessionId,
-          context_type: SESSION_TYPE,
+          context_type: 'general_chat',
           regenerate_from_message_id: messageId,
           ...(selectedModel ? { model: selectedModel } : {}),
         }),
@@ -370,10 +381,12 @@ export default function GeneralChat() {
 
     let sessionId = selectedSessionId
     if (!sessionId) {
+      const meta = { type: sessionType }
+      if (defaultPersona) meta.persona = defaultPersona
       const createRes = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: { type: SESSION_TYPE } }),
+        body: JSON.stringify({ metadata: meta }),
       }).then((r) => r.json())
       if (!createRes.success || !createRes.session_id) {
         setLoading(false)
@@ -394,7 +407,7 @@ export default function GeneralChat() {
         body: JSON.stringify({
           message: messageForModel,
           session_id: sessionId,
-          context_type: SESSION_TYPE,
+          context_type: 'general_chat',
           ...(selectedModel ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
@@ -556,7 +569,7 @@ export default function GeneralChat() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="通用对话" subtitle="可调用全部工具（搜索、浏览器、下载等），支持会话与参考信息" />
+      <PageHeader title={title} subtitle={subtitle} />
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧会话列表（可收缩） */}
         <div

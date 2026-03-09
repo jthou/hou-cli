@@ -27,12 +27,13 @@ class CodeExtractor:
         "cmd": r"```cmd\s*([\s\S]*?)```",
     }
     
-    # 语言名称映射
+    # 语言名称映射（统一到 zsh，当前仅支持 python、zsh）
     LANGUAGE_MAPPING = {
-        "shell": "bash",
-        "sh": "bash",
-        "ps1": "powershell",
-        "cmd": "batch"
+        "shell": "zsh",
+        "sh": "zsh",
+        "bash": "zsh",
+        "ps1": "zsh",   # 暂不支持 powershell，映射到 zsh 会执行失败
+        "cmd": "zsh",   # 暂不支持 batch
     }
     
     def extract_code_blocks(self, llm_output: str) -> List[Dict[str, str]]:

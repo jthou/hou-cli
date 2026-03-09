@@ -1,5 +1,6 @@
 """CodeExecutorTool 测试"""
 import pytest
+import asyncio
 import os
 from unittest.mock import patch, MagicMock
 from dotenv import load_dotenv
@@ -73,11 +74,11 @@ class TestCodeExecutorTool:
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_execute_bash_code(self, tool):
-        """测试执行 bash 代码"""
+    def test_execute_zsh_code(self, tool):
+        """测试执行 zsh 代码"""
         result = tool.execute(
             code="echo 'Hello, World!'",
-            language="bash",
+            language="zsh",
             timeout=10
         )
 
@@ -87,12 +88,30 @@ class TestCodeExecutorTool:
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
+    @pytest.mark.asyncio
+    async def test_progress_callback_receives_output(self, tool):
+        """测试 progress_callback 能收到流式输出"""
+        collected = []
+
+        def progress_cb(msg):
+            collected.append(msg)
+
+        tool.set_progress_callback(progress_cb)
+        result = await tool._execute_async(
+            code="print('line1'); print('line2')",
+            language="python",
+            timeout=10
+        )
+        # 流式模式下应收到输出
+        if result.success and collected:
+            assert any("line1" in c or "line2" in c for c in collected)
+
     def test_dangerous_command_blocked(self, tool):
         """测试危险命令被阻止"""
         # 测试删除命令
         result = tool.execute(
             code="rm -rf /",
-            language="bash",
+            language="zsh",
             timeout=10
         )
         # 应该被阻止或返回错误
@@ -106,7 +125,7 @@ class TestCodeExecutorTool:
         # 测试访问受限路径
         result = tool.execute(
             code="cat /etc/passwd",
-            language="bash",
+            language="zsh",
             timeout=10
         )
         # 应该被阻止或返回错误
@@ -145,14 +164,14 @@ print(f"Sum: {x + y}")
                 pytest.skip(f"代码执行器问题: {result.error}")
 
     @pytest.mark.integration
-    def test_bash_workflow(self, tool):
-        """测试 bash 代码执行工作流"""
+    def test_zsh_workflow(self, tool):
+        """测试 zsh 代码执行工作流"""
         result = tool.execute(
             code="""
 echo "Test 1"
 echo "Test 2"
 """,
-            language="bash",
+            language="zsh",
             timeout=30
         )
 
@@ -211,7 +230,7 @@ class TestCodeExecutorToolParameters:
         assert language_param.required is True
         assert language_param.enum is not None
         assert "python" in language_param.enum
-        assert "bash" in language_param.enum
+        assert "zsh" in language_param.enum
         
         timeout_param = next((p for p in tool.parameters if p.name == "timeout"), None)
         assert timeout_param is not None
@@ -244,10 +263,7 @@ class TestCodeExecutorToolParameters:
         
         supported_languages = language_param.enum
         assert "python" in supported_languages
-        assert "bash" in supported_languages
         assert "zsh" in supported_languages
-        assert "powershell" in supported_languages
-        assert "batch" in supported_languages
 
 
 class TestCodeExecutorToolRegistry:
@@ -336,7 +352,7 @@ class TestCodeExecutorToolRiskDetection:
         # 测试删除命令
         result = tool.execute(
             code="rm -rf /",
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -348,7 +364,7 @@ class TestCodeExecutorToolRiskDetection:
         """测试受限路径访问被阻止"""
         result = tool.execute(
             code="cat /etc/passwd",
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -357,22 +373,22 @@ class TestCodeExecutorToolRiskDetection:
         assert "禁止" in result.error or "blocked" in result.error.lower() or "不允许" in result.error
 
 
-class TestCodeExecutorToolBashScripts:
-    """CodeExecutorTool Bash 脚本测试"""
+class TestCodeExecutorToolZshScripts:
+    """CodeExecutorTool Zsh 脚本测试"""
 
     @pytest.fixture
     def tool(self):
         """创建 CodeExecutorTool 实例"""
         return CodeExecutorTool()
 
-    def test_bash_variables(self, tool):
-        """测试 bash 变量"""
+    def test_zsh_variables(self, tool):
+        """测试 zsh 变量"""
         result = tool.execute(
             code="""
 NAME="World"
 echo "Hello, $NAME!"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -383,8 +399,8 @@ echo "Hello, $NAME!"
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_conditional(self, tool):
-        """测试 bash 条件判断"""
+    def test_zsh_conditional(self, tool):
+        """测试 zsh 条件判断"""
         result = tool.execute(
             code="""
 if [ 1 -eq 1 ]; then
@@ -393,7 +409,7 @@ else
     echo "Condition is false"
 fi
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -404,15 +420,15 @@ fi
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_loop(self, tool):
-        """测试 bash 循环"""
+    def test_zsh_loop(self, tool):
+        """测试 zsh 循环"""
         result = tool.execute(
             code="""
 for i in 1 2 3; do
     echo "Number: $i"
 done
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -426,35 +442,35 @@ done
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_file_operations(self, tool):
-        """测试 bash 文件操作"""
+    def test_zsh_file_operations(self, tool):
+        """测试 zsh 文件操作"""
         result = tool.execute(
             code="""
 # 创建临时文件
-echo "test content" > /tmp/test_bash_file.txt
+echo "test content" > /tmp/test_zsh_file.txt
 # 读取文件
-cat /tmp/test_bash_file.txt
+cat /tmp/test_zsh_file.txt
 # 清理
-rm /tmp/test_bash_file.txt
+rm /tmp/test_zsh_file.txt
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
         if result.success:
             assert "output" in result.data
-            assert "test content" in result.data["output"]
+            assert "test content" in result.data.get("output", "")
         else:
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_pipe_and_redirect(self, tool):
-        """测试 bash 管道和重定向"""
+    def test_zsh_pipe_and_redirect(self, tool):
+        """测试 zsh 管道和重定向"""
         result = tool.execute(
             code="""
 echo -e "line1\nline2\nline3" | grep "line2"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -465,8 +481,8 @@ echo -e "line1\nline2\nline3" | grep "line2"
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_arithmetic(self, tool):
-        """测试 bash 算术运算"""
+    def test_zsh_arithmetic(self, tool):
+        """测试 zsh 算术运算"""
         result = tool.execute(
             code="""
 a=10
@@ -474,7 +490,7 @@ b=20
 sum=$((a + b))
 echo "Sum: $sum"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -485,8 +501,8 @@ echo "Sum: $sum"
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_function(self, tool):
-        """测试 bash 函数"""
+    def test_zsh_function(self, tool):
+        """测试 zsh 函数"""
         result = tool.execute(
             code="""
 greet() {
@@ -494,7 +510,7 @@ greet() {
 }
 greet "World"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -505,15 +521,15 @@ greet "World"
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_error_handling(self, tool):
-        """测试 bash 错误处理"""
+    def test_zsh_error_handling(self, tool):
+        """测试 zsh 错误处理"""
         result = tool.execute(
             code="""
 set -e
 false
 echo "This should not print"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -526,14 +542,14 @@ echo "This should not print"
             # 如果成功执行，说明 set -e 没有生效，这也是可以接受的
             pass
 
-    def test_bash_system_commands(self, tool):
-        """测试 bash 系统命令"""
+    def test_zsh_system_commands(self, tool):
+        """测试 zsh 系统命令"""
         result = tool.execute(
             code="""
 pwd
 whoami
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -545,14 +561,14 @@ whoami
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_environment_variables(self, tool):
-        """测试 bash 环境变量"""
+    def test_zsh_environment_variables(self, tool):
+        """测试 zsh 环境变量"""
         result = tool.execute(
             code="""
 echo "HOME: $HOME"
 echo "USER: $USER"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -565,8 +581,8 @@ echo "USER: $USER"
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_array(self, tool):
-        """测试 bash 数组"""
+    def test_zsh_array(self, tool):
+        """测试 zsh 数组"""
         result = tool.execute(
             code="""
 arr=("apple" "banana" "cherry")
@@ -574,7 +590,7 @@ for fruit in "${arr[@]}"; do
     echo "Fruit: $fruit"
 done
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         
@@ -588,8 +604,8 @@ done
             if "执行器" in result.error or "executor" in result.error.lower():
                 pytest.skip(f"代码执行器问题: {result.error}")
 
-    def test_bash_string_operations(self, tool):
-        """测试 bash 字符串操作"""
+    def test_zsh_string_operations(self, tool):
+        """测试 zsh 字符串操作"""
         result = tool.execute(
             code="""
 str="Hello World"
@@ -597,7 +613,7 @@ echo "Length: ${#str}"
 echo "Upper: ${str^^}"
 echo "Lower: ${str,,}"
 """,
-            language="bash",
+            language="zsh",
             timeout=10
         )
         

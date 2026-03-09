@@ -1,40 +1,40 @@
 {
-  "generated_at": "2026-03-09T04:22:06.061534Z",
+  "generated_at": "2026-03-09T23:26:53.542595Z",
   "code_stats": {
-    "total_files": 1071,
-    "total_lines": 311971,
+    "total_files": 1126,
+    "total_lines": 327621,
     "by_language": {
       "other": {
-        "files": 23,
-        "lines": 89623
+        "files": 25,
+        "lines": 97023
       },
       "markdown": {
-        "files": 378,
-        "lines": 100485
+        "files": 384,
+        "lines": 102859
       },
       "python": {
-        "files": 507,
-        "lines": 90345
+        "files": 547,
+        "lines": 95522
       },
       "shell": {
-        "files": 33,
-        "lines": 2094
+        "files": 34,
+        "lines": 2143
       },
       "jsx": {
-        "files": 78,
-        "lines": 16185
+        "files": 84,
+        "lines": 16813
       },
       "javascript": {
         "files": 32,
-        "lines": 5034
+        "lines": 5048
       },
       "json": {
         "files": 8,
-        "lines": 4707
+        "lines": 4716
       },
       "html": {
         "files": 2,
-        "lines": 145
+        "lines": 144
       },
       "css": {
         "files": 3,
@@ -48,7 +48,7 @@
     "by_directory": {
       ".": {
         "files": 9,
-        "lines": 1785
+        "lines": 1801
       },
       "frontend-react-app": {
         "files": 1,
@@ -59,12 +59,12 @@
         "lines": 1113
       },
       "frontend": {
-        "files": 135,
-        "lines": 32449
+        "files": 142,
+        "lines": 37323
       },
       "plans": {
-        "files": 9,
-        "lines": 4409
+        "files": 12,
+        "lines": 5920
       },
       "config": {
         "files": 2,
@@ -75,20 +75,20 @@
         "lines": 295
       },
       "tests": {
-        "files": 63,
-        "lines": 7992
+        "files": 65,
+        "lines": 8101
       },
       "backend": {
-        "files": 434,
-        "lines": 133455
+        "files": 468,
+        "lines": 137831
       },
       "shared": {
         "files": 8,
         "lines": 549
       },
       "docs": {
-        "files": 319,
-        "lines": 88863
+        "files": 323,
+        "lines": 92911
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -99,8 +99,8 @@
         "lines": 138
       },
       "scripts": {
-        "files": 54,
-        "lines": 5576
+        "files": 59,
+        "lines": 6292
       },
       "archived": {
         "files": 21,
@@ -111,18 +111,18 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-09T04:22:15.996265Z"
+    "generated_at": "2026-03-09T23:27:04.267589Z"
   },
   "dev_history": {
-    "total_commits": 293,
+    "total_commits": 296,
     "authors": {
-      "侯金亭（Justin）": 250,
+      "侯金亭（Justin）": 253,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W10": 2,
+      "2026-W10": 5,
       "2026-W09": 27,
-      "2026-W08": 23
+      "2026-W08": 20
     },
     "files_changed": {
       "backend/core/agent/orchestrator.py": 75,
@@ -132,9 +132,9 @@
       "frontend/main.py": 26,
       "frontend/ui/command_handler.py": 25,
       "frontend/react-app/src/components/Sidebar.jsx": 22,
+      "Makefile": 21,
       "backend/services/llm/llm_service.py": 21,
       "backend/infrastructure/execution/task_handlers.py": 21,
-      "Makefile": 20,
       "docs/design/02-weather-tool-design.md": 20,
       "env.example": 19,
       "frontend/react-app/src/App.jsx": 19,
@@ -142,24 +142,25 @@
       "frontend/react-app/src/pages/ArticleWriting.jsx": 17,
       "requirements.txt": 17,
       "backend/api/task_queue_routes.py": 16,
-      "frontend/react-app/package.json": 13,
+      "frontend/react-app/package.json": 15,
+      "frontend/react-app/package-lock.json": 14,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
       "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
-      "frontend/react-app/package-lock.json": 12,
+      "pyproject.toml": 12,
       "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
+      "docs/audit/AUDIT_REPORT.json": 11,
+      "docs/audit/code_stats.json": 11,
+      "docs/audit/dev_history.json": 11,
       "backend/core/agent/system_prompt_templates.py": 11,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 11,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
-      "docs/audit/AUDIT_REPORT.json": 10,
-      "docs/audit/code_stats.json": 10,
-      "docs/audit/dev_history.json": 10,
-      "pyproject.toml": 10,
+      "extension/manifest.json": 10,
       "frontend/react-app/src/pages/PdfReader.jsx": 10,
       "workflows/.gitkeep": 10,
       "backend/core/agent/tools/builtin/browser_tool.py": 10,
@@ -173,10 +174,9 @@
       "docs/design/setup-guide.md": 10,
       "docs/design/streaming-response.md": 10,
       "docs/troubleshooting/llm-service-not-configured.md": 10,
-      "requirements-dev.txt": 10,
-      "backend/core/agent/tools/builtin/weather_tool.py": 9
+      "requirements-dev.txt": 10
     },
-    "generated_at": "2026-03-09T04:22:16.210848Z"
+    "generated_at": "2026-03-09T23:27:04.508722Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -220,6 +220,7 @@
       "GET /api/settings/model-config-audit",
       "GET /api/settings/model-stats",
       "GET /api/settings/system-prompt-audit/prompts",
+      "GET /api/settings/writing-profile",
       "GET /api/storage/config",
       "GET /api/system/cpu",
       "GET /api/system/disk",
@@ -263,6 +264,8 @@
       "POST /api/chat/article/patch",
       "POST /api/chat/article/restore",
       "POST /api/chat/stream",
+      "POST /api/execution/approve",
+      "POST /api/execution/reject",
       "POST /api/mediawiki/pages/{title:path}",
       "POST /api/mediawiki/sync",
       "POST /api/network/audit/run",
@@ -290,10 +293,11 @@
       "POST /api/wechat-mp/upload-cover",
       "PUT /api/chat/article",
       "PUT /api/chat/mw-sources",
+      "PUT /api/settings/writing-profile",
       "PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle"
     ],
     "frontend_fetches": [],
-    "backend_path_count": 111,
+    "backend_path_count": 115,
     "frontend_fetch_count": 0,
     "unused_by_frontend": [
       "/api/audit/report",
@@ -309,6 +313,8 @@
       "/api/chat/article/revisions",
       "/api/chat/mw-sources",
       "/api/chat/stream",
+      "/api/execution/approve",
+      "/api/execution/reject",
       "/api/heartbeat/status",
       "/api/latex/render",
       "/api/mediawiki/pages/{id}",
@@ -348,6 +354,7 @@
       "/api/settings/model-config-audit",
       "/api/settings/model-stats",
       "/api/settings/system-prompt-audit/prompts",
+      "/api/settings/writing-profile",
       "/api/storage/config",
       "/api/system/cpu",
       "/api/system/disk",

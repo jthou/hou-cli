@@ -3,8 +3,9 @@ import BackendStatus from './BackendStatus'
 
 // 分组：智能工具、阅读工具、任务工具、文档、协作、设置、开发
 const navItems = [
-  { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
   { path: '/general-chat', icon: '💬', label: '通用对话', group: 'smart_tools' },
+  { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
+  { path: '/code-assistant', icon: '💻', label: '代码助手', group: 'smart_tools' },
   { path: '/article-writing', icon: '✍️', label: '写作助手', group: 'smart_tools' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },
@@ -23,7 +24,9 @@ const navItems = [
   { path: '/wiki-directory', icon: '📚', label: 'Wiki目录', group: 'docs' },
   { path: '/settings/kanban', icon: '🗂️', label: 'Wiki看板', group: 'wiki' },
   { path: '/weather-query', icon: '🌤️', label: '天气查询', group: 'task_tools' },
+  { path: '/disk-scan', icon: '💾', label: '磁盘扫描', group: 'task_tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
+  { path: '/settings/writing-profile', icon: '✍️', label: '写作画像', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
   { path: '/settings/llm-audit', icon: '📜', label: 'LLM审计', group: 'settings' },
   { path: '/settings/network-audit', icon: '🌐', label: '网络审计', group: 'settings' },
@@ -61,7 +64,10 @@ export default function Sidebar({ open, onToggle }) {
       {open ? (
         <>
           <div className="p-4 border-b border-border flex justify-between items-center shrink-0">
-            <h2 className="text-lg font-semibold text-white">Hou CLI</h2>
+            <div className="flex items-center gap-2">
+              <span className="text-xl" title="Hou CLI">🖥️</span>
+              <h2 className="text-lg font-semibold text-white">Hou CLI</h2>
+            </div>
             <button
               onClick={onToggle}
               className="p-1.5 text-muted hover:text-fg hover:bg-white/10 rounded"
@@ -122,8 +128,8 @@ export default function Sidebar({ open, onToggle }) {
           </div>
         </>
       ) : (
-        <div className="flex flex-col items-center py-4 gap-3">
-          <img src="/favicon.png" alt="Hou CLI" className="w-8 h-8 rounded shrink-0" />
+        <div className="flex flex-col items-center py-4 gap-2">
+          <span className="text-lg" title="Hou CLI">🖥️</span>
           <button
             onClick={onToggle}
             className="p-2 text-muted hover:text-fg hover:bg-white/10 rounded"
