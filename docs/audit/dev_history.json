@@ -1,44 +1,46 @@
 {
-  "total_commits": 290,
+  "total_commits": 291,
   "authors": {
-    "侯金亭（Justin）": 247,
+    "侯金亭（Justin）": 248,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W09": 26,
-    "2026-W08": 26
+    "2026-W09": 27,
+    "2026-W08": 25
   },
   "files_changed": {
-    "backend/core/agent/orchestrator.py": 74,
+    "backend/core/agent/orchestrator.py": 75,
     "backend/api/routes.py": 33,
     "frontend/client/ipc_client.py": 29,
     "frontend/react-app/src/pages/TaskManagement.jsx": 26,
     "frontend/main.py": 26,
     "frontend/ui/command_handler.py": 25,
+    "frontend/react-app/src/components/Sidebar.jsx": 21,
     "backend/infrastructure/execution/task_handlers.py": 21,
     "backend/services/llm/llm_service.py": 20,
-    "frontend/react-app/src/components/Sidebar.jsx": 20,
     "Makefile": 20,
     "docs/design/02-weather-tool-design.md": 20,
+    "frontend/react-app/src/App.jsx": 19,
     "frontend/ui/stream_handler.py": 19,
-    "frontend/react-app/src/App.jsx": 18,
     "env.example": 18,
     "requirements.txt": 17,
     "frontend/react-app/src/pages/ArticleWriting.jsx": 16,
     "backend/api/task_queue_routes.py": 16,
+    "frontend/react-app/package.json": 13,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
     "backend/main.py": 13,
     "frontend/ui/command_input.py": 13,
+    "frontend/react-app/package-lock.json": 12,
     "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
-    "frontend/react-app/package.json": 12,
     "backend/api/tests/test_task_queue_routes.py": 12,
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
     "frontend/react-app/src/components/TaskResultDisplay.jsx": 11,
-    "frontend/react-app/package-lock.json": 11,
     "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
     "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
     "docs/todo/009-weather-tool-implementation.md": 11,
+    "backend/core/agent/system_prompt_templates.py": 10,
+    "pyproject.toml": 10,
     "frontend/react-app/src/pages/PdfReader.jsx": 10,
     "workflows/.gitkeep": 10,
     "backend/core/agent/tools/builtin/browser_tool.py": 10,
@@ -53,12 +55,10 @@
     "docs/design/streaming-response.md": 10,
     "docs/troubleshooting/llm-service-not-configured.md": 10,
     "requirements-dev.txt": 10,
-    "backend/core/agent/system_prompt_templates.py": 9,
+    "backend/core/agent/tools/builtin/weather_tool.py": 9,
     "frontend/react-app/src/pages/WebReader.jsx": 9,
-    "pyproject.toml": 9,
     "frontend/react-app/src/utils/mdToHtml.js": 9,
-    "backend/infrastructure/execution/task_worker.py": 9,
-    "backend/infrastructure/storage/task_queue_db.py": 9
+    "backend/infrastructure/execution/task_worker.py": 9
   },
-  "generated_at": "2026-03-08T14:23:39.093805Z"
+  "generated_at": "2026-03-09T01:22:07.113379Z"
 }

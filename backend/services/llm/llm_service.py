@@ -36,19 +36,18 @@ class LLMService:
     PROVIDER_BAILIAN = "bailian"
     PROVIDER_TURBOGATEWAY = "theturbogateway"
     
-    def __init__(self, temperature: float = 0.7, max_tokens: int = 2000, provider: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, temperature: float = 0.7, max_tokens: Optional[int] = None, provider: Optional[str] = None, model: Optional[str] = None):
         """
         初始化 LLM 服务
         
         Args:
             temperature: 温度参数，控制输出的随机性 (0.0-2.0)，默认 0.7
-            max_tokens: 最大 token 数，默认 2000
+            max_tokens: 最大输出 token 数，None 时使用当前模型的 max_output 上限
             provider: 提供商名称，如果为 None 则从环境变量或模型名称自动检测
             model: 初始模型名称，如果提供则自动检测提供商
         """
         # 参数配置：验证和设置参数
         self.temperature = max(0.0, min(2.0, temperature))
-        self.max_tokens = max(1, max_tokens)
         
         # 调试输出
         self.debug = DebugOutput()
@@ -80,11 +79,25 @@ class LLMService:
         self.provider = provider
         self.default_model = self.model
         
+        # max_tokens：显式传入则用；None 时读 LLM_MAX_TOKENS（若设）否则用模型 max_output
+        if max_tokens is not None:
+            self._max_tokens_override = max_tokens
+        else:
+            env_val = os.getenv("LLM_MAX_TOKENS", "").strip()
+            self._max_tokens_override = int(env_val) if env_val.isdigit() else None
+        
         logger.info(f"初始化 LLM 服务，提供商: {self.provider}, 模型: {self.model}")
         
         # 获取模型配置并初始化客户端
         config = self._get_model_config(self.model)
         self._init_client(config)
+    
+    def _get_effective_max_tokens(self) -> int:
+        """当前模型下的有效 max_tokens（请求时按当前 model 计算）"""
+        from backend.services.llm.model_token_limits import get_model_limits, get_effective_max_tokens
+        _, model_max = get_model_limits(self.model)
+        requested = self._max_tokens_override if self._max_tokens_override is not None else model_max
+        return get_effective_max_tokens(self.model, requested)
     
     def _ensure_env_loaded(self):
         """确保环境变量已加载（统一配置管理）"""
@@ -358,13 +371,20 @@ class LLMService:
         logger.debug(f"LLM User Prompt: {user_prompt}")
         self.debug.log_llm_request(system_prompt or "", user_prompt or "", self.model)
         
+        from backend.services.llm.model_token_limits import estimate_messages_tokens, get_model_limits, TRUNCATION_WARNING
+        effective_max = self._get_effective_max_tokens()
+        input_est = estimate_messages_tokens(messages)
+        max_ctx, max_out = get_model_limits(self.model)
+        if input_est > max_ctx * 0.9:
+            logger.warning(f"输入 token 估计约 {input_est}，接近模型上限 {max_ctx}，可能被截断")
+        
         # 构建请求参数
         request_params = {
             "model": self.model,
             "messages": messages,
             "stream": False,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens
+            "max_tokens": effective_max
         }
         
         # 如果提供了工具，添加到请求中
@@ -396,6 +416,12 @@ class LLMService:
                         append_audit("response", self.model, _response_summary(result, self.model), meta=meta)
                     except Exception as e:
                         logger.debug("LLM 审计写入响应记录失败: %s", e)
+
+                    # 检查是否因 token 上限截断
+                    finish_reason = getattr(response.choices[0], "finish_reason", None)
+                    if finish_reason == "length":
+                        content = (content or "") + TRUNCATION_WARNING
+                        logger.warning("输出因达到 max_tokens 上限而截断")
 
                     # 检查是否有工具调用
                     if hasattr(result, 'tool_calls') and result.tool_calls:
@@ -617,10 +643,18 @@ class LLMService:
         # 调试输出：请求信息
         self.debug.log_llm_request(system_prompt, user_prompt, self.model)
         
+        from backend.services.llm.model_token_limits import estimate_messages_tokens, get_model_limits, TRUNCATION_WARNING
+        effective_max = self._get_effective_max_tokens()
+        input_est = estimate_messages_tokens(messages)
+        max_ctx, _ = get_model_limits(self.model)
+        if input_est > max_ctx * 0.9:
+            logger.warning(f"输入 token 估计约 {input_est}，接近模型上限 {max_ctx}，可能被截断")
+        
         # 收集思考过程（如果支持）
         thinking_chunks = []
         content_chunks = []
         last_usage = None
+        last_finish_reason = None
         
         try:
             create_params = {
@@ -628,7 +662,7 @@ class LLMService:
                 "messages": messages,
                 "stream": True,
                 "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
+                "max_tokens": effective_max,
             }
             try:
                 stream = await asyncio.wait_for(
@@ -649,6 +683,7 @@ class LLMService:
                     # 检查 chunk 是否有 choices
                     if not hasattr(chunk, 'choices') or not chunk.choices:
                         continue
+                    last_finish_reason = getattr(chunk.choices[0], "finish_reason", last_finish_reason)
                     
                     # 处理思考过程（DeepSeek R1 格式）
                     if self.supports_thinking:
@@ -696,6 +731,11 @@ class LLMService:
             if thinking_chunks:
                 thinking = "".join(thinking_chunks)
                 self.debug.log_llm_thinking(thinking)
+
+            # 若因 token 上限截断，追加警告
+            if last_finish_reason == "length":
+                logger.warning("输出因达到 max_tokens 上限而截断")
+                yield TRUNCATION_WARNING
 
             # 审计：记录流式响应完整内容（含 token 统计）
             full_response = "".join(content_chunks)
@@ -815,12 +855,15 @@ class LLMService:
         content_chunks = []
         tool_calls_acc = {}  # index -> {id, function: {name, arguments}}
 
+        from backend.services.llm.model_token_limits import TRUNCATION_WARNING
+        effective_max = self._get_effective_max_tokens()
+
         request_params = {
             "model": self.model,
             "messages": messages,
             "stream": True,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            "max_tokens": effective_max,
         }
         if tools:
             request_params["tools"] = tools
@@ -835,6 +878,7 @@ class LLMService:
             logger.debug("LLM 审计写入请求记录失败: %s", e)
 
         last_usage = None
+        last_finish_reason = None
         try:
             try:
                 stream = await asyncio.wait_for(
@@ -853,6 +897,8 @@ class LLMService:
                     continue
                 delta = chunk.choices[0].delta
                 finish_reason = getattr(chunk.choices[0], "finish_reason", None)
+                if finish_reason:
+                    last_finish_reason = finish_reason
 
                 if hasattr(delta, "content") and delta.content:
                     content_chunks.append(delta.content)
@@ -894,6 +940,10 @@ class LLMService:
                     break
 
             full_content = "".join(content_chunks)
+            if last_finish_reason == "length":
+                logger.warning("输出因达到 max_tokens 上限而截断")
+                full_content += TRUNCATION_WARNING
+                yield TRUNCATION_WARNING
             if "tool_calls" not in out:
                 out["content"] = full_content
 

@@ -122,7 +122,8 @@ export default function Sidebar({ open, onToggle }) {
           </div>
         </>
       ) : (
-        <div className="flex flex-col items-center py-4">
+        <div className="flex flex-col items-center py-4 gap-3">
+          <img src="/favicon.png" alt="Hou CLI" className="w-8 h-8 rounded shrink-0" />
           <button
             onClick={onToggle}
             className="p-2 text-muted hover:text-fg hover:bg-white/10 rounded"

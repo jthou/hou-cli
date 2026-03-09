@@ -44,7 +44,7 @@ MODEL_CONFIG_KEYS = [
     ("BROWSER_TOOL_REASONING_MODEL", "Browser 推理模型", "deepseek-reasoner"),
     ("BROWSER_TOOL_CHAT_MODEL", "Browser 对话模型", "deepseek-chat"),
     ("LLM_TEMPERATURE", "LLM 温度", "0.7"),
-    ("LLM_MAX_TOKENS", "LLM 最大 Token", "2000"),
+    ("LLM_MAX_TOKENS", "LLM 最大输出 Token（可选，不设则自动用模型上限）", ""),
     ("DISABLE_SMART_MODEL_SELECTION", "禁用智能模型选择", "false"),
     ("BAILIAN_BASE_URL", "百炼 Base URL", ""),
     ("TURBOGATEWAY_BASE_URL", "TheTurbo Base URL", ""),
@@ -129,6 +129,17 @@ async def get_model_config_audit():
         })
 
     result["agent_model_mapping"] = _resolve_agent_models()
+
+    # 模型 token 限制（供前端展示与提示）
+    try:
+        from backend.services.llm.model_token_limits import get_model_limits
+        ctx, out = get_model_limits(_get_default_llm_model())
+        result["model_token_limits"] = {
+            "current": [ctx, out],
+            "hint": "各模型 max_context / max_output 见文档 docs/design/model-token-limits.md",
+        }
+    except Exception:
+        result["model_token_limits"] = None
 
     # 用户可选模型（模型选择下拉使用的配置）
     result["model_selection"] = [

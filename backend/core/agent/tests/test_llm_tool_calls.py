@@ -45,6 +45,10 @@ class TestToolSchemaAndAgentConfig:
         """CHAT_TOOLS 应包含 google_search"""
         assert "google_search" in CHAT_TOOLS
 
+    def test_chat_tools_include_kanban_board(self):
+        """CHAT_TOOLS 应包含 kanban_board"""
+        assert "kanban_board" in CHAT_TOOLS
+
     def test_get_tool_names_for_agent_general_chat(self):
         """general_chat agent 应返回 CHAT_TOOLS"""
         names = get_tool_names_for_agent("general_chat")
@@ -102,6 +106,28 @@ class TestToolSchemaAndAgentConfig:
         op = props.get("operation", {})
         assert "enum" in op
         assert "search" in op["enum"]
+
+    def test_kanban_tool_has_list_boards_operation(self, orchestrator):
+        """kanban_board 工具参数应包含 list_boards 操作"""
+        tool = orchestrator.tool_registry.get_tool("kanban_board")
+        if not tool:
+            pytest.skip("kanban_board 未注册")
+        op_param = next((p for p in tool.parameters if p.name == "operation"), None)
+        assert op_param is not None
+        assert op_param.enum is not None
+        assert "list_boards" in op_param.enum
+
+    def test_kanban_schema_includes_operation_enum(self, orchestrator):
+        """kanban_board 的 LLM schema 应包含 operation 的 enum"""
+        tools = orchestrator.tool_registry.get_tools_for_llm()
+        kanban = next((t for t in tools if (t.get("function") or {}).get("name") == "kanban_board"), None)
+        if not kanban:
+            pytest.skip("kanban_board 未注册")
+        props = kanban["function"]["parameters"].get("properties", {})
+        op = props.get("operation", {})
+        assert "enum" in op
+        assert "list_boards" in op["enum"]
+        assert "create_task" in op["enum"]
 
 
 class TestToolCallParsingAndExecution:
@@ -165,6 +191,63 @@ class TestToolCallParsingAndExecution:
         except json.JSONDecodeError:
             parsed = {}
         assert parsed == {}
+
+    @pytest.mark.asyncio
+    async def test_tool_registry_execute_kanban_list_boards(self, orchestrator):
+        """tool_registry.execute 能正确执行 kanban_board list_boards"""
+        if "kanban_board" not in orchestrator.tool_registry.list_tools():
+            pytest.skip("kanban_board 未注册")
+        tool = orchestrator.tool_registry.get_tool("kanban_board")
+        if tool and hasattr(tool, "_client"):
+            tool._client = None
+        with patch(
+            "backend.core.agent.tools.builtin.kanban_tool.MediaWikiClientService"
+        ) as mock_mw_cls:
+            mock_instance = MagicMock()
+            mock_instance.kanban_get_boards.return_value = [
+                {"board_id": 1, "board_name": "测试看板"}
+            ]
+            mock_instance.connect = MagicMock()
+            mock_mw_cls.return_value = mock_instance
+            result = orchestrator.tool_registry.execute(
+                "kanban_board",
+                operation="list_boards",
+                filter_status="active",
+            )
+            assert result.success is True
+            mock_instance.kanban_get_boards.assert_called_once()
+            call_kwargs = mock_instance.kanban_get_boards.call_args[1]
+            assert call_kwargs.get("filter_status") == "active"
+
+    @pytest.mark.asyncio
+    async def test_tool_registry_execute_kanban_create_task(self, orchestrator):
+        """tool_registry.execute 能正确执行 kanban_board create_task"""
+        if "kanban_board" not in orchestrator.tool_registry.list_tools():
+            pytest.skip("kanban_board 未注册")
+        # 清除工具缓存的 client，确保使用 mock
+        tool = orchestrator.tool_registry.get_tool("kanban_board")
+        if tool and hasattr(tool, "_client"):
+            tool._client = None
+        with patch(
+            "backend.core.agent.tools.builtin.kanban_tool.MediaWikiClientService"
+        ) as mock_mw_cls:
+            mock_instance = MagicMock()
+            mock_instance.kanban_create_task.return_value = 42
+            mock_instance.connect = MagicMock()
+            mock_mw_cls.return_value = mock_instance
+            result = orchestrator.tool_registry.execute(
+                "kanban_board",
+                operation="create_task",
+                board_id=1,
+                column_id=2,
+                title="新任务",
+            )
+            assert result.success is True
+            mock_instance.kanban_create_task.assert_called_once()
+            call_kwargs = mock_instance.kanban_create_task.call_args[1]
+            assert call_kwargs["board_id"] == 1
+            assert call_kwargs["column_id"] == 2
+            assert call_kwargs["title"] == "新任务"
 
 
 class TestStreamToolCallFlow:
@@ -347,3 +430,127 @@ class TestMediaWikiSearchToolCall:
             mock_mw_cls.return_value = mock_instance
             result = orchestrator.tool_registry.execute("mediawiki", **llm_args)
             assert result.success is True
+
+
+class TestKanbanBoardToolCall:
+    """Kanban 看板工具调用专项测试"""
+
+    @pytest.fixture
+    def orchestrator(self):
+        return Orchestrator()
+
+    def test_kanban_list_boards_operation_requires_no_extra_params(self, orchestrator):
+        """kanban list_boards 只需 operation，filter_status 可选"""
+        if "kanban_board" not in orchestrator.tool_registry.list_tools():
+            pytest.skip("kanban_board 未注册")
+        tool = orchestrator.tool_registry.get_tool("kanban_board")
+        if tool and hasattr(tool, "_client"):
+            tool._client = None
+        with patch(
+            "backend.core.agent.tools.builtin.kanban_tool.MediaWikiClientService"
+        ) as mock_mw_cls:
+            mock_instance = MagicMock()
+            mock_instance.kanban_get_boards.return_value = []
+            mock_instance.connect = MagicMock()
+            mock_mw_cls.return_value = mock_instance
+            result = orchestrator.tool_registry.execute(
+                "kanban_board",
+                operation="list_boards",
+            )
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_kanban_tool_call_format_matches_schema_list_boards(self, orchestrator):
+        """LLM 应能生成符合 schema 的 kanban list_boards 调用"""
+        if "kanban_board" not in orchestrator.tool_registry.list_tools():
+            pytest.skip("kanban_board 未注册")
+        tool = orchestrator.tool_registry.get_tool("kanban_board")
+        if tool and hasattr(tool, "_client"):
+            tool._client = None
+        llm_args = {"operation": "list_boards", "filter_status": "active"}
+        with patch(
+            "backend.core.agent.tools.builtin.kanban_tool.MediaWikiClientService"
+        ) as mock_mw_cls:
+            mock_instance = MagicMock()
+            mock_instance.kanban_get_boards.return_value = []
+            mock_instance.connect = MagicMock()
+            mock_mw_cls.return_value = mock_instance
+            result = orchestrator.tool_registry.execute("kanban_board", **llm_args)
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_kanban_tool_call_format_matches_schema_create_task(self, orchestrator):
+        """LLM 应能生成符合 schema 的 kanban create_task 调用"""
+        if "kanban_board" not in orchestrator.tool_registry.list_tools():
+            pytest.skip("kanban_board 未注册")
+        tool = orchestrator.tool_registry.get_tool("kanban_board")
+        if tool and hasattr(tool, "_client"):
+            tool._client = None
+        llm_args = {
+            "operation": "create_task",
+            "board_id": 1,
+            "column_id": 2,
+            "title": "完成测试",
+            "priority": "high",
+        }
+        with patch(
+            "backend.core.agent.tools.builtin.kanban_tool.MediaWikiClientService"
+        ) as mock_mw_cls:
+            mock_instance = MagicMock()
+            mock_instance.kanban_create_task.return_value = 99
+            mock_instance.connect = MagicMock()
+            mock_mw_cls.return_value = mock_instance
+            result = orchestrator.tool_registry.execute("kanban_board", **llm_args)
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_stream_kanban_tool_call_executes(self, orchestrator):
+        """流式 LLM 返回 kanban 工具调用时，orchestrator 应正确执行"""
+        if "kanban_board" not in orchestrator.tool_registry.list_tools():
+            pytest.skip("kanban_board 未注册")
+        call_count = [0]
+        async def mock_stream(messages=None, tools=None, audit_meta=None, out_result=None, **kwargs):
+            call_count[0] += 1
+            o = out_result if out_result is not None else {}
+            o.clear()
+            if call_count[0] == 1:
+                tc = _make_tool_call(
+                    "kanban_board",
+                    {"operation": "list_boards", "filter_status": "active"},
+                )
+                o["tool_calls"] = [tc]
+            else:
+                o["content"] = "已列出看板"
+            yield ""
+
+        with patch("backend.core.agent.orchestrator.LLMService") as mock_llm_cls:
+            mock_llm = MagicMock()
+            mock_llm_cls.return_value = mock_llm
+            mock_llm.stream_chat_with_tools = mock_stream
+            orch = Orchestrator()
+            orch.llm_service = mock_llm
+
+        with patch(
+            "backend.core.agent.tools.builtin.kanban_tool.MediaWikiClientService"
+        ) as mock_mw_cls:
+            mock_instance = MagicMock()
+            mock_instance.kanban_get_boards.return_value = []
+            mock_instance.connect = MagicMock()
+            mock_mw_cls.return_value = mock_instance
+
+            with patch.object(orch.tool_registry, "execute") as mock_execute:
+                mock_execute.side_effect = lambda **kw: ToolResult(
+                    success=True,
+                    data={"boards": [], "count": 0},
+                )
+                chunks = []
+                async for chunk in orch._chat_with_tools_stream(
+                    system_prompt="",
+                    user_prompt="列出我的看板",
+                    tools=[{"type": "function", "function": {"name": "kanban_board", "parameters": {}}}],
+                ):
+                    chunks.append(chunk)
+
+            assert mock_execute.call_count >= 1
+            call_kwargs = mock_execute.call_args[1]
+            assert call_kwargs.get("operation") == "list_boards"
