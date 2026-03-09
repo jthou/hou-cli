@@ -19,12 +19,11 @@ Web 前端服务提供了基于浏览器的用户界面，与现有的 CLI 前�
 #### 方式 1: 使用 Makefile（推荐）
 
 ```bash
-# 启动后端 + Web 前端
-make start-web
+# 启动后端 + Web 前端（构建产物）
+make start
 
-# 或分别启动
-make run-backend    # 启动后端
-make run-web        # 启动 Web 前端
+# 前端开发（Vite 热更新，需后端已起）
+cd frontend/react-app && npm run dev
 ```
 
 #### 方式 2: 手动启动
@@ -114,7 +113,7 @@ BACKEND_PORT=8000           # 后端服务端口（默认自动发现）
 
 1. **启动服务**
    ```bash
-   make start-web
+   make start
    ```
 
 2. **打开浏览器**
@@ -138,7 +137,7 @@ BACKEND_PORT=8000           # 后端服务端口（默认自动发现）
 | 特性 | CLI 前端 | Web 前端 |
 |------|---------|---------|
 | **界面** | 终端（Rich UI） | 浏览器 |
-| **启动** | `make start` | `make start-web` |
+| **启动** | `make start` | `cd frontend/react-app && npm run dev` |
 | **访问** | 终端命令 | 浏览器 URL |
 | **流式响应** | ✅ 支持 | ✅ 支持 |
 | **会话管理** | ✅ 支持 | ✅ 支持 |

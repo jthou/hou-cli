@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-03-09T01:44:26.344604Z",
+  "generated_at": "2026-03-09T04:22:06.061534Z",
   "code_stats": {
-    "total_files": 1067,
-    "total_lines": 311652,
+    "total_files": 1071,
+    "total_lines": 311971,
     "by_language": {
       "other": {
         "files": 23,
-        "lines": 89587
+        "lines": 89623
       },
       "markdown": {
-        "files": 375,
-        "lines": 100362
+        "files": 378,
+        "lines": 100485
       },
       "python": {
-        "files": 506,
-        "lines": 90187
+        "files": 507,
+        "lines": 90345
       },
       "shell": {
         "files": 33,
@@ -30,7 +30,7 @@
       },
       "json": {
         "files": 8,
-        "lines": 4705
+        "lines": 4707
       },
       "html": {
         "files": 2,
@@ -48,7 +48,7 @@
     "by_directory": {
       ".": {
         "files": 9,
-        "lines": 1749
+        "lines": 1785
       },
       "frontend-react-app": {
         "files": 1,
@@ -63,8 +63,8 @@
         "lines": 32449
       },
       "plans": {
-        "files": 6,
-        "lines": 4286
+        "files": 9,
+        "lines": 4409
       },
       "config": {
         "files": 2,
@@ -80,7 +80,7 @@
       },
       "backend": {
         "files": 434,
-        "lines": 133425
+        "lines": 133455
       },
       "shared": {
         "files": 8,
@@ -88,7 +88,7 @@
       },
       "docs": {
         "files": 319,
-        "lines": 88861
+        "lines": 88863
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -99,8 +99,8 @@
         "lines": 138
       },
       "scripts": {
-        "files": 53,
-        "lines": 5448
+        "files": 54,
+        "lines": 5576
       },
       "archived": {
         "files": 21,
@@ -111,18 +111,18 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-09T01:44:36.693962Z"
+    "generated_at": "2026-03-09T04:22:15.996265Z"
   },
   "dev_history": {
-    "total_commits": 292,
+    "total_commits": 293,
     "authors": {
-      "侯金亭（Justin）": 249,
+      "侯金亭（Justin）": 250,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W10": 1,
+      "2026-W10": 2,
       "2026-W09": 27,
-      "2026-W08": 24
+      "2026-W08": 23
     },
     "files_changed": {
       "backend/core/agent/orchestrator.py": 75,
@@ -139,8 +139,8 @@
       "env.example": 19,
       "frontend/react-app/src/App.jsx": 19,
       "frontend/ui/stream_handler.py": 19,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 17,
       "requirements.txt": 17,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 16,
       "backend/api/task_queue_routes.py": 16,
       "frontend/react-app/package.json": 13,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
@@ -156,6 +156,9 @@
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
+      "docs/audit/AUDIT_REPORT.json": 10,
+      "docs/audit/code_stats.json": 10,
+      "docs/audit/dev_history.json": 10,
       "pyproject.toml": 10,
       "frontend/react-app/src/pages/PdfReader.jsx": 10,
       "workflows/.gitkeep": 10,
@@ -171,12 +174,9 @@
       "docs/design/streaming-response.md": 10,
       "docs/troubleshooting/llm-service-not-configured.md": 10,
       "requirements-dev.txt": 10,
-      "docs/audit/AUDIT_REPORT.json": 9,
-      "docs/audit/code_stats.json": 9,
-      "docs/audit/dev_history.json": 9,
       "backend/core/agent/tools/builtin/weather_tool.py": 9
     },
-    "generated_at": "2026-03-09T01:44:36.921331Z"
+    "generated_at": "2026-03-09T04:22:16.210848Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -212,6 +212,7 @@
       "GET /api/sessions/{session_id}",
       "GET /api/settings/kanban/board",
       "GET /api/settings/kanban/boards",
+      "GET /api/settings/kanban/status",
       "GET /api/settings/llm-audit/daily-stats",
       "GET /api/settings/llm-audit/dates",
       "GET /api/settings/llm-audit/list",
@@ -292,7 +293,7 @@
       "PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle"
     ],
     "frontend_fetches": [],
-    "backend_path_count": 110,
+    "backend_path_count": 111,
     "frontend_fetch_count": 0,
     "unused_by_frontend": [
       "/api/audit/report",
@@ -338,6 +339,7 @@
       "/api/sessions/{id}/summary",
       "/api/settings/kanban/board",
       "/api/settings/kanban/boards",
+      "/api/settings/kanban/status",
       "/api/settings/llm-audit/daily-stats",
       "/api/settings/llm-audit/dates",
       "/api/settings/llm-audit/list",

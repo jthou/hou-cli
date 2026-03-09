@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 110
+- 后端路由数: 111
 - 前端 fetch 数: 0
 
 ## 后端路由
@@ -38,6 +38,7 @@ GET /api/sessions/search
 GET /api/sessions/{session_id}
 GET /api/settings/kanban/board
 GET /api/settings/kanban/boards
+GET /api/settings/kanban/status
 GET /api/settings/llm-audit/daily-stats
 GET /api/settings/llm-audit/dates
 GET /api/settings/llm-audit/list
@@ -166,6 +167,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/{id}/summary
 - /api/settings/kanban/board
 - /api/settings/kanban/boards
+- /api/settings/kanban/status
 - /api/settings/llm-audit/daily-stats
 - /api/settings/llm-audit/dates
 - /api/settings/llm-audit/list

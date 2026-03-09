@@ -1,13 +1,13 @@
 {
-  "total_commits": 292,
+  "total_commits": 293,
   "authors": {
-    "侯金亭（Justin）": 249,
+    "侯金亭（Justin）": 250,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W10": 1,
+    "2026-W10": 2,
     "2026-W09": 27,
-    "2026-W08": 24
+    "2026-W08": 23
   },
   "files_changed": {
     "backend/core/agent/orchestrator.py": 75,
@@ -24,8 +24,8 @@
     "env.example": 19,
     "frontend/react-app/src/App.jsx": 19,
     "frontend/ui/stream_handler.py": 19,
+    "frontend/react-app/src/pages/ArticleWriting.jsx": 17,
     "requirements.txt": 17,
-    "frontend/react-app/src/pages/ArticleWriting.jsx": 16,
     "backend/api/task_queue_routes.py": 16,
     "frontend/react-app/package.json": 13,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
@@ -41,6 +41,9 @@
     "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
     "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
     "docs/todo/009-weather-tool-implementation.md": 11,
+    "docs/audit/AUDIT_REPORT.json": 10,
+    "docs/audit/code_stats.json": 10,
+    "docs/audit/dev_history.json": 10,
     "pyproject.toml": 10,
     "frontend/react-app/src/pages/PdfReader.jsx": 10,
     "workflows/.gitkeep": 10,
@@ -56,10 +59,7 @@
     "docs/design/streaming-response.md": 10,
     "docs/troubleshooting/llm-service-not-configured.md": 10,
     "requirements-dev.txt": 10,
-    "docs/audit/AUDIT_REPORT.json": 9,
-    "docs/audit/code_stats.json": 9,
-    "docs/audit/dev_history.json": 9,
     "backend/core/agent/tools/builtin/weather_tool.py": 9
   },
-  "generated_at": "2026-03-09T01:44:36.921331Z"
+  "generated_at": "2026-03-09T04:22:16.210848Z"
 }

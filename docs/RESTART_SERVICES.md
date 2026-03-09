@@ -28,14 +28,11 @@ python -m backend.main
 ### 2. 重启前端服务
 
 ```bash
-# 停止所有前端进程
-pkill -f "backend.main"
+# 前端开发（Vite 热更新）
+cd frontend/react-app && npm run dev
 
-# 重新启动前端
-python -m backend.main
-
-# 或者使用 Makefile
-make start-web
+# 或重新构建后由 make start 提供
+make build-web && make start
 ```
 
 ### 3. 同时重启前后端
