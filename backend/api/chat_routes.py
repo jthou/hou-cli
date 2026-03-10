@@ -279,12 +279,18 @@ async def generate_article_metadata_endpoint(request: GenerateMetadataRequest):
             if not text_fields:
                 text_fields = ["title", "digest", "author"]
             parsed = await generate_article_metadata(content, fields=text_fields)
-            meta.update(parsed)
+            meta.update({k: parsed.get(k, "") for k in ["title", "digest", "author"]})
+            if parsed.get("error"):
+                meta["metadata_error"] = parsed["error"]
 
         if "cover" in fields:
             cover_out = await generate_cover_image_from_content(content)
             meta["thumb_media_id"] = cover_out.get("thumb_media_id", "")
             meta["cover_prompt"] = cover_out.get("prompt", "")
+            cover_err = cover_out.get("error")
+            if cover_err:
+                meta["cover_error"] = cover_err
+                debug_log("封面生成失败", level="warning", data={"cover_error": cover_err})
 
         title = meta.get("title") or existing.get("title", "")
         digest = meta.get("digest") or existing.get("digest", "")
@@ -307,7 +313,8 @@ async def generate_article_metadata_endpoint(request: GenerateMetadataRequest):
         import traceback
 
         debug_log(f"generate_article_metadata failed: {e}", level="error", data={"trace": traceback.format_exc()})
-        return {"status": "error", "error": str(e), "metadata": None, "success": False}
+        err_msg = (str(e) or getattr(e, "message", None) or type(e).__name__ or "未知错误").strip()
+        return {"status": "error", "error": err_msg or "生成失败", "metadata": None, "success": False}
 
 
 @router.get("/chat/article/revisions")

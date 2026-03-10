@@ -1,7 +1,6 @@
 """安全执行包装器"""
 import re
 import logging
-import os
 from typing import Callable, Optional
 from pathlib import Path
 
@@ -49,12 +48,6 @@ class SecureExecutor:
         """初始化安全执行器"""
         self.executor = SubprocessExecutor()
         self.obfuscation_detector = ObfuscationDetector()
-
-        # 从环境变量读取代码长度限制（单位：KB，默认10KB）
-        max_code_kb = int(os.getenv("MAX_CODE_LENGTH_KB", "10"))
-        self.MAX_CODE_LENGTH = max_code_kb * 1024
-
-        logger.info(f"代码长度限制设置为: {self.MAX_CODE_LENGTH} 字节 ({max_code_kb}KB)")
     
     def _validate_language(self, language: str) -> Optional[str]:
         """验证语言是否允许"""
@@ -145,13 +138,6 @@ class SecureExecutor:
                 return f"Access to restricted path '{restricted_path}' is not allowed"
         return None
     
-    def _validate_code_length(self, code: str) -> Optional[str]:
-        """验证代码长度"""
-        code_bytes = len(code.encode('utf-8'))
-        if code_bytes > self.MAX_CODE_LENGTH:
-            return f"Code is too long ({code_bytes} bytes). Maximum allowed: {self.MAX_CODE_LENGTH} bytes"
-        return None
-    
     def _validate_request(
         self, 
         request: ExecutionRequest,
@@ -174,11 +160,6 @@ class SecureExecutor:
         obf_result = self.obfuscation_detector.detect(request.code, request.language)
         if obf_result.detected:
             return f"禁止执行：检测到混淆/编码模式 ({', '.join(obf_result.reasons[:3])})"
-        
-        # 验证代码长度
-        error = self._validate_code_length(request.code)
-        if error:
-            return error
         
         # 检查危险命令（如果未跳过）
         if not skip_blacklist_check:

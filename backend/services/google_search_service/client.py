@@ -67,8 +67,7 @@ class GoogleSearchService:
         Raises:
             GoogleSearchServiceError: 搜索失败时抛出
         """
-        # 限制结果数量在 1-10 之间
-        num_results = max(1, min(10, num_results))
+        num_results = max(1, num_results)
         
         params = {
             "key": self.api_key,

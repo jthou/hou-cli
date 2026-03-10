@@ -233,6 +233,7 @@ export default function TaskParamsForm({
           inputFileAccept={inputFileAccept}
           fileUploadFields={fileUploadFields}
           customFieldRender={customFieldRender}
+          fieldsToHide={taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : []}
         />
       )}
 

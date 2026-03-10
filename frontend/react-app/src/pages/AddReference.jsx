@@ -86,7 +86,7 @@ export default function AddReference() {
       sessionStorage.setItem(cfg.storageKey, targetSessionId)
     } catch (_) {}
     toast?.info?.(`已添加到${cfg.label}会话`)
-    navigate(cfg.path, { replace: true, state: { focusSessionId: targetSessionId } })
+    navigate(-1)
   }
 
   const handleNewAndAdd = async (sessionType) => {
@@ -112,7 +112,7 @@ export default function AddReference() {
       sessionStorage.setItem(cfg.storageKey, res.session_id)
     } catch (_) {}
     toast?.info?.(`已创建${cfg.label}会话并添加`)
-    navigate(cfg.path, { replace: true, state: { focusSessionId: res.session_id } })
+    navigate(-1)
   }
 
   if (!content) return null

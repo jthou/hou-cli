@@ -162,6 +162,7 @@ class ImageGenService:
             import time
             ts = int(time.time() * 1000)
             first_saved = None
+            last_error = None
             for i, img_src in enumerate(images[:n]):
                 ext = ".png"
                 fname = f"gen_{ts}_{i}{ext}"
@@ -179,15 +180,19 @@ class ImageGenService:
                             r.raise_for_status()
                             fp.write_bytes(r.content)
                     else:
+                        last_error = f"图片格式不支持: {type(img_src)}, 需 data: 或 http(s)://"
                         continue
                     if first_saved is None:
                         first_saved = str(fp.resolve())
                 except Exception as e:
+                    last_error = str(e) or type(e).__name__
                     logger.warning(f"保存图片失败 {fp}: {e}")
                     continue
 
             result["output_dir"] = str(out_path.resolve())
             if first_saved:
                 result["output_file"] = first_saved
+            elif last_error:
+                result["error"] = f"保存图片失败: {last_error}"
 
         return result

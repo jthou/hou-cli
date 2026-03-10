@@ -3151,14 +3151,9 @@ class UnifiedOrchestrator:
                                     task_complexity=task_complexity
                                 )
                                 
-                                # 检查是否应该切换（限制切换次数）
-                                switch_count = len([r for r in self.model_switcher.switch_history 
-                                                   if r.to_model != current_model])
                                 if self.model_switcher.should_switch_model(
                                     current_model=current_model,
                                     target_model=target_model,
-                                    switch_count=switch_count,
-                                    max_switches=3
                                 ):
                                     logger.info(f"根据执行结果切换模型: {current_model} -> {target_model}")
                                     self.llm_service.set_model(target_model)

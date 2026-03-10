@@ -302,7 +302,7 @@ TASK_TYPES = {
             "num_results": {
                 "type": "number",
                 "required": False,
-                "description": "返回结果数量（可设置，建议 1–100，默认 10）",
+                "description": "返回结果数量（默认 10）",
                 "default": 10
             },
             "language": {
@@ -541,7 +541,7 @@ TASK_TYPES = {
     },
     "url_to_wiki": {
         "name": "网文抓取",
-        "description": "抓取指定 URL 正文，翻译成中文后生成 Markdown 草稿，可按需写入 MediaWiki",
+        "description": "抓取指定 URL 正文生成 Markdown 草稿；可选翻译后写入 MediaWiki",
         "output_spec": {
             "content": "抓取并翻译后的文章（Markdown 格式）",
             "format": "Markdown；auto_write 为 true 时写入 MediaWiki，无本地文件",
@@ -552,7 +552,7 @@ TASK_TYPES = {
             "url": {
                 "type": "string",
                 "required": True,
-                "description": "要抓取并翻译的文章 URL（仅 http/https）",
+                "description": "要抓取的文章 URL（仅 http/https）",
                 "placeholder": "https://example.com/article"
             },
             "wiki_title": {
@@ -561,16 +561,21 @@ TASK_TYPES = {
                 "description": "Wiki 页面标题（留空则从网页 title 或 URL 推断；若 URL 为哈希/随机路径，建议填写可读标题）",
                 "placeholder": "如：文章标题，留空则用网页标题或 URL 推断"
             },
+            "translate": {
+                "type": "boolean",
+                "required": False,
+                "description": "翻译（勾选后调用 LLM 翻译成目标语言，不勾选则保留原文）",
+                "default": False
+            },
             "language": {
                 "type": "string",
                 "required": False,
-                "description": "目标语言；选「不翻译」则保留原文写入 Wiki",
+                "description": "目标语言（仅当勾选「翻译」时生效）",
                 "default": "zh",
                 "enum": [
                     {"value": "zh", "label": "中文"},
                     {"value": "en", "label": "英文"},
                     {"value": "ja", "label": "日文"},
-                    {"value": "original", "label": "不翻译（保留原文）"},
                 ]
             },
             "categories": {
@@ -643,12 +648,6 @@ TASK_TYPES = {
                     {"value": "single", "label": "单页汇总"},
                     {"value": "multi", "label": "多子页面（目录页+书名/第k部分）"},
                 ]
-            },
-            "max_pages": {
-                "type": "integer",
-                "required": False,
-                "description": "仅处理前 N 页（不填则用系统上限）",
-                "placeholder": "可选"
             },
         }
     },
@@ -944,7 +943,7 @@ async def process_web_search_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
 
     num_results = metadata.get("num_results", 10)
     try:
-        num_results = max(1, min(100, int(num_results)))
+        num_results = max(1, int(num_results))
     except (TypeError, ValueError):
         num_results = 10
     language = (metadata.get("language") or "").strip() or None
@@ -1383,11 +1382,7 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
 # 长文分段阈值（字符），超过则分段翻译
 URL_TO_WIKI_CHUNK_SIZE = 5000
 
-# PDF 转 Wiki 限制（可从环境变量覆盖）
-PDF_TO_WIKI_MAX_FILE_BYTES = int(
-    os.environ.get("PDF_TO_WIKI_MAX_FILE_BYTES", str(50 * 1024 * 1024))
-)
-PDF_TO_WIKI_MAX_PAGES = int(os.environ.get("PDF_TO_WIKI_MAX_PAGES", "500"))
+# PDF 转 Wiki 配置
 PDF_TO_WIKI_DOWNLOAD_TIMEOUT = int(os.environ.get("PDF_TO_WIKI_DOWNLOAD_TIMEOUT", "300"))
 PDF_TO_WIKI_CHUNK_CHARS = 8000
 PDF_TO_WIKI_PAGES_PER_CHUNK = 10
@@ -1402,7 +1397,7 @@ _DOWNLOAD_HEADERS = {
 
 
 def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
-    """将 PDF URL 下载到临时文件。返回 (临时文件路径, 字节数)。超过 PDF_TO_WIKI_MAX_FILE_BYTES 抛 ValueError。"""
+    """将 PDF URL 下载到临时文件。返回 (临时文件路径, 字节数)。"""
     import tempfile
     import httpx
 
@@ -1417,22 +1412,10 @@ def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
             headers=_DOWNLOAD_HEADERS,
         ) as r:
             r.raise_for_status()
-            cl = r.headers.get("content-length")
-            if cl and int(cl) > PDF_TO_WIKI_MAX_FILE_BYTES:
-                Path(temp_path).unlink(missing_ok=True)
-                raise ValueError(
-                    f"PDF 超过大小限制（当前上限 {PDF_TO_WIKI_MAX_FILE_BYTES // (1024*1024)} MB）"
-                )
             total = 0
             with open(temp_path, "wb") as out:
                 for chunk in r.iter_bytes(8192):
                     total += len(chunk)
-                    if total > PDF_TO_WIKI_MAX_FILE_BYTES:
-                        out.close()
-                        Path(temp_path).unlink(missing_ok=True)
-                        raise ValueError(
-                            f"PDF 超过大小限制（当前上限 {PDF_TO_WIKI_MAX_FILE_BYTES // (1024*1024)} MB）"
-                        )
                     out.write(chunk)
         return temp_path, total
     except Exception:
@@ -1552,8 +1535,13 @@ async def process_url_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     raw_title = title or _url_to_fallback_title(url)
     user_wiki_title = (metadata.get("wiki_title") or "").strip()
 
-    lang = (metadata.get("language") or "zh").strip().lower()
-    skip_translate = lang == "original"
+    # translate 勾选则翻译；未勾选或旧数据 language=original 则保留原文
+    translate = bool(metadata.get("translate", False))
+    lang_raw = (metadata.get("language") or "zh").strip().lower()
+    if lang_raw == "original":
+        translate = False
+    skip_translate = not translate
+    lang = lang_raw if translate else "original"
     if skip_translate:
         worker.update_task_progress(25, "保留原文，不翻译...")
         wiki_title = user_wiki_title or raw_title or "Untitled"
@@ -1691,8 +1679,6 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         worker.update_task_progress(5, "正在下载 PDF...")
         try:
             temp_path, _size = await asyncio.to_thread(_download_pdf_to_temp, url)
-        except ValueError as e:
-            return _err("PDF_TOO_LARGE", "PDF 超过大小限制", str(e))
         except Exception as e:
             return _err(
                 "PDF_DOWNLOAD_FAILED",
@@ -1710,20 +1696,6 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         total_pages: int
         with pdfplumber.open(pdf_path) as pdf:
             total_pages = len(pdf.pages)
-        max_pages = metadata.get("max_pages")
-        if max_pages is not None:
-            try:
-                max_pages = int(max_pages)
-            except (TypeError, ValueError):
-                max_pages = PDF_TO_WIKI_MAX_PAGES
-        else:
-            max_pages = PDF_TO_WIKI_MAX_PAGES
-        if total_pages > max_pages:
-            return _err(
-                "PDF_TOO_MANY_PAGES",
-                "页数超限",
-                f"PDF 共 {total_pages} 页，当前上限 {max_pages} 页；可设置 max_pages 或使用更大上限",
-            )
 
         chunk_ranges: List[Tuple[int, int]] = []
         p = 1

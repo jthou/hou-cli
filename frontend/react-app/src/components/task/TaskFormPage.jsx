@@ -258,7 +258,10 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
             isInputFileTask={isInputFileTask}
             inputFileAccept={inputFileAccept}
             fileUploadFields={fileUploadFields}
-            fieldsToHide={inputSource === 'from_task' ? ['input_file'] : null}
+            fieldsToHide={[
+              ...(inputSource === 'from_task' ? ['input_file'] : []),
+              ...(taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : []),
+            ]}
           />
           {taskType === 'video_download' && (
             <label className="flex items-center gap-2 cursor-pointer">

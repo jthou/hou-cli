@@ -113,13 +113,9 @@
 | **Agent 注册** | 在 orchestrator 中注册 web_fetch 工具，并确保 MediaWiki 工具已注册 | P0 ✅ |
 | **Prompt 约定** | 在系统 prompt 中说明：用户要求「把某 URL 翻译成中文存到同名 Wiki」时，先 fetch_url → 再翻译 → 再 mediawiki create/edit，标题从 fetch 结果或 URL 派生 | P0 ✅ |
 | **标题规范化** | 工具或 Agent 内：将 title 转为 Wiki 合法标题（空格、特殊字符等处理） | P0（由 Agent 在写 Wiki 时处理） |
-| **URL 白名单配置** | 实现基础 URL 过滤机制，支持配置可信域名白名单（环境变量 WEB_FETCH_ALLOWED_DOMAINS） | P1 ✅ |
-| **请求频率限制** | 实现单用户请求频率限制（≤10 次/小时，环境变量 WEB_FETCH_RATE_LIMIT_PER_HOUR） | P1 ✅ |
 | **长文分段处理** | 超过 5000 字按段落分段翻译（Agent prompt + url_to_wiki 任务内 _chunk_text_by_paragraphs） | P1 ✅ |
-| **并发控制** | 限制同时处理的 URL 数量（≤5 个，环境变量 WEB_FETCH_MAX_CONCURRENT） | P1 ✅ |
-| **单元测试** | `backend/core/agent/tools/tests/test_web_fetch_tool.py`：校验、白名单、频率限制、抓取 mock | P1 ✅ |
+| **单元测试** | `backend/core/agent/tools/tests/test_web_fetch_tool.py`：校验、抓取 mock | P1 ✅ |
 | **url_to_wiki 任务** | 任务类型 url_to_wiki：抓取 → 分段翻译 → 写入 MediaWiki（task_handlers + 前端展示） | P2 ✅ |
-| **基础监控指标** | web_fetch 进程内 success_count/failure_count（get_web_fetch_stats）；维基写入成功率待扩展 | P2 部分 ✅ |
 | **告警机制** | 实现失败率、处理时间异常的告警通知 | P2 |
 | **内容安全过滤** | 实现敏感词过滤和自定义屏蔽词库 | P2 |
 

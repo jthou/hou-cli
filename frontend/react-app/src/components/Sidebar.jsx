@@ -27,7 +27,7 @@ const navItems = [
   { path: '/disk-scan', icon: '💾', label: '磁盘扫描', group: 'task_tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/writing-profile', icon: '✍️', label: '写作画像', group: 'settings' },
-  { path: '/settings/storage', icon: '💾', label: '存储配置', group: 'settings' },
+  { path: '/settings/storage', icon: '💾', label: '存储审计', group: 'settings' },
   { path: '/settings/llm-audit', icon: '📜', label: 'LLM审计', group: 'settings' },
   { path: '/settings/network-audit', icon: '🌐', label: '网络审计', group: 'settings' },
   { path: '/settings/system-prompt-audit', icon: '📋', label: '提示词审计', group: 'settings' },

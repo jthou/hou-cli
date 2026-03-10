@@ -735,8 +735,16 @@ export default function ArticleWriting() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: selectedSessionId, fields: [field] }),
       })
-      const d = await res.json()
-      if (d.status === 'success' && d.metadata) {
+      let d
+      try {
+        d = await res.json()
+      } catch (_) {
+        toast?.error?.(res.ok ? '响应解析失败' : `请求失败: HTTP ${res.status}`)
+        return
+      }
+      if (!res.ok) {
+        toast?.error?.(d?.error || `请求失败: HTTP ${res.status}`)
+      } else if (d.status === 'success' && d.metadata) {
         const m = d.metadata
         setWechatOutputMetadata((prev) => ({
           ...prev,
@@ -745,14 +753,26 @@ export default function ArticleWriting() {
           author: m.author ?? prev?.author ?? '',
           thumb_media_id: m.thumb_media_id ?? prev?.thumb_media_id ?? '',
         }))
-        if (field === 'cover' && m.cover_prompt) setWechatCoverPrompt(m.cover_prompt)
-        const msg = { title: '标题已生成', digest: '摘要已生成', author: '作者已生成', cover: '封面已生成' }[field]
-        toast?.info?.(msg)
+        if (field === 'cover') {
+          if (m.cover_prompt) setWechatCoverPrompt(m.cover_prompt)
+          if (m.thumb_media_id) {
+            toast?.info?.('封面已生成')
+          } else {
+            toast?.error?.(m.cover_error || '封面生成失败')
+          }
+        } else {
+          if (m.metadata_error) {
+            toast?.error?.(m.metadata_error)
+          } else {
+            const msg = { title: '标题已生成', digest: '摘要已生成', author: '作者已生成' }[field]
+            toast?.info?.(msg)
+          }
+        }
       } else {
-        toast?.error?.(d.error || '生成失败')
+        toast?.error?.(d?.error || '生成失败')
       }
     } catch (e) {
-      toast?.error?.(e?.message || '生成失败')
+      toast?.error?.(e?.message || e?.toString?.() || '生成失败')
     } finally {
       setWechatGeneratingField(null)
     }

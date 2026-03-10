@@ -122,6 +122,7 @@ export default function UrlToWikiInline({
                 metadata={metadata}
                 setMetadata={setMetadata}
                 fieldIdPrefix="inline-url-to-wiki"
+                fieldsToHide={!metadata?.translate ? ['language'] : []}
               />
               <div className="flex justify-end gap-3 pt-4 border-t border-border">
                 <button

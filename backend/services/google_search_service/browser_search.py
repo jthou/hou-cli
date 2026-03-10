@@ -50,9 +50,8 @@ def search(
     """
     使用 DuckDuckGo HTML 版执行搜索，返回与 GoogleSearchResponse 兼容的结构。
     不依赖 API Key，适合替代 Custom Search API。
-    num_results 建议 1–100，单页实际条数受 DuckDuckGo 一页结果数限制。
     """
-    num_results = max(1, min(100, num_results))
+    num_results = max(1, num_results)
     start = time.time()
     results: List[GoogleSearchResult] = []
 

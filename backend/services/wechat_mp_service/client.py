@@ -45,25 +45,18 @@ class WeChatMPClient:
         self._token_ttl = 7200  # 2 小时，提前 5 分钟刷新
         self._refresh_before = 300
 
-    def _ensure_token(self) -> str:
-        """获取并缓存 access_token，过期前刷新"""
-        now = time.time()
-        if self._access_token and now < self._token_expires_at - self._refresh_before:
-            return self._access_token
-        url = f"{BASE_URL}/cgi-bin/token"
-        params = {
+    def _fetch_token(self, force_refresh: bool = False) -> tuple[str, int]:
+        """调用稳定版接口获取 access_token。force_refresh=true 强制刷新（每天限 20 次）。返回 (token, expires_in)。"""
+        url = f"{BASE_URL}/cgi-bin/stable_token"
+        payload = {
             "grant_type": "client_credential",
             "appid": self.app_id,
             "secret": self.app_secret,
+            "force_refresh": force_refresh,
         }
-        try:
-            r = httpx.get(url, params=params, timeout=15.0)
-            r.raise_for_status()
-            data = r.json()
-        except httpx.HTTPStatusError as e:
-            raise WeChatMPClientError(f"获取 token 请求失败: {e}") from e
-        except httpx.RequestError as e:
-            raise WeChatMPClientError(f"获取 token 网络错误: {e}") from e
+        r = httpx.post(url, json=payload, timeout=15.0)
+        r.raise_for_status()
+        data = r.json()
         errcode = data.get("errcode")
         if errcode and errcode != 0:
             raise WeChatMPClientError(
@@ -72,9 +65,23 @@ class WeChatMPClient:
         token = data.get("access_token")
         if not token:
             raise WeChatMPClientError("获取 token 返回无 access_token")
+        expires_in = data.get("expires_in") or self._token_ttl
+        return (token, expires_in)
+
+    def _ensure_token(self, force_refresh: bool = False) -> str:
+        """获取并缓存 access_token，使用稳定版接口（getStableAccessToken）避免 40001 invalid credential"""
+        now = time.time()
+        if not force_refresh and self._access_token and now < self._token_expires_at - self._refresh_before:
+            return self._access_token
+        try:
+            token, expires_in = self._fetch_token(force_refresh=force_refresh)
+        except httpx.HTTPStatusError as e:
+            raise WeChatMPClientError(f"获取 token 请求失败: {e}") from e
+        except httpx.RequestError as e:
+            raise WeChatMPClientError(f"获取 token 网络错误: {e}") from e
         self._access_token = token
-        self._token_expires_at = now + (data.get("expires_in") or self._token_ttl)
-        logger.debug("WeChat MP access_token 已刷新")
+        self._token_expires_at = now + expires_in
+        logger.debug("WeChat MP access_token 已刷新（稳定版）")
         return self._access_token
 
     def _post(self, path: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -93,6 +100,14 @@ class WeChatMPClient:
             raise WeChatMPClientError(f"网络错误: {e}") from e
         errcode = data.get("errcode")
         if errcode and errcode != 0:
+            if errcode == 40001 and not getattr(self, "_retrying_40001", False):
+                self._access_token = None
+                self._token_expires_at = 0
+                self._retrying_40001 = True
+                try:
+                    return self._post(path, body)
+                finally:
+                    self._retrying_40001 = False
             raise WeChatMPClientError(
                 f"接口错误: errcode={errcode}, errmsg={data.get('errmsg', '')}"
             )
@@ -128,6 +143,14 @@ class WeChatMPClient:
                 raise WeChatMPClientError(f"网络错误: {e}{hint}") from e
             errcode = data.get("errcode")
             if errcode and errcode != 0:
+                if errcode == 40001 and not getattr(self, "_retrying_40001", False):
+                    self._access_token = None
+                    self._token_expires_at = 0
+                    self._retrying_40001 = True
+                    try:
+                        return self._post_multipart(path, files, params_extra)
+                    finally:
+                        self._retrying_40001 = False
                 raise WeChatMPClientError(
                     f"接口错误: errcode={errcode}, errmsg={data.get('errmsg', '')}"
                 )

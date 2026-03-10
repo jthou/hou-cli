@@ -114,6 +114,34 @@ stream_timeout = Timeout(
    - 工具应该通过 `progress_callback` 定期发送进度更新
    - 这样前端就不会因为空闲而超时
 
+## 问题 3: YouTube「Sign in to confirm you're not a bot」/ 403 下载失败
+
+### 问题描述
+
+下载 YouTube 视频时出现：
+
+```
+Sign in to confirm you're not a bot
+```
+
+或 HTTP 403 / Forbidden 错误，提示需要登录验证。
+
+### 解决方案：通过 Chrome 扩展获取 cookies（推荐）
+
+与微信读书工具类似，Hou CLI 的 Chrome 扩展可导出 YouTube/Bilibili 的 cookies，供 yt-dlp 使用：
+
+1. **安装 Hou CLI Chrome 扩展**：在 `chrome://extensions` 中加载本项目的 `extension` 目录（详见 [extension/README.md](../extension/README.md)）
+2. **在浏览器中登录 YouTube**：确保 Chrome 已登录 youtube.com
+3. **创建视频下载任务时**：勾选「使用扩展获取 cookies」
+4. 扩展会导出当前域名的 cookies 并传给后端，提高下载成功率
+
+**说明**：扩展用法与微信读书一致——微信读书用扩展抓取网页内容，视频下载用扩展导出 cookies，均需在 Chrome 中安装 Hou CLI 扩展。
+
+### 其他方式
+
+- **cookies_from_browser**：创建任务时添加 `cookies_from_browser: 'chrome'`，需安装 `browser-cookie3` 库
+- **cookies_file**：手动导出 cookies 文件（Netscape 格式），填写文件路径
+
 ## 测试验证
 
 ### 测试音频转换
@@ -144,6 +172,7 @@ export STREAM_READ_TIMEOUT=600  # 10 分钟
 
 ## 相关文档
 
+- [extension/README.md](../extension/README.md) - Chrome 扩展安装与 cookies 导出说明
 - [视频下载工具使用指南](../tools/video-downloader-usage.md)
 - [流式请求超时优化](../archived/optimization/FRONTEND_BACKEND_TIMEOUT_OPTIMIZATION.md)
 - [FFmpeg 工具说明](../tools/ffmpeg-tool.md)

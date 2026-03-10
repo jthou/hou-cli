@@ -68,23 +68,24 @@ async def generate_article_metadata(
         )
         parsed = _parse_metadata_json(response or "")
         if not parsed:
-            return {"title": "", "digest": "", "author": ""}
+            return {"title": "", "digest": "", "author": "", "error": "LLM 返回的 JSON 解析失败"}
         if fields:
             return {k: parsed.get(k, "") for k in ["title", "digest", "author"] if k in fields}
         return parsed
     except Exception as e:
+        err = (str(e) or type(e).__name__ or "未知错误").strip()
         logger.warning("生成文章元数据失败: %s", e)
-    return {"title": "", "digest": "", "author": ""}
+        return {"title": "", "digest": "", "author": "", "error": "生成文章元数据失败：" + (err or "未知错误")}
 
 
 async def generate_cover_image_from_content(content: str) -> Dict[str, Any]:
     """
     根据文章内容生成封面图并上传到公众号。
-    返回 {"thumb_media_id": str, "prompt": str} 或 {"thumb_media_id": "", "prompt": ""}。
+    返回 {"thumb_media_id": str, "prompt": str} 成功；失败时 {"thumb_media_id": "", "prompt": "", "error": str}。
     """
     content = (content or "").strip()
     if not content:
-        return {"thumb_media_id": "", "prompt": ""}
+        return {"thumb_media_id": "", "prompt": "", "error": "文章内容为空"}
 
     try:
         from backend.core.agent.tools.builtin.text_to_image_prompt_tool import (
@@ -100,8 +101,9 @@ async def generate_cover_image_from_content(content: str) -> Dict[str, Any]:
         tool = TextToImagePromptTool()
         result = await tool._execute_async(text=content[:3000])
         if not result.success or not result.data or not result.data.get("prompt"):
-            logger.warning("提炼封面提示词失败")
-            return {"thumb_media_id": "", "prompt": ""}
+            err = (result.error if hasattr(result, "error") and result.error else "") or "提炼封面提示词失败"
+            logger.warning("提炼封面提示词失败: %s", err)
+            return {"thumb_media_id": "", "prompt": "", "error": err}
         prompt = result.data["prompt"]
 
         # 2. 文生图
@@ -114,22 +116,41 @@ async def generate_cover_image_from_content(content: str) -> Dict[str, Any]:
             )
             output_file = out.get("output_file")
             if not output_file or not Path(output_file).exists():
-                logger.warning("图片生成未保存到文件")
-                return {"thumb_media_id": "", "prompt": prompt}
+                err = out.get("error") or "图片生成未保存到文件"
+                logger.warning("图片生成未保存到文件: %s", err)
+                return {"thumb_media_id": "", "prompt": prompt, "error": err}
 
             img_bytes = Path(output_file).read_bytes()
             if len(img_bytes) > 2 * 1024 * 1024:
                 logger.warning("封面图超过 2MB，尝试压缩或跳过")
-                return {"thumb_media_id": "", "prompt": prompt}
+                return {"thumb_media_id": "", "prompt": prompt, "error": "封面图超过 2MB，公众号仅支持 ≤2MB"}
 
             # 3. 上传到公众号
             client = WeChatMPClient()
             data = client.upload_image_permanent(img_bytes, filename="cover.png")
             media_id = data.get("media_id") or ""
+            if not media_id:
+                return {"thumb_media_id": "", "prompt": prompt, "error": "上传到公众号失败，未返回 media_id"}
+
+            # 4. 保存到 ~/hou-cli/outputs/cover/ 便于用户查找
+            try:
+                from shared.platform_utils import get_default_output_dir
+                import time
+                cover_dir = get_default_output_dir() / "cover"
+                cover_dir.mkdir(parents=True, exist_ok=True)
+                ts = int(time.time())
+                save_path = cover_dir / f"cover_{ts}.png"
+                save_path.write_bytes(img_bytes)
+                logger.info("封面已保存到 %s", save_path)
+            except Exception as e:
+                logger.debug("保存封面到本地失败（不影响上传）: %s", e)
+
             return {"thumb_media_id": media_id, "prompt": prompt}
     except WeChatMPClientError as e:
+        err_msg = str(e) or "上传失败"
         logger.warning("上传封面到公众号失败: %s", e)
-        return {"thumb_media_id": "", "prompt": ""}
+        return {"thumb_media_id": "", "prompt": "", "error": f"上传到公众号失败：{err_msg}"}
     except Exception as e:
+        err_msg = str(e) or "未知错误"
         logger.exception("生成封面图失败: %s", e)
-        return {"thumb_media_id": "", "prompt": ""}
+        return {"thumb_media_id": "", "prompt": "", "error": f"生成封面图失败：{err_msg}"}

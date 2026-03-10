@@ -96,8 +96,6 @@ class ModelSwitcher:
         self,
         current_model: str,
         target_model: Optional[str],
-        switch_count: int = 0,
-        max_switches: int = 3
     ) -> bool:
         """
         判断是否应该切换模型
@@ -105,8 +103,6 @@ class ModelSwitcher:
         Args:
             current_model: 当前模型
             target_model: 目标模型
-            switch_count: 当前会话已切换次数
-            max_switches: 最大允许切换次数
             
         Returns:
             是否应该切换
@@ -115,11 +111,6 @@ class ModelSwitcher:
             return False
         
         if target_model == current_model:
-            return False
-        
-        # 限制切换次数，避免频繁切换
-        if switch_count >= max_switches:
-            logger.warning(f"已达到最大切换次数 ({max_switches})，不再切换模型")
             return False
         
         return True
@@ -149,11 +140,9 @@ class ModelSwitcher:
         )
         
         self.switch_history.append(record)
-        
-        # 限制历史记录大小
         if len(self.switch_history) > self.max_history_size:
             self.switch_history = self.switch_history[-self.max_history_size:]
-        
+
         logger.info(f"记录模型切换: {from_model} -> {to_model}, 原因: {reason}")
     
     def get_switch_history(self, limit: int = 10) -> List[Dict[str, Any]]:

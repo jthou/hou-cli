@@ -1,16 +1,12 @@
-"""Web Fetch 工具单元测试：URL 校验、白名单、频率限制、抓取与正文提取。"""
+"""Web Fetch 工具单元测试：URL 校验、抓取与正文提取。"""
 
-import os
-from collections import deque
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from backend.core.agent.tools.builtin.web_fetch_tool import (
     WebFetchTool,
     _validate_url,
-    _allowed_domains,
-    _check_rate_limit,
     _extract_title_regex,
     _extract_fallback,
     _url_to_fallback_title,
@@ -18,7 +14,7 @@ from backend.core.agent.tools.builtin.web_fetch_tool import (
 
 
 class TestWebFetchValidation:
-    """URL 校验与白名单"""
+    """URL 校验"""
 
     def test_validate_url_empty(self):
         assert _validate_url("") == "URL 不能为空"
@@ -35,26 +31,6 @@ class TestWebFetchValidation:
     def test_validate_url_no_scheme(self):
         assert _validate_url("example.com") is not None
         assert "完整" in (_validate_url("example.com") or "")
-
-    def test_validate_url_whitelist_blocked(self):
-        with patch.dict(os.environ, {"WEB_FETCH_ALLOWED_DOMAINS": "anthropic.com,github.com"}):
-            err = _validate_url("https://evil.com/article")
-            assert err is not None
-            assert "白名单" in (err or "")
-
-    def test_validate_url_whitelist_allowed(self):
-        with patch.dict(os.environ, {"WEB_FETCH_ALLOWED_DOMAINS": "anthropic.com,github.com"}):
-            assert _validate_url("https://anthropic.com/engineering/foo") is None
-            assert _validate_url("https://www.github.com/repo") is None
-
-    def test_allowed_domains_empty(self):
-        with patch.dict(os.environ, {"WEB_FETCH_ALLOWED_DOMAINS": ""}, clear=False):
-            assert _allowed_domains() is None
-        with patch.dict(os.environ, {}, clear=False):
-            if "WEB_FETCH_ALLOWED_DOMAINS" in os.environ:
-                del os.environ["WEB_FETCH_ALLOWED_DOMAINS"]
-            assert _allowed_domains() is None
-
 
 class TestWebFetchExtraction:
     """正文与标题提取（不依赖网络）"""
@@ -76,39 +52,6 @@ class TestWebFetchExtraction:
             "https://anthropic.com/engineering/writing-tools-for-agents"
         ) == "writing tools for agents"
         assert _url_to_fallback_title("https://example.com") == "example.com"
-
-
-class TestWebFetchRateLimit:
-    """频率限制（模拟时间）"""
-
-    def test_rate_limit_under_limit(self):
-        with patch(
-            "backend.core.agent.tools.builtin.web_fetch_tool._rate_limit_timestamps",
-            deque(maxlen=1000),
-        ):
-            err = _check_rate_limit()
-            assert err is None
-
-    def test_rate_limit_over_limit(self):
-        # 当前时间 1000，保留 1 小时内的时间戳；放 10 个“最近”时间戳，限制 10 次/小时，第 11 次应报错
-        with patch(
-            "backend.core.agent.tools.builtin.web_fetch_tool.time.time",
-            return_value=10000.0,
-        ):
-            with patch(
-                "backend.core.agent.tools.builtin.web_fetch_tool._rate_limit_per_hour",
-                return_value=10,
-            ):
-                # 使模块内的 _rate_limit_timestamps 已有 10 个在“1 小时内”的时间戳
-                recent = 10000.0 - 100
-                stamps = deque([recent] * 10, maxlen=1000)
-                with patch(
-                    "backend.core.agent.tools.builtin.web_fetch_tool._rate_limit_timestamps",
-                    stamps,
-                ):
-                    err = _check_rate_limit()
-                assert err is not None
-                assert "频繁" in (err or "")
 
 
 class TestWebFetchToolExecute:

@@ -1,13 +1,13 @@
 {
-  "total_commits": 299,
+  "total_commits": 300,
   "authors": {
-    "侯金亭（Justin）": 256,
+    "侯金亭（Justin）": 257,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W10": 8,
+    "2026-W10": 9,
     "2026-W09": 27,
-    "2026-W08": 17
+    "2026-W08": 16
   },
   "commits_by_day": {
     "2025-12-31": 4,
@@ -50,7 +50,7 @@
     "2026-03-07": 3,
     "2026-03-08": 4,
     "2026-03-09": 5,
-    "2026-03-10": 3
+    "2026-03-10": 4
   },
   "lines_by_day": {
     "2025-12-31": {
@@ -254,9 +254,9 @@
       "total": 2484
     },
     "2026-03-10": {
-      "add": 10508,
-      "del": 850,
-      "total": 11358
+      "add": 11439,
+      "del": 1104,
+      "total": 12543
     }
   },
   "files_changed": {
@@ -266,9 +266,9 @@
     "frontend/react-app/src/pages/TaskManagement.jsx": 26,
     "frontend/main.py": 26,
     "frontend/ui/command_handler.py": 25,
+    "Makefile": 23,
     "backend/infrastructure/execution/task_handlers.py": 23,
     "frontend/react-app/src/components/Sidebar.jsx": 23,
-    "Makefile": 22,
     "backend/services/llm/llm_service.py": 22,
     "frontend/react-app/src/App.jsx": 20,
     "frontend/ui/stream_handler.py": 20,
@@ -279,13 +279,13 @@
     "requirements.txt": 17,
     "frontend/react-app/package.json": 16,
     "frontend/react-app/package-lock.json": 15,
+    "docs/audit/AUDIT_REPORT.json": 13,
+    "docs/audit/code_stats.json": 13,
+    "docs/audit/dev_history.json": 13,
     "pyproject.toml": 13,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
     "backend/main.py": 13,
     "frontend/ui/command_input.py": 13,
-    "docs/audit/AUDIT_REPORT.json": 12,
-    "docs/audit/code_stats.json": 12,
-    "docs/audit/dev_history.json": 12,
     "frontend/react-app/src/components/TaskResultDisplay.jsx": 12,
     "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
     "backend/api/tests/test_task_queue_routes.py": 12,
@@ -311,5 +311,5 @@
     "docs/design/setup-guide.md": 10,
     "docs/design/streaming-response.md": 10
   },
-  "generated_at": "2026-03-10T04:03:40.736941Z"
+  "generated_at": "2026-03-10T09:16:48.194954Z"
 }

@@ -86,32 +86,18 @@ class TestModelSwitcher:
         assert model_switcher.should_switch_model(
             current_model="chat-model",
             target_model="code-model",
-            switch_count=0,
-            max_switches=3
         ) is True
-        
-        # 已达到最大切换次数：不应该切换
-        assert model_switcher.should_switch_model(
-            current_model="chat-model",
-            target_model="code-model",
-            switch_count=3,
-            max_switches=3
-        ) is False
         
         # 目标模型与当前模型相同：不应该切换
         assert model_switcher.should_switch_model(
             current_model="chat-model",
             target_model="chat-model",
-            switch_count=0,
-            max_switches=3
         ) is False
         
         # 目标模型为 None：不应该切换
         assert model_switcher.should_switch_model(
             current_model="chat-model",
             target_model=None,
-            switch_count=0,
-            max_switches=3
         ) is False
     
     def test_record_switch(self, model_switcher):

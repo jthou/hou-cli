@@ -1027,6 +1027,7 @@ function EditPipelineModal({ pipelineId, tasks, taskTypes, onClose, onSuccess })
                     fieldIdPrefix={`pipe-edit-${task.task_id}`}
                     isInputFileTask={isInputFile}
                     fileUploadFields={fileUploadFields}
+                    fieldsToHide={task.task_type === 'url_to_wiki' && !edit.metadata?.translate ? ['language'] : []}
                   />
                 </div>
               </details>
@@ -1631,6 +1632,7 @@ function EditScheduledTaskModal({ task, taskTypes, onClose, onSuccess }) {
                 isInputFileTask={isInputFileTask}
                 inputFileAccept={inputFileAccept}
                 fileUploadFields={fileUploadFields}
+                fieldsToHide={type === 'url_to_wiki' && !metadata?.translate ? ['language'] : []}
               />
               {type === 'mediawiki_write' && (
                 <label className="flex items-center gap-2 cursor-pointer mt-3">
@@ -1783,6 +1785,7 @@ function CreateScheduledTaskModal({ taskTypes, onClose, onSuccess }) {
                 isInputFileTask={isInputFileTask}
                 inputFileAccept={inputFileAccept}
                 fileUploadFields={fileUploadFields}
+                fieldsToHide={type === 'url_to_wiki' && !metadata?.translate ? ['language'] : []}
               />
           {type === 'mediawiki_write' && (
             <label className="flex items-center gap-2 cursor-pointer">

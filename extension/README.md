@@ -24,10 +24,15 @@ Chrome 扩展，配合 Hou CLI 使用：
 4. 扩展会在后台打开隐藏标签页、**自动展开所有「See more」「展开更多」等折叠内容**、提取正文、关闭标签页，并将内容返回展示
 
 ### 视频下载（YouTube/Bilibili 需登录时）
+
+用法与网页阅读类似：网页阅读用扩展抓取页面内容，视频下载用扩展导出 cookies。
+
 1. 在浏览器中登录 YouTube 或 Bilibili
 2. 在 Hou CLI「视频下载」页面，勾选「使用扩展获取 cookies」
 3. 填写视频 URL，提交下载任务
 4. 扩展会导出当前域名的 cookies 并传给后端，提高下载成功率
+
+若遇到「Sign in to confirm you're not a bot」或 403 错误，详见 [docs/VIDEO_DOWNLOADER_FIXES.md](../docs/VIDEO_DOWNLOADER_FIXES.md)。
 
 ## 测试「Extension context invalidated」
 

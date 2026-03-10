@@ -522,8 +522,6 @@ async function doFetch(url, opts) {
   }
 }
 
-const PDF_FETCH_MAX_BYTES = 50 * 1024 * 1024  // 50MB
-
 /** 通过扩展获取 PDF（复用浏览器 cookies，统一方案） */
 async function fetchPdfWithCookies(url) {
   const u = (url || '').trim()
@@ -547,9 +545,6 @@ async function fetchPdfWithCookies(url) {
       return { success: false, error: '响应不是 PDF 格式' }
     }
     const buf = await res.arrayBuffer()
-    if (buf.byteLength > PDF_FETCH_MAX_BYTES) {
-      return { success: false, error: `PDF 超过 ${PDF_FETCH_MAX_BYTES / 1024 / 1024} MB 限制` }
-    }
     const bytes = new Uint8Array(buf)
     let binary = ''
     const chunkSize = 8192
