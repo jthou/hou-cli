@@ -135,8 +135,8 @@ TASK_TYPES = {
             "output_dir": {
                 "type": "string",
                 "required": False,
-                "description": "保存目录（须在用户主目录下，不填则使用 ~/hou-cli/outputs）",
-                "placeholder": "留空使用 ~/hou-cli/outputs"
+                "description": "保存目录（须在用户主目录下，不填则使用 ~/hou-cli/outputs/video_download）",
+                "placeholder": "留空使用 ~/hou-cli/outputs/video_download"
             },
             "preferred_tool": {
                 "type": "string",
@@ -205,10 +205,22 @@ TASK_TYPES = {
             {"path": "result.data.output_file", "type": "file", "format": "audio", "description": "输出音频文件路径（仅当 extract_audio_only 为 true 时有效）"},
             {"path": "result.data.output_file", "type": "file", "format": "video", "description": "输出视频文件路径（完整下载时有效）"}
         ],
+        "output_spec": {
+            "content": "视频文件或音频文件（extract_audio_only 为 true 时仅音频）",
+            "format": "视频：平台原格式（mp4/mkv 等）；音频：mp3/m4a/opus/wav/aac（由 audio_format 指定）",
+            "naming_rule": "由下载工具决定：yt-dlp 为 %(title)s.%(ext)s 或 %(title)s_audio.%(ext)s；you-get 为平台原标题",
+            "default_path": "~/hou-cli/outputs/video_download",
+        },
     },
     "weather_query": {
         "name": "天气查询",
         "description": "查询指定地点的天气预报",
+        "output_spec": {
+            "content": "天气数据（实时、预报、预警、空气质量）",
+            "format": "JSON，存于 result.data",
+            "naming_rule": "无本地文件",
+            "default_path": "无",
+        },
         "metadata_schema": {
             "location": {
                 "type": "string",
@@ -256,6 +268,12 @@ TASK_TYPES = {
     "disk_scan": {
         "name": "磁盘空间扫描",
         "description": "扫描磁盘占用，定位大目录。提交后任务在后台执行，可查看最近一次结果。",
+        "output_spec": {
+            "content": "磁盘占用报告（目录树、大小排序、大文件列表）",
+            "format": "JSON，存于 result.data",
+            "naming_rule": "无本地文件",
+            "default_path": "无",
+        },
         "metadata_schema": {
             "user_only": {
                 "type": "boolean",
@@ -268,6 +286,12 @@ TASK_TYPES = {
     "web_search": {
         "name": "网页搜索",
         "description": "使用 DuckDuckGo 执行关键词搜索，可定时执行",
+        "output_spec": {
+            "content": "搜索结果列表（标题、链接、摘要）",
+            "format": "JSON，存于 result.data",
+            "naming_rule": "无本地文件",
+            "default_path": "无",
+        },
         "metadata_schema": {
             "query": {
                 "type": "string",
@@ -295,6 +319,12 @@ TASK_TYPES = {
         "pipeline_outputs": [
             {"path": "result.data.output_file", "type": "file", "format": "text", "description": "输出字幕/文本文件路径"}
         ],
+        "output_spec": {
+            "content": "语音转文字结果（字幕或纯文本）",
+            "format": "由 output_format 指定：srt（字幕）、json（带时间戳）、text（纯文本）",
+            "naming_rule": "输入文件主名_subtitle.扩展名，扩展名依 output_format 为 srt/json/txt",
+            "default_path": "~/hou-cli/outputs/speech_to_text",
+        },
         "metadata_schema": {
             "input_file": {
                 "type": "string",
@@ -337,14 +367,14 @@ TASK_TYPES = {
             "output_file": {
                 "type": "string",
                 "required": False,
-                "description": "输出文件路径；不填则自动生成到 ~/hou-cli/outputs",
+                "description": "输出文件路径；不填则自动生成到 ~/hou-cli/outputs/speech_to_text",
                 "placeholder": "如：/Users/xx/out.srt"
             },
             "output_dir": {
                 "type": "string",
                 "required": False,
-                "description": "输出目录（仅当未指定 output_file 时生效），不填则使用 ~/hou-cli/outputs",
-                "placeholder": "留空使用 ~/hou-cli/outputs"
+                "description": "输出目录（仅当未指定 output_file 时生效），不填则使用 ~/hou-cli/outputs/speech_to_text",
+                "placeholder": "留空使用 ~/hou-cli/outputs/speech_to_text"
             },
         }
     },
@@ -354,6 +384,12 @@ TASK_TYPES = {
         "pipeline_outputs": [
             {"path": "result.data.output_file", "type": "file", "format": "audio", "description": "输出音频文件路径"}
         ],
+        "output_spec": {
+            "content": "从视频中提取的音频轨",
+            "format": "由 audio_format 指定：mp3/wav/aac/flac/ogg",
+            "naming_rule": "{输入视频_stem}_audio.{ext}，如 video.mp4 → video_audio.mp3",
+            "default_path": "~/hou-cli/outputs/video_extract_audio",
+        },
         "metadata_schema": {
             "input_file": {
                 "type": "string",
@@ -365,14 +401,14 @@ TASK_TYPES = {
             "output_file": {
                 "type": "string",
                 "required": False,
-                "description": "输出音频文件路径；不填则自动生成到 ~/hou-cli/outputs",
+                "description": "输出音频文件路径；不填则自动生成到 ~/hou-cli/outputs/video_extract_audio",
                 "placeholder": "如：/Users/xx/audio.mp3"
             },
             "output_dir": {
                 "type": "string",
                 "required": False,
-                "description": "输出目录（仅当未指定 output_file 时生效），不填则使用 ~/hou-cli/outputs",
-                "placeholder": "留空使用 ~/hou-cli/outputs"
+                "description": "输出目录（仅当未指定 output_file 时生效），不填则使用 ~/hou-cli/outputs/video_extract_audio",
+                "placeholder": "留空使用 ~/hou-cli/outputs/video_extract_audio"
             },
             "audio_format": {
                 "type": "string",
@@ -404,6 +440,12 @@ TASK_TYPES = {
     "mediawiki_write": {
         "name": "MediaWiki 写入",
         "description": "向 MediaWiki 编辑或创建页面（wikitext 格式）",
+        "output_spec": {
+            "content": "MediaWiki 页面内容（wikitext）",
+            "format": "写入远程 Wiki，无本地文件",
+            "naming_rule": "页面标题由 metadata.title 指定",
+            "default_path": "无",
+        },
         "metadata_schema": {
             "title": {
                 "type": "string",
@@ -454,6 +496,12 @@ TASK_TYPES = {
                 "description": "输出图片文件路径",
             }
         ],
+        "output_spec": {
+            "content": "根据提示词生成的图片",
+            "format": "PNG",
+            "naming_rule": "gen_{时间戳毫秒}_{序号}.png，如 gen_1730123456789_0.png",
+            "default_path": "~/hou-cli/outputs/image_generation",
+        },
         "metadata_schema": {
             "prompt": {
                 "type": "string",
@@ -487,13 +535,19 @@ TASK_TYPES = {
                 "type": "string",
                 "required": False,
                 "description": "保存目录，须在用户主目录下",
-                "placeholder": "留空使用 ~/hou-cli/outputs/images",
+                "placeholder": "留空使用 ~/hou-cli/outputs/image_generation",
             },
         },
     },
     "url_to_wiki": {
         "name": "网文抓取",
         "description": "抓取指定 URL 正文，翻译成中文后生成 Markdown 草稿，可按需写入 MediaWiki",
+        "output_spec": {
+            "content": "抓取并翻译后的文章（Markdown 格式）",
+            "format": "Markdown；auto_write 为 true 时写入 MediaWiki，无本地文件",
+            "naming_rule": "Wiki 页面标题由 wiki_title 或网页 title 推断",
+            "default_path": "无本地文件；写入 Wiki 时页面由 wiki_title 指定",
+        },
         "metadata_schema": {
             "url": {
                 "type": "string",
@@ -537,6 +591,12 @@ TASK_TYPES = {
     "pdf_to_wiki": {
         "name": "PDF 转 Wiki",
         "description": "从 PDF URL 或本地路径读取，按页拆分、转文字、翻译后写入 MediaWiki；支持大文件分块处理。",
+        "output_spec": {
+            "content": "PDF 转文字并翻译后的内容，写入 MediaWiki",
+            "format": "Wikitext；single 模式为单页，multi 模式为目录页 + 子页（书名/第k部分）",
+            "naming_rule": "主页面由 wiki_title 或 PDF 文件名推断；子页为「主标题/第k部分」",
+            "default_path": "无本地文件；写入 Wiki",
+        },
         "metadata_schema": {
             "url": {
                 "type": "string",
@@ -595,6 +655,12 @@ TASK_TYPES = {
     "wiki_directory_refresh": {
         "name": "Wiki 目录页刷新",
         "description": "根据任务记录（网文抓取、PDF 转 Wiki）生成并写入一个 Wiki 目录页，列出已写入的页面与来源。",
+        "output_spec": {
+            "content": "目录页（列出网文抓取、PDF 转 Wiki 任务产出的页面及来源）",
+            "format": "Wikitext，写入 MediaWiki",
+            "naming_rule": "页面标题由 wiki_title 指定，默认「网文与PDF翻译目录」",
+            "default_path": "无本地文件",
+        },
         "metadata_schema": {
             "wiki_title": {
                 "type": "string",
@@ -614,6 +680,12 @@ TASK_TYPES = {
     "wechat_mp_draft": {
         "name": "公众号草稿",
         "description": "向微信公众号草稿箱新增或更新一篇图文草稿（个人号可用；发布需在手机端「公众号助手」操作）。正文不超过 2 万字、1MB。",
+        "output_spec": {
+            "content": "公众号图文草稿（标题、正文 HTML、封面、摘要等）",
+            "format": "微信草稿箱 API 格式，无本地文件",
+            "naming_rule": "草稿在微信后台，由 media_id 标识",
+            "default_path": "无",
+        },
         "metadata_schema": {
             "operation": {
                 "type": "string",
@@ -934,12 +1006,11 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
 
     def _run_download():
         import tempfile
-        from backend.core.agent.tools.builtin.video_downloader_tool import (
-            VideoDownloaderTool,
-            normalize_output_dir,
-        )
+        from backend.core.agent.tools.builtin.video_downloader_tool import VideoDownloaderTool
+        from shared.platform_utils import get_task_output_dir
+
         tool = VideoDownloaderTool()
-        output_dir = normalize_output_dir(metadata.get("output_dir"), restrict_to_home=True)
+        output_dir = get_task_output_dir("video_download", metadata.get("output_dir"))
         opts = {
             "quality": metadata.get("quality", "auto"),
             "download_subtitle": metadata.get("download_subtitle", False),
@@ -1056,9 +1127,9 @@ async def process_speech_to_text_task(task_info: Dict[str, Any]) -> Dict[str, An
         if not ok_out:
             return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_out or "输出路径须在用户主目录下")
     else:
-        from shared.platform_utils import normalize_output_dir
+        from shared.platform_utils import get_task_output_dir
         try:
-            out_dir = normalize_output_dir(output_dir or None, restrict_to_home=True)
+            out_dir = get_task_output_dir("speech_to_text", output_dir)
         except Exception as e:
             return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
         ext = {"json": ".json", "text": ".txt", "srt": ".srt"}.get(metadata.get("output_format", "srt"), ".srt")
@@ -1126,9 +1197,9 @@ async def process_video_extract_audio_task(task_info: Dict[str, Any]) -> Dict[st
         if not ok_out:
             return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_out or "输出路径须在用户主目录下")
     else:
-        from shared.platform_utils import normalize_output_dir
+        from shared.platform_utils import get_task_output_dir
         try:
-            out_dir = normalize_output_dir(output_dir or None, restrict_to_home=True)
+            out_dir = get_task_output_dir("video_extract_audio", output_dir)
         except Exception as e:
             return _err("OUTPUT_PATH_DENIED", "输出目录无效", str(e))
         output_file = str(out_dir / f"{input_path.stem}_audio{ext}")
@@ -2021,20 +2092,16 @@ async def process_image_generation_task(task_info: Dict[str, Any]) -> Dict[str, 
     if not prompt:
         return _err("PROMPT_REQUIRED", "缺少提示词", "prompt 参数是必需的")
 
-    from shared.platform_utils import get_default_output_dir, normalize_output_dir
+    from shared.platform_utils import get_task_output_dir
 
     output_dir_raw = (metadata.get("output_dir") or "").strip()
-    default_out = get_default_output_dir() / "images"
     if output_dir_raw:
         out_path = Path(output_dir_raw).expanduser().resolve()
         ok, err_msg = _validate_output_path_in_home(out_path)
         if not ok:
             return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_msg or "输出路径须在用户主目录下")
-        out_path = normalize_output_dir(output_dir_raw, restrict_to_home=True)
-        out_dir = str(out_path)
-    else:
-        out_path = normalize_output_dir(str(default_out), restrict_to_home=True)
-        out_dir = str(out_path)
+    out_path = get_task_output_dir("image_generation", output_dir_raw or None)
+    out_dir = str(out_path)
 
     model = metadata.get("model") or "wan2.6-t2i"
     size = metadata.get("size") or "1024*1024"
@@ -2100,6 +2167,7 @@ def get_available_task_types() -> List[Dict[str, Any]]:
             "description": info["description"],
             "metadata_schema": info["metadata_schema"],
             "pipeline_outputs": info.get("pipeline_outputs"),
+            "output_spec": info.get("output_spec"),
         }
         for task_type, info in TASK_TYPES.items()
     ]
@@ -2117,6 +2185,7 @@ def get_task_type_info(task_type: str) -> Optional[Dict[str, Any]]:
         "description": info["description"],
         "metadata_schema": info["metadata_schema"],
         "pipeline_outputs": info.get("pipeline_outputs"),
+        "output_spec": info.get("output_spec"),
     }
 
 

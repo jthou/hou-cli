@@ -43,6 +43,26 @@ def get_default_output_dir() -> Path:
     return Path.home() / "hou-cli" / "outputs"
 
 
+def get_task_output_dir(
+    task_type: str,
+    user_output_dir: Optional[str] = None,
+    restrict_to_home: bool = True,
+) -> Path:
+    """获取任务类型的输出目录。未指定时使用 ~/hou-cli/outputs/{task_type}/，便于磁盘清理时识别归属。"""
+    raw = (user_output_dir or "").strip()
+    if raw:
+        path = Path(raw).expanduser().resolve()
+        if restrict_to_home:
+            try:
+                path.relative_to(Path.home().resolve())
+            except ValueError:
+                path = get_default_output_dir() / task_type
+    else:
+        path = get_default_output_dir() / task_type
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def get_default_download_dir() -> Path:
     """获取默认下载/输出目录，与 get_default_output_dir 统一。"""
     return get_default_output_dir()
