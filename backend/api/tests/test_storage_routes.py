@@ -172,3 +172,44 @@ class TestStorageRoutes:
             assert data["success"] is False
             assert "存储管理器初始化失败" in data["error"]
 
+    def test_get_storage_audit_success(self, client):
+        """测试存储审计成功"""
+        mock_audit = {
+            "summary": {"total_bytes": 1024, "human": "1.00 KB"},
+            "app_data": {"path": "/test/app", "size_bytes": 512, "human": "512 B"},
+            "temp_root": {"path": "/test/tmp", "size_bytes": 256},
+            "outputs": {"path": "/test/outputs", "size_bytes": 256},
+            "databases": {"dir": "/test/db", "known": [], "tmp": [], "tmp_count": 0},
+            "config": {"files": []},
+            "chromadb": {"path": "/test/chroma", "size_bytes": 0},
+        }
+        with patch('backend.api.storage_routes.collect_storage_audit') as mock_collect:
+            mock_collect.return_value = {"success": True, "audit": mock_audit}
+            response = client.get("/api/storage/audit")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["summary"]["total_bytes"] == 1024
+            assert data["app_data"]["path"] == "/test/app"
+
+    def test_get_storage_audit_error(self, client):
+        """测试存储审计失败"""
+        with patch('backend.api.storage_routes.collect_storage_audit') as mock_collect:
+            mock_collect.return_value = {"success": False, "error": "审计失败"}
+            response = client.get("/api/storage/audit")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False
+            assert "审计失败" in data["error"]
+
+    def test_cleanup_tmp_databases_success(self, client):
+        """测试清理临时数据库成功"""
+        with patch('backend.api.storage_routes.cleanup_tmp_databases') as mock_cleanup:
+            mock_cleanup.return_value = {"success": True, "deleted_count": 5, "freed_bytes": 300000}
+            response = client.post("/api/storage/audit/cleanup-tmp-dbs")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["deleted_count"] == 5
+            assert data["freed_bytes"] == 300000
+

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""开发历史统计：解析 git log，输出提交频率、作者、变更文件到 stats/dev_history.json"""
+"""开发历史统计：解析 git log，输出提交频率、作者、变更文件、按天行数到 stats/dev_history.json"""
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -9,6 +10,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT_FILE = PROJECT_ROOT / "docs" / "audit" / "dev_history.json"
+
+# 按天统计：最近天数
+DAYS_LIMIT = 90
 
 
 def _run_git(*args: str) -> str:
@@ -28,6 +32,8 @@ def run_dev_history() -> dict:
         "total_commits": 0,
         "authors": {},
         "commits_by_week": {},
+        "commits_by_day": {},
+        "lines_by_day": {},
         "files_changed": {},
         "generated_at": None,
     }
@@ -56,6 +62,42 @@ def run_dev_history() -> dict:
             week = line.strip()
             if week:
                 data["commits_by_week"][week] = data["commits_by_week"].get(week, 0) + 1
+    except Exception:
+        pass
+
+    # 按天统计：提交数 + 代码行数（最近 N 天）
+    try:
+        out = _run_git(
+            "log",
+            f"--since={DAYS_LIMIT} days ago",
+            "--format=%ad",
+            "--date=short",
+            "--shortstat",
+        )
+        commits_by_day: dict[str, int] = defaultdict(int)
+        lines_by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"add": 0, "del": 0})
+        insert_re = re.compile(r"(\d+) insertion")
+        delete_re = re.compile(r"(\d+) deletion")
+        current_date = None
+        for line in out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", line):
+                current_date = line
+                commits_by_day[current_date] += 1
+            elif current_date and "file" in line.lower():
+                add_m = insert_re.search(line)
+                del_m = delete_re.search(line)
+                add_n = int(add_m.group(1)) if add_m else 0
+                del_n = int(del_m.group(1)) if del_m else 0
+                lines_by_day[current_date]["add"] += add_n
+                lines_by_day[current_date]["del"] += del_n
+        data["commits_by_day"] = dict(sorted(commits_by_day.items()))
+        data["lines_by_day"] = {
+            d: {"add": v["add"], "del": v["del"], "total": v["add"] + v["del"]}
+            for d, v in sorted(lines_by_day.items())
+        }
     except Exception:
         pass
 
