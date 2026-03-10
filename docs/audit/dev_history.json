@@ -1,65 +1,315 @@
 {
-  "total_commits": 296,
+  "total_commits": 299,
   "authors": {
-    "侯金亭（Justin）": 253,
+    "侯金亭（Justin）": 256,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W10": 5,
+    "2026-W10": 8,
     "2026-W09": 27,
-    "2026-W08": 20
+    "2026-W08": 17
+  },
+  "commits_by_day": {
+    "2025-12-31": 4,
+    "2026-01-01": 9,
+    "2026-01-02": 80,
+    "2026-01-03": 40,
+    "2026-01-04": 4,
+    "2026-01-05": 9,
+    "2026-01-06": 6,
+    "2026-01-07": 2,
+    "2026-01-08": 9,
+    "2026-01-09": 3,
+    "2026-01-11": 2,
+    "2026-01-12": 9,
+    "2026-01-13": 8,
+    "2026-01-14": 25,
+    "2026-01-15": 1,
+    "2026-01-16": 6,
+    "2026-01-18": 1,
+    "2026-01-19": 1,
+    "2026-01-20": 1,
+    "2026-01-21": 3,
+    "2026-01-22": 8,
+    "2026-01-23": 1,
+    "2026-01-26": 1,
+    "2026-02-18": 1,
+    "2026-02-21": 1,
+    "2026-02-23": 4,
+    "2026-02-24": 2,
+    "2026-02-25": 2,
+    "2026-02-26": 1,
+    "2026-02-27": 6,
+    "2026-02-28": 7,
+    "2026-03-01": 4,
+    "2026-03-02": 6,
+    "2026-03-03": 3,
+    "2026-03-04": 6,
+    "2026-03-05": 3,
+    "2026-03-06": 2,
+    "2026-03-07": 3,
+    "2026-03-08": 4,
+    "2026-03-09": 5,
+    "2026-03-10": 3
+  },
+  "lines_by_day": {
+    "2025-12-31": {
+      "add": 12660,
+      "del": 346,
+      "total": 13006
+    },
+    "2026-01-01": {
+      "add": 15109,
+      "del": 368,
+      "total": 15477
+    },
+    "2026-01-02": {
+      "add": 28205,
+      "del": 1240,
+      "total": 29445
+    },
+    "2026-01-03": {
+      "add": 3916,
+      "del": 5794,
+      "total": 9710
+    },
+    "2026-01-04": {
+      "add": 6231,
+      "del": 621,
+      "total": 6852
+    },
+    "2026-01-05": {
+      "add": 10020,
+      "del": 134,
+      "total": 10154
+    },
+    "2026-01-06": {
+      "add": 4822,
+      "del": 467,
+      "total": 5289
+    },
+    "2026-01-07": {
+      "add": 4984,
+      "del": 224,
+      "total": 5208
+    },
+    "2026-01-08": {
+      "add": 9930,
+      "del": 1872,
+      "total": 11802
+    },
+    "2026-01-09": {
+      "add": 5747,
+      "del": 237,
+      "total": 5984
+    },
+    "2026-01-11": {
+      "add": 2117,
+      "del": 1,
+      "total": 2118
+    },
+    "2026-01-12": {
+      "add": 5333,
+      "del": 5842,
+      "total": 11175
+    },
+    "2026-01-13": {
+      "add": 16978,
+      "del": 117,
+      "total": 17095
+    },
+    "2026-01-14": {
+      "add": 18871,
+      "del": 6044,
+      "total": 24915
+    },
+    "2026-01-15": {
+      "add": 808,
+      "del": 368,
+      "total": 1176
+    },
+    "2026-01-16": {
+      "add": 20123,
+      "del": 2930,
+      "total": 23053
+    },
+    "2026-01-18": {
+      "add": 425,
+      "del": 89,
+      "total": 514
+    },
+    "2026-01-19": {
+      "add": 11868,
+      "del": 8,
+      "total": 11876
+    },
+    "2026-01-20": {
+      "add": 6121,
+      "del": 867,
+      "total": 6988
+    },
+    "2026-01-21": {
+      "add": 576,
+      "del": 19,
+      "total": 595
+    },
+    "2026-01-22": {
+      "add": 2401,
+      "del": 28,
+      "total": 2429
+    },
+    "2026-01-23": {
+      "add": 3062,
+      "del": 257,
+      "total": 3319
+    },
+    "2026-01-26": {
+      "add": 2098,
+      "del": 38,
+      "total": 2136
+    },
+    "2026-02-18": {
+      "add": 10290,
+      "del": 1605,
+      "total": 11895
+    },
+    "2026-02-21": {
+      "add": 2314,
+      "del": 1011,
+      "total": 3325
+    },
+    "2026-02-23": {
+      "add": 6434,
+      "del": 4760,
+      "total": 11194
+    },
+    "2026-02-24": {
+      "add": 707,
+      "del": 77,
+      "total": 784
+    },
+    "2026-02-25": {
+      "add": 1899,
+      "del": 194,
+      "total": 2093
+    },
+    "2026-02-26": {
+      "add": 1501,
+      "del": 77,
+      "total": 1578
+    },
+    "2026-02-27": {
+      "add": 8295,
+      "del": 3345,
+      "total": 11640
+    },
+    "2026-02-28": {
+      "add": 4655,
+      "del": 321,
+      "total": 4976
+    },
+    "2026-03-01": {
+      "add": 3452,
+      "del": 771,
+      "total": 4223
+    },
+    "2026-03-02": {
+      "add": 5933,
+      "del": 943,
+      "total": 6876
+    },
+    "2026-03-03": {
+      "add": 5386,
+      "del": 1164,
+      "total": 6550
+    },
+    "2026-03-04": {
+      "add": 2375,
+      "del": 451,
+      "total": 2826
+    },
+    "2026-03-05": {
+      "add": 6961,
+      "del": 530,
+      "total": 7491
+    },
+    "2026-03-06": {
+      "add": 5006,
+      "del": 566,
+      "total": 5572
+    },
+    "2026-03-07": {
+      "add": 4405,
+      "del": 1495,
+      "total": 5900
+    },
+    "2026-03-08": {
+      "add": 3839,
+      "del": 1235,
+      "total": 5074
+    },
+    "2026-03-09": {
+      "add": 2239,
+      "del": 245,
+      "total": 2484
+    },
+    "2026-03-10": {
+      "add": 10508,
+      "del": 850,
+      "total": 11358
+    }
   },
   "files_changed": {
     "backend/core/agent/orchestrator.py": 75,
-    "backend/api/routes.py": 33,
+    "backend/api/routes.py": 34,
     "frontend/client/ipc_client.py": 29,
     "frontend/react-app/src/pages/TaskManagement.jsx": 26,
     "frontend/main.py": 26,
     "frontend/ui/command_handler.py": 25,
-    "frontend/react-app/src/components/Sidebar.jsx": 22,
-    "Makefile": 21,
-    "backend/services/llm/llm_service.py": 21,
-    "backend/infrastructure/execution/task_handlers.py": 21,
+    "backend/infrastructure/execution/task_handlers.py": 23,
+    "frontend/react-app/src/components/Sidebar.jsx": 23,
+    "Makefile": 22,
+    "backend/services/llm/llm_service.py": 22,
+    "frontend/react-app/src/App.jsx": 20,
+    "frontend/ui/stream_handler.py": 20,
     "docs/design/02-weather-tool-design.md": 20,
     "env.example": 19,
-    "frontend/react-app/src/App.jsx": 19,
-    "frontend/ui/stream_handler.py": 19,
-    "frontend/react-app/src/pages/ArticleWriting.jsx": 17,
+    "frontend/react-app/src/pages/ArticleWriting.jsx": 18,
+    "backend/api/task_queue_routes.py": 17,
     "requirements.txt": 17,
-    "backend/api/task_queue_routes.py": 16,
-    "frontend/react-app/package.json": 15,
-    "frontend/react-app/package-lock.json": 14,
+    "frontend/react-app/package.json": 16,
+    "frontend/react-app/package-lock.json": 15,
+    "pyproject.toml": 13,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
     "backend/main.py": 13,
     "frontend/ui/command_input.py": 13,
-    "pyproject.toml": 12,
+    "docs/audit/AUDIT_REPORT.json": 12,
+    "docs/audit/code_stats.json": 12,
+    "docs/audit/dev_history.json": 12,
+    "frontend/react-app/src/components/TaskResultDisplay.jsx": 12,
     "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
     "backend/api/tests/test_task_queue_routes.py": 12,
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
-    "docs/audit/AUDIT_REPORT.json": 11,
-    "docs/audit/code_stats.json": 11,
-    "docs/audit/dev_history.json": 11,
+    "backend/infrastructure/execution/tests/test_executor.py": 11,
+    "backend/infrastructure/execution/tests/test_secure_executor.py": 11,
+    "extension/manifest.json": 11,
     "backend/core/agent/system_prompt_templates.py": 11,
-    "frontend/react-app/src/components/TaskResultDisplay.jsx": 11,
     "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
     "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
     "docs/todo/009-weather-tool-implementation.md": 11,
-    "extension/manifest.json": 10,
+    "backend/core/context/manager.py": 10,
+    "backend/infrastructure/execution/task_worker.py": 10,
     "frontend/react-app/src/pages/PdfReader.jsx": 10,
     "workflows/.gitkeep": 10,
     "backend/core/agent/tools/builtin/browser_tool.py": 10,
     "cli.py": 10,
-    "backend/infrastructure/execution/tests/test_executor.py": 10,
     "backend/infrastructure/execution/tests/test_result_handler.py": 10,
-    "backend/infrastructure/execution/tests/test_secure_executor.py": 10,
     "backend/services/llm/tests/__init__.py": 10,
     "docs/design/dependency-management.md": 10,
     "docs/design/getting-started.md": 10,
     "docs/design/setup-guide.md": 10,
-    "docs/design/streaming-response.md": 10,
-    "docs/troubleshooting/llm-service-not-configured.md": 10,
-    "requirements-dev.txt": 10
+    "docs/design/streaming-response.md": 10
   },
-  "generated_at": "2026-03-09T23:27:04.508722Z"
+  "generated_at": "2026-03-10T04:03:40.736941Z"
 }

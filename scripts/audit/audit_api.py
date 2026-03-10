@@ -39,35 +39,36 @@ def _extract_backend_routes() -> set:
 def _extract_frontend_fetches() -> set:
     """从前端源码中提取 fetch('/api/...') 或 fetch(`/api/...`) 的路径"""
     fetches = set()
-    for p in FRONTEND_SRC.rglob("*.{js,jsx,ts,tsx}"):
-        try:
-            text = p.read_text(encoding="utf-8")
-        except Exception:
-            continue
-        # fetch('/api/xxx') 或 fetch(`/api/xxx`) 或 fetch(`/api/xxx${...}`)
-        for m in re.finditer(
-            r"fetch\s*\(\s*[`'\"](/api/[^`'\")\s]+)[`'\"]",
-            text,
-        ):
-            path = m.group(1).split("?")[0].rstrip("/") or "/"
-            fetches.add(f"GET {path}")  # 默认 GET，实际可能 POST 等，简化处理
-        for m in re.finditer(
-            r"fetch\s*\(\s*[`'\"](/api/[^`'\")\s]+)[`'\"]\s*,\s*\{\s*method:\s*['\"](\w+)['\"]",
-            text,
-        ):
-            path = m.group(1).split("?")[0].rstrip("/") or "/"
-            fetches.add(f"{m.group(2).upper()} {path}")
-        # 模板字符串中的 /api/xxx
-        for m in re.finditer(
-            r"fetch\s*\(\s*`([^`]*)`\s*\)",
-            text,
-        ):
-            s = m.group(1)
-            if "/api/" in s:
-                base = re.sub(r"\$\{[^}]+\}", "", s)
-                base = re.sub(r"\?.*", "", base).strip()
-                if base.startswith("/api/"):
-                    fetches.add(f"GET {base}")
+    for ext in ("*.js", "*.jsx", "*.ts", "*.tsx"):
+        for p in FRONTEND_SRC.rglob(ext):
+            try:
+                text = p.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            # fetch('/api/xxx') 或 fetch(`/api/xxx`) 或 fetch(`/api/xxx${...}`)
+            for m in re.finditer(
+                r"fetch\s*\(\s*[`'\"](/api/[^`'\")\s]+)[`'\"]",
+                text,
+            ):
+                path = m.group(1).split("?")[0].rstrip("/") or "/"
+                fetches.add(f"GET {path}")  # 默认 GET，实际可能 POST 等，简化处理
+            for m in re.finditer(
+                r"fetch\s*\(\s*[`'\"](/api/[^`'\")\s]+)[`'\"]\s*,\s*\{\s*method:\s*['\"](\w+)['\"]",
+                text,
+            ):
+                path = m.group(1).split("?")[0].rstrip("/") or "/"
+                fetches.add(f"{m.group(2).upper()} {path}")
+            # 模板字符串中的 /api/xxx
+            for m in re.finditer(
+                r"fetch\s*\(\s*`([^`]*)`\s*\)",
+                text,
+            ):
+                s = m.group(1)
+                if "/api/" in s:
+                    base = re.sub(r"\$\{[^}]+\}", "", s)
+                    base = re.sub(r"\?.*", "", base).strip()
+                    if base.startswith("/api/"):
+                        fetches.add(f"GET {base}")
     return fetches
 
 

@@ -14,6 +14,24 @@ OUTPUT_FILE = PROJECT_ROOT / "docs" / "audit" / "dev_history.json"
 # 按天统计：最近天数
 DAYS_LIMIT = 90
 
+# 行数统计时排除的文件模式（测试数据、锁文件、生成文件等，避免单日异常尖峰）
+_LINES_EXCLUDE_SUFFIXES = (
+    ".srt", ".vtt", ".ass",  # 字幕
+    ".lock", ".min.js", ".min.css",  # 锁文件、压缩资源
+    ".woff", ".woff2", ".ttf", ".eot",  # 字体
+    ".pyc", ".pyo", ".egg-info",
+)
+_LINES_EXCLUDE_NAMES = frozenset({"package-lock.json", "yarn.lock", "pnpm-lock.yaml"})
+
+
+def _should_exclude_from_lines(path: str) -> bool:
+    if not path:
+        return True
+    name = path.split("/")[-1]
+    if name in _LINES_EXCLUDE_NAMES:
+        return True
+    return any(path.lower().endswith(s) for s in _LINES_EXCLUDE_SUFFIXES)
+
 
 def _run_git(*args: str) -> str:
     result = subprocess.run(
@@ -65,19 +83,17 @@ def run_dev_history() -> dict:
     except Exception:
         pass
 
-    # 按天统计：提交数 + 代码行数（最近 N 天）
+    # 按天统计：提交数 + 代码行数（最近 N 天，排除测试数据/锁文件等噪音）
     try:
         out = _run_git(
             "log",
             f"--since={DAYS_LIMIT} days ago",
             "--format=%ad",
             "--date=short",
-            "--shortstat",
+            "--numstat",
         )
         commits_by_day: dict[str, int] = defaultdict(int)
         lines_by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"add": 0, "del": 0})
-        insert_re = re.compile(r"(\d+) insertion")
-        delete_re = re.compile(r"(\d+) deletion")
         current_date = None
         for line in out.splitlines():
             line = line.strip()
@@ -86,13 +102,19 @@ def run_dev_history() -> dict:
             if re.match(r"^\d{4}-\d{2}-\d{2}$", line):
                 current_date = line
                 commits_by_day[current_date] += 1
-            elif current_date and "file" in line.lower():
-                add_m = insert_re.search(line)
-                del_m = delete_re.search(line)
-                add_n = int(add_m.group(1)) if add_m else 0
-                del_n = int(del_m.group(1)) if del_m else 0
-                lines_by_day[current_date]["add"] += add_n
-                lines_by_day[current_date]["del"] += del_n
+            elif current_date:
+                parts = line.split("\t", 2)
+                if len(parts) >= 3:
+                    try:
+                        add_s, del_s, path = parts[0], parts[1], parts[2]
+                        if _should_exclude_from_lines(path):
+                            continue
+                        add_n = int(add_s) if add_s != "-" else 0
+                        del_n = int(del_s) if del_s != "-" else 0
+                        lines_by_day[current_date]["add"] += add_n
+                        lines_by_day[current_date]["del"] += del_n
+                    except (ValueError, IndexError):
+                        pass
         data["commits_by_day"] = dict(sorted(commits_by_day.items()))
         data["lines_by_day"] = {
             d: {"add": v["add"], "del": v["del"], "total": v["add"] + v["del"]}

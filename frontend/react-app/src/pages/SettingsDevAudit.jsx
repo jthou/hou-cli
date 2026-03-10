@@ -9,8 +9,8 @@ import {
   PieChart,
   Pie,
   Cell,
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   Legend,
 } from 'recharts'
 import PageHeader from '../components/PageHeader'
@@ -106,26 +106,28 @@ export default function SettingsDevAudit() {
               <div className="rounded-lg border border-border bg-white/5 p-4 h-72">
                 <p className="text-sm text-muted mb-2">每日代码变更行数</p>
                 <ResponsiveContainer width="100%" height="90%">
-                  <AreaChart
+                  <LineChart
                     data={Object.entries(dev.lines_by_day).map(([date, v]) => ({
                       date,
-                      total: v.total,
                       add: v.add,
                       del: v.del,
                     }))}
                     margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
                   >
                     <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                    <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
+                    <YAxis
+                      tick={{ fill: '#94a3b8', fontSize: 12 }}
+                      tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)}
+                    />
                     <Tooltip
-                      formatter={(v) => v?.toLocaleString()}
+                      formatter={(v) => (typeof v === 'number' ? v.toLocaleString() : v)}
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
                       labelFormatter={(d) => d}
                     />
                     <Legend />
-                    <Area type="monotone" dataKey="add" stackId="1" stroke="#10b981" fill="#10b98140" name="新增" />
-                    <Area type="monotone" dataKey="del" stackId="1" stroke="#ef4444" fill="#ef444440" name="删除" />
-                  </AreaChart>
+                    <Line type="monotone" dataKey="add" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} connectNulls name="新增" />
+                    <Line type="monotone" dataKey="del" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} connectNulls name="删除" />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
               <div className="rounded-lg border border-border bg-white/5 p-4 h-72">

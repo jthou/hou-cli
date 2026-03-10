@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 115
-- 前端 fetch 数: 0
+- 后端路由数: 117
+- 前端 fetch 数: 104
 
 ## 后端路由
 
@@ -47,6 +47,7 @@ GET /api/settings/model-config-audit
 GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
 GET /api/settings/writing-profile
+GET /api/storage/audit
 GET /api/storage/config
 GET /api/system/cpu
 GET /api/system/disk
@@ -101,6 +102,7 @@ POST /api/sessions
 POST /api/sessions/{session_id}/clear
 POST /api/sessions/{session_id}/summary
 POST /api/settings/model-availability-audit/probe
+POST /api/storage/audit/cleanup-tmp-dbs
 POST /api/task-queue/cleanup
 POST /api/task-queue/scheduled-tasks
 POST /api/task-queue/scheduled-tasks/{schedule_id}/run-now
@@ -125,64 +127,130 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 
 ## 前端调用的 API
 
+- DELETE /api/task-queue/scheduled-tasks/${task.schedule_id}
+- DELETE /api/task-queue/tasks/${taskId}
+- GET /api/audit/report
+- GET /api/chat/article
+- GET /api/chat/article/apply-patch
+- GET /api/chat/article/generate-metadata
+- GET /api/chat/article/metadata
+- GET /api/chat/article/patch
+- GET /api/chat/article/restore
+- GET /api/chat/article/revisions
+- GET /api/chat/mw-sources
+- GET /api/chat/stream
+- GET /api/heartbeat/status
+- GET /api/latex/render
+- GET /api/mediawiki/random-read
+- GET /api/mediawiki/recent-read
+- GET /api/mediawiki/search
+- GET /api/mediawiki/search-read
+- GET /api/models/selectable
+- GET /api/network/audit/env
+- GET /api/network/audit/history
+- GET /api/network/audit/run
+- GET /api/network/audit/targets
+- GET /api/pdf/page-range-text
+- GET /api/pdf/page-text
+- GET /api/pdf/resolve
+- GET /api/pdf/upload-from-extension
+- GET /api/sessions
+- GET /api/sessions/
+- GET /api/sessions/list
+- GET /api/settings/kanban/board
+- GET /api/settings/kanban/boards
+- GET /api/settings/llm-audit/daily-stats
+- GET /api/settings/llm-audit/dates
+- GET /api/settings/llm-audit/list
+- GET /api/settings/model-availability-audit/models
+- GET /api/settings/model-availability-audit/probe
+- GET /api/settings/model-config-audit
+- GET /api/settings/model-stats
+- GET /api/settings/system-prompt-audit/prompts
+- GET /api/settings/writing-profile
+- GET /api/storage/audit
+- GET /api/storage/audit/cleanup-tmp-dbs
+- GET /api/task-queue/cleanup
+- GET /api/task-queue/scheduled-tasks
+- GET /api/task-queue/scheduled-tasks/${task.schedule_id}
+- GET /api/task-queue/scheduled-tasks/${task.schedule_id}/run-now
+- GET /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle
+- GET /api/task-queue/task-types
+- GET /api/task-queue/task-types//linkable-upstreams
+- GET /api/task-queue/tasks
+- GET /api/task-queue/tasks/
+- GET /api/task-queue/tasks/${task.task_id}/patch-result-output-file
+- GET /api/task-queue/tasks/${task.task_id}/requeue
+- GET /api/task-queue/tasks/${taskId}
+- GET /api/task-queue/tasks/${taskId}/cancel
+- GET /api/task-queue/tasks/${taskId}/output-file
+- GET /api/task-queue/tasks/${taskId}/queue-status
+- GET /api/task-queue/tasks/${taskId}/restart
+- GET /api/task-queue/tasks/${taskId}/restore
+- GET /api/task-queue/tasks/${taskId}/soft-delete
+- GET /api/task-queue/tasks//output-file
+- GET /api/task-queue/tasks//queue-status
+- GET /api/task-queue/upload-input-file
+- GET /api/tools/list
+- GET /api/version
+- GET /api/web-reader/summarize
+- GET /api/wechat-mp/drafts
+- GET /api/wechat-mp/drafts/detail
+- GET /api/wechat-mp/materials/images
+- GET /api/wechat-mp/outbound-ip
+- GET /api/wechat-mp/upload-article-image
+- GET /api/wechat-mp/upload-cover
+- PATCH /api/task-queue/scheduled-tasks/${task.schedule_id}
+- PATCH /api/task-queue/tasks/${task.task_id}/patch-result-output-file
+- PATCH /api/task-queue/tasks/${taskId}
+- POST /api/chat/article/apply-patch
+- POST /api/chat/article/generate-metadata
+- POST /api/chat/article/patch
+- POST /api/chat/article/restore
+- POST /api/chat/stream
+- POST /api/network/audit/run
+- POST /api/pdf/resolve
+- POST /api/pdf/upload-from-extension
+- POST /api/sessions
+- POST /api/settings/model-availability-audit/probe
+- POST /api/storage/audit/cleanup-tmp-dbs
+- POST /api/task-queue/cleanup
+- POST /api/task-queue/scheduled-tasks
+- POST /api/task-queue/scheduled-tasks/${task.schedule_id}/run-now
+- POST /api/task-queue/tasks
+- POST /api/task-queue/tasks/${task.task_id}/requeue
+- POST /api/task-queue/tasks/${taskId}/cancel
+- POST /api/task-queue/tasks/${taskId}/restart
+- POST /api/task-queue/tasks/${taskId}/restore
+- POST /api/task-queue/tasks/${taskId}/soft-delete
+- POST /api/task-queue/upload-input-file
+- POST /api/web-reader/summarize
+- POST /api/wechat-mp/upload-article-image
+- POST /api/wechat-mp/upload-cover
+- PUT /api/chat/article
+- PUT /api/chat/mw-sources
+- PUT /api/settings/writing-profile
+- PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle
 
 ## 后端有但前端未使用
 
-- /api/audit/report
 - /api/audit/summary
 - /api/chat
-- /api/chat/article
-- /api/chat/article/apply-patch
-- /api/chat/article/generate-metadata
 - /api/chat/article/merge
-- /api/chat/article/metadata
-- /api/chat/article/patch
-- /api/chat/article/restore
-- /api/chat/article/revisions
-- /api/chat/mw-sources
-- /api/chat/stream
 - /api/execution/approve
 - /api/execution/reject
-- /api/heartbeat/status
-- /api/latex/render
 - /api/mediawiki/pages/{id}
-- /api/mediawiki/random-read
-- /api/mediawiki/recent-read
-- /api/mediawiki/search
-- /api/mediawiki/search-read
 - /api/mediawiki/sync
 - /api/mediawiki/sync/status
-- /api/models/selectable
-- /api/network/audit/env
-- /api/network/audit/history
-- /api/network/audit/run
-- /api/network/audit/targets
-- /api/pdf/page-range-text
-- /api/pdf/page-text
-- /api/pdf/resolve
-- /api/pdf/upload-from-extension
 - /api/pdf/view
 - /api/search/availability
 - /api/search/files
 - /api/search/unified
-- /api/sessions
-- /api/sessions/list
 - /api/sessions/search
 - /api/sessions/{id}
 - /api/sessions/{id}/clear
 - /api/sessions/{id}/summary
-- /api/settings/kanban/board
-- /api/settings/kanban/boards
 - /api/settings/kanban/status
-- /api/settings/llm-audit/daily-stats
-- /api/settings/llm-audit/dates
-- /api/settings/llm-audit/list
-- /api/settings/model-availability-audit/models
-- /api/settings/model-availability-audit/probe
-- /api/settings/model-config-audit
-- /api/settings/model-stats
-- /api/settings/system-prompt-audit/prompts
-- /api/settings/writing-profile
 - /api/storage/config
 - /api/system/cpu
 - /api/system/disk
@@ -190,16 +258,12 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/system/memory
 - /api/system/network
 - /api/system/processes
-- /api/task-queue/cleanup
 - /api/task-queue/debug
-- /api/task-queue/scheduled-tasks
 - /api/task-queue/scheduled-tasks/{id}
 - /api/task-queue/scheduled-tasks/{id}/run-now
 - /api/task-queue/scheduled-tasks/{id}/toggle
-- /api/task-queue/task-types
 - /api/task-queue/task-types/{id}
 - /api/task-queue/task-types/{id}/linkable-upstreams
-- /api/task-queue/tasks
 - /api/task-queue/tasks/{id}
 - /api/task-queue/tasks/{id}/cancel
 - /api/task-queue/tasks/{id}/output-file
@@ -209,7 +273,6 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/task-queue/tasks/{id}/restart
 - /api/task-queue/tasks/{id}/restore
 - /api/task-queue/tasks/{id}/soft-delete
-- /api/task-queue/upload-input-file
 - /api/task-queue/workers
 - /api/tasks
 - /api/tasks/{id}
@@ -220,14 +283,25 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/tests/run
 - /api/tests/statistics
 - /api/tests/status
-- /api/tools/list
-- /api/version
 - /api/web-reader/ocr
-- /api/web-reader/summarize
 - /api/wechat-mp/cover-image
-- /api/wechat-mp/drafts
-- /api/wechat-mp/drafts/detail
-- /api/wechat-mp/materials/images
-- /api/wechat-mp/outbound-ip
-- /api/wechat-mp/upload-article-image
-- /api/wechat-mp/upload-cover
+
+## 前端调用但可能未实现（需人工核对）
+
+- /api/sessions/
+- /api/task-queue/scheduled-tasks/${id}
+- /api/task-queue/scheduled-tasks/${id}/run-now
+- /api/task-queue/scheduled-tasks/${id}/toggle
+- /api/task-queue/task-types//linkable-upstreams
+- /api/task-queue/tasks/
+- /api/task-queue/tasks/${id}
+- /api/task-queue/tasks/${id}/cancel
+- /api/task-queue/tasks/${id}/output-file
+- /api/task-queue/tasks/${id}/patch-result-output-file
+- /api/task-queue/tasks/${id}/queue-status
+- /api/task-queue/tasks/${id}/requeue
+- /api/task-queue/tasks/${id}/restart
+- /api/task-queue/tasks/${id}/restore
+- /api/task-queue/tasks/${id}/soft-delete
+- /api/task-queue/tasks//output-file
+- /api/task-queue/tasks//queue-status
