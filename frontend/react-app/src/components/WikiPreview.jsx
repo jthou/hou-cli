@@ -40,10 +40,43 @@ export default function WikiPreview({
             <button
               type="button"
               onClick={() => {
-                navigator.clipboard?.writeText(mdContent).then(
-                  () => toast?.info?.('已复制到剪贴板'),
-                  () => toast?.error?.('复制失败')
-                )
+                const copy = (text) => {
+                  if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(text).then(
+                      () => toast?.info?.('已复制到剪贴板'),
+                      () => {
+                        try {
+                          const ta = document.createElement('textarea')
+                          ta.value = text
+                          ta.style.position = 'fixed'
+                          ta.style.opacity = '0'
+                          document.body.appendChild(ta)
+                          ta.select()
+                          document.execCommand('copy')
+                          document.body.removeChild(ta)
+                          toast?.info?.('已复制到剪贴板')
+                        } catch {
+                          toast?.error?.('复制失败')
+                        }
+                      }
+                    )
+                  } else {
+                    try {
+                      const ta = document.createElement('textarea')
+                      ta.value = text
+                      ta.style.position = 'fixed'
+                      ta.style.opacity = '0'
+                      document.body.appendChild(ta)
+                      ta.select()
+                      document.execCommand('copy')
+                      document.body.removeChild(ta)
+                      toast?.info?.('已复制到剪贴板')
+                    } catch {
+                      toast?.error?.('复制失败')
+                    }
+                  }
+                }
+                copy(mdContent)
               }}
               className="px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
             >

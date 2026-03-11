@@ -25,7 +25,7 @@ const TASK_API = {
   },
 }
 
-export default function TaskFormPage({ taskType, title, description, submitLabel = '提交任务', rightContent, onTaskCreated }) {
+export default function TaskFormPage({ taskType, title, description, submitLabel = '提交任务', rightContent, topContent, onTaskCreated }) {
   const toast = useToast()
   const [taskTypes, setTaskTypes] = useState([])
   const [metadata, setMetadata] = useState({})
@@ -187,6 +187,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
 
       <div className={`flex-1 overflow-hidden flex ${rightContent ? 'flex-row' : 'flex-col'}`}>
         <div className={`flex-1 overflow-y-auto p-6 ${rightContent ? 'max-w-2xl shrink-0' : 'max-w-2xl'}`}>
+        {topContent}
         <p className="text-muted mb-6">
           {description}
           <Link to="/tasks" className="text-accent hover:underline ml-1">任务管理</Link>

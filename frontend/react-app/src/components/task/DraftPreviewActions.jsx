@@ -109,13 +109,37 @@ export default function DraftPreviewActions({
     })
   }
 
-  const handleCopy = () => {
-    const toCopy = content || ''
-    if (format === 'markdown') {
-      navigator.clipboard?.writeText(toCopy).catch(() => {})
-    } else {
-      navigator.clipboard?.writeText(toCopy).then(() => toast?.info?.('已复制到剪贴板')).catch(() => {})
+  const fallbackCopy = (text) => {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (ok) toast?.info?.('已复制到剪贴板')
+      else toast?.error?.('复制失败')
+    } catch {
+      toast?.error?.('复制失败')
     }
+  }
+
+  const handleCopy = () => {
+    const toCopy = (content || '').trim()
+    if (!toCopy) {
+      toast?.warning?.('当前无内容可复制')
+      return
+    }
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(toCopy).then(
+        () => toast?.info?.('已复制到剪贴板'),
+        () => fallbackCopy(toCopy)
+      )
+      return
+    }
+    fallbackCopy(toCopy)
   }
 
   return (

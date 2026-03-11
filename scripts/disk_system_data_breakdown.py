@@ -339,7 +339,7 @@ def main(user_only: bool = False, verbose: bool = True) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="磁盘空间细分 + 分析报告")
-    parser.add_argument("-o", "--output", metavar="FILE", help="将完整输出保存到文件")
+    parser.add_argument("-o", "--output", metavar="FILE", help="将完整输出保存到文件，同时生成同名 .json 供前端展示")
     parser.add_argument("--user-only", action="store_true", help="仅扫描用户主目录（无需 sudo）")
     parser.add_argument("--json", action="store_true", help="输出 JSON，供 API 调用")
     args = parser.parse_args()
@@ -349,10 +349,14 @@ if __name__ == "__main__":
             sys.stdout = f
             sys.stderr = f
             try:
-                main(user_only=args.user_only)
+                result = main(user_only=args.user_only)
             finally:
                 sys.stdout, sys.stderr = orig_stdout, orig_stderr
         print(f"报告已保存到 {args.output}")
+        json_path = Path(args.output).with_suffix(".json")
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump(result, jf, ensure_ascii=False, indent=2)
+        print(f"JSON 已保存到 {json_path}")
     elif args.json:
         result = main(user_only=args.user_only, verbose=False)
         print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -51,10 +51,31 @@ export default function MarkdownActionButtons({
       onCopy(toCopy)
       return
     }
-    navigator.clipboard.writeText(toCopy).then(
-      () => toast?.info?.('已复制到剪贴板'),
-      () => toast?.error?.('复制失败')
-    )
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(toCopy).then(
+        () => toast?.info?.('已复制到剪贴板'),
+        () => fallbackCopy(toCopy)
+      )
+      return
+    }
+    fallbackCopy(toCopy)
+  }
+
+  const fallbackCopy = (text) => {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (ok) toast?.info?.('已复制到剪贴板')
+      else toast?.error?.('复制失败')
+    } catch {
+      toast?.error?.('复制失败')
+    }
   }
 
   const handleSendToArticle = () => {
@@ -119,7 +140,7 @@ export default function MarkdownActionButtons({
         setMwTitle('')
         setMwSummary('')
         setMwMode('create')
-        navigate('/tasks', { state: data.task_id ? { detailTaskId: data.task_id } : {} })
+        navigate(-1)
       } else {
         toast?.error?.(data.detail || data.message || '创建任务失败')
       }

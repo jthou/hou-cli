@@ -267,9 +267,9 @@ TASK_TYPES = {
     },
     "disk_scan": {
         "name": "磁盘空间扫描",
-        "description": "扫描磁盘占用，定位大目录。提交后任务在后台执行，可查看最近一次结果。",
+        "description": "扫描磁盘占用，定位大目录。页面顶部可实时查看分区概览（总/已用/可用）；目录细分需提交任务。全盘细分需在终端执行 sudo python3 scripts/disk_system_data_breakdown.py。",
         "output_spec": {
-            "content": "磁盘占用报告（目录树、大小排序、大文件列表）",
+            "content": "磁盘占用报告（分区概览、目录树、大小排序、大文件列表）",
             "format": "JSON，存于 result.data",
             "naming_rule": "无本地文件",
             "default_path": "无",
@@ -278,7 +278,7 @@ TASK_TYPES = {
             "user_only": {
                 "type": "boolean",
                 "required": False,
-                "description": "仅扫描用户主目录（无需 sudo，推荐）",
+                "description": "仅扫描用户主目录（无需 sudo，推荐；全盘需 sudo 在终端执行）",
                 "default": True
             }
         }
@@ -780,6 +780,26 @@ async def process_disk_scan_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
 
     mode = "用户主目录" if result.get("user_only") else "全盘"
     summary = f"扫描完成（{mode}）· 已用 {result.get('total_used_gb', 0):.0f} GB · ≥1GB 目录 {len(result.get('large_items', []))} 个"
+
+    # 补充分区级信息（total/used/free），便于用户了解全盘占用
+    try:
+        from backend.externals.system_monitor import system_monitor
+        partitions = system_monitor._get_disk_info()
+        result["partitions"] = [
+            {
+                "device": p.get("device"),
+                "mountpoint": p.get("mountpoint"),
+                "total_gb": round(p.get("total", 0) / (1024**3), 2),
+                "used_gb": round(p.get("used", 0) / (1024**3), 2),
+                "free_gb": round(p.get("free", 0) / (1024**3), 2),
+                "percent": p.get("percent", 0),
+            }
+            for p in (partitions or [])
+        ]
+    except Exception as e:
+        logger.warning("获取分区信息失败: %s", e)
+        result["partitions"] = []
+
     return {
         "status": "success",
         "summary": summary,

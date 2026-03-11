@@ -1,4 +1,6 @@
 import TaskTypePage from '../components/task/TaskTypePage'
+import DiskPartitionOverview from '../components/DiskPartitionOverview'
+import DiskScanReportSection from '../components/DiskScanReportSection'
 
 export default function DiskScan() {
   return (
@@ -9,6 +11,12 @@ export default function DiskScan() {
       submitLabel="开始扫描"
       listTitle="磁盘扫描任务"
       emptyText="暂无磁盘扫描任务"
+      topContent={
+        <>
+          <DiskPartitionOverview />
+          <DiskScanReportSection />
+        </>
+      }
     />
   )
 }

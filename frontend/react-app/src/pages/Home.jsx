@@ -5,6 +5,8 @@ import WeatherResultDisplay from '../components/WeatherResultDisplay'
 import DiskResultDisplay from '../components/DiskResultDisplay'
 import TaskResultDisplay from '../components/TaskResultDisplay'
 
+const FETCH_TIMEOUT_MS = 15000
+
 function useLatestTask(taskType) {
   const [task, setTask] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -21,8 +23,14 @@ function useLatestTask(taskType) {
           limit: '1',
           include_result: 'true',
         })
-        const res = await fetch(`/api/task-queue/tasks?${params.toString()}`)
-        const json = await res.json()
+        const ctrl = new AbortController()
+        const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
+        const res = await fetch(`/api/task-queue/tasks?${params.toString()}`, { signal: ctrl.signal })
+        clearTimeout(timeout)
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(json.detail || json.error || `请求失败: HTTP ${res.status}`)
+        }
         if (!json.success) {
           throw new Error(json.detail || json.error || '获取任务失败')
         }
@@ -35,7 +43,10 @@ function useLatestTask(taskType) {
           setTask(null)
         }
       } catch (e) {
-        if (!cancelled) setError(e.message || String(e))
+        if (!cancelled) {
+          const msg = e.name === 'AbortError' ? '请求超时，请检查后端是否正常运行' : (e.message || String(e))
+          setError(msg)
+        }
       }
       if (!cancelled) setLoading(false)
     }
@@ -44,6 +55,39 @@ function useLatestTask(taskType) {
   }, [taskType])
 
   return { task, loading, error }
+}
+
+/** make disk-scan 生成的全盘报告（docs/disk_report.json） */
+function useDiskScanReport() {
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const ctrl = new AbortController()
+    const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
+    fetch('/api/system/disk-scan-report', { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return
+        if (d.success && d.data) setReport(d.data)
+        else setReport(null)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.name === 'AbortError' ? '请求超时' : e.message || '加载失败')
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+      ctrl.abort()
+    }
+  }, [])
+
+  return { report, loading, error }
 }
 
 /** 最新定时网文抓取任务（created_by_schedule_id 有值） */
@@ -64,8 +108,14 @@ function useLatestScheduledUrlToWiki() {
           limit: '30',
           include_result: 'true',
         })
-        const res = await fetch(`/api/task-queue/tasks?${params.toString()}`)
-        const json = await res.json()
+        const ctrl = new AbortController()
+        const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
+        const res = await fetch(`/api/task-queue/tasks?${params.toString()}`, { signal: ctrl.signal })
+        clearTimeout(timeout)
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(json.detail || json.error || `请求失败: HTTP ${res.status}`)
+        }
         if (!json.success) {
           throw new Error(json.detail || json.error || '获取任务失败')
         }
@@ -80,7 +130,10 @@ function useLatestScheduledUrlToWiki() {
           setTask(null)
         }
       } catch (e) {
-        if (!cancelled) setError(e.message || String(e))
+        if (!cancelled) {
+          const msg = e.name === 'AbortError' ? '请求超时，请检查后端是否正常运行' : (e.message || String(e))
+          setError(msg)
+        }
       }
       if (!cancelled) setLoading(false)
     }
@@ -93,6 +146,7 @@ function useLatestScheduledUrlToWiki() {
 
 export default function Home() {
   const { task: weatherTask, loading, error } = useLatestTask('weather_query')
+  const { report: diskScanReport, loading: diskReportLoading, error: diskReportError } = useDiskScanReport()
   const { task: diskScanTask, loading: diskScanLoading, error: diskScanError } = useLatestTask('disk_scan')
   const { task: urlToWikiTask, loading: urlToWikiLoading, error: urlToWikiError } = useLatestScheduledUrlToWiki()
   const { task: webSearchTask, loading: webSearchLoading, error: webSearchError } = useLatestTask('web_search')
@@ -138,19 +192,25 @@ export default function Home() {
                 更多 →
               </Link>
             </div>
-            {diskScanLoading && <span className="text-xs text-muted">加载中…</span>}
-            {diskScanError && (
-              <p className="text-xs text-red-400">加载失败：{diskScanError}</p>
+            {(diskReportLoading || diskScanLoading) && <span className="text-xs text-muted">加载中…</span>}
+            {(diskReportError || diskScanError) && (
+              <p className="text-xs text-red-400">加载失败：{diskReportError || diskScanError}</p>
             )}
-            {!diskScanLoading && !diskScanError && !diskScanTask && (
-              <p className="text-xs text-muted">暂无已完成的磁盘扫描任务。</p>
+            {!diskReportLoading && !diskScanLoading && !diskScanReport && !diskScanTask && (
+              <p className="text-xs text-muted">暂无磁盘扫描数据。执行 make disk-scan 生成全盘报告。</p>
             )}
-            {!diskScanLoading && !diskScanError && diskScanTask && (
+            {!diskReportLoading && !diskScanLoading && (diskScanReport || diskScanTask) && (
               <div className="space-y-3">
                 <div className="text-xs text-muted">
-                  任务 ID #{diskScanTask.task_id?.slice(0, 8)} · 创建于 {diskScanTask.created_at}
+                  {diskScanReport?.source?.startsWith?.('make disk-scan') ? (
+                    <>全盘扫描 (make disk-scan)</>
+                  ) : (
+                    <>任务 ID #{diskScanTask.task_id?.slice(0, 8)} · 创建于 {diskScanTask.created_at}</>
+                  )}
                 </div>
-                <DiskResultDisplay result={diskScanTask.result?.result || diskScanTask.result} />
+                <DiskResultDisplay
+                  result={diskScanReport || diskScanTask?.result?.result || diskScanTask?.result}
+                />
               </div>
             )}
           </section>

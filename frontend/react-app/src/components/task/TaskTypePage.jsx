@@ -17,6 +17,7 @@ export default function TaskTypePage({
   emptyText,
   showDetailModal = true,
   taskTypes = [],
+  topContent,
 }) {
   const navigate = useNavigate()
   const [detailTaskId, setDetailTaskId] = useState(null)
@@ -61,6 +62,7 @@ export default function TaskTypePage({
       description={description}
       submitLabel={submitLabel}
       rightContent={rightContent}
+      topContent={topContent}
       onTaskCreated={() => setRefreshTrigger((t) => (t ?? 0) + 1)}
     />
   )

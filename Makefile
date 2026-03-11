@@ -1,4 +1,4 @@
-.PHONY: stop test restart start start-backend build-web test-task-weather migrate pre-check install-deps create-venv clean audit help
+.PHONY: stop test restart start start-backend build-web test-task-weather migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
 
 # 默认目标：在项目根执行 make 时显示可用命令
 # 前端说明：源码在 frontend/react-app，构建产物在 frontend/web/dist。
@@ -6,7 +6,7 @@
 #   make build-web = 仅构建前端（供单独使用或 CI）。
 help:
 	@echo "用法: make <目标>"
-	@echo "目标: stop | start | restart | build-web | test | migrate | pre-check | install-deps | create-venv | clean"
+	@echo "目标: stop | start | restart | build-web | test | migrate | pre-check | install-deps | create-venv | clean | disk-scan"
 	@echo "  make stop             - 停止后端 (端口 $(WEB_PORT))"
 	@echo "  make start            - 预检查依赖 + 构建前端并启动后端（8081 提供最新 UI）"
 	@echo "  make restart          - 停止并重新启动后端（不重建前端，快速）"
@@ -18,6 +18,8 @@ help:
 	@echo "  make migrate          - 执行任务队列 DB 迁移（在 backend 下执行 alembic upgrade head，部署时手动跑）"
 	@echo "  make create-venv      - 用 Python 3.12 创建 venv（需 python3.12，如 brew install python@3.12）"
 	@echo "  make audit            - 生成开发审计报告（代码统计、提交行数、API 审计）"
+	@echo "  make disk-scan        - 全盘磁盘扫描（需 sudo，输出到 docs/disk_report.txt，耗时较长）"
+	@echo "  make disk-scan-user   - 仅扫描用户主目录（无需 sudo，输出到 docs/disk_report.txt）"
 	@echo "  make clean           - 清理缓存与构建产物（__pycache__、.pytest_cache、.backend.pid 等）"
 	@echo "请在项目根目录执行 make。"
 
@@ -160,3 +162,16 @@ build-web:
 	@test -d "frontend/react-app" || (echo "frontend/react-app 不存在"; exit 1)
 	@echo "构建前端 -> frontend/web/dist ..."
 	@cd frontend/react-app && npm run build
+
+# 全盘磁盘扫描（需 sudo，可访问 /System、/Library 等，输出到 docs/disk_report.txt）
+disk-scan:
+	@echo "全盘磁盘扫描（需 sudo，耗时可能较长）..."
+	@sudo python3 scripts/disk_system_data_breakdown.py -o docs/disk_report.txt
+	@echo "报告已保存到 docs/disk_report.txt"
+
+# 仅扫描用户主目录（无需 sudo，快速）
+disk-scan-user:
+	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
+	@echo "扫描用户主目录..."
+	@$(PYTHON) scripts/disk_system_data_breakdown.py --user-only -o docs/disk_report.txt
+	@echo "报告已保存到 docs/disk_report.txt"
