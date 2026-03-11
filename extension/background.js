@@ -7,12 +7,29 @@
 
 const OVERALL_TIMEOUT_MS = 90000  // 90 秒，适配复杂页面（自动展开 + 慢速站点）
 
-/** 极简等待：微信读书 2.5s，飞书多维表格 3s，普通网页 1.5s */
+/** 页面内：等待 document.readyState === 'complete' 或 window.load，最多 20s */
+function waitForPageLoad() {
+  return new Promise((resolve) => {
+    if (document.readyState === 'complete') {
+      resolve()
+      return
+    }
+    const onLoad = () => resolve()
+    window.addEventListener('load', onLoad, { once: true })
+    setTimeout(() => {
+      window.removeEventListener('load', onLoad)
+      resolve()
+    }, 20000)
+  })
+}
+
+/** 极简额外等待：SPA  hydration / 飞书等，load 后仍需短暂延迟 */
 function waitForPage() {
   const href = window.location.href || ''
   const delay = /weread\.qq\.com/.test(href) ? 2500
     : /feishu\.cn|feishubase\.com/.test(href) ? 3000
-    : 1500
+    : /blogs\.nvidia\.com|medium\.com|substack\.com|wordpress\.com|blog\./.test(href) ? 2000
+    : 800
   return new Promise((r) => setTimeout(r, delay))
 }
 
@@ -102,6 +119,8 @@ function extractContent() {
   const baseSelectors = [
     'article', 'main', '[role="main"]', '.post-content', '.article-body',
     '.content', '#content', '.entry-content', '.post-body', '.article-content',
+    '[class*="blog-post"]', '[class*="post-content"]', '[class*="article-body"]',
+    '[class*="entry-content"]', '[class*="prose"]',  // Tailwind prose, 常见博客
   ]
   const amazonSelectors = (amazon?.SELECTORS ?? []).length ? amazon.SELECTORS : [
     '#productDetails_feature_div', '#prodDetails', '#productDetails',
@@ -115,14 +134,33 @@ function extractContent() {
     : isFeishu ? [...feishuSelectors, ...baseSelectors] : baseSelectors
   const minLen = isFeishu ? 30 : isAmazon ? 50 : 100
   let el = null
-  for (const s of selectors) {
-    try {
-      const candidate = document.querySelector(s)
-      if (candidate && (candidate.innerText || candidate.textContent || '').trim().length >= minLen) {
-        el = candidate
-        break
-      }
-    } catch (_) {}
+  if (isAmazon || isFeishu) {
+    for (const s of selectors) {
+      try {
+        const candidate = document.querySelector(s)
+        if (candidate && (candidate.innerText || candidate.textContent || '').trim().length >= minLen) {
+          el = candidate
+          break
+        }
+      } catch (_) {}
+    }
+  } else {
+    // 博客/普通站：选正文最长的容器，避免误取「Related News」等侧栏
+    let bestLen = minLen - 1
+    const seen = new WeakSet()
+    for (const s of selectors) {
+      try {
+        document.querySelectorAll(s).forEach((c) => {
+          if (seen.has(c)) return
+          const len = (c.innerText || c.textContent || '').trim().length
+          if (len > bestLen) {
+            bestLen = len
+            el = c
+          }
+          seen.add(c)
+        })
+      } catch (_) {}
+    }
   }
   el = el || document.body
   let content = (el.innerText || el.textContent || '').trim().slice(0, 500000)
@@ -350,12 +388,24 @@ async function fetchWereadScreenshot(url, createdByUs, tabId) {
   }
 }
 
-/** 普通网页 / 飞书：DOM 提取。opts.initialWaitMs 覆盖 needLoad 时的默认 2500ms；opts.useScrollExtract 时用飞书滚动提取 */
+/** 等待标签页加载完成（status === 'complete'），超时 30s */
+async function waitForTabComplete(tabId, timeoutMs = 30000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const tab = await chrome.tabs.get(tabId)
+      if (tab.status === 'complete') return
+    } catch (_) {}
+    await new Promise((r) => setTimeout(r, 200))
+  }
+}
+
+/** 普通网页 / 飞书：DOM 提取。needLoad 时先等 tab 加载完成，再等页面 load，最后 SPA 额外延迟 */
 async function runDomExtraction(tabId, url, createdByUs, needLoad, opts = {}) {
   await chrome.tabs.update(tabId, { active: true }).catch(() => {})
   if (needLoad) {
-    const ms = opts.initialWaitMs ?? 2500
-    await new Promise((r) => setTimeout(r, ms))
+    await waitForTabComplete(tabId)
+    await chrome.scripting.executeScript({ target: { tabId }, func: waitForPageLoad }).catch(() => {})
   }
   await chrome.scripting.executeScript({ target: { tabId }, func: waitForPage }).catch(() => {})
 
@@ -507,7 +557,7 @@ async function doFetch(url, opts) {
       if (navigated) await new Promise((r) => setTimeout(r, 3000))
       data = await fetchWereadScreenshot(url, createdByUs, tabId)
     } else {
-      const domOpts = isFeishu ? { initialWaitMs: 3000, useScrollExtract: true } : {}
+      const domOpts = isFeishu ? { useScrollExtract: true } : {}
       data = await runDomExtraction(tabId, url, createdByUs, needLoad, domOpts)
     }
 
