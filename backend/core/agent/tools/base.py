@@ -199,6 +199,9 @@ class Tool(ABC):
                 "type": param.type,
                 "description": param.description,
             }
+            # JSON Schema 要求 array 类型必须包含 items，否则 LLM API 返回 400
+            if param.type == "array":
+                prop["items"] = {"type": "string"}
             if param.enum:
                 prop["enum"] = param.enum
             if param.default is not None:

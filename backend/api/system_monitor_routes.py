@@ -152,10 +152,9 @@ async def get_disk_scan_report():
         if DISK_REPORT_TXT.exists():
             content = DISK_REPORT_TXT.read_text(encoding="utf-8")
             data = _parse_disk_report_txt(content)
-                if data:
-                    _add_partitions(data)
-                    return {"success": True, "data": data}
-                break
+            if data:
+                _add_partitions(data)
+                return {"success": True, "data": data}
         return {"success": True, "data": None, "message": "暂无全盘扫描报告，请执行 make disk-scan"}
     except Exception as e:
         logger.warning(f"读取磁盘扫描报告失败: {e}")
