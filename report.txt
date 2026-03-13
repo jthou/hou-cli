@@ -1,11 +1,55 @@
-根分区已用: 809.13 GB (df 统计)
+根分区已用: 811.61 GB (df 统计)
 
 阶段 0: 从数据卷根 /System/Volumes/Data 拆分...
   子目录: sw, home, usr, Library, MobileSoftwareUpdate, justin, mnt, private, Users, Applications, opt, cores
-  /System/Volumes/Data/home: 0.0 GB
   /System/Volumes/Data/MobileSoftwareUpdate: 0.0 GB
+  /System/Volumes/Data/home: 0.0 GB
   /System/Volumes/Data/usr: 0.28 GB
   /System/Volumes/Data/Applications: 18.84 GB
+  /System/Volumes/Data/Library/Apple: 0.07 GB
+  /System/Volumes/Data/Library/Image Capture: 0.0 GB
+  /System/Volumes/Data/Library/Receipts: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/Apple: 0.01 GB
+  /System/Volumes/Data/Library/Application Support/ApplePushService: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/com.apple.TVIdleScreen: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/Microsoft: 6.74 GB
+  /System/Volumes/Data/Library/Application Support/BTServer: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/Script Editor: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/App Store: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/com.apple.idleassetsd: 2.91 GB
+  /System/Volumes/Data/Library/Application Support/CrashReporter: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/iLifeMediaBrowser: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/Todesk: 0.0 GB
+  /System/Volumes/Data/Library/Application Support/GarageBand: 0.02 GB
+  /System/Volumes/Data/Library/Developer: 1.84 GB
+  /System/Volumes/Data/Library/Documentation: 0.01 GB
+  /System/Volumes/Data/Library/Preferences: 0.0 GB
+  /System/Volumes/Data/Library/OSAnalytics: 0.0 GB
+  /System/Volumes/Data/Library/Keychains: 0.0 GB
+  /System/Volumes/Data/Library/ColorSync: 0.0 GB
+  /System/Volumes/Data/Library/QuickLook: 0.0 GB
+  /System/Volumes/Data/Library/Catacomb: 0.0 GB
+  /System/Volumes/Data/Library/PrivilegedHelperTools: 0.01 GB
+  /System/Volumes/Data/Library/InstallerSandboxes: 0.0 GB
+  /System/Volumes/Data/Library/Java: 0.29 GB
+  /System/Volumes/Data/Library/Updates: 0.21 GB
+  /System/Volumes/Data/Library/Extensions: 0.0 GB
+  /System/Volumes/Data/Library/sf: 0.95 GB
+  /System/Volumes/Data/Library/WebServer: 2.69 GB
+  /System/Volumes/Data/Library/Printers: 0.0 GB
+  /System/Volumes/Data/Library/Audio: 0.0 GB
+  /System/Volumes/Data/Library/SystemMigration: 0.0 GB
+  /System/Volumes/Data/Library/Logs: 0.23 GB
+  /System/Volumes/Data/Library/Bluetooth: 0.01 GB
+  /System/Volumes/Data/Library/User Template: 0.0 GB
+  /System/Volumes/Data/Library/Scripts: 0.0 GB
+  /System/Volumes/Data/Library/EasyConnect: 0.0 GB
+  /System/Volumes/Data/Library/LaunchAgents: 0.0 GB
+  /System/Volumes/Data/Library/Frameworks: 0.0 GB
+  /System/Volumes/Data/Library/LaunchDaemons: 0.0 GB
+  /System/Volumes/Data/Library/Fonts: 0.0 GB
+  /System/Volumes/Data/Library/Input Methods: 0.5 GB
+  /System/Volumes/Data/Library/Ruby: 0.0 GB
   [已达最大深度] /System/Volumes/Data/private/var/folders/wc/0h589zs952vcntc5q5298_vh0000gn/0
   [已达最大深度] /System/Volumes/Data/private/var/folders/wc/0h589zs952vcntc5q5298_vh0000gn/T
   [已达最大深度] /System/Volumes/Data/private/var/folders/wc/0h589zs952vcntc5q5298_vh0000gn/C
@@ -142,52 +186,8 @@
   /System/Volumes/Data/private/var/protected/sfanalytics: 0.05 GB
   /System/Volumes/Data/private/var/tmp: 0.0 GB
   /System/Volumes/Data/private/tmp: 0.0 GB
-  /System/Volumes/Data/Library/Apple: 0.07 GB
-  /System/Volumes/Data/Library/Image Capture: 0.0 GB
-  /System/Volumes/Data/Library/Receipts: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/Apple: 0.01 GB
-  /System/Volumes/Data/Library/Application Support/ApplePushService: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/com.apple.TVIdleScreen: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/Microsoft: 6.74 GB
-  /System/Volumes/Data/Library/Application Support/BTServer: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/Script Editor: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/App Store: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/com.apple.idleassetsd: 2.91 GB
-  /System/Volumes/Data/Library/Application Support/CrashReporter: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/iLifeMediaBrowser: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/Todesk: 0.0 GB
-  /System/Volumes/Data/Library/Application Support/GarageBand: 0.02 GB
-  /System/Volumes/Data/Library/Developer: 1.84 GB
-  /System/Volumes/Data/Library/Documentation: 0.01 GB
-  /System/Volumes/Data/Library/Preferences: 0.0 GB
-  /System/Volumes/Data/Library/OSAnalytics: 0.0 GB
-  /System/Volumes/Data/Library/Keychains: 0.0 GB
-  /System/Volumes/Data/Library/ColorSync: 0.0 GB
-  /System/Volumes/Data/Library/QuickLook: 0.0 GB
-  /System/Volumes/Data/Library/Catacomb: 0.0 GB
-  /System/Volumes/Data/Library/PrivilegedHelperTools: 0.01 GB
-  /System/Volumes/Data/Library/InstallerSandboxes: 0.0 GB
-  /System/Volumes/Data/Library/Java: 0.29 GB
-  /System/Volumes/Data/Library/Updates: 0.21 GB
-  /System/Volumes/Data/Library/Extensions: 0.0 GB
-  /System/Volumes/Data/Library/sf: 0.95 GB
-  /System/Volumes/Data/Library/WebServer: 2.69 GB
-  /System/Volumes/Data/Library/Printers: 0.0 GB
-  /System/Volumes/Data/Library/Audio: 0.0 GB
-  /System/Volumes/Data/Library/SystemMigration: 0.0 GB
-  /System/Volumes/Data/Library/Logs: 0.23 GB
-  /System/Volumes/Data/Library/Bluetooth: 0.0 GB
-  /System/Volumes/Data/Library/User Template: 0.0 GB
-  /System/Volumes/Data/Library/Scripts: 0.0 GB
-  /System/Volumes/Data/Library/EasyConnect: 0.0 GB
-  /System/Volumes/Data/Library/LaunchAgents: 0.0 GB
-  /System/Volumes/Data/Library/Frameworks: 0.0 GB
-  /System/Volumes/Data/Library/LaunchDaemons: 0.0 GB
-  /System/Volumes/Data/Library/Fonts: 0.0 GB
-  /System/Volumes/Data/Library/Input Methods: 0.5 GB
-  /System/Volumes/Data/Library/Ruby: 0.0 GB
-  /System/Volumes/Data/justin: 94.35 GB
-  /System/Volumes/Data/opt: 147.67 GB
+  /System/Volumes/Data/justin: 94.33 GB
+  /System/Volumes/Data/opt: 148.16 GB
   [已达最大深度] /System/Volumes/Data/Users/jintinghou/Library/Application Support/Mozilla/Extensions
   [已达最大深度] /System/Volumes/Data/Users/jintinghou/Library/Application Support/locationaccessstored/GQRPF17YJC
   [已达最大深度] /System/Volumes/Data/Users/jintinghou/Library/Application Support/calibre-ebook.com/calibre
@@ -239,7 +239,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/com.apple.akd: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/GitKrakenCLI: 0.03 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/ComfyUI: 0.09 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Cursor: 26.25 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Cursor: 26.23 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/MongoDB Compass: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/bilibili: 0.56 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/CodeBuddyExtension: 0.01 GB
@@ -261,7 +261,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/Trae CN: 0.25 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/TabNine: 0.28 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/com.apple.NewDeviceOutreach: 0.0 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Application Support/LarkShell: 10.11 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Application Support/LarkShell: 10.1 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/JetBrains: 0.36 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/Docker Desktop: 0.01 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/Trae: 0.14 GB
@@ -284,7 +284,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/Notion Calendar: 0.09 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/EasyConnect: 0.03 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev: 0.04 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Microsoft Edge: 1.06 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Microsoft Edge: 1.07 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/cloud-code: 0.11 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/Sogou: 0.03 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Support/IsolatedStorage: 0.0 GB
@@ -316,7 +316,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/WebKit: 0.01 GB
   /System/Volumes/Data/Users/jintinghou/Library/Preferences: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Spotlight: 0.0 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Keychains: 0.02 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Keychains: 0.03 GB
   /System/Volumes/Data/Users/jintinghou/Library/Application Scripts: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/QuickLook: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/MacKMLink: 0.0 GB
@@ -567,7 +567,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.ScreenSaver.Monterey: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.siri.SiriVideoIntents.VideoIntentExtension: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.priml.PFLMLHostPlugins.PrivateEvolutionPlugin: 0.0 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.tencent.xinWeChat: 34.79 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.tencent.xinWeChat: 34.78 GB
   /System/Volumes/Data/Users/jintinghou/Library/Containers/com.bot.neotix.doubao: 0.15 GB
   /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.Keyboard-Settings.extension: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Containers/ulookvideo.ulook: 0.0 GB
@@ -1089,7 +1089,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Caches/calibre: 0.05 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/notion.id: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/pylint: 0.0 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Caches/WeType: 0.02 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Caches/WeType: 0.01 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/notion.id.ShipIt: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/org.gimp.gimp-3.0: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/craft: 0.18 GB
@@ -1126,7 +1126,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.betaenrollmentd: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/Jedi: 0.05 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/icloudmailagent: 0.0 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Caches/Homebrew: 0.06 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Caches/Homebrew: 2.1 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/pnpm: 0.08 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.gamed: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.appstoreagent: 0.01 GB
@@ -1199,7 +1199,7 @@
   /System/Volumes/Data/Users/jintinghou/Library/Caches/com.tencent.Lemon: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/node-gyp: 0.29 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/AMSDataMigratorTool: 0.0 GB
-  /System/Volumes/Data/Users/jintinghou/Library/Caches/Microsoft Edge: 0.52 GB
+  /System/Volumes/Data/Users/jintinghou/Library/Caches/Microsoft Edge: 0.51 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/prisma-nodejs: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.AMPLibraryAgent: 0.0 GB
   /System/Volumes/Data/Users/jintinghou/Library/Caches/com.tencent.codebuddy: 0.0 GB
@@ -1247,38 +1247,38 @@
   /System/Volumes/Data/Users/jintinghou/Documents: 1.03 GB
   /System/Volumes/Data/Users/jintinghou/Downloads: 3.38 GB
   /System/Volumes/Data/Users/Shared: 0.0 GB
-  /System/Volumes/VM: 17.0 GB
+  /System/Volumes/VM: 14.0 GB
   /System/Volumes/xarts: 0.01 GB
 
-  [警告] 仍有 214 GB 未统计到
+  [警告] 仍有 217 GB 未统计到
 
 ======================================================================
 磁盘空间分布（合计应≈已用）
-df 已用: 809.13 GB
+df 已用: 811.61 GB
 ======================================================================
-    214.10 GB ( 26.5%)  其他（未统计，约 214 GB）
+    217.10 GB ( 26.7%)  其他（未统计，约 217 GB）
            仍有目录 du 超时
-    147.67 GB ( 18.3%)  /System/Volumes/Data/opt
+    148.16 GB ( 18.3%)  /System/Volumes/Data/opt
            Data/opt
-     94.35 GB ( 11.7%)  /System/Volumes/Data/justin
+     94.33 GB ( 11.6%)  /System/Volumes/Data/justin
            Data/justin
      91.47 GB ( 11.3%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.docker.docker
            Data/Users/jintinghou/Library/Containers/com.docker.docker
-     34.79 GB (  4.3%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.tencent.xinWeChat
+     34.78 GB (  4.3%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.tencent.xinWeChat
            Data/Users/jintinghou/Library/Containers/com.tencent.xinWeChat
      31.54 GB (  3.9%)  /System/Volumes/Data/Users/jintinghou/books
            Data/Users/jintinghou/books
-     26.25 GB (  3.2%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Cursor
+     26.23 GB (  3.2%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Cursor
            Data/Users/jintinghou/Library/Application Support/Cursor
      18.84 GB (  2.3%)  /System/Volumes/Data/Applications
            Data/Applications
-     17.00 GB (  2.1%)  /System/Volumes/VM
-           Volumes/VM
      16.57 GB (  2.0%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Lingma
            Data/Users/jintinghou/Library/Application Support/Lingma
+     14.00 GB (  1.7%)  /System/Volumes/VM
+           Volumes/VM
      12.38 GB (  1.5%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Code
            Data/Users/jintinghou/Library/Application Support/Code
-     10.11 GB (  1.2%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/LarkShell
+     10.10 GB (  1.2%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/LarkShell
            Data/Users/jintinghou/Library/Application Support/LarkShell
       8.89 GB (  1.1%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Google
            Data/Users/jintinghou/Library/Application Support/Google
@@ -1306,6 +1306,8 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Caches/JetBrains
       2.47 GB (  0.3%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/LarkShell
            Data/Users/jintinghou/Library/Caches/LarkShell
+      2.10 GB (  0.3%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/Homebrew
+           Data/Users/jintinghou/Library/Caches/Homebrew
       1.89 GB (  0.2%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/Google
            Data/Users/jintinghou/Library/Caches/Google
       1.84 GB (  0.2%)  /System/Volumes/Data/Library/Developer
@@ -1320,7 +1322,7 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Caches/vscode-cpptools
       1.31 GB (  0.2%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/anythingllm-desktop
            Data/Users/jintinghou/Library/Application Support/anythingllm-desktop
-      1.06 GB (  0.1%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Microsoft Edge
+      1.07 GB (  0.1%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Microsoft Edge
            Data/Users/jintinghou/Library/Application Support/Microsoft Edge
       1.03 GB (  0.1%)  /System/Volumes/Data/Users/jintinghou/Documents
            Data/Users/jintinghou/Documents
@@ -1350,7 +1352,7 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Containers/4CFFEFF6-B1C0-4910-BE20-B06C90EDB40F
       0.56 GB (  0.1%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/bilibili
            Data/Users/jintinghou/Library/Application Support/bilibili
-      0.52 GB (  0.1%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/Microsoft Edge
+      0.51 GB (  0.1%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/Microsoft Edge
            Data/Users/jintinghou/Library/Caches/Microsoft Edge
       0.50 GB (  0.1%)  /System/Volumes/Data/Library/Input Methods
            Data/Library/Input Methods
@@ -1460,8 +1462,6 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Caches/typescript
       0.06 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/GeoServices
            Data/Users/jintinghou/Library/Caches/GeoServices
-      0.06 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/Homebrew
-           Data/Users/jintinghou/Library/Caches/Homebrew
       0.05 GB (  0.0%)  /System/Volumes/Data/private/var/protected/sfanalytics
            Data/private/var/protected/sfanalytics
       0.05 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/B134FC80-5104-404B-B525-343B9DD00C38
@@ -1488,6 +1488,8 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Application Support/EasyConnect
       0.03 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/Sogou
            Data/Users/jintinghou/Library/Application Support/Sogou
+      0.03 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Keychains
+           Data/Users/jintinghou/Library/Keychains
       0.03 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.wallpaper.agent
            Data/Users/jintinghou/Library/Containers/com.apple.wallpaper.agent
       0.03 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.AppStore
@@ -1496,8 +1498,6 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Caches/com.apple.helpd
       0.02 GB (  0.0%)  /System/Volumes/Data/Library/Application Support/GarageBand
            Data/Library/Application Support/GarageBand
-      0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Keychains
-           Data/Users/jintinghou/Library/Keychains
       0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.mediastream.mstreamd
            Data/Users/jintinghou/Library/Containers/com.apple.mediastream.mstreamd
       0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.apple.stocks.widget
@@ -1506,22 +1506,22 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Containers/com.apple.weather
       0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Fonts
            Data/Users/jintinghou/Library/Fonts
-      0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/WeType
-           Data/Users/jintinghou/Library/Caches/WeType
       0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.CloudTelemetry
            Data/Users/jintinghou/Library/Caches/com.apple.CloudTelemetry
       0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/com.mongodb.compass.ShipIt
            Data/Users/jintinghou/Library/Caches/com.mongodb.compass.ShipIt
       0.02 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.parsecd
            Data/Users/jintinghou/Library/Caches/com.apple.parsecd
-      0.01 GB (  0.0%)  /System/Volumes/Data/private/var/logs
-           Data/private/var/logs
       0.01 GB (  0.0%)  /System/Volumes/Data/Library/Application Support/Apple
            Data/Library/Application Support/Apple
       0.01 GB (  0.0%)  /System/Volumes/Data/Library/Documentation
            Data/Library/Documentation
       0.01 GB (  0.0%)  /System/Volumes/Data/Library/PrivilegedHelperTools
            Data/Library/PrivilegedHelperTools
+      0.01 GB (  0.0%)  /System/Volumes/Data/Library/Bluetooth
+           Data/Library/Bluetooth
+      0.01 GB (  0.0%)  /System/Volumes/Data/private/var/logs
+           Data/private/var/logs
       0.01 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Desktop
            Data/Users/jintinghou/Desktop
       0.01 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Application Support/CodeBuddyExtension
@@ -1576,6 +1576,8 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Library/Accessibility
       0.01 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/com.apple.iTunesCloud
            Data/Users/jintinghou/Library/com.apple.iTunesCloud
+      0.01 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/WeType
+           Data/Users/jintinghou/Library/Caches/WeType
       0.01 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/com.apple.storekitagent
            Data/Users/jintinghou/Library/Caches/com.apple.storekitagent
       0.01 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Library/Caches/com.sogou.SogouTaskManager
@@ -1598,44 +1600,10 @@ df 已用: 809.13 GB
            Data/Users/jintinghou/Applications
       0.01 GB (  0.0%)  /System/Volumes/xarts
            Volumes/xarts
-      0.00 GB (  0.0%)  /System/Volumes/Data/home
-           Data/home
       0.00 GB (  0.0%)  /System/Volumes/Data/MobileSoftwareUpdate
            Data/MobileSoftwareUpdate
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/etc
-           Data/private/etc
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/networkd/Library
-           Data/private/var/networkd/Library
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/epc_ipc1
-           Data/private/var/epc_ipc1
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/spool
-           Data/private/var/spool
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/sntpd
-           Data/private/var/sntpd
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000010r000086
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000010r000086
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000b400002s
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000b400002s
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000008r000026
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000008r000026
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000084000021
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000084000021
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000108000082
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000108000082
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000xc00007b
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000xc00007b
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000bh00002w
-           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000bh00002w
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/run
-           Data/private/var/run
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/protected/xprotect
-           Data/private/var/protected/xprotect
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/protected/trustd/SupplementalsAssets
-           Data/private/var/protected/trustd/SupplementalsAssets
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/tmp
-           Data/private/var/tmp
-      0.00 GB (  0.0%)  /System/Volumes/Data/private/tmp
-           Data/private/tmp
+      0.00 GB (  0.0%)  /System/Volumes/Data/home
+           Data/home
       0.00 GB (  0.0%)  /System/Volumes/Data/Library/Image Capture
            Data/Library/Image Capture
       0.00 GB (  0.0%)  /System/Volumes/Data/Library/Receipts
@@ -1678,8 +1646,6 @@ df 已用: 809.13 GB
            Data/Library/Audio
       0.00 GB (  0.0%)  /System/Volumes/Data/Library/SystemMigration
            Data/Library/SystemMigration
-      0.00 GB (  0.0%)  /System/Volumes/Data/Library/Bluetooth
-           Data/Library/Bluetooth
       0.00 GB (  0.0%)  /System/Volumes/Data/Library/User Template
            Data/Library/User Template
       0.00 GB (  0.0%)  /System/Volumes/Data/Library/Scripts
@@ -1696,6 +1662,40 @@ df 已用: 809.13 GB
            Data/Library/Fonts
       0.00 GB (  0.0%)  /System/Volumes/Data/Library/Ruby
            Data/Library/Ruby
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/etc
+           Data/private/etc
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/networkd/Library
+           Data/private/var/networkd/Library
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/epc_ipc1
+           Data/private/var/epc_ipc1
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/spool
+           Data/private/var/spool
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/sntpd
+           Data/private/var/sntpd
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000010r000086
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000010r000086
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000b400002s
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000b400002s
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000008r000026
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n000008r000026
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000084000021
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000084000021
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000108000082
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n0000108000082
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000xc00007b
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000xc00007b
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000bh00002w
+           Data/private/var/folders/zz/zyxvpxvq6csfxvn_n00000bh00002w
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/run
+           Data/private/var/run
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/protected/xprotect
+           Data/private/var/protected/xprotect
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/protected/trustd/SupplementalsAssets
+           Data/private/var/protected/trustd/SupplementalsAssets
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/var/tmp
+           Data/private/var/tmp
+      0.00 GB (  0.0%)  /System/Volumes/Data/private/tmp
+           Data/private/tmp
       0.00 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/知乎-AI 解决方案专家培训
            Data/Users/jintinghou/知乎-AI 解决方案专家培训
       0.00 GB (  0.0%)  /System/Volumes/Data/Users/jintinghou/Pictures/Photo Booth图库
@@ -3467,7 +3467,7 @@ df 已用: 809.13 GB
       0.00 GB (  0.0%)  /System/Volumes/Data/Users/Shared
            Data/Users/Shared
 ------------------------------------------------------------
-  合计: 809.1 GB
+  合计: 811.6 GB
 
 
 ======================================================================
@@ -3477,9 +3477,9 @@ df 已用: 809.13 GB
 ✓ 统计完整，合计与 df 已用一致
 
 【Top 5 占用】
-   214.1 GB (26.5%)  其他（未统计，约 214 GB）
-   147.7 GB (18.3%)  /System/Volumes/Data/opt
-    94.3 GB (11.7%)  /System/Volumes/Data/justin
+   217.1 GB (26.7%)  其他（未统计，约 217 GB）
+   148.2 GB (18.3%)  /System/Volumes/Data/opt
+    94.3 GB (11.6%)  /System/Volumes/Data/justin
     91.5 GB (11.3%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.docker.docker
     34.8 GB ( 4.3%)  /System/Volumes/Data/Users/jintinghou/Library/Containers/com.tencent.xinWeChat
 
@@ -3495,6 +3495,8 @@ df 已用: 809.13 GB
      2.6 GB  /System/Volumes/Data/Users/jintinghou/Library/Caches/JetBrains
            → 缓存，可清理
      2.5 GB  /System/Volumes/Data/Users/jintinghou/Library/Caches/LarkShell
+           → 缓存，可清理
+     2.1 GB  /System/Volumes/Data/Users/jintinghou/Library/Caches/Homebrew
            → 缓存，可清理
      1.9 GB  /System/Volumes/Data/Users/jintinghou/Library/Caches/Google
            → 缓存，可清理
@@ -3512,9 +3514,7 @@ df 已用: 809.13 GB
            → 缓存，可清理
      0.5 GB  /System/Volumes/Data/Users/jintinghou/Library/Caches/Microsoft Edge
            → 缓存，可清理
-     0.5 GB  /System/Volumes/Data/Users/jintinghou/Library/Caches/Trae
-           → 缓存，可清理
-  可清理项合计约 35.8 GB
+  可清理项合计约 37.9 GB
 
 【建议】
   1. 优先清理 /System/Volumes/Data/Users/jintinghou/Library/Caches/Yarn（约 5.8 GB）

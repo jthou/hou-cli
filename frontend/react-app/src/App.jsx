@@ -48,7 +48,8 @@ export default function App() {
           <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
           <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface overflow-hidden">
             <Routes>
-              <Route path="/" element={<Home />} />
+              <Route path="/" element={<Navigate to="/web-reader" replace />} />
+              <Route path="/home" element={<Home />} />
               <Route path="/work-assistant" element={<WorkAssistant />} />
               <Route path="/general-chat" element={<GeneralChat />} />
               <Route path="/code-assistant" element={<CodeAssistant />} />

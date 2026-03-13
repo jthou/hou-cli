@@ -21,6 +21,7 @@ TASK_TIMEOUT_SECONDS = {
     "weather_query": 60,             # 1 分钟
     "disk_scan": 60 * 60,            # 1 小时
     "web_search": 60,                # 1 分钟
+    "web_search_compare": 120,       # 2 分钟（双引擎）
     "speech_to_text": 60 * 60,       # 1 小时
     "video_extract_audio": 30 * 60,  # 30 分钟
     "mediawiki_write": 5 * 60,       # 5 分钟

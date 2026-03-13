@@ -1,10 +1,9 @@
-"""GoogleSearchTool 测试（网页搜索：DuckDuckGo HTML，无需 API Key）"""
+"""GoogleSearchTool 测试（网页搜索：Tavily 或 DuckDuckGo）"""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from backend.core.agent.tools.builtin.google_search_tool import GoogleSearchTool
-from backend.services.google_search_service.browser_search import BrowserSearchError
 from backend.services.google_search_service.models import GoogleSearchResponse, GoogleSearchResult
 
 
@@ -29,7 +28,7 @@ class TestGoogleSearchTool:
         assert result.success is False
         assert "query" in result.error.lower() or "必需" in result.error
 
-    @patch("backend.core.agent.tools.builtin.google_search_tool.browser_search")
+    @patch("backend.core.agent.tools.builtin.google_search_tool.web_search")
     def test_search_success(self, mock_search, tool):
         mock_search.return_value = GoogleSearchResponse(
             results=[
@@ -46,14 +45,14 @@ class TestGoogleSearchTool:
         assert result.data["results"][0]["title"] == "Python"
         assert result.data["results"][0]["link"] == "https://python.org"
 
-    @patch("backend.core.agent.tools.builtin.google_search_tool.browser_search")
+    @patch("backend.core.agent.tools.builtin.google_search_tool.web_search")
     def test_search_service_error(self, mock_search, tool):
-        mock_search.side_effect = BrowserSearchError("请求失败")
+        mock_search.side_effect = Exception("请求失败")
         result = tool.execute(query="test")
         assert result.success is False
         assert "失败" in result.error or "请求" in result.error
 
-    @patch("backend.core.agent.tools.builtin.google_search_tool.browser_search")
+    @patch("backend.core.agent.tools.builtin.google_search_tool.web_search")
     def test_num_results_limits(self, mock_search, tool):
         mock_search.return_value = GoogleSearchResponse(
             results=[],
@@ -89,4 +88,4 @@ class TestGoogleSearchToolIntegration:
                 assert "link" in item
                 assert "snippet" in item
         else:
-            pytest.skip(f"网络或 DuckDuckGo 不可用: {result.error}")
+            pytest.skip(f"网络或搜索服务不可用: {result.error}")

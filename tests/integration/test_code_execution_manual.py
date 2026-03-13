@@ -21,12 +21,12 @@ async def test_tool_calling_mode():
     # 验证工具已注册
     tools = orchestrator.tool_registry.get_tools_for_llm()
     tool_names = [t['function']['name'] for t in tools]
-    assert 'execute_code' in tool_names, "execute_code 工具未注册"
+    assert 'exec_py' in tool_names, "exec_py 工具未注册"
     print("✅ 工具注册验证通过")
     
     # 执行工具
     result = orchestrator.tool_registry.execute(
-        'execute_code',
+        'exec_py',
         code='print("hello from tool calling")',
         language='python',
         timeout=10
@@ -81,9 +81,8 @@ async def test_security_blocking():
     
     # 测试工具调用模式下的安全限制
     result = orchestrator.tool_registry.execute(
-        'execute_code',
+        'exec_shell',
         code='rm -rf /',
-        language='bash',
         timeout=10
     )
     
@@ -134,9 +133,8 @@ async def test_e2e_tool_calling():
     # 模拟工具调用流程
     # 1. LLM 决定调用工具
     result = orchestrator.tool_registry.execute(
-        'execute_code',
+        'exec_py',
         code='result = sum(range(1, 11)); print(result)',
-        language='python',
         timeout=10
     )
     

@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 117
-- 前端 fetch 数: 104
+- 后端路由数: 120
+- 前端 fetch 数: 106
 
 ## 后端路由
 
@@ -46,11 +46,14 @@ GET /api/settings/model-availability-audit/models
 GET /api/settings/model-config-audit
 GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
+GET /api/settings/tavily-audit/path
+GET /api/settings/tavily-audit/stats
 GET /api/settings/writing-profile
 GET /api/storage/audit
 GET /api/storage/config
 GET /api/system/cpu
 GET /api/system/disk
+GET /api/system/disk-scan-report
 GET /api/system/load
 GET /api/system/memory
 GET /api/system/network
@@ -170,6 +173,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/settings/writing-profile
 - GET /api/storage/audit
 - GET /api/storage/audit/cleanup-tmp-dbs
+- GET /api/system/disk
+- GET /api/system/disk-scan-report
 - GET /api/task-queue/cleanup
 - GET /api/task-queue/scheduled-tasks
 - GET /api/task-queue/scheduled-tasks/${task.schedule_id}
@@ -251,9 +256,10 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/{id}/clear
 - /api/sessions/{id}/summary
 - /api/settings/kanban/status
+- /api/settings/tavily-audit/path
+- /api/settings/tavily-audit/stats
 - /api/storage/config
 - /api/system/cpu
-- /api/system/disk
 - /api/system/load
 - /api/system/memory
 - /api/system/network

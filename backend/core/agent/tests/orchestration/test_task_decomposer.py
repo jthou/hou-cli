@@ -19,7 +19,7 @@ class TestTaskDecomposer:
     def mock_tool_registry(self):
         """创建模拟工具注册表"""
         registry = Mock()
-        registry.list_tools.return_value = ["google_search", "browser", "execute_code"]
+        registry.list_tools.return_value = ["google_search", "browser", "exec_py"]
         registry.get_tool.return_value = Mock(
             name="google_search",
             description="搜索工具",

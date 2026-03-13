@@ -1,10 +1,7 @@
-"""网页搜索工具实现（无头浏览器式：DuckDuckGo HTML，无需 API Key）"""
+"""网页搜索工具实现（Tavily API 或 DuckDuckGo，有 TAVILY_API_KEY 时优先 Tavily）"""
 
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
-from backend.services.google_search_service.browser_search import (
-    search as browser_search,
-    BrowserSearchError,
-)
+from backend.services.google_search_service.unified_search import web_search
 
 
 class GoogleSearchTool(Tool):
@@ -35,7 +32,7 @@ class GoogleSearchTool(Tool):
         super().__init__(
             name="google_search",
             description=(
-                "使用网页搜索获取网络信息（当前通过 DuckDuckGo，无需 API Key）。"
+                "使用网页搜索获取网络信息（有 TAVILY_API_KEY 时用 Tavily，否则用 DuckDuckGo）。"
                 "\n参数说明："
                 "- query: 搜索关键词或查询语句（必需）"
                 "- num_results: 返回结果数量（可设置，建议 1–100，默认 10）"
@@ -56,13 +53,11 @@ class GoogleSearchTool(Tool):
         num_results = max(1, min(100, num_results))
 
         try:
-            response = browser_search(
+            response = web_search(
                 query=query,
                 num_results=num_results,
                 language=language,
             )
-        except BrowserSearchError as e:
-            return ToolResult(success=False, error=str(e))
         except Exception as e:
             return ToolResult(success=False, error=f"搜索失败: {str(e)}")
 
@@ -75,7 +70,11 @@ class GoogleSearchTool(Tool):
             }
             for r in response.results
         ]
-        summary = f"找到 {len(results)} 条结果，耗时 {response.search_time:.2f} 秒"
+        summary = (
+            f"找到 {len(results)} 条结果，耗时 {response.search_time:.2f} 秒"
+            if response.search_time is not None
+            else f"找到 {len(results)} 条结果"
+        )
         return ToolResult(
             success=True,
             data={

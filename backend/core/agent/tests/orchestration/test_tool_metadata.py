@@ -18,34 +18,32 @@ class TestToolMetadata:
             registry._initialize_default_metadata()
             registry._initialized = True
         # 验证关键元数据存在
-        assert registry.get_metadata("execute_code") is not None, "execute_code 元数据应该已初始化"
+        assert registry.get_metadata("exec_py") is not None, "exec_py 元数据应该已初始化"
         yield
         # 测试后清理（如果需要）
     
     def test_get_metadata(self):
         """测试获取工具元数据"""
         # 确保使用全局单例实例
-        metadata = tool_metadata_registry.get_metadata("execute_code")
+        metadata = tool_metadata_registry.get_metadata("exec_py")
         
-        assert metadata is not None, "execute_code 元数据应该存在"
-        # 如果元数据是默认值，说明初始化有问题
+        assert metadata is not None, "exec_py 元数据应该存在"
         if metadata and metadata.requires_code == False and metadata.recommended_model is None:
-            # 尝试重新初始化
             registry = ToolMetadataRegistry()
             if not registry._initialized:
                 registry._metadata = {}
                 registry._initialize_default_metadata()
                 registry._initialized = True
-            metadata = registry.get_metadata("execute_code")
+            metadata = registry.get_metadata("exec_py")
         
-        assert metadata is not None, "execute_code 元数据应该存在（重新初始化后）"
-        assert metadata.requires_code is True, f"execute_code 应该需要代码能力，但 requires_code={metadata.requires_code}, metadata={metadata}"
-        assert metadata.recommended_model == "code", f"execute_code 应该推荐 code 模型，但 recommended_model={metadata.recommended_model}, metadata={metadata}"
+        assert metadata is not None, "exec_py 元数据应该存在（重新初始化后）"
+        assert metadata.requires_code is True, f"exec_py 应该需要代码能力，但 requires_code={metadata.requires_code}"
+        assert metadata.recommended_model == "code", f"exec_py 应该推荐 code 模型，但 recommended_model={metadata.recommended_model}"
     
     def test_get_recommended_model(self):
         """测试获取推荐模型"""
         # 代码执行工具
-        model = tool_metadata_registry.get_recommended_model("execute_code")
+        model = tool_metadata_registry.get_recommended_model("exec_py")
         assert model == "code"
         
         # 搜索工具
@@ -62,12 +60,12 @@ class TestToolMetadata:
         assert tool_metadata_registry.requires_reasoning("browser") is True
         
         # 代码执行工具不需要推理
-        assert tool_metadata_registry.requires_reasoning("execute_code") is False
+        assert tool_metadata_registry.requires_reasoning("exec_py") is False
     
     def test_requires_code(self):
         """测试代码需求检查"""
         # 代码执行工具需要代码能力
-        assert tool_metadata_registry.requires_code("execute_code") is True
+        assert tool_metadata_registry.requires_code("exec_py") is True
         
         # 搜索工具不需要代码能力
         assert tool_metadata_registry.requires_code("google_search") is False
@@ -78,7 +76,7 @@ class TestToolMetadata:
         assert tool_metadata_registry.can_parallel("google_search") is True
         
         # 代码执行工具不能并行
-        assert tool_metadata_registry.can_parallel("execute_code") is False
+        assert tool_metadata_registry.can_parallel("exec_py") is False
     
     def test_register_custom_metadata(self):
         """测试注册自定义元数据"""

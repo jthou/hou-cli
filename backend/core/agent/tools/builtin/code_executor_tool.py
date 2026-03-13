@@ -1,4 +1,8 @@
-"""代码执行工具实现"""
+"""代码执行工具实现
+
+将 execute_code 拆分为 exec_py（Python）和 exec_shell（shell/zsh），
+便于 LLM 根据任务类型选择对应工具。
+"""
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
@@ -22,59 +26,53 @@ except ImportError:
     _InteractiveExecutor = None
 
 
-class CodeExecutorTool(Tool):
-    """代码执行工具
-    
-    允许 AI 助手在安全的沙盒环境中执行脚本代码。
-    当前仅支持 python、zsh。
+def _build_safety_descriptions() -> tuple[str, str]:
+    """构建危险命令和受限路径描述"""
+    executor = SecureExecutor()
+    dangerous_commands = executor.COMMAND_BLACKLIST
+    restricted_paths = executor.RESTRICTED_PATHS
+
+    file_delete_cmds = [cmd for cmd in dangerous_commands if cmd in ["rm", "del"]]
+    permission_cmds = [cmd for cmd in dangerous_commands if cmd in ["sudo", "su", "chmod", "chown", "chgrp"]]
+    disk_cmds = [cmd for cmd in dangerous_commands if cmd in ["format", "mkfs", "fdisk", "dd"]]
+    process_cmds = [cmd for cmd in dangerous_commands if cmd in ["killall", "pkill"]]
+
+    dangerous_cmds_desc = ""
+    if file_delete_cmds:
+        dangerous_cmds_desc += f"- 文件删除：{', '.join(file_delete_cmds)}\n"
+    if permission_cmds:
+        dangerous_cmds_desc += f"- 权限管理：{', '.join(permission_cmds)}\n"
+    if disk_cmds:
+        dangerous_cmds_desc += f"- 磁盘操作：{', '.join(disk_cmds)}\n"
+    if process_cmds:
+        dangerous_cmds_desc += f"- 进程管理：{', '.join(process_cmds)}\n"
+
+    restricted_paths_desc = ""
+    linux_paths = [p for p in restricted_paths if not p.startswith("C:")]
+    windows_paths = [p for p in restricted_paths if p.startswith("C:")]
+    if linux_paths:
+        restricted_paths_desc += f"- Linux/macOS: {', '.join(linux_paths)}\n"
+    if windows_paths:
+        restricted_paths_desc += f"- Windows: {', '.join(windows_paths)}\n"
+
+    return dangerous_cmds_desc, restricted_paths_desc
+
+
+class _BaseCodeExecutorTool(Tool):
+    """代码执行工具基类
+
+    子类需指定 name 和 language。
     """
-    
-    def __init__(self):
-        """初始化代码执行工具"""
-        # 获取安全执行器的配置，用于生成工具描述
-        executor = SecureExecutor()
-        dangerous_commands = executor.COMMAND_BLACKLIST
-        restricted_paths = executor.RESTRICTED_PATHS
-        
-        # 将危险命令分类展示
-        file_delete_cmds = [cmd for cmd in dangerous_commands if cmd in ["rm", "del"]]
-        permission_cmds = [cmd for cmd in dangerous_commands if cmd in ["sudo", "su", "chmod", "chown", "chgrp"]]
-        disk_cmds = [cmd for cmd in dangerous_commands if cmd in ["format", "mkfs", "fdisk", "dd"]]
-        process_cmds = [cmd for cmd in dangerous_commands if cmd in ["killall", "pkill"]]
-        
-        # 构建危险命令描述
-        dangerous_cmds_desc = ""
-        if file_delete_cmds:
-            dangerous_cmds_desc += f"- 文件删除：{', '.join(file_delete_cmds)}\n"
-        if permission_cmds:
-            dangerous_cmds_desc += f"- 权限管理：{', '.join(permission_cmds)}\n"
-        if disk_cmds:
-            dangerous_cmds_desc += f"- 磁盘操作：{', '.join(disk_cmds)}\n"
-        if process_cmds:
-            dangerous_cmds_desc += f"- 进程管理：{', '.join(process_cmds)}\n"
-        
-        # 构建受限路径描述
-        restricted_paths_desc = ""
-        linux_paths = [p for p in restricted_paths if not p.startswith("C:")]
-        windows_paths = [p for p in restricted_paths if p.startswith("C:")]
-        if linux_paths:
-            restricted_paths_desc += f"- Linux/macOS: {', '.join(linux_paths)}\n"
-        if windows_paths:
-            restricted_paths_desc += f"- Windows: {', '.join(windows_paths)}\n"
-        
+
+    def __init__(self, name: str, language: str, description: str):
+        dangerous_cmds_desc, restricted_paths_desc = _build_safety_descriptions()
+
         parameters = [
             ToolParameter(
                 name="code",
                 type="string",
                 description="要执行的代码内容",
                 required=True
-            ),
-            ToolParameter(
-                name="language",
-                type="string",
-                description="代码语言：python 或 zsh（当前仅支持此两种）",
-                required=True,
-                enum=["python", "zsh"]
             ),
             ToolParameter(
                 name="timeout",
@@ -102,64 +100,24 @@ class CodeExecutorTool(Tool):
                 required=False
             )
         ]
-        
-        super().__init__(
-            name="execute_code",
-            description=(
-                "在安全的沙盒环境中执行脚本代码（每次独立执行，不保留状态）。"
-                "\n【优先使用场景】当需要以下功能时，使用 execute_code："
-                "\n1. 一次性脚本任务："
-                "   - 执行独立的脚本，不需要保留变量或状态"
-                "   - 例如：读取文件、处理数据、输出结果（一次性完成）"
-                "\n2. 系统操作和文件管理："
-                "   - 文件操作（创建、删除、移动、复制文件）"
-                "   - 系统命令（zsh）"
-                "   - 环境检查和配置"
-                "\n3. 数据转换和验证："
-                "   - 一次性数据转换任务"
-                "   - 数据格式验证"
-                "   - 简单的数据处理（不需要保留中间结果）"
-                "\n4. 跨语言支持："
-                "   - 需要执行非 Python 代码（zsh）"
-                "\n支持的语言："
-                "- python: Python 脚本（跨平台）"
-                "- zsh: Zsh 脚本（Linux/macOS）"
-                "\n核心特性："
-                "- ✅ 独立执行：每次执行都是全新的环境，不保留之前的状态"
-                "- ✅ 多语言支持：支持 Python、zsh"
-                "- ✅ 系统操作：可以执行系统命令和文件操作"
-                "- ✅ 安全隔离：代码在隔离环境中执行"
-                "\n适用场景："
-                "- 一次性脚本任务：执行独立的脚本，不需要保留变量或状态"
-                "- 系统操作和文件管理：文件操作、系统命令、环境检查"
-                "- 数据转换和验证：一次性数据转换、格式验证、简单数据处理"
-                "- 跨语言支持：支持 Python、zsh"
-                "\n核心原则（非常重要）："
-                "- 严格按照用户指令执行，不要添加额外的探索、检查或推理"
-                "- 用户要求执行什么命令，就执行什么命令，不要自作主张添加其他操作"
-                "- 例如：用户要求 '显示 /home 下的所有文件'，直接执行 'ls /home'，不要去找 /dev、/Users 等其他路径"
-                "- 优先使用简单、直接的命令，避免不必要的复杂性"
-                "- 能用单条命令解决的问题，不要写多行代码"
-                "\n示例场景："
-                "- '读取文件内容' → 使用 execute_code（一次性任务）"
-                "- '列出目录文件' → 使用 execute_code（系统操作）"
-                "- '执行 shell 脚本' → 使用 execute_code（zsh）"
-                "- '分析数据并绘制图表' → 使用 execute_code（可以执行完整的数据分析脚本）"
-                "\n安全限制："
-                "- 代码在隔离环境中执行"
-                "- 资源限制：CPU、内存、时间"
-                "- 代码长度限制：10KB"
-                "- 输出大小限制：10MB"
-                "\n【重要】禁止使用的危险命令（会被拒绝执行）："
-                f"{dangerous_cmds_desc}"
-                "- 注意：这些命令即使作为字符串的一部分也会被检测到，请避免使用"
-                "\n【重要】禁止访问的敏感目录（会被拒绝执行）："
-                f"{restricted_paths_desc}"
-                "- 注意：代码中包含这些路径会被拒绝执行"
-            ),
-            parameters=parameters
+
+        full_description = (
+            f"{description}"
+            "\n安全限制："
+            "\n- 代码在隔离环境中执行"
+            "\n- 资源限制：CPU、内存、时间"
+            "\n- 代码长度限制：10KB"
+            "\n- 输出大小限制：10MB"
+            f"\n【重要】禁止使用的危险命令（会被拒绝执行）："
+            f"\n{dangerous_cmds_desc}"
+            "- 注意：这些命令即使作为字符串的一部分也会被检测到，请避免使用"
+            f"\n【重要】禁止访问的敏感目录（会被拒绝执行）："
+            f"\n{restricted_paths_desc}"
+            "- 注意：代码中包含这些路径会被拒绝执行"
         )
-        
+
+        super().__init__(name=name, description=full_description, parameters=parameters)
+        self._language = language
         self.executor = SecureExecutor()
         self.risk_detector = RiskDetector()
         self.allowlist_evaluator = get_allowlist_evaluator()
@@ -169,49 +127,33 @@ class CodeExecutorTool(Tool):
             try:
                 self.interactive_executor = _InteractiveExecutor()
             except Exception:
-                self.interactive_executor = None  # pexpect 未安装或初始化失败
-    
+                self.interactive_executor = None
+
     def execute(self, **kwargs) -> ToolResult:
         """执行代码（同步包装异步方法）"""
-        # 由于 Tool.execute 是同步的，我们需要使用 asyncio.run
-        # 但要注意如果已经在事件循环中，需要使用其他方法
         try:
-            # 尝试获取当前事件循环
             loop = asyncio.get_running_loop()
-            # 如果已经在事件循环中，使用线程池执行
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, self._execute_async(**kwargs))
-                return future.result(timeout=kwargs.get("timeout", 30) + 5)  # 超时时间+5秒缓冲
+                return future.result(timeout=kwargs.get("timeout", 30) + 5)
         except RuntimeError:
-            # 没有运行中的事件循环，直接创建新的
             return asyncio.run(self._execute_async(**kwargs))
-    
+
     async def _execute_async(self, **kwargs) -> ToolResult:
         """异步执行代码"""
         code = kwargs.get("code")
-        language = kwargs.get("language")
         timeout = kwargs.get("timeout", 30)
         explanation = kwargs.get("explanation", "")
         approval_token = kwargs.get("approval_token", "")
-        approval_id = kwargs.get("approval_id", "")
-        
+        language = self._language
+
         if not code:
-            return ToolResult(
-                success=False,
-                error="Code parameter is required"
-            )
-        
-        if not language:
-            return ToolResult(
-                success=False,
-                error="Language parameter is required"
-            )
-        
-        # 验证超时时间
+            return ToolResult(success=False, error="Code parameter is required")
+
         if timeout < 1 or timeout > 300:
             timeout = 30
-        
+
         # 1. 若有 approval_token，校验后直接执行
         if approval_token:
             pending = self.approval_manager.verify_token(approval_token)
@@ -221,21 +163,19 @@ class CodeExecutorTool(Tool):
                     error="审批 token 无效或已过期，请重新发起执行并确认",
                     data={"requires_approval": False}
                 )
-            # 校验 code 与审批时一致
             if pending.code and pending.code.strip() != code.strip():
                 return ToolResult(
                     success=False,
                     error="审批 token 与当前代码不一致，请重新发起执行并确认",
                     data={"requires_approval": False}
                 )
-            # token 有效，跳过风险检查，直接执行（含 skip 黑名单/路径检查）
             return await self._do_execute(
                 code, language, timeout, explanation,
                 skip_blacklist_check=True,
                 skip_path_check=True
             )
-        
-        # 2. 代码助手场景：始终需用户确认（与 Cursor IDE 一致）
+
+        # 2. 代码助手场景：始终需用户确认
         if kwargs.get("_require_approval_always"):
             pending = self.approval_manager.create_pending(
                 command=code.split("\n")[0] if code else "",
@@ -244,7 +184,7 @@ class CodeExecutorTool(Tool):
                 risk_level=RiskLevel.SAFE.value,
                 reason="代码助手执行前需用户确认",
                 code=code,
-                tool_name="execute_code"
+                tool_name=self.name
             )
             return ToolResult(
                 success=False,
@@ -261,16 +201,16 @@ class CodeExecutorTool(Tool):
                     "preview": {"command": code[:200], "risk_level": RiskLevel.SAFE.value}
                 }
             )
-        
+
         # 3. Allowlist：命中则免审直接执行（仅 zsh）
         if language.lower() in ("zsh", "shell", "sh", "bash"):
             allow_result = self.allowlist_evaluator.evaluate(code, workdir="", language=language)
             if allow_result.satisfied:
                 return await self._do_execute(code, language, timeout, explanation)
-        
+
         # 4. 风险检测
         risk_level, reason = self.risk_detector.detect_risk(code, language)
-        
+
         # 5. 严重风险直接拒绝
         if not self.risk_detector.is_allowed(risk_level):
             return ToolResult(
@@ -284,7 +224,7 @@ class CodeExecutorTool(Tool):
                     "code": code
                 }
             )
-        
+
         # 6. 需确认：创建待审批，返回 approval_id
         if self.risk_detector.requires_confirmation(risk_level):
             pending = self.approval_manager.create_pending(
@@ -294,7 +234,7 @@ class CodeExecutorTool(Tool):
                 risk_level=risk_level.value,
                 reason=reason,
                 code=code,
-                tool_name="execute_code"
+                tool_name=self.name
             )
             return ToolResult(
                 success=False,
@@ -311,10 +251,10 @@ class CodeExecutorTool(Tool):
                     "preview": {"command": code[:200], "risk_level": risk_level.value}
                 }
             )
-        
+
         # 7. 安全级别，直接执行
         return await self._do_execute(code, language, timeout, explanation)
-    
+
     async def _do_execute(
         self,
         code: str,
@@ -326,20 +266,14 @@ class CodeExecutorTool(Tool):
     ) -> ToolResult:
         """实际执行代码"""
         try:
-            # 检测是否需要交互式输入
             use_interactive = False
             if self.interactive_executor is not None:
                 use_interactive = self.interactive_executor.detect_interactive_input(code, language)
-            
+
             if use_interactive and self.interactive_executor is not None:
-                # 使用交互式执行器
-                # 注意：交互式执行需要输入处理函数，这里暂时使用占位符
-                # 实际实现需要前后端配合
                 def input_handler(prompt: str, is_password: bool) -> str:
-                    # TODO: 实现输入处理，需要与前端交互
-                    # 暂时返回空字符串
                     return ""
-                
+
                 result = await self.interactive_executor.execute_interactive(
                     code=code,
                     language=language,
@@ -347,7 +281,6 @@ class CodeExecutorTool(Tool):
                     input_handler=input_handler
                 )
             else:
-                # 使用普通执行器（支持流式输出 via progress_callback）
                 request = ExecutionRequest(
                     code=code,
                     language=language,
@@ -363,59 +296,15 @@ class CodeExecutorTool(Tool):
                     on_stdout=on_stdout,
                     on_stderr=on_stderr
                 )
-            
-            # 安全处理输出和错误（清理无效字符）
+
             def safe_clean_text(text: str) -> str:
-                """安全清理文本，移除无效字符"""
-                # #region agent log
-                try:
-                    import json
-                    debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(debug_log_path, 'a', encoding='utf-8') as f:
-                        json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"开始清理文本","data":{"text_type":type(text).__name__,"text_len":len(str(text)) if text else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                        f.write('\n')
-                except: pass
-                # #endregion
                 if not text:
                     return ""
                 try:
-                    # 尝试编码和解码，清理无效字符
-                    result = text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-                    # #region agent log
-                    try:
-                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"文本清理成功","data":{"result_len":len(result)},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                            f.write('\n')
-                    except: pass
-                    # #endregion
-                    return result
-                except Exception as e:
-                    # #region agent log
-                    try:
-                        debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                        with open(debug_log_path, 'a', encoding='utf-8') as f:
-                            json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:safe_clean_text","message":"文本清理失败","data":{"error":str(e)[:200]},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                            f.write('\n')
-                    except: pass
-                    # #endregion
-                    # 如果失败，返回清理后的版本
+                    return text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                except Exception:
                     return str(text).encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-            
-            # #region agent log
-            try:
-                import json
-                debug_log_path = PROJECT_ROOT / '.cursor' / 'debug.log'
-                debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(debug_log_path, 'a', encoding='utf-8') as f:
-                    json.dump({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"code_executor_tool.py:_execute_async","message":"构建工具结果","data":{"result_success":result.success,"output_len":len(result.output) if result.output else 0,"error_len":len(result.error) if result.error else 0},"timestamp":int(__import__('time').time()*1000)}, f, ensure_ascii=False)
-                    f.write('\n')
-            except: pass
-            # #endregion
-            # 构建返回结果
+
             return ToolResult(
                 success=result.success,
                 data={
@@ -435,3 +324,41 @@ class CodeExecutorTool(Tool):
                 error=f"代码执行失败: {str(e)}"
             )
 
+
+class ExecPyTool(_BaseCodeExecutorTool):
+    """执行 Python 代码"""
+
+    def __init__(self):
+        desc = (
+            "在安全的沙盒环境中执行 Python 脚本（每次独立执行，不保留状态）。"
+            "\n【使用场景】"
+            "\n- 读取文件、处理数据、输出结果"
+            "\n- 数据分析、格式转换、简单计算"
+            "\n- 一次性 Python 脚本任务"
+            "\n核心原则：严格按照用户指令执行，不要添加额外的探索或推理。"
+        )
+        super().__init__(
+            name="exec_py",
+            language="python",
+            description=desc
+        )
+
+
+class ExecShellTool(_BaseCodeExecutorTool):
+    """执行 Shell/Zsh 代码"""
+
+    def __init__(self):
+        desc = (
+            "在安全的沙盒环境中执行 Shell/Zsh 脚本（每次独立执行，不保留状态）。"
+            "\n【使用场景】"
+            "\n- 文件操作（ls、cat、cp、mv 等）"
+            "\n- 系统命令、环境检查"
+            "\n- 一次性 shell 脚本任务"
+            "\n核心原则：严格按照用户指令执行，不要自作主张添加其他操作。"
+            "\n例如：用户要求 '显示 /home 下的所有文件'，直接执行 'ls /home'。"
+        )
+        super().__init__(
+            name="exec_shell",
+            language="zsh",
+            description=desc
+        )

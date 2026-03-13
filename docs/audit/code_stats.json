@@ -1,34 +1,34 @@
 {
-  "total_files": 1136,
-  "total_lines": 332521,
+  "total_files": 1153,
+  "total_lines": 344050,
   "by_language": {
     "other": {
-      "files": 25,
-      "lines": 97018
+      "files": 26,
+      "lines": 100907
     },
     "markdown": {
-      "files": 392,
-      "lines": 106403
+      "files": 398,
+      "lines": 107257
     },
     "python": {
-      "files": 549,
-      "lines": 96059
+      "files": 556,
+      "lines": 96375
     },
     "shell": {
       "files": 34,
       "lines": 2143
     },
     "jsx": {
-      "files": 84,
-      "lines": 17060
+      "files": 86,
+      "lines": 17668
     },
     "javascript": {
       "files": 32,
-      "lines": 5043
+      "lines": 5166
     },
     "json": {
-      "files": 8,
-      "lines": 5298
+      "files": 9,
+      "lines": 11037
     },
     "html": {
       "files": 2,
@@ -45,8 +45,8 @@
   },
   "by_directory": {
     ".": {
-      "files": 9,
-      "lines": 1796
+      "files": 10,
+      "lines": 5337
     },
     "frontend-react-app": {
       "files": 1,
@@ -54,15 +54,15 @@
     },
     "extension": {
       "files": 6,
-      "lines": 1113
+      "lines": 1167
     },
     "frontend": {
-      "files": 142,
-      "lines": 37570
+      "files": 144,
+      "lines": 38248
     },
     "plans": {
-      "files": 18,
-      "lines": 9210
+      "files": 24,
+      "lines": 10058
     },
     "config": {
       "files": 2,
@@ -74,19 +74,19 @@
     },
     "tests": {
       "files": 65,
-      "lines": 8101
+      "lines": 8094
     },
     "backend": {
-      "files": 468,
-      "lines": 137880
+      "files": 475,
+      "lines": 138198
     },
     "shared": {
       "files": 10,
       "lines": 972
     },
     "docs": {
-      "files": 325,
-      "lines": 93733
+      "files": 326,
+      "lines": 99826
     },
     "hou_cli.egg-info": {
       "files": 5,
@@ -98,7 +98,7 @@
     },
     "scripts": {
       "files": 59,
-      "lines": 6357
+      "lines": 6361
     },
     "archived": {
       "files": 21,
@@ -109,5 +109,5 @@
       "lines": 33896
     }
   },
-  "generated_at": "2026-03-10T09:16:47.239155Z"
+  "generated_at": "2026-03-13T06:28:48.511058Z"
 }

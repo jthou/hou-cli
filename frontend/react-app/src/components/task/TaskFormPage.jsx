@@ -25,7 +25,7 @@ const TASK_API = {
   },
 }
 
-export default function TaskFormPage({ taskType, title, description, submitLabel = '提交任务', rightContent, topContent, onTaskCreated }) {
+export default function TaskFormPage({ taskType, title, description, submitLabel = '提交任务', rightContent, topContent, onTaskCreated, submitTaskType }) {
   const toast = useToast()
   const [taskTypes, setTaskTypes] = useState([])
   const [metadata, setMetadata] = useState({})
@@ -38,6 +38,7 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
   const [dependsOnTaskId, setDependsOnTaskId] = useState('')
   const [inputBindings, setInputBindings] = useState({})
 
+  const effectiveTaskType = submitTaskType ?? taskType
   const typeInfo = taskTypes.find(t => t.type === taskType) || null
   const schema = typeInfo?.metadata_schema || {}
   const isInputFileTask = INPUT_FILE_TASKS.includes(taskType)
@@ -153,9 +154,9 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
         }
         delete meta.cookies_from_extension
       }
-      const prepared = await prepareMetadataForSubmitAsync(taskType, meta)
-      const payload = { task_type: taskType, metadata: prepared }
-      if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
+      const prepared = await prepareMetadataForSubmitAsync(effectiveTaskType, meta)
+      const payload = { task_type: effectiveTaskType, metadata: prepared }
+        if (inputSource === 'from_task' && dependsOnTaskId?.trim()) {
         payload.depends_on_task_id = dependsOnTaskId.trim()
         const bindings = {}
         Object.entries(inputBindings || {}).forEach(([k, v]) => { if (v && String(v).trim()) bindings[k] = String(v).trim() })

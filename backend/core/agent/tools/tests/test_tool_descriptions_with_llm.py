@@ -570,7 +570,8 @@ async def test_specific_tool_description(validator, tool_name: str = "whisper"):
     reason="需要配置 DEEPSEEK_API_KEY（必需，参考 env.example）"
 )
 @pytest.mark.parametrize("tool_name", [
-    "execute_code",
+    "exec_py",
+    "exec_shell",
     "ffmpeg",
     "whisper",
     "wikipedia",

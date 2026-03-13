@@ -10,6 +10,7 @@ const STATUS_LABEL = { queued: '排队', running: '进行中', completed: '已�
 
 export default function TaskListByTypePanel({
   taskType,
+  taskTypes,
   title,
   emptyText,
   pipelineOnly = false,
@@ -19,23 +20,29 @@ export default function TaskListByTypePanel({
   const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
+  const allowedTypes = Array.isArray(taskTypes) && taskTypes.length ? new Set(taskTypes) : null
 
   const fetchTasks = () => {
     setLoading(true)
     const params = new URLSearchParams({ limit: '50', include_result: 'true' })
     if (pipelineOnly) params.set('pipeline_only', 'true')
-    else if (taskType) params.set('task_type', taskType)
+    else if (taskType && !allowedTypes) params.set('task_type', taskType)
     fetch(`/api/task-queue/tasks?${params}`)
       .then(r => r.json())
       .then(d => {
-        if (d.success && Array.isArray(d.tasks)) setTasks(d.tasks)
+        if (d.success && Array.isArray(d.tasks)) {
+          const list = allowedTypes
+            ? d.tasks.filter(t => allowedTypes.has(t.task_type))
+            : d.tasks
+          setTasks(list)
+        }
       })
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
     fetchTasks()
-  }, [taskType, pipelineOnly])
+  }, [taskType, pipelineOnly, taskTypes?.join(',')])
 
   useEffect(() => {
     if (refreshTrigger === undefined) return

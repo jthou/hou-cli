@@ -9,7 +9,6 @@ const navItems = [
   { path: '/article-writing', icon: '✍️', label: '写作助手', group: 'smart_tools' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },
-  { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'read' },
   { path: '/weread-reader', icon: '📱', label: '微信读书', group: 'read' },
   { path: '/pdf-reader', icon: '📘', label: 'PDF阅读', group: 'read' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'task_tools' },
@@ -84,7 +83,20 @@ export default function Sidebar({ open, onToggle }) {
         <ul className="space-y-2 px-2">
           <li>
             <NavLink
-              to="/"
+              to="/web-reader"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
+                }`
+              }
+            >
+              <span>🌐</span>
+              <span>网页阅读</span>
+            </NavLink>
+          </li>
+          <li>
+            <NavLink
+              to="/home"
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
@@ -92,7 +104,7 @@ export default function Sidebar({ open, onToggle }) {
               }
             >
               <span>🏠</span>
-              <span>首页</span>
+              <span>工作台</span>
             </NavLink>
           </li>
           {itemsByGroup.map(({ id, meta, items }) => (

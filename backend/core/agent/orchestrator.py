@@ -771,15 +771,15 @@ class UnifiedOrchestrator:
         """
         # ===== 1. 基础工具（最常用） =====
         
-        # 注册代码执行工具（最基础、最常用）
+        # 注册代码执行工具（exec_py / exec_shell）
         try:
-            from backend.core.agent.tools.builtin.code_executor_tool import CodeExecutorTool
-            code_executor_tool = CodeExecutorTool()
-            self.tool_registry.register(code_executor_tool)
-            self.debug.log_orchestrator_step("注册工具", {"code_executor_tool": "registered"})
-            logger.info("Code executor tool registered successfully")
+            from backend.core.agent.tools.builtin.code_executor_tool import ExecPyTool, ExecShellTool
+            self.tool_registry.register(ExecPyTool())
+            self.tool_registry.register(ExecShellTool())
+            self.debug.log_orchestrator_step("注册工具", {"exec_py": "registered", "exec_shell": "registered"})
+            logger.info("ExecPy and ExecShell tools registered successfully")
         except Exception as e:
-            error_msg = f"Failed to register code executor tool: {str(e)}. Code executor tool will not be available."
+            error_msg = f"Failed to register code executor tools: {str(e)}. exec_py/exec_shell will not be available."
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
@@ -3066,8 +3066,8 @@ class UnifiedOrchestrator:
                                 error=f"工具执行失败: {str(e)}"
                             )
                         
-                        # 检查是否需要确认（针对 execute_code 工具）
-                        if (tool_name == "execute_code" and 
+                        # 检查是否需要确认（针对 exec_py / exec_shell 工具）
+                        if (tool_name in ("exec_py", "exec_shell") and 
                             tool_result.data and 
                             tool_result.data.get("requires_confirmation")):
                             # 发送确认请求

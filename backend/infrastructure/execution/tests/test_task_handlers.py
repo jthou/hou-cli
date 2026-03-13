@@ -196,7 +196,7 @@ class TestTaskHandlerValidation:
             query="python",
         )
         with patch(
-            "backend.services.google_search_service.browser_search.search",
+            "backend.services.google_search_service.unified_search.web_search",
             return_value=mock_response,
         ):
             out = await process_web_search_task(task_info)
@@ -330,6 +330,11 @@ class TestValidateTaskCreation:
 
     def test_web_search_valid(self):
         ok, err = validate_task_creation("web_search", {"query": "测试"})
+        assert ok is True
+        assert err is None
+
+    def test_web_search_compare_valid(self):
+        ok, err = validate_task_creation("web_search_compare", {"query": "测试"})
         assert ok is True
         assert err is None
 

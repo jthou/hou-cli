@@ -18,19 +18,18 @@ class TestCodeExecutionIntegration:
     
     @pytest.mark.asyncio
     async def test_tool_calling_mode(self, orchestrator):
-        """测试工具调用模式：LLM 调用 execute_code 工具"""
+        """测试工具调用模式：LLM 调用 exec_py 工具"""
         # 验证工具已注册
         tools = orchestrator.tool_registry.get_tools_for_llm()
         tool_names = [t['function']['name'] for t in tools]
-        assert 'execute_code' in tool_names, "execute_code 工具未注册"
+        assert 'exec_py' in tool_names, "exec_py 工具未注册"
         
         # 模拟 LLM 调用工具
         mock_response = MagicMock()
         mock_response.tool_calls = [MagicMock()]
-        mock_response.tool_calls[0].function.name = "execute_code"
+        mock_response.tool_calls[0].function.name = "exec_py"
         mock_response.tool_calls[0].function.arguments = json.dumps({
             "code": "print('hello from tool')",
-            "language": "python",
             "timeout": 10
         })
         mock_response.tool_calls[0].id = "call_123"
@@ -42,9 +41,8 @@ class TestCodeExecutionIntegration:
             
             # 执行工具调用
             result = orchestrator.tool_registry.execute(
-                'execute_code',
+                'exec_py',
                 code='print("hello from tool")',
-                language='python',
                 timeout=10
             )
             
@@ -168,9 +166,8 @@ class TestCodeExecutionE2E:
         class MockResponse:
             def __init__(self):
                 self.tool_calls = [
-                    MockToolCall("execute_code", json.dumps({
+                    MockToolCall("exec_py", json.dumps({
                         "code": "print('hello from e2e test')",
-                        "language": "python",
                         "timeout": 10
                     }))
                 ]
@@ -244,9 +241,8 @@ class TestCodeExecutionE2E:
         """端到端测试：安全限制阻止危险命令"""
         # 测试工具调用模式
         result = orchestrator.tool_registry.execute(
-            'execute_code',
+            'exec_py',
             code='import os; os.system("rm -rf /")',
-            language='python',
             timeout=10
         )
         
@@ -279,9 +275,8 @@ class TestCodeExecutionE2E:
             def __init__(self, has_tool_call=False):
                 if has_tool_call:
                     self.tool_calls = [
-                        MockToolCall("execute_code", json.dumps({
+                        MockToolCall("exec_py", json.dumps({
                             "code": "print('main code')",
-                            "language": "python",
                             "timeout": 10
                         }))
                     ]

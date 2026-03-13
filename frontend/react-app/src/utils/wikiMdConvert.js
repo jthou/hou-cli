@@ -14,6 +14,8 @@ const NOWIKI_PLACEHOLDER_PREFIX = '__WIKINOWIKI_'
 const NOWIKI_PLACEHOLDER_SUFFIX = '__'
 const PRE_PLACEHOLDER_PREFIX = '__WIKIPRE_'
 const PRE_PLACEHOLDER_SUFFIX = '__'
+const IMG_PLACEHOLDER_PREFIX = '___IMG_'
+const IMG_PLACEHOLDER_SUFFIX = '___'
 
 // ---------- Wikitext → Markdown ----------
 
@@ -476,6 +478,21 @@ function mdEmphasisToWiki(md) {
 }
 
 /**
+ * 提取 ![alt](url) 为占位符，避免被 mdLinksToWiki 误转为外部链接。
+ * @returns {{ text: string, images: Array<{ url: string, alt: string, placeholder: string }> }}
+ */
+function mdExtractImagesToPlaceholders(md) {
+  const images = []
+  const re = /!\[([^\]]*)\]\(([^)]+)\)/g
+  const out = md.replace(re, (_, alt, url) => {
+    const placeholder = `${IMG_PLACEHOLDER_PREFIX}${images.length}${IMG_PLACEHOLDER_SUFFIX}`
+    images.push({ url: url.trim(), alt: (alt || '').trim(), placeholder })
+    return placeholder
+  })
+  return { text: out, images }
+}
+
+/**
  * [text](url) → 若 url 像内部链接则 [[url|text]]，否则 [url text]
  * 简单规则：含 :// 视为外部；否则视为内部页面名
  */
@@ -651,4 +668,28 @@ export function mdToWiki(md) {
   s = mdTableToWiki(s)
   s = mdRestoreMathPlaceholders(s, mathList)
   return mdRestoreCodePlaceholders(s, codeList)
+}
+
+/**
+ * Markdown → MediaWiki wikitext，并提取图片信息供后端上传。
+ * 图片 ![alt](url) 会被替换为占位符，后端下载并上传到 Wiki 后替换为 [[File:xxx|alt]]。
+ * @param {string} md - Markdown 文本
+ * @returns {{ wikitext: string, images: Array<{ url: string, alt: string, placeholder: string }> }}
+ */
+export function mdToWikiWithImages(md) {
+  if (md == null || typeof md !== 'string') return { wikitext: '', images: [] }
+  let s = md.trim()
+  if (!s) return { wikitext: '', images: [] }
+  const { text: afterCode, codeList } = mdExtractCodeToPlaceholders(s)
+  const { text: afterMath, mathList } = mdExtractMathToPlaceholders(afterCode)
+  const { text: afterImages, images } = mdExtractImagesToPlaceholders(afterMath)
+  s = mdHeadersToWiki(afterImages)
+  s = mdLinksToWiki(s)
+  s = mdEmphasisToWiki(s)
+  s = mdListsToWiki(s)
+  s = mdBlockquoteToWiki(s)
+  s = mdTableToWiki(s)
+  s = mdRestoreMathPlaceholders(s, mathList)
+  const wikitext = mdRestoreCodePlaceholders(s, codeList)
+  return { wikitext, images }
 }

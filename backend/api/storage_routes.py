@@ -95,6 +95,12 @@ async def get_storage_config():
             llm_audit_db_path = str(audit_path) if audit_path else None
         except Exception:
             llm_audit_db_path = None
+        # Tavily API 调用审计
+        try:
+            from backend.services.tavily_search_service.tavily_usage_audit import get_tavily_audit_path
+            tavily_audit_db_path = get_tavily_audit_path()
+        except Exception:
+            tavily_audit_db_path = None
 
         return {
             "success": True,
@@ -107,6 +113,7 @@ async def get_storage_config():
             # 兼容旧字段，仍保留 data_dir 顶层字段
             "data_dir": str(data_dir),
             "llm_audit_db_path": llm_audit_db_path,
+            "tavily_audit_db_path": tavily_audit_db_path,
             "sqlite": {
                 "enabled": True,
                 "db_dir": str(db_dir),

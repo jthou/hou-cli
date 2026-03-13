@@ -1,36 +1,36 @@
 {
-  "generated_at": "2026-03-10T09:16:28.330166Z",
+  "generated_at": "2026-03-13T06:28:37.688868Z",
   "code_stats": {
-    "total_files": 1136,
-    "total_lines": 332521,
+    "total_files": 1153,
+    "total_lines": 344050,
     "by_language": {
       "other": {
-        "files": 25,
-        "lines": 97018
+        "files": 26,
+        "lines": 100907
       },
       "markdown": {
-        "files": 392,
-        "lines": 106403
+        "files": 398,
+        "lines": 107257
       },
       "python": {
-        "files": 549,
-        "lines": 96059
+        "files": 556,
+        "lines": 96375
       },
       "shell": {
         "files": 34,
         "lines": 2143
       },
       "jsx": {
-        "files": 84,
-        "lines": 17060
+        "files": 86,
+        "lines": 17668
       },
       "javascript": {
         "files": 32,
-        "lines": 5043
+        "lines": 5166
       },
       "json": {
-        "files": 8,
-        "lines": 5298
+        "files": 9,
+        "lines": 11037
       },
       "html": {
         "files": 2,
@@ -47,8 +47,8 @@
     },
     "by_directory": {
       ".": {
-        "files": 9,
-        "lines": 1796
+        "files": 10,
+        "lines": 5337
       },
       "frontend-react-app": {
         "files": 1,
@@ -56,15 +56,15 @@
       },
       "extension": {
         "files": 6,
-        "lines": 1113
+        "lines": 1167
       },
       "frontend": {
-        "files": 142,
-        "lines": 37570
+        "files": 144,
+        "lines": 38248
       },
       "plans": {
-        "files": 18,
-        "lines": 9210
+        "files": 24,
+        "lines": 10058
       },
       "config": {
         "files": 2,
@@ -76,19 +76,19 @@
       },
       "tests": {
         "files": 65,
-        "lines": 8101
+        "lines": 8094
       },
       "backend": {
-        "files": 468,
-        "lines": 137880
+        "files": 475,
+        "lines": 138198
       },
       "shared": {
         "files": 10,
         "lines": 972
       },
       "docs": {
-        "files": 325,
-        "lines": 93733
+        "files": 326,
+        "lines": 99826
       },
       "hou_cli.egg-info": {
         "files": 5,
@@ -100,7 +100,7 @@
       },
       "scripts": {
         "files": 59,
-        "lines": 6357
+        "lines": 6361
       },
       "archived": {
         "files": 21,
@@ -111,18 +111,18 @@
         "lines": 33896
       }
     },
-    "generated_at": "2026-03-10T09:16:47.239155Z"
+    "generated_at": "2026-03-13T06:28:48.511058Z"
   },
   "dev_history": {
-    "total_commits": 300,
+    "total_commits": 305,
     "authors": {
-      "侯金亭（Justin）": 257,
+      "侯金亭（Justin）": 262,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W10": 9,
+      "2026-W10": 14,
       "2026-W09": 27,
-      "2026-W08": 16
+      "2026-W08": 11
     },
     "commits_by_day": {
       "2025-12-31": 4,
@@ -165,7 +165,9 @@
       "2026-03-07": 3,
       "2026-03-08": 4,
       "2026-03-09": 5,
-      "2026-03-10": 4
+      "2026-03-10": 5,
+      "2026-03-11": 2,
+      "2026-03-13": 2
     },
     "lines_by_day": {
       "2025-12-31": {
@@ -369,38 +371,50 @@
         "total": 2484
       },
       "2026-03-10": {
-        "add": 11439,
-        "del": 1104,
-        "total": 12543
+        "add": 11777,
+        "del": 1599,
+        "total": 13376
+      },
+      "2026-03-11": {
+        "add": 690,
+        "del": 74,
+        "total": 764
+      },
+      "2026-03-13": {
+        "add": 42,
+        "del": 8,
+        "total": 50
       }
     },
     "files_changed": {
-      "backend/core/agent/orchestrator.py": 75,
+      "backend/core/agent/orchestrator.py": 76,
       "backend/api/routes.py": 34,
       "frontend/client/ipc_client.py": 29,
-      "frontend/react-app/src/pages/TaskManagement.jsx": 26,
+      "frontend/react-app/src/pages/TaskManagement.jsx": 27,
       "frontend/main.py": 26,
+      "backend/infrastructure/execution/task_handlers.py": 25,
       "frontend/ui/command_handler.py": 25,
-      "Makefile": 23,
-      "backend/infrastructure/execution/task_handlers.py": 23,
-      "frontend/react-app/src/components/Sidebar.jsx": 23,
+      "Makefile": 24,
+      "frontend/react-app/src/components/Sidebar.jsx": 24,
       "backend/services/llm/llm_service.py": 22,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 20,
+      "env.example": 20,
       "frontend/react-app/src/App.jsx": 20,
       "frontend/ui/stream_handler.py": 20,
       "docs/design/02-weather-tool-design.md": 20,
-      "env.example": 19,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 18,
       "backend/api/task_queue_routes.py": 17,
       "requirements.txt": 17,
       "frontend/react-app/package.json": 16,
       "frontend/react-app/package-lock.json": 15,
-      "docs/audit/AUDIT_REPORT.json": 13,
-      "docs/audit/code_stats.json": 13,
-      "docs/audit/dev_history.json": 13,
+      "docs/audit/AUDIT_REPORT.json": 14,
+      "docs/audit/code_stats.json": 14,
+      "docs/audit/dev_history.json": 14,
       "pyproject.toml": 13,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
       "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
+      "backend/core/agent/system_prompt_templates.py": 12,
+      "backend/core/agent/tools/builtin/video_downloader_tool.py": 12,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 12,
       "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
@@ -409,10 +423,10 @@
       "backend/infrastructure/execution/tests/test_executor.py": 11,
       "backend/infrastructure/execution/tests/test_secure_executor.py": 11,
       "extension/manifest.json": 11,
-      "backend/core/agent/system_prompt_templates.py": 11,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
-      "backend/core/agent/tools/builtin/video_downloader_tool.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
+      "frontend/react-app/src/utils/mdToHtml.js": 10,
+      "frontend/react-app/src/components/task/TaskFormPage.jsx": 10,
       "backend/core/context/manager.py": 10,
       "backend/infrastructure/execution/task_worker.py": 10,
       "frontend/react-app/src/pages/PdfReader.jsx": 10,
@@ -422,11 +436,9 @@
       "backend/infrastructure/execution/tests/test_result_handler.py": 10,
       "backend/services/llm/tests/__init__.py": 10,
       "docs/design/dependency-management.md": 10,
-      "docs/design/getting-started.md": 10,
-      "docs/design/setup-guide.md": 10,
-      "docs/design/streaming-response.md": 10
+      "docs/design/getting-started.md": 10
     },
-    "generated_at": "2026-03-10T09:16:48.194954Z"
+    "generated_at": "2026-03-13T06:28:49.247748Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -470,11 +482,14 @@
       "GET /api/settings/model-config-audit",
       "GET /api/settings/model-stats",
       "GET /api/settings/system-prompt-audit/prompts",
+      "GET /api/settings/tavily-audit/path",
+      "GET /api/settings/tavily-audit/stats",
       "GET /api/settings/writing-profile",
       "GET /api/storage/audit",
       "GET /api/storage/config",
       "GET /api/system/cpu",
       "GET /api/system/disk",
+      "GET /api/system/disk-scan-report",
       "GET /api/system/load",
       "GET /api/system/memory",
       "GET /api/system/network",
@@ -592,6 +607,8 @@
       "GET /api/settings/writing-profile",
       "GET /api/storage/audit",
       "GET /api/storage/audit/cleanup-tmp-dbs",
+      "GET /api/system/disk",
+      "GET /api/system/disk-scan-report",
       "GET /api/task-queue/cleanup",
       "GET /api/task-queue/scheduled-tasks",
       "GET /api/task-queue/scheduled-tasks/${task.schedule_id}",
@@ -654,8 +671,8 @@
       "PUT /api/settings/writing-profile",
       "PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle"
     ],
-    "backend_path_count": 117,
-    "frontend_fetch_count": 104,
+    "backend_path_count": 120,
+    "frontend_fetch_count": 106,
     "unused_by_frontend": [
       "/api/audit/summary",
       "/api/chat",
@@ -674,9 +691,10 @@
       "/api/sessions/{id}/clear",
       "/api/sessions/{id}/summary",
       "/api/settings/kanban/status",
+      "/api/settings/tavily-audit/path",
+      "/api/settings/tavily-audit/stats",
       "/api/storage/config",
       "/api/system/cpu",
-      "/api/system/disk",
       "/api/system/load",
       "/api/system/memory",
       "/api/system/network",

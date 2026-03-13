@@ -28,6 +28,7 @@ from backend.api.storage_routes import router as storage_router
 from backend.api.pdf_routes import router as pdf_router
 from backend.api.web_reader_routes import router as web_reader_router
 from backend.api.llm_audit_routes import router as llm_audit_router
+from backend.api.tavily_audit_routes import router as tavily_audit_router
 from backend.api.network_audit_routes import router as network_audit_router
 from backend.api.model_config_routes import router as model_config_router
 from backend.api.model_availability_routes import router as model_availability_router
@@ -62,6 +63,7 @@ router.include_router(heartbeat_router, tags=["monitoring"])
 router.include_router(version_router, tags=["version"])
 router.include_router(storage_router, tags=["storage"])
 router.include_router(llm_audit_router, tags=["llm-audit"])
+router.include_router(tavily_audit_router, tags=["tavily-audit"])
 router.include_router(network_audit_router, tags=["network-audit"])
 router.include_router(model_config_router, tags=["model-config"])
 router.include_router(model_availability_router, tags=["model-availability-audit"])

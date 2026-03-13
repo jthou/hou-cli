@@ -22,11 +22,18 @@ class ToolMetadataRegistry:
         """初始化默认工具元数据"""
         # 代码执行类工具
         self.register(ToolMetadata(
-            tool_name="execute_code",
+            tool_name="exec_py",
             requires_code=True,
             recommended_model="code",
             complexity=TaskComplexity.MEDIUM,
-            can_parallel=False  # 代码执行通常不能并行
+            can_parallel=False
+        ))
+        self.register(ToolMetadata(
+            tool_name="exec_shell",
+            requires_code=True,
+            recommended_model="code",
+            complexity=TaskComplexity.MEDIUM,
+            can_parallel=False
         ))
         
         # 搜索检索类工具

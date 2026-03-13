@@ -61,7 +61,7 @@ class TestModelSwitcher:
         # 注册一个需要代码能力的工具
         from backend.core.agent.models import ToolMetadata
         tool_metadata_registry.register(ToolMetadata(
-            tool_name="execute_code",
+            tool_name="exec_py",
             requires_code=True,
             recommended_model="code"
         ))
@@ -72,7 +72,7 @@ class TestModelSwitcher:
         }
         
         result = model_switcher.analyze_execution_result(
-            tool_name="execute_code",
+            tool_name="exec_py",
             tool_result=tool_result,
             current_model="chat-model"
         )
@@ -106,7 +106,7 @@ class TestModelSwitcher:
             from_model="chat-model",
             to_model="code-model",
             reason="测试切换",
-            context={"tool": "execute_code"}
+            context={"tool": "exec_py"}
         )
         
         assert len(model_switcher.switch_history) == 1
@@ -114,7 +114,7 @@ class TestModelSwitcher:
         assert record.from_model == "chat-model"
         assert record.to_model == "code-model"
         assert record.reason == "测试切换"
-        assert record.context["tool"] == "execute_code"
+        assert record.context["tool"] == "exec_py"
     
     def test_get_switch_history(self, model_switcher):
         """测试获取切换历史"""
@@ -138,11 +138,11 @@ class TestModelSwitcher:
         # 注册一个推荐代码模型的工具
         from backend.core.agent.models import ToolMetadata
         tool_metadata_registry.register(ToolMetadata(
-            tool_name="execute_code",
+            tool_name="exec_py",
             recommended_model="code"
         ))
         
-        recommended = model_switcher.get_recommended_model("execute_code")
+        recommended = model_switcher.get_recommended_model("exec_py")
         assert recommended == "code-model"
     
     def test_get_recommended_model_by_complexity(self, model_switcher):

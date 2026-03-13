@@ -123,6 +123,89 @@ function WebSearchResults({ result, urlToWikiConfig, setUrlToWikiConfig }) {
   )
 }
 
+/** 搜索对比结果：Tavily 与 DuckDuckGo 分列展示 */
+function WebSearchCompareResults({ result, urlToWikiConfig, setUrlToWikiConfig }) {
+  const res = result.result
+  const tavily = res?.tavily || {}
+  const duckduckgo = res?.duckduckgo || {}
+  const tavilyList = tavily.results || []
+  const ddgList = duckduckgo.results || []
+  const allUrls = [...tavilyList.map((i) => i?.link), ...ddgList.map((i) => i?.link)].filter(Boolean)
+  const [sessionWroteMap, setSessionWroteMap] = useState({})
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const scrapedMap = useScrapedUrlMap(allUrls, refreshTrigger)
+
+  const handleWriteSuccess = (url, { title, taskId }) => {
+    const key = normalizeUrl(url)
+    if (key) setSessionWroteMap((m) => ({ ...m, [key]: { wikiTitle: title, taskId } }))
+  }
+
+  const mergeScrapedInfo = (url, base) => {
+    const wrote = sessionWroteMap[normalizeUrl(url)]
+    if (!wrote) return base
+    return { ...(base || {}), wikiTitle: wrote.wikiTitle, wroteToWiki: true }
+  }
+
+  const renderColumn = (title, data, list) => (
+    <div className="flex-1 min-w-0">
+      <h4 className="text-sm font-medium text-white mb-2 sticky top-0 bg-surface/95 py-1">
+        {title}
+        {typeof data.search_time === 'number' && (
+          <span className="text-muted text-xs ml-2">({data.search_time.toFixed(2)}s)</span>
+        )}
+        {data.error && <span className="text-red-400 text-xs ml-2">{data.error}</span>}
+      </h4>
+      {data.error && !list.length ? (
+        <p className="text-red-400/90 text-sm">{data.error}</p>
+      ) : (
+        <ul className="space-y-3">
+          {list.map((item, i) => (
+            <WebSearchResultItem
+              key={i}
+              item={item}
+              scrapedInfo={item?.link ? mergeScrapedInfo(item.link, scrapedMap[normalizeUrl(item.link)]) : null}
+              onUrlToWiki={(url, t) => setUrlToWikiConfig({ url, title: t })}
+              onWriteSuccess={handleWriteSuccess}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+
+  return (
+    <>
+      <div className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          {result.summary && <p className="text-green-400">{result.summary}</p>}
+          <button
+            type="button"
+            onClick={() => setRefreshTrigger((t) => t + 1)}
+            className="px-2 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5"
+          >
+            刷新已抓取状态
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {renderColumn('Tavily', tavily, tavilyList)}
+          {renderColumn('DuckDuckGo', duckduckgo, ddgList)}
+        </div>
+      </div>
+      {urlToWikiConfig && (
+        <UrlToWikiInline
+          defaultUrl={urlToWikiConfig.url}
+          defaultWikiTitle={urlToWikiConfig.title}
+          onClose={() => setUrlToWikiConfig(null)}
+          onCreated={() => {
+            setUrlToWikiConfig(null)
+            setRefreshTrigger((t) => t + 1)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
 const VIDEO_AUDIO_EXTS = new Set(['.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv', '.m4a', '.mp3', '.wav', '.aac', '.flac', '.ogg', '.opus'])
 
 function isSubtitleOrTextFile(path) {
@@ -474,6 +557,16 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
   if (taskType === 'web_search' && result.result?.results) {
     return (
       <WebSearchResults
+        result={result}
+        urlToWikiConfig={urlToWikiConfig}
+        setUrlToWikiConfig={setUrlToWikiConfig}
+      />
+    )
+  }
+
+  if (taskType === 'web_search_compare' && result.result?.tavily != null && result.result?.duckduckgo != null) {
+    return (
+      <WebSearchCompareResults
         result={result}
         urlToWikiConfig={urlToWikiConfig}
         setUrlToWikiConfig={setUrlToWikiConfig}

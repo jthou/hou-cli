@@ -313,6 +313,36 @@ TASK_TYPES = {
             }
         }
     },
+    "web_search_compare": {
+        "name": "搜索对比",
+        "description": "用 Tavily 和 DuckDuckGo 同时搜索相同关键词，结果分列展示便于对比",
+        "output_spec": {
+            "content": "Tavily 与 DuckDuckGo 的搜索结果（分列）",
+            "format": "JSON，result.tavily / result.duckduckgo",
+            "naming_rule": "无本地文件",
+            "default_path": "无",
+        },
+        "metadata_schema": {
+            "query": {
+                "type": "string",
+                "required": True,
+                "description": "搜索关键词或语句",
+                "placeholder": "如：伊朗和美国战争的最新情况"
+            },
+            "num_results": {
+                "type": "number",
+                "required": False,
+                "description": "每个引擎返回结果数量（默认 10）",
+                "default": 10
+            },
+            "language": {
+                "type": "string",
+                "required": False,
+                "description": "语言代码（可选）",
+                "placeholder": "zh-CN, en"
+            }
+        }
+    },
     "speech_to_text": {
         "name": "字幕提取",
         "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
@@ -971,16 +1001,14 @@ async def process_web_search_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     worker.update_task_progress(10, f"正在搜索: {query[:30]}…")
 
     try:
-        from backend.services.google_search_service.browser_search import (
-            search as browser_search,
-            BrowserSearchError,
-        )
-        response = browser_search(
+        from backend.services.google_search_service.unified_search import web_search
+
+        response = web_search(
             query=query,
             num_results=num_results,
             language=language,
         )
-    except BrowserSearchError as e:
+    except Exception as e:
         raise Exception(f"网页搜索失败: {str(e)}")
 
     worker.update_task_progress(100, f"找到 {len(response.results)} 条结果")
@@ -1004,6 +1032,103 @@ async def process_web_search_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
             "count": len(results),
             "search_time": response.search_time,
             "query": response.query,
+        },
+    }
+
+
+async def process_web_search_compare_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理搜索对比任务：同时用 Tavily 和 DuckDuckGo 搜索相同关键词，结果分列"""
+    metadata = task_info.get("metadata", {})
+    worker = get_task_worker()
+
+    query = (metadata.get("query") or "").strip()
+    if not query:
+        raise ValueError("query 参数是必需的")
+
+    num_results = metadata.get("num_results", 10)
+    try:
+        num_results = max(1, int(num_results))
+    except (TypeError, ValueError):
+        num_results = 10
+    language = (metadata.get("language") or "").strip() or None
+    num_tavily = min(num_results, 20)
+    num_ddg = num_results
+
+    worker.update_task_progress(5, f"正在搜索: {query[:30]}…")
+
+    result_tavily = None
+    result_duckduckgo = None
+
+    # 1. Tavily（需 TAVILY_API_KEY）
+    if os.environ.get("TAVILY_API_KEY", "").strip():
+        worker.update_task_progress(20, "Tavily 搜索中…")
+        try:
+            from backend.services.tavily_search_service import tavily_search
+
+            resp_t = tavily_search(
+                query=query,
+                num_results=num_tavily,
+                language=language,
+                search_depth="basic",
+            )
+            result_tavily = {
+                "results": [
+                    {"title": r.title, "link": r.link, "snippet": r.snippet, "display_link": r.display_link}
+                    for r in resp_t.results
+                ],
+                "count": len(resp_t.results),
+                "search_time": resp_t.search_time,
+                "query": resp_t.query,
+            }
+        except Exception as e:
+            result_tavily = {"error": str(e), "results": [], "count": 0, "search_time": None, "query": query}
+    else:
+        result_tavily = {"error": "未配置 TAVILY_API_KEY", "results": [], "count": 0, "search_time": None, "query": query}
+
+    # 2. DuckDuckGo
+    worker.update_task_progress(50, "DuckDuckGo 搜索中…")
+    try:
+        from backend.services.google_search_service.browser_search import (
+            search as browser_search,
+            BrowserSearchError,
+        )
+
+        resp_d = browser_search(
+            query=query,
+            num_results=num_ddg,
+            language=language,
+        )
+        result_duckduckgo = {
+            "results": [
+                {"title": r.title, "link": r.link, "snippet": r.snippet, "display_link": r.display_link}
+                for r in resp_d.results
+            ],
+            "count": len(resp_d.results),
+            "search_time": resp_d.search_time,
+            "query": resp_d.query,
+        }
+    except Exception as e:
+        result_duckduckgo = {"error": str(e), "results": [], "count": 0, "search_time": None, "query": query}
+
+    worker.update_task_progress(100, "对比搜索完成")
+
+    st = result_tavily.get("search_time")
+    sd = result_duckduckgo.get("search_time")
+    summary = (
+        f"Tavily: {result_tavily.get('count', 0)} 条"
+        + (f" ({st:.2f}s)" if st is not None else "")
+        + " | DuckDuckGo: "
+        + f"{result_duckduckgo.get('count', 0)} 条"
+        + (f" ({sd:.2f}s)" if sd is not None else "")
+    )
+
+    return {
+        "status": "success",
+        "summary": summary,
+        "query": query,
+        "result": {
+            "tavily": result_tavily,
+            "duckduckgo": result_duckduckgo,
         },
     }
 
@@ -1279,6 +1404,44 @@ async def process_mediawiki_write_task(task_info: Dict[str, Any]) -> Dict[str, A
     if not content:
         return _err("MISSING_CONTENT", "缺少页面内容", "请填写 content 或 content_file（本地文本文件路径）")
 
+    # 处理内嵌图片：metadata.images 为 [{url, alt, placeholder}]，下载并上传到 Wiki 后替换占位符
+    images = metadata.get("images")
+    if images and isinstance(images, list):
+        worker.update_task_progress(3, "正在处理图片...")
+        from backend.services.mediawiki_client_service import MediaWikiClientService
+
+        mw_client = MediaWikiClientService()
+        mw_client.connect()
+        temp_paths = []
+        try:
+            for i, img in enumerate(images):
+                if not isinstance(img, dict):
+                    continue
+                url = (img.get("url") or "").strip()
+                placeholder = (img.get("placeholder") or "").strip()
+                alt = (img.get("alt") or "").strip()
+                if not url or not placeholder:
+                    continue
+                ok, err_msg = _validate_video_download_url(url)
+                if not ok:
+                    logger.warning("跳过无效图片 URL: %s - %s", url, err_msg)
+                    continue
+                try:
+                    temp_path, wiki_filename = _download_image_to_temp(url, i)
+                    temp_paths.append(temp_path)
+                    mw_client.upload_file(
+                        filename=wiki_filename,
+                        file_path=temp_path,
+                        description=f"从网页导入: {url[:200]}",
+                    )
+                    wiki_ref = f"[[File:{wiki_filename}]]" if not alt else f"[[File:{wiki_filename}|{alt}]]"
+                    content = content.replace(placeholder, wiki_ref, 1)
+                except Exception as e:
+                    logger.warning("图片上传失败 %s: %s", url, e)
+        finally:
+            for p in temp_paths:
+                Path(p).unlink(missing_ok=True)
+
     summary = (metadata.get("summary") or "").strip() or None
     operation = (metadata.get("operation") or "edit").strip().lower()
     if operation not in ("edit", "create", "append"):
@@ -1416,9 +1579,47 @@ _DOWNLOAD_HEADERS = {
 }
 
 
+def _download_image_to_temp(url: str, index: int = 0) -> Tuple[str, str]:
+    """将图片 URL 下载到临时文件。返回 (临时文件路径, 建议的 Wiki 文件名)。"""
+    import hashlib
+    import tempfile
+
+    import httpx
+
+    parsed = urlparse(url)
+    path = (parsed.path or "").strip() or "/img"
+    ext = (Path(path).suffix or ".png").lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+        ext = ".png"
+    url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
+    safe_name = f"WebImage_{index}_{url_hash}{ext}"
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+        temp_path = f.name
+    try:
+        with httpx.stream(
+            "GET",
+            url,
+            follow_redirects=True,
+            timeout=30.0,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; hou-cli/1.0)",
+                "Accept": "image/*,*/*;q=0.8",
+            },
+        ) as r:
+            r.raise_for_status()
+            with open(temp_path, "wb") as out:
+                for chunk in r.iter_bytes(8192):
+                    out.write(chunk)
+        return temp_path, safe_name
+    except Exception:
+        Path(temp_path).unlink(missing_ok=True)
+        raise
+
+
 def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
     """将 PDF URL 下载到临时文件。返回 (临时文件路径, 字节数)。"""
     import tempfile
+
     import httpx
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
@@ -2139,6 +2340,7 @@ def register_default_handlers():
     worker.register_handler("disk_scan", process_disk_scan_task)
     worker.register_handler("weather_query", process_weather_query_task)
     worker.register_handler("web_search", process_web_search_task)
+    worker.register_handler("web_search_compare", process_web_search_compare_task)
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
@@ -2279,7 +2481,7 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
         if u and f:
             return False, "只能填写 url 或 file_path 其一"
 
-    if task_type == "web_search":
+    if task_type in ("web_search", "web_search_compare"):
         q = (metadata.get("query") or "").strip()
         if not q:
             return False, "请填写搜索关键词（query）"

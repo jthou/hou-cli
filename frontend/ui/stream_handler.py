@@ -62,8 +62,8 @@ class StreamRenderer:
         }
         color = color_map.get(category, "dim")
         
-        # 特殊处理 execute_code 工具的调试信息
-        if message == "执行工具" and details.get("name") == "execute_code":
+        # 特殊处理 exec_py/exec_shell 工具的调试信息
+        if message == "执行工具" and details.get("name") in ("exec_py", "exec_shell"):
             # 解析 args 参数
             args_str = details.get("args", "")
             try:
@@ -73,7 +73,7 @@ class StreamRenderer:
                     args = args_str
                 
                 code = args.get("code", "")
-                language = args.get("language", "python")
+                language = "python" if details.get("name") == "exec_py" else "zsh"
                 explanation = args.get("explanation", "")
                 
                 # 语言图标和颜色映射
@@ -161,10 +161,11 @@ class StreamRenderer:
         result = tool_data.get("result", {})
         success = tool_data.get("success", False)
         error = tool_data.get("error")
+        tool_name = tool_data.get("name", "")
         
-        # 提取信息
+        # 提取信息（exec_py/exec_shell 无 language 参数，从工具名推断）
         code = tool_args.get("code", "")
-        language = tool_args.get("language", "python")
+        language = tool_args.get("language") or ("python" if tool_name == "exec_py" else "zsh")
         explanation = tool_args.get("explanation", "")
         output = result.get("output", "") if result else ""
         error_output = result.get("error", "") if result else ""
@@ -357,7 +358,7 @@ class StreamRenderer:
         tool_name = tool_data.get("name", "unknown")
         
         # 特殊处理代码执行工具
-        if tool_name == "execute_code":
+        if tool_name in ("exec_py", "exec_shell"):
             # 如果有执行结果，使用专门的渲染方法
             if tool_data.get("result") is not None or tool_data.get("success") is not False:
                 self._render_code_executor(tool_data, console)
@@ -365,7 +366,7 @@ class StreamRenderer:
             # 如果只是工具调用（还没有结果），也要格式化显示代码
             tool_args = tool_data.get("args", {})
             code = tool_args.get("code", "")
-            language = tool_args.get("language", "python")
+            language = "python" if tool_name == "exec_py" else "zsh"
             explanation = tool_args.get("explanation", "")
             
             # 语言图标映射
@@ -660,7 +661,7 @@ class StreamRenderer:
         """
         full_content = ""
         buffer = ""
-        tool_streaming = ""  # 工具执行时的流式输出（execute_code/exec）
+        tool_streaming = ""  # 工具执行时的流式输出（exec_py/exec_shell）
 
         # 初始化交互式执行器
         if not self.interactive_executor:

@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mdToWiki } from '../utils/wikiMdConvert'
+import { mdToWikiWithImages } from '../utils/wikiMdConvert'
 import { useToast } from './ToastModal'
 
 /**
@@ -93,16 +93,18 @@ export default function MarkdownActionButtons({
       trimmed = trimmed + '\n\n---\n\n原文链接：[' + sourceUrl.trim() + '](' + sourceUrl.trim() + ')'
     }
     setMwMdState(trimmed)
-    setMwWikitextState(mdToWiki(trimmed))
+    const { wikitext } = mdToWikiWithImages(trimmed)
+    setMwWikitextState(wikitext)
+    setMwDialogOpen(true)
     setMwTitle('')
     setMwSummary('')
     setMwMode('create')
-    setMwDialogOpen(true)
   }
 
   const handleMdChange = (val) => {
     setMwMdState(val)
-    setMwWikitextState(mdToWiki(val))
+    const { wikitext } = mdToWikiWithImages(val)
+    setMwWikitextState(wikitext)
   }
 
   const handleMwSubmit = async () => {
@@ -111,13 +113,21 @@ export default function MarkdownActionButtons({
       toast?.warning?.('请输入页面标题')
       return
     }
-    const toPublish = (mwWikitextState || '').trim()
+    const { wikitext, images } = mdToWikiWithImages(mwMdState || '')
+    const toPublish = (wikitext || '').trim()
     if (!toPublish) {
       toast?.warning?.('当前无内容可发布')
       return
     }
     setMwSubmitting(true)
     try {
+      const metadata = {
+        title,
+        content: toPublish,
+        summary: (mwSummary || '').trim() || undefined,
+        operation: mwMode === 'append' ? 'append' : 'edit',
+      }
+      if (images?.length) metadata.images = images
       const res = await fetch('/api/task-queue/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,12 +135,7 @@ export default function MarkdownActionButtons({
           task_type: 'mediawiki_write',
           priority: 2,
           max_retries: 3,
-          metadata: {
-            title,
-            content: toPublish,
-            summary: (mwSummary || '').trim() || undefined,
-            operation: mwMode === 'append' ? 'append' : 'edit',
-          },
+          metadata,
         }),
       })
       const data = await res.json().catch(() => ({}))

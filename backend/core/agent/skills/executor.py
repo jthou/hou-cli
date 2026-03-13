@@ -919,7 +919,7 @@ class SkillExecutor:
         
         # 特殊处理：对于 code_executor 工具的 code 参数，只替换代码中的 ${...} 表达式
         # 而不是对整个代码字符串进行表达式求值
-        if tool_name == 'execute_code' and 'code' in resolved:
+        if tool_name in ('execute_code', 'exec_py', 'exec_shell', 'code_executor') and 'code' in resolved:
             code_value = resolved['code']
             if isinstance(code_value, str) and '${' in code_value:
                 # 代码字符串中包含 ${...} 表达式，需要替换
@@ -1198,77 +1198,36 @@ class SkillExecutor:
         if not tool_name:
             raise ValueError("工具步骤必须指定 tool 名称")
         
-        # 工具名称映射（兼容技能 YAML 中的工具名称）
-        tool_name_mapping = {
-            'code_executor': 'execute_code',  # code_executor -> execute_code
-        }
-        actual_tool_name = tool_name_mapping.get(tool_name, tool_name)
+        # code_executor/execute_code 需先解析 inputs 再确定实际工具（exec_py 或 exec_shell）
+        resolve_tool_name = tool_name
+        if tool_name in ('code_executor', 'execute_code'):
+            resolve_tool_name = 'code_executor'  # 用于 _resolve_inputs 的 code 参数特殊处理
+        inputs = self._resolve_inputs(step.get('inputs', {}), context, tool_name=resolve_tool_name)
+        
+        # 确定实际工具名称
+        if tool_name in ('code_executor', 'execute_code'):
+            language = inputs.get('language', '')
+            if not language and isinstance(inputs.get('code'), str):
+                code = inputs.get('code', '')
+                if any(kw in code for kw in ['import ', 'from ', 'def ', 'class ', 'print(']):
+                    language = 'python'
+                else:
+                    language = 'python'
+            actual_tool_name = 'exec_py' if (language or 'python').lower() in ('python',) else 'exec_shell'
+        else:
+            actual_tool_name = tool_name
         
         tool = self.tool_registry.get_tool(actual_tool_name)
         if not tool:
             raise ValueError(f"工具未找到: {tool_name} (映射为: {actual_tool_name})")
         
-        # 解析输入参数（传入工具名称用于特殊处理）
-        inputs = self._resolve_inputs(step.get('inputs', {}), context, tool_name=actual_tool_name)
-        
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"executor.py:_execute_tool_step:after_resolve_inputs","message":"解析输入参数后","data":{"tool_name":tool_name,"actual_tool_name":actual_tool_name,"inputs_keys":list(inputs.keys()),"has_language":"language" in inputs,"has_code":"code" in inputs,"code_type":type(inputs.get('code')).__name__ if 'code' in inputs else None,"code_is_none":inputs.get('code') is None if 'code' in inputs else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                f.flush()
-        except: pass
-        # #endregion
-        
-        # 验证必需参数（特别是 code_executor 工具的 code 参数）
-        if actual_tool_name == 'execute_code':
+        # 验证 code 参数（exec_py/exec_shell）
+        if actual_tool_name in ('exec_py', 'exec_shell'):
             code_value = inputs.get('code')
             if not code_value or (isinstance(code_value, str) and not code_value.strip()):
-                error_msg = f"code_executor 工具的 code 参数无效: {code_value}"
-                logger.error(error_msg)
-                # #region agent log
-                try:
-                    import json
-                    import time
-                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"K","location":"executor.py:_execute_tool_step:code_validation_failed","message":"code参数验证失败","data":{"code_value":str(code_value)[:200] if code_value else None,"code_type":type(code_value).__name__ if code_value else None,"original_inputs":str(step.get('inputs', {}).get('code', ''))[:200]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                        f.flush()
-                except: pass
-                # #endregion
-                raise ValueError(error_msg)
-        
-        # 特殊处理：code_executor 工具需要 language 参数，如果缺失则设置默认值
-        if actual_tool_name == 'execute_code' and 'language' not in inputs:
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"executor.py:_execute_tool_step:before_add_language","message":"检测到缺少language参数，准备添加默认值","data":{"tool_name":tool_name,"actual_tool_name":actual_tool_name},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                    f.flush()
-            except: pass
-            # #endregion
-            # 从代码内容推断语言，或使用默认值 python
-            code = inputs.get('code', '')
-            if isinstance(code, str):
-                # 检查代码中的关键字来推断语言
-                if any(keyword in code for keyword in ['import ', 'from ', 'def ', 'class ', 'print(']):
-                    inputs['language'] = 'python'
-                else:
-                    # 默认使用 python（因为大多数技能代码都是 Python）
-                    inputs['language'] = 'python'
-            else:
-                inputs['language'] = 'python'
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"executor.py:_execute_tool_step:after_add_language","message":"已添加language参数","data":{"language":inputs.get('language'),"inputs_keys":list(inputs.keys())},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
-                    f.flush()
-            except: pass
-            # #endregion
+                raise ValueError(f"代码执行工具的 code 参数无效: {code_value}")
+            # exec_py/exec_shell 不需要 language 参数，可移除避免多余传参
+            inputs.pop('language', None)
         
         # 如果 context 中有 progress_callback，传递给工具（如果工具支持）
         if 'progress_callback' in context and hasattr(tool, 'set_progress_callback'):
@@ -1544,9 +1503,9 @@ class SkillExecutor:
         execution_code = self._prepare_execution_environment(context, generated_code)
         
         # 7. 执行代码
-        code_executor = self.tool_registry.get_tool('execute_code')
+        code_executor = self.tool_registry.get_tool('exec_py')
         if not code_executor:
-            raise ValueError("execute_code 工具未找到")
+            raise ValueError("exec_py 工具未找到")
         
         if hasattr(code_executor, '_execute_async'):
             tool_result = await code_executor._execute_async(

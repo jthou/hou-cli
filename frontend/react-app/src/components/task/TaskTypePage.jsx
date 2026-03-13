@@ -10,6 +10,8 @@ import TaskDetailModal from './TaskDetailModal'
 
 export default function TaskTypePage({
   taskType,
+  taskTypes: taskTypesFilter,
+  submitTaskType,
   title,
   description,
   submitLabel = '提交任务',
@@ -35,6 +37,7 @@ export default function TaskTypePage({
     <>
       <TaskListByTypePanel
         taskType={taskType}
+        taskTypes={taskTypesFilter}
         title={resolvedListTitle}
         emptyText={resolvedEmptyText}
         onShowDetail={showDetailModal ? setDetailTaskId : undefined}
@@ -58,6 +61,7 @@ export default function TaskTypePage({
   return (
     <TaskFormPage
       taskType={taskType}
+      submitTaskType={submitTaskType}
       title={title}
       description={description}
       submitLabel={submitLabel}

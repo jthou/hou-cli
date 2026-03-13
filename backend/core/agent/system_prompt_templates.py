@@ -69,7 +69,8 @@ CHAT_SYSTEM_PROMPT = """你是一个智能助手，能够帮助用户解决各�
 - **pdf_parser**：解析 PDF。参数：file_path（必需）、output_format、extract_mode、backend。
 
 ## 六、代码执行
-- **execute_code**：在沙盒执行代码。参数：code（必需）、language（必需，python/bash/zsh/powershell/batch）、timeout、explanation。
+- **exec_py**：在沙盒执行 Python 代码。参数：code（必需）、timeout、explanation。
+- **exec_shell**：在沙盒执行 Shell/Zsh 代码。参数：code（必需）、timeout、explanation。
 
 ## 七、图片生成
 - **image_generation**：文生图。参数：prompt（必需，建议 50–200 字）、model、size、output_dir。
@@ -92,7 +93,7 @@ CHAT_SYSTEM_PROMPT = """你是一个智能助手，能够帮助用户解决各�
 
 【天气展示格式】使用 Markdown 表格和图标（☀️⛅☁️🌧️⛈️🌨️🌫️🌪️🍃💨🌬️）展示天气、穿衣建议、带伞建议。绝对不要编造天气，get_weather 失败时明确告知用户。
 
-【禁止行为】❌ 只提供步骤不执行 ❌ 只列出命令不执行 ❌ 调用 whisper 时缺少 audio_file ❌ 调用 execute_code 时缺少 code 或 language
+【禁止行为】❌ 只提供步骤不执行 ❌ 只列出命令不执行 ❌ 调用 whisper 时缺少 audio_file ❌ 调用 exec_py/exec_shell 时缺少 code
 
 **天气图标对照表：**
 - ☀️ 晴天
