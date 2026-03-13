@@ -116,12 +116,15 @@ function extractContent() {
   const isFeishu = /feishu\.cn|feishubase\.com/.test(href)
   const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
   const isAmazon = amazon?.isAmazonProductPage?.(href) ?? /amazon\.(com|co\.\w{2}|cn|co\.jp)\/(dp|gp\/product)/.test(href)
+  const isWikipedia = /\.wikipedia\.org\//.test(href) || /\.wikimedia\.org\//.test(href)
   const baseSelectors = [
     'article', 'main', '[role="main"]', '.post-content', '.article-body',
     '.content', '#content', '.entry-content', '.post-body', '.article-content',
     '[class*="blog-post"]', '[class*="post-content"]', '[class*="article-body"]',
     '[class*="entry-content"]', '[class*="prose"]',  // Tailwind prose, 常见博客
   ]
+  // 维基百科：优先提取正文，避免导航/侧栏/语言切换等 UI 混入
+  const wikipediaSelectors = ['#mw-content-text', '#bodyContent', '.mw-parser-output']
   const amazonSelectors = (amazon?.SELECTORS ?? []).length ? amazon.SELECTORS : [
     '#productDetails_feature_div', '#prodDetails', '#productDetails',
     '#detailBullets_feature_div', '#feature-bullets',
@@ -130,11 +133,12 @@ function extractContent() {
     '[data-type="bitable"]', '[class*="bitable"]', '[class*="base-table"]',
     '[class*="baseTable"]', '[class*="Bitable"]', 'main', '[role="main"]',
   ]
-  const selectors = isAmazon ? [...amazonSelectors, ...baseSelectors]
+  const selectors = isWikipedia ? [...wikipediaSelectors, ...baseSelectors]
+    : isAmazon ? [...amazonSelectors, ...baseSelectors]
     : isFeishu ? [...feishuSelectors, ...baseSelectors] : baseSelectors
   const minLen = isFeishu ? 30 : isAmazon ? 50 : 100
   let el = null
-  if (isAmazon || isFeishu) {
+  if (isWikipedia || isAmazon || isFeishu) {
     for (const s of selectors) {
       try {
         const candidate = document.querySelector(s)

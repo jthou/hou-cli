@@ -192,6 +192,9 @@ export function mdToHtmlForWechat(md) {
 
 const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
 
+turndownService.addRule('style', { filter: 'style', replacement: () => '' })
+turndownService.addRule('script', { filter: 'script', replacement: () => '' })
+
 turndownService.addRule('table', {
   filter: 'table',
   replacement: (_content, node) => {
@@ -222,16 +225,41 @@ turndownService.addRule('table', {
 })
 
 /**
+ * 从完整页面 HTML 中提取维基百科正文（#mw-content-text），并清理 CSS/导航等噪音。
+ * 2026-03-13：维基百科全页转 Markdown 时混入大量 UI、style 块、navbox，需提取并清理。
+ * @param {string} html - 可能含维基全页的 HTML
+ * @returns {string} 提取并清理后的 HTML，无匹配则返回原串
+ */
+function extractWikipediaContent(html) {
+  if (typeof document === 'undefined' || typeof DOMParser === 'undefined') return html
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const mwContent = doc.getElementById('mw-content-text')
+    if (!mwContent || (mwContent.innerText || mwContent.textContent || '').trim().length < 50) {
+      return html
+    }
+    const frag = doc.createElement('div')
+    frag.innerHTML = mwContent.innerHTML
+    frag.querySelectorAll('style, script').forEach((el) => el.remove())
+    frag.querySelectorAll('.mw-editsection, .navbox, .metadata, .mw-collapsible-toggle').forEach((el) => el.remove())
+    return frag.innerHTML
+  } catch (_) {}
+  return html
+}
+
+/**
  * HTML → Markdown，用于编辑已有草稿时把接口返回的正文 HTML 转成 Markdown 再放入编辑器。
- * @param {string} html - HTML 字符串（如公众号草稿 content）
+ * 若 HTML 含维基百科正文容器（#mw-content-text），先提取再转换，避免导航/侧栏混入。
+ * @param {string} html - HTML 字符串（如公众号草稿 content、扩展抓取的网页）
  * @returns {string} Markdown 字符串
  */
 export function htmlToMd(html) {
   if (html == null || typeof html !== 'string') return ''
   const trimmed = html.trim()
   if (!trimmed) return ''
+  const toConvert = extractWikipediaContent(trimmed)
   try {
-    return turndownService.turndown(trimmed)
+    return turndownService.turndown(toConvert)
   } catch {
     return trimmed
   }
