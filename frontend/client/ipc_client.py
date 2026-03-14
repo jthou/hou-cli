@@ -7,10 +7,9 @@ import time
 import os
 from typing import Optional, AsyncIterator, List, Dict, Any
 import asyncio
-from dotenv import load_dotenv
+from shared.load_env import load_env
 from frontend.client.stream_receiver import StreamReceiver
 
-# 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 class IPCClient:
@@ -39,21 +38,8 @@ class IPCClient:
     
     def _load_port(self) -> int:
         """加载端口号（优先从 .env 读取 BACKEND_PORT，如果不可用则尝试发现）"""
-        # 1. 优先从环境变量读取（从 .env 文件加载）
-        # 加载 .env 文件（优先级：用户配置目录 > 项目根目录 > 当前目录）
-        from shared.platform_utils import get_app_data_dir
-        config_dir = Path.home() / ".config" / "hou-cli"
-        env_paths = [
-            config_dir / ".env",  # 用户配置目录
-            PROJECT_ROOT / '.env',  # 项目根目录
-            Path.cwd() / '.env',  # 当前目录
-        ]
-        
-        for env_path in env_paths:
-            if env_path.exists():
-                load_dotenv(env_path, override=True)
-                break
-        
+        load_env(PROJECT_ROOT)
+
         # 从环境变量读取 BACKEND_PORT
         backend_port_str = os.getenv("BACKEND_PORT")
         if backend_port_str:

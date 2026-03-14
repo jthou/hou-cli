@@ -8,7 +8,6 @@ import os
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
-from dotenv import load_dotenv
 
 from backend.infrastructure.execution.task_handlers import (
     _fix_doubled_pdf_text,
@@ -24,19 +23,6 @@ from backend.infrastructure.execution.task_handlers import (
     get_available_task_types,
     get_linkable_upstream_types,
 )
-
-# 加载 .env：与 backend/main.py 一致——用户配置目录、项目根、当前目录
-_env_paths = [
-    Path.home() / ".config" / "hou-cli" / ".env",
-    Path(__file__).resolve().parents[4] / ".env",
-    Path.cwd() / ".env",
-]
-for _env in _env_paths:
-    if _env.exists():
-        load_dotenv(_env, override=True)
-        break
-else:
-    load_dotenv()
 
 
 class TestFixDoubledPdfText:

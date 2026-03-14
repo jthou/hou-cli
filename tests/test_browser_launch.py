@@ -5,11 +5,14 @@
 
 import asyncio
 import os
-from dotenv import load_dotenv
+import sys
+from pathlib import Path
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+from shared.load_env import load_env
+load_env(_project_root)
 from browser_use import Agent
-
-# 加载环境变量
-load_dotenv()
 
 # 修复环境变量
 if not os.getenv('BACKEND_PORT') or os.getenv('BACKEND_PORT') == '':

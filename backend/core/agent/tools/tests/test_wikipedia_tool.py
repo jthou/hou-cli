@@ -2,10 +2,8 @@
 import pytest
 import os
 from unittest.mock import patch, MagicMock
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-load_dotenv()
+from shared.load_env import load_env_for_file
+load_env_for_file(__file__)
 
 from backend.core.agent.tools.builtin.wikipedia_tool import WikipediaTool
 from backend.core.agent.tools.base import ToolResult

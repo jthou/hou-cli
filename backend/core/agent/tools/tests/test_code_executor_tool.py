@@ -2,9 +2,8 @@
 import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
-from dotenv import load_dotenv
-
-load_dotenv()
+from shared.load_env import load_env_for_file
+load_env_for_file(__file__)
 
 from backend.core.agent.tools.builtin.code_executor_tool import ExecPyTool, ExecShellTool
 from backend.core.agent.tools.base import ToolResult

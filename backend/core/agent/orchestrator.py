@@ -3,25 +3,19 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
-from dotenv import load_dotenv
+
+from shared.load_env import load_env
 
 logger = logging.getLogger(__name__)
 
-# 获取项目根目录
+
 def get_project_root() -> Path:
     """获取项目根目录"""
     return Path(__file__).parent.parent.parent.parent
 
 
 PROJECT_ROOT = get_project_root()
-
-# 加载 .env 文件（在导入 LLMService 之前）
-env_path = PROJECT_ROOT / '.env'
-if env_path.exists():
-    load_dotenv(env_path)
-else:
-    # 尝试从当前目录加载
-    load_dotenv()
+load_env(PROJECT_ROOT)
 
 from backend.core.context.manager import ContextManager as FullContextManager
 from backend.core.context.models import MessageRole

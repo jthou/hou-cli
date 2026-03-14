@@ -5,25 +5,11 @@ import os
 import sys
 from pathlib import Path
 
-# 将项目根目录添加到 Python 路径
-project_root = Path(__file__).resolve().parents[0]  # scripts 目录
-project_root = project_root.parent  # 项目根目录
+project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-# 加载环境变量
-try:
-    from dotenv import load_dotenv
-    env_file = project_root / ".env"
-    if env_file.exists():
-        load_dotenv(env_file)
-        print(f"✅ 已加载环境变量文件: {env_file}")
-    else:
-        print(f"⚠️ 环境变量文件不存在: {env_file}")
-        print("   请确保已配置 .env 文件或设置必要的环境变量")
-        # 尝试从当前目录加载
-        load_dotenv()
-except ImportError:
-    print("⚠️ python-dotenv 未安装，将使用系统环境变量")
+from shared.load_env import load_env
+load_env(project_root)
 
 from backend.services.llm.llm_service import LLMService
 from backend.core.agent.tools.registry import ToolRegistry

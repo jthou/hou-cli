@@ -4,34 +4,18 @@ import sys
 import os
 import asyncio
 from pathlib import Path
-from dotenv import load_dotenv
 from datetime import datetime
 
-# 加载环境变量
-env_path = Path(__file__).parent.parent.parent.parent.parent.parent.parent / '.env'
-if env_path.exists():
-    load_dotenv(env_path)
-else:
-    # 尝试从用户配置目录加载
-    user_env = Path.home() / '.config' / 'hou-cli' / '.env'
-    if user_env.exists():
-        load_dotenv(user_env)
-
-# 添加项目根目录到路径
 script_path = Path(__file__).resolve()
-# 向上查找项目根目录（包含 backend 目录的父目录）
 current = script_path.parent
 while current.name != 'backend' and len(current.parts) > 1:
     current = current.parent
-if current.name == 'backend':
-    project_root = current.parent
-else:
-    # 如果找不到，使用向上7级的方式
-    project_root = script_path.parent.parent.parent.parent.parent.parent.parent
-
-# 确保项目根目录在路径中
+project_root = current.parent if current.name == 'backend' else script_path.parent.parent.parent.parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
+from shared.load_env import load_env
+load_env(project_root)
 
 # 设置工作目录
 os.chdir(project_root)

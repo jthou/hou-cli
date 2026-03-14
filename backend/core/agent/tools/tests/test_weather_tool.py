@@ -2,12 +2,11 @@
 import pytest
 import os
 from unittest.mock import patch, MagicMock, Mock
-from dotenv import load_dotenv
+from shared.load_env import load_env_for_file
 from backend.core.agent.tools.builtin.weather_tool import WeatherTool, WeatherToolError
 from backend.core.agent.tools.auth.jwt_auth import JWTAuth
 
-# 加载 .env 文件
-load_dotenv()
+load_env_for_file(__file__)
 
 
 class TestWeatherTool:

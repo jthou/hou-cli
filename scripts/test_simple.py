@@ -7,15 +7,11 @@ import sys
 import os
 from pathlib import Path
 
-# 添加项目路径
-project_root = Path(__file__).resolve().parents[1]
+project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-# 加载环境变量
-from dotenv import load_dotenv
-env_file = project_root / ".env"
-if env_file.exists():
-    load_dotenv(env_file)
+from shared.load_env import load_env
+load_env(project_root)
 
 def test_backend_connection():
     """测试后端连接"""

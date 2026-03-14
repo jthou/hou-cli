@@ -5,9 +5,13 @@
 """
 import asyncio
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from pathlib import Path
+import sys
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+from shared.load_env import load_env
+load_env(_project_root)
 
 from backend.core.agent.tools.builtin.browser_tool import BrowserTool
 

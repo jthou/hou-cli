@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 120
+- 后端路由数: 118
 - 前端 fetch 数: 106
 
 ## 后端路由
@@ -46,8 +46,6 @@ GET /api/settings/model-availability-audit/models
 GET /api/settings/model-config-audit
 GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
-GET /api/settings/tavily-audit/path
-GET /api/settings/tavily-audit/stats
 GET /api/settings/writing-profile
 GET /api/storage/audit
 GET /api/storage/config
@@ -256,8 +254,6 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/{id}/clear
 - /api/sessions/{id}/summary
 - /api/settings/kanban/status
-- /api/settings/tavily-audit/path
-- /api/settings/tavily-audit/stats
 - /api/storage/config
 - /api/system/cpu
 - /api/system/load

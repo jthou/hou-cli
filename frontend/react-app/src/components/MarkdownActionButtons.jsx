@@ -4,7 +4,6 @@
  * 写入 MediaWiki 与同步到公众号草稿均通过任务队列，可在任务管理中审计。
  */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { mdToWikiWithImages } from '../utils/wikiMdConvert'
 import { useToast } from './ToastModal'
 
@@ -32,7 +31,6 @@ export default function MarkdownActionButtons({
   sourceUrl = '',
 }) {
   const toast = useToast()
-  const navigate = useNavigate()
   const [mwDialogOpen, setMwDialogOpen] = useState(false)
   const [mwTitle, setMwTitle] = useState('')
   const [mwSummary, setMwSummary] = useState('')
@@ -95,10 +93,10 @@ export default function MarkdownActionButtons({
     setMwMdState(trimmed)
     const { wikitext } = mdToWikiWithImages(trimmed)
     setMwWikitextState(wikitext)
-    setMwDialogOpen(true)
     setMwTitle('')
     setMwSummary('')
     setMwMode('create')
+    setMwDialogOpen(true)
   }
 
   const handleMdChange = (val) => {
@@ -145,7 +143,6 @@ export default function MarkdownActionButtons({
         setMwTitle('')
         setMwSummary('')
         setMwMode('create')
-        navigate(-1)
       } else {
         toast?.error?.(data.detail || data.message || '创建任务失败')
       }

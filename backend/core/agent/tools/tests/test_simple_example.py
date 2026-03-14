@@ -18,13 +18,10 @@ current_file = Path(__file__).resolve()
 project_root = current_file.parent.parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-# 切换到项目根目录（确保 load_dotenv 能找到 .env 文件）
 os.chdir(project_root)
 
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-load_dotenv()
+from shared.load_env import load_env
+load_env(project_root)
 
 print("=" * 60)
 print("Tools 测试示例")

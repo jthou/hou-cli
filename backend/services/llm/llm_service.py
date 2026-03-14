@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 from openai import AsyncOpenAI, PermissionDeniedError, APIConnectionError
 import httpx
-from dotenv import load_dotenv
 from shared.debug_utils import DebugOutput
+from shared.load_env import load_env
 
 if TYPE_CHECKING:
     from browser_use.llm.base import BaseChatModel
@@ -88,18 +88,9 @@ class LLMService:
     
     def _ensure_env_loaded(self):
         """确保环境变量已加载（统一配置管理）"""
-        # 检查是否已存在关键环境变量
         if not os.environ.get('DEEPSEEK_API_KEY'):
-            # 尝试从项目根目录加载 .env 文件
             project_root = Path(__file__).parent.parent.parent.parent
-            env_path = project_root / '.env'
-            if env_path.exists():
-                load_dotenv(env_path)
-                logger.info("从项目根目录加载 .env 文件")
-            else:
-                # 尝试从当前工作目录加载
-                load_dotenv()
-                logger.info("从当前工作目录加载 .env 文件")
+            load_env(project_root)
     
     def _get_model_config(self, model_name: str) -> Dict[str, str]:
         """

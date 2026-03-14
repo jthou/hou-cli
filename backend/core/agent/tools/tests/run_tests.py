@@ -46,16 +46,8 @@ if str(project_root) not in sys.path:
 # 切换到项目根目录
 os.chdir(project_root)
 
-# 加载 .env 文件
-try:
-    from dotenv import load_dotenv
-    env_path = project_root / '.env'
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
-    else:
-        load_dotenv()
-except ImportError:
-    pass  # dotenv 不是必需的
+from shared.load_env import load_env
+load_env(project_root)
 
 # 现在导入 pytest
 import pytest

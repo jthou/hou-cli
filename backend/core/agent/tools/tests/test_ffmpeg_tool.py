@@ -4,10 +4,8 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-load_dotenv()
+from shared.load_env import load_env_for_file
+load_env_for_file(__file__)
 
 # 添加项目路径
 project_root = Path(__file__).parent.parent.parent.parent.parent

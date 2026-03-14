@@ -1,6 +1,6 @@
 """复杂浏览器任务场景测试。暂时移除 browser 工具，后续再开发。"""
-from dotenv import load_dotenv
-load_dotenv()
+from shared.load_env import load_env_for_file
+load_env_for_file(__file__)
 
 import pytest
 from unittest.mock import Mock, patch

@@ -4,16 +4,11 @@ import sys
 import os
 import asyncio
 from pathlib import Path
-from dotenv import load_dotenv
-
-# 加载 .env 文件
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-env_path = PROJECT_ROOT / '.env'
-if env_path.exists():
-    load_dotenv(env_path, override=True)
-    print(f"✅ 已加载 .env 文件: {env_path}\n")
-else:
-    load_dotenv()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from shared.load_env import load_env
+load_env(PROJECT_ROOT)
 
 # 添加项目根目录到路径
 if str(PROJECT_ROOT) not in sys.path:

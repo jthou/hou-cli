@@ -1,16 +1,10 @@
 """主路由文件 - 聚合所有功能模块的路由"""
 from pathlib import Path
 
-from dotenv import load_dotenv
+from shared.load_env import load_env
 from fastapi import APIRouter
 
-# 加载 .env 文件（在导入其他模块之前）
-env_path = Path(__file__).parent.parent.parent / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
-else:
-    # 尝试从当前目录加载
-    load_dotenv()
+load_env(Path(__file__).resolve().parent.parent.parent)
 
 # 导入各个功能模块的路由
 from backend.api.chat_routes import router as chat_router

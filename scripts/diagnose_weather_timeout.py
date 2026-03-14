@@ -15,20 +15,8 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-# 与 backend/main.py 一致的 .env 加载顺序
-from dotenv import load_dotenv
-config_dir = Path.home() / ".config" / "hou-cli"
-env_paths = [
-    config_dir / ".env",
-    _root / ".env",
-    Path.cwd() / ".env",
-]
-for env_path in env_paths:
-    if env_path.exists():
-        load_dotenv(env_path)
-        break
-else:
-    load_dotenv()
+from shared.load_env import load_env
+load_env(_root)
 
 
 def main():

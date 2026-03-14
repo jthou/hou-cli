@@ -4,18 +4,10 @@ import os
 import asyncio
 from pathlib import Path
 
-# 加载 .env 文件
-project_root = Path(__file__).parent.parent
-env_file = project_root / '.env'
-if env_file.exists():
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(env_file)
-        print(f"✅ 已加载 .env 文件")
-    except ImportError:
-        print("⚠️  python-dotenv 未安装，请手动设置环境变量")
-
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
+from shared.load_env import load_env
+load_env(project_root)
 
 from backend.core.agent.tools.builtin.browser_tool import BrowserTool
 

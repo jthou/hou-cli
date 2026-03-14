@@ -3,7 +3,6 @@ import os
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -13,26 +12,9 @@ from shared.platform_utils import save_port, load_port, get_port_file
 from shared.config import Config
 from rich.console import Console
 
-# 加载 .env 文件
-# 优先级：1. 用户配置目录 2. 项目根目录 3. 当前目录
-from shared.platform_utils import get_app_data_dir
-config_dir = Path.home() / ".config" / "hou-cli"
-env_paths = [
-    config_dir / ".env",  # 用户配置目录（推荐）
-    Path(__file__).parent.parent / '.env',  # 项目根目录（开发环境）
-    Path.cwd() / '.env',  # 当前目录
-]
-
-env_loaded = False
-for env_path in env_paths:
-    if env_path.exists():
-        load_dotenv(env_path)
-        env_loaded = True
-        break
-
-if not env_loaded:
-    # 如果都没找到，尝试从当前目录加载（兼容旧行为）
-    load_dotenv()
+# 加载 .env（统一逻辑，见 shared/load_env.py）
+from shared.load_env import load_env
+load_env(Path(__file__).parent.parent)
 
 # 配置日志系统
 config = Config()

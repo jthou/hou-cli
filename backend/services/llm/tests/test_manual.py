@@ -3,26 +3,12 @@ import sys
 import os
 import asyncio
 from pathlib import Path
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-# 从当前文件位置向上查找项目根目录
 current_file = Path(__file__).resolve()
 PROJECT_ROOT = current_file.parent.parent.parent.parent
-env_path = PROJECT_ROOT / '.env'
-
-if env_path.exists():
-    load_dotenv(env_path, override=True)
-    print(f"✅ 已加载 .env 文件: {env_path}\n")
-else:
-    # 尝试当前目录
-    cwd_env = Path.cwd() / '.env'
-    if cwd_env.exists():
-        load_dotenv(cwd_env, override=True)
-        print(f"✅ 已加载 .env 文件: {cwd_env}\n")
-    else:
-        print(f"⚠️  未找到 .env 文件（尝试了 {env_path} 和 {cwd_env}）\n")
-        load_dotenv()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from shared.load_env import load_env
+load_env(PROJECT_ROOT)
 
 # 添加项目根目录到路径
 if str(PROJECT_ROOT) not in sys.path:

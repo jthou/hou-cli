@@ -12,11 +12,11 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parents[1]
+project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
-load_dotenv(project_root / ".env")
+from shared.load_env import load_env
+load_env(project_root)
 
 # 与 Makefile WEB_PORT 一致，兼容 BACKEND_PORT
 BACKEND_PORT = os.getenv("WEB_PORT") or os.getenv("BACKEND_PORT") or "8081"

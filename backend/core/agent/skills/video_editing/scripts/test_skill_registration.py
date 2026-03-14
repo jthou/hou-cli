@@ -6,32 +6,15 @@ import asyncio
 from pathlib import Path
 from datetime import datetime
 
-# 尝试加载环境变量（可选）
-try:
-    from dotenv import load_dotenv
-    env_path = Path(__file__).parent.parent.parent.parent.parent.parent.parent / '.env'
-    if env_path.exists():
-        load_dotenv(env_path)
-    else:
-        user_env = Path.home() / '.config' / 'hou-cli' / '.env'
-        if user_env.exists():
-            load_dotenv(user_env)
-except ImportError:
-    # dotenv 不是必需的
-    pass
-
-# 添加项目根目录到路径
 script_path = Path(__file__).resolve()
 current = script_path.parent
 while current.name != 'backend' and len(current.parts) > 1:
     current = current.parent
-if current.name == 'backend':
-    project_root = current.parent
-else:
-    project_root = script_path.parent.parent.parent.parent.parent.parent.parent
-
+project_root = current.parent if current.name == 'backend' else script_path.parent.parent.parent.parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+from shared.load_env import load_env
+load_env(project_root)
 
 os.chdir(project_root)
 

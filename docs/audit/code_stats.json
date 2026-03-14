@@ -1,34 +1,30 @@
 {
-  "total_files": 1153,
-  "total_lines": 344050,
+  "total_files": 1124,
+  "total_lines": 294351,
   "by_language": {
     "other": {
-      "files": 26,
-      "lines": 100907
+      "files": 19,
+      "lines": 63085
     },
     "markdown": {
-      "files": 398,
-      "lines": 107257
+      "files": 384,
+      "lines": 101292
     },
     "python": {
-      "files": 556,
-      "lines": 96375
+      "files": 550,
+      "lines": 96238
     },
     "shell": {
       "files": 34,
       "lines": 2143
     },
-    "jsx": {
-      "files": 86,
-      "lines": 17668
-    },
     "javascript": {
       "files": 32,
-      "lines": 5166
+      "lines": 5139
     },
     "json": {
-      "files": 9,
-      "lines": 11037
+      "files": 8,
+      "lines": 5300
     },
     "html": {
       "files": 2,
@@ -38,6 +34,10 @@
       "files": 3,
       "lines": 539
     },
+    "jsx": {
+      "files": 85,
+      "lines": 17657
+    },
     "yaml": {
       "files": 7,
       "lines": 2814
@@ -45,12 +45,8 @@
   },
   "by_directory": {
     ".": {
-      "files": 10,
-      "lines": 5337
-    },
-    "frontend-react-app": {
-      "files": 1,
-      "lines": 24
+      "files": 9,
+      "lines": 1814
     },
     "extension": {
       "files": 6,
@@ -58,11 +54,11 @@
     },
     "frontend": {
       "files": 144,
-      "lines": 38248
+      "lines": 38233
     },
     "plans": {
-      "files": 24,
-      "lines": 10058
+      "files": 9,
+      "lines": 3993
     },
     "config": {
       "files": 2,
@@ -74,11 +70,11 @@
     },
     "tests": {
       "files": 65,
-      "lines": 8094
+      "lines": 8101
     },
     "backend": {
-      "files": 475,
-      "lines": 138198
+      "files": 469,
+      "lines": 138055
     },
     "shared": {
       "files": 10,
@@ -86,11 +82,7 @@
     },
     "docs": {
       "files": 326,
-      "lines": 99826
-    },
-    "hou_cli.egg-info": {
-      "files": 5,
-      "lines": 55
+      "lines": 93841
     },
     "examples": {
       "files": 1,
@@ -103,11 +95,7 @@
     "archived": {
       "files": 21,
       "lines": 1341
-    },
-    "downloads": {
-      "files": 1,
-      "lines": 33896
     }
   },
-  "generated_at": "2026-03-13T06:28:48.511058Z"
+  "generated_at": "2026-03-13T09:51:38.943886Z"
 }

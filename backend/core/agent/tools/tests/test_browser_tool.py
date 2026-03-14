@@ -2,15 +2,14 @@
 import pytest
 import os
 import json
-from dotenv import load_dotenv
+from shared.load_env import load_env_for_file
 
 # 暂时移除 browser 工具，后续再开发；恢复时设置 BROWSER_TOOL_ENABLED=true 并取消此 skip
 pytestmark = pytest.mark.skip(reason="browser tool 暂时移除，后续再开发")
 
 from backend.core.agent.tools.builtin.browser_tool import BrowserTool, BROWSER_USE_AVAILABLE
 
-# 加载 .env 文件
-load_dotenv()
+load_env_for_file(__file__)
 
 
 class TestBrowserTool:

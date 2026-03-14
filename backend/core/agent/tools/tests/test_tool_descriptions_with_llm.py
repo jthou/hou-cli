@@ -8,9 +8,8 @@ from datetime import datetime
 from typing import Dict, List, Any
 from pathlib import Path
 
-# 加载 .env 文件
-from dotenv import load_dotenv
-load_dotenv()
+from shared.load_env import load_env_for_file
+load_env_for_file(__file__)
 
 from backend.core.agent.tools.registry import ToolRegistry
 from backend.services.llm.llm_service import LLMService

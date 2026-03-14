@@ -4,15 +4,10 @@ from pathlib import Path
 import asyncio
 import os
 import importlib.util
-from dotenv import load_dotenv
-
-# 加载 .env 文件
-project_root = Path(__file__).parent.parent
-env_file = project_root / '.env'
-if env_file.exists():
-    load_dotenv(env_file)
-
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
+from shared.load_env import load_env
+load_env(project_root)
 
 
 def load_browser_tool():

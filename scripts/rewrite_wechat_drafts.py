@@ -14,15 +14,9 @@ _root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-try:
-    from dotenv import load_dotenv
-    _env = os.path.join(_root, ".env")
-    if os.path.isfile(_env):
-        load_dotenv(_env)
-    else:
-        load_dotenv()
-except ImportError:
-    pass
+from pathlib import Path
+from shared.load_env import load_env
+load_env(Path(_root))
 
 
 # GitHub 风格行内样式（与 docs/design/wechat-mp-article-template.html 一致）
