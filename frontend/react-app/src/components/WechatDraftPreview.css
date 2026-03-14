@@ -126,6 +126,10 @@
   border: 1px solid #d0d7de;
 }
 
+.wechat-draft-preview--img-clickable img {
+  cursor: pointer;
+}
+
 .wechat-draft-preview div {
   margin: 0 0 16px 0;
   color: #24292f !important;

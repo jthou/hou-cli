@@ -25,6 +25,18 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen, contex
     })
   }, [selectedSessionId, contextType])
 
+  const handleAddReferenceBlockWithContent = useCallback((content) => {
+    const text = (content || '').trim()
+    if (!text) return
+    setReferenceBlocks((prev) => {
+      const next = [...prev, { id: generateReferenceBlockId(), title: '', content: text }]
+      if (selectedSessionId) {
+        runWhenIdle(() => saveReferenceBlocks(selectedSessionId, next, contextType).catch(() => {}))
+      }
+      return next
+    })
+  }, [selectedSessionId, contextType])
+
   const handleUpdateReferenceBlock = useCallback((id, field, value) => {
     setReferenceBlocks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, [field]: value } : b))
@@ -105,6 +117,7 @@ export function useReferenceBlocks(selectedSessionId, referencePanelOpen, contex
   return {
     referenceBlocks,
     handleAddReferenceBlock,
+    handleAddReferenceBlockWithContent,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,

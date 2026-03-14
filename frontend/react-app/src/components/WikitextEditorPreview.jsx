@@ -1,67 +1,57 @@
 /**
- * Markdown 编辑 + 预览 + 摘要 + 操作按钮（复制、发送到写作助手、写入 MediaWiki）
- * 供 WebReader、ArticleWriting 等页面复用
+ * Wikitext 编辑 + 预览 + 摘要 + 操作按钮
+ * 供 MediaWikiReader 使用，直接编辑 Wikitext，不做 Markdown 转换
  */
 import { useState, useEffect, useCallback } from 'react'
-import MarkdownPreview from './MarkdownPreview'
-import MarkdownActionButtons from './MarkdownActionButtons'
+import WikiPreview from './WikiPreview'
+import WikitextActionButtons from './WikitextActionButtons'
 
 const textareaCls =
   'flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
 
 /**
  * @param {Object} props
- * @param {string} [props.content] - Markdown 内容
+ * @param {string} [props.wikiText] - Wikitext 内容
  * @param {(v: string) => void} [props.onContentChange] - 编辑模式下内容变化回调
  * @param {boolean} [props.editable=true] - 是否支持编辑模式
  * @param {'light'|'dark'} [props.theme='dark'] - 预览主题
  * @param {string} [props.className] - 容器类名
- * @param {(content: string) => void} [props.onCopy] - 复制回调，默认使用剪贴板
- * @param {(content: string) => void} [props.onSendToArticle] - 发送到写作助手回调，不传则隐藏按钮
- * @param {string} [props.sendToArticleLabel='发送到写作助手'] - 按钮文案
- * @param {boolean} [props.showMediaWiki=true] - 是否显示写入 MediaWiki 按钮
- * @param {(content: string) => void} [props.onAddToReference] - 添加到参考回调，不传则隐藏
- * @param {string} [props.sourceUrl] - 原文链接（如微信读书 URL），写入 MediaWiki 时自动追加到文末
- * @param {React.ReactNode} [props.footerExtra] - 底部额外按钮（如「同步到公众号草稿」）
+ * @param {(content: string) => void} [props.onAddToReference] - 添加到参考（会转为 Markdown）
+ * @param {(content: string) => void} [props.onSendToArticle] - 发送到写作助手（会转为 Markdown）
+ * @param {(pageTitle: string) => void} [props.onWikiLinkClick] - 点击本站 Wiki 链接时回调，用于在应用内打开
  * @param {boolean} [props.showSummary=false] - 是否显示摘要区域
  * @param {string} [props.summary] - 摘要内容（受控）
  * @param {(v: string) => void} [props.onSummaryChange] - 摘要变化回调
- * @param {(content: string) => Promise<string>} [props.onGenerateSummary] - 生成摘要回调，返回摘要文本
- * @param {(err: Error) => void} [props.onSummaryError] - 生成失败时回调（如用于 toast 提示）
- * @param {Function} [props.onImgClick] - 点击预览区图片时回调，用于上传到 MediaWiki 等
+ * @param {(content: string) => Promise<string>} [props.onGenerateSummary] - 生成摘要回调
+ * @param {(err: Error) => void} [props.onSummaryError] - 生成失败时回调
  */
-export default function MarkdownEditorPreview({
-  content = '',
+export default function WikitextEditorPreview({
+  wikiText = '',
   onContentChange,
   editable = true,
   theme = 'dark',
   className = '',
-  onCopy,
-  onSendToArticle,
-  sendToArticleLabel = '发送到写作助手',
-  showMediaWiki = true,
   onAddToReference,
-  sourceUrl = '',
-  footerExtra,
+  onSendToArticle,
+  onWikiLinkClick,
   showSummary = false,
   summary = '',
   onSummaryChange,
   onGenerateSummary,
   onSummaryError,
-  onImgClick,
 }) {
   const [viewMode, setViewMode] = useState('preview')
-  const [editDraft, setEditDraft] = useState(content)
+  const [editDraft, setEditDraft] = useState(wikiText)
   const [summaryLoading, setSummaryLoading] = useState(false)
 
   useEffect(() => {
-    if (viewMode === 'preview') setEditDraft(content)
-  }, [content, viewMode])
+    if (viewMode === 'preview') setEditDraft(wikiText)
+  }, [wikiText, viewMode])
 
-  const effectiveContent = viewMode === 'edit' ? editDraft : content
+  const effectiveContent = viewMode === 'edit' ? editDraft : wikiText
 
   const enterEdit = () => {
-    setEditDraft(content)
+    setEditDraft(wikiText)
     setViewMode('edit')
   }
 
@@ -79,7 +69,6 @@ export default function MarkdownEditorPreview({
     }
   }, [effectiveContent, onGenerateSummary, onSummaryChange, onSummaryError])
 
-  /** 点击摘要且无摘要时，自动生成 */
   useEffect(() => {
     if (
       viewMode === 'summary' &&
@@ -123,14 +112,14 @@ export default function MarkdownEditorPreview({
                 setEditDraft(e.target.value)
                 onContentChange?.(e.target.value)
               }}
-              placeholder="在此编辑 Markdown 内容…"
+              placeholder="在此编辑 Wikitext 内容…"
               className={textareaCls}
               spellCheck={false}
             />
           </div>
         ) : viewMode === 'summary' ? (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto flex flex-col p-4">
-            <div className="shrink-0 flex items-center justify-between gap-2 mb-3">
+            <div className="shrink-0 flex justify-between gap-2 mb-3">
               {onGenerateSummary && (
                 <button
                   type="button"
@@ -144,7 +133,7 @@ export default function MarkdownEditorPreview({
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto text-sm text-muted [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-1.5 [&_h3]:mb-0.5 [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4">
               {summary ? (
-                <MarkdownPreview markdown={summary} theme="dark" className="p-0 min-h-0 text-sm" />
+                <div className="whitespace-pre-wrap">{summary}</div>
               ) : (
                 <p className="text-xs text-muted/70 italic">点击「生成摘要」由 AI 生成结构化分层摘要。</p>
               )}
@@ -152,20 +141,15 @@ export default function MarkdownEditorPreview({
           </div>
         ) : (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-            <MarkdownPreview markdown={effectiveContent || ''} className="min-h-full p-4" theme={theme} onImgClick={onImgClick} />
+            <WikiPreview wikiText={effectiveContent || ''} className="min-h-full p-4" theme={theme} hideActions onWikiLinkClick={onWikiLinkClick} />
           </div>
         )}
       </div>
       <div className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-center gap-3 bg-black/20">
-        <MarkdownActionButtons
-          content={effectiveContent}
-          onCopy={onCopy}
-          onSendToArticle={onSendToArticle}
-          sendToArticleLabel={sendToArticleLabel}
-          showMediaWiki={showMediaWiki}
+        <WikitextActionButtons
+          wikiText={effectiveContent}
           onAddToReference={onAddToReference}
-          sourceUrl={sourceUrl}
-          extra={footerExtra}
+          onSendToArticle={onSendToArticle}
         />
       </div>
     </div>

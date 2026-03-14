@@ -11,8 +11,9 @@ import { mdToHtml } from '../utils/mdToHtml'
  * @param {string} [props.markdown] - Markdown 文本
  * @param {string} [props.className] - 容器额外类名
  * @param {'light'|'dark'} [props.theme='light'] - 预览主题，dark 时跟随应用主题
+ * @param {Function} [props.onImgClick] - 点击图片时回调，透传给 WechatDraftPreview
  */
-export default function MarkdownPreview({ markdown = '', className = '', theme = 'light' }) {
+export default function MarkdownPreview({ markdown = '', className = '', theme = 'light', onImgClick }) {
   const html = useMemo(() => mdToHtml(markdown || ''), [markdown])
-  return <WechatDraftPreview html={html} className={className} theme={theme} />
+  return <WechatDraftPreview html={html} className={className} theme={theme} onImgClick={onImgClick} />
 }

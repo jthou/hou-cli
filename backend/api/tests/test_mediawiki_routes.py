@@ -95,6 +95,42 @@ class TestMediaWikiRoutes:
             assert data["page"]["content"] == "这是页面内容"
             assert len(data["page"]["categories"]) == 2
     
+    def test_parse_mediawiki_wikitext_success(self, client):
+        """测试 MediaWiki wikitext 解析为 HTML 成功"""
+        with patch('backend.api.mediawiki_routes.get_mediawiki_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.parse_wikitext = MagicMock(
+                return_value='<div class="mw-parser-output"><p>Hello</p></div>'
+            )
+            mock_get_client.return_value = mock_client
+
+            response = client.post(
+                "/api/mediawiki/parse",
+                json={"wikitext": "Hello '''world'''"},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert "html" in data
+            assert "mw-parser-output" in data["html"]
+            mock_client.parse_wikitext.assert_called_once_with("Hello '''world'''", title=None)
+
+    def test_parse_mediawiki_wikitext_with_title(self, client):
+        """测试带 title 的 parse 请求"""
+        with patch('backend.api.mediawiki_routes.get_mediawiki_client') as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.parse_wikitext = MagicMock(return_value="<p>OK</p>")
+            mock_get_client.return_value = mock_client
+
+            response = client.post(
+                "/api/mediawiki/parse",
+                json={"wikitext": "{{PAGENAME}}", "title": "Test"},
+            )
+
+            assert response.status_code == 200
+            mock_client.parse_wikitext.assert_called_once_with("{{PAGENAME}}", title="Test")
+
     def test_get_mediawiki_page_not_found(self, client):
         """测试获取不存在的 MediaWiki 页面"""
         with patch('backend.api.mediawiki_routes.get_mediawiki_client') as mock_get_client:

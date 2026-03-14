@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 118
-- 前端 fetch 数: 106
+- 后端路由数: 124
+- 前端 fetch 数: 112
 
 ## 后端路由
 
@@ -17,6 +17,8 @@ GET /api/chat/article/revisions
 GET /api/chat/mw-sources
 GET /api/heartbeat/status
 GET /api/latex/render
+GET /api/mediawiki/base-url
+GET /api/mediawiki/diagnostic
 GET /api/mediawiki/pages/{title:path}
 GET /api/mediawiki/random-read
 GET /api/mediawiki/recent-read
@@ -46,6 +48,8 @@ GET /api/settings/model-availability-audit/models
 GET /api/settings/model-config-audit
 GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
+GET /api/settings/tavily-audit/path
+GET /api/settings/tavily-audit/stats
 GET /api/settings/writing-profile
 GET /api/storage/audit
 GET /api/storage/config
@@ -95,7 +99,9 @@ POST /api/chat/stream
 POST /api/execution/approve
 POST /api/execution/reject
 POST /api/mediawiki/pages/{title:path}
+POST /api/mediawiki/parse
 POST /api/mediawiki/sync
+POST /api/mediawiki/upload-image
 POST /api/network/audit/run
 POST /api/pdf/resolve
 POST /api/pdf/upload-from-extension
@@ -142,10 +148,14 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/chat/stream
 - GET /api/heartbeat/status
 - GET /api/latex/render
+- GET /api/mediawiki/base-url
+- GET /api/mediawiki/pages/
+- GET /api/mediawiki/parse
 - GET /api/mediawiki/random-read
 - GET /api/mediawiki/recent-read
 - GET /api/mediawiki/search
 - GET /api/mediawiki/search-read
+- GET /api/mediawiki/upload-image
 - GET /api/models/selectable
 - GET /api/network/audit/env
 - GET /api/network/audit/history
@@ -211,6 +221,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/chat/article/patch
 - POST /api/chat/article/restore
 - POST /api/chat/stream
+- POST /api/mediawiki/parse
+- POST /api/mediawiki/upload-image
 - POST /api/network/audit/run
 - POST /api/pdf/resolve
 - POST /api/pdf/upload-from-extension
@@ -242,6 +254,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/chat/article/merge
 - /api/execution/approve
 - /api/execution/reject
+- /api/mediawiki/diagnostic
 - /api/mediawiki/pages/{id}
 - /api/mediawiki/sync
 - /api/mediawiki/sync/status
@@ -254,6 +267,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/{id}/clear
 - /api/sessions/{id}/summary
 - /api/settings/kanban/status
+- /api/settings/tavily-audit/path
+- /api/settings/tavily-audit/stats
 - /api/storage/config
 - /api/system/cpu
 - /api/system/load
@@ -290,6 +305,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 
 ## 前端调用但可能未实现（需人工核对）
 
+- /api/mediawiki/pages/
 - /api/sessions/
 - /api/task-queue/scheduled-tasks/${id}
 - /api/task-queue/scheduled-tasks/${id}/run-now

@@ -7,6 +7,7 @@ import { useToast } from '../components/ToastModal'
 import PageHeader from '../components/PageHeader'
 import MarkdownPreview from '../components/MarkdownPreview'
 import MarkdownActionButtons from '../components/MarkdownActionButtons'
+import UserMessageActionButtons from '../components/UserMessageActionButtons'
 import ChatInput from '../components/ChatInput'
 import ArticleDiffView from '../components/ArticleDiffView'
 import { fetchSummarize } from '../utils/summarizeApi'
@@ -101,7 +102,8 @@ export default function ArticleWriting() {
   const [editDialog, setEditDialog] = useState(null) // { sessionId, title, mwTitles } 或 null
   const [editDialogMwInput, setEditDialogMwInput] = useState('')
   const [editDialogSearchQuery, setEditDialogSearchQuery] = useState('')
-  const [editDialogSearchResults, setEditDialogSearchResults] = useState([])
+  const [editDialogSearchResults, setEditDialogSearchResults] = useState([]) // { title, snippet }[]
+  const [editDialogSearchLoading, setEditDialogSearchLoading] = useState(false)
   const [editDialogSaving, setEditDialogSaving] = useState(false)
   const [listSort, setListSort] = useState('updated_at') // 'updated_at' | 'created_at'
   const [revisions, setRevisions] = useState([])
@@ -148,6 +150,7 @@ export default function ArticleWriting() {
   const {
     referenceBlocks,
     handleAddReferenceBlock,
+    handleAddReferenceBlockWithContent,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,
@@ -300,7 +303,7 @@ export default function ArticleWriting() {
       .then(([sessionRes, articleRes]) => {
         if (sessionRes.success && Array.isArray(sessionRes.messages)) {
           setMessages(
-            sessionRes.messages.map((m) => ({ role: m.role, content: m.content }))
+            sessionRes.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
           )
         } else if (sessionRes?.error) {
           toast?.error?.(`加载历史失败：${sessionRes.error}`)
@@ -346,6 +349,96 @@ export default function ArticleWriting() {
 
   const handleStop = () => {
     abortControllerRef.current?.abort()
+  }
+
+  const handleRegenerate = async (messageId) => {
+    if (!selectedSessionId || !messageId || loading) return
+    const idx = messages.findIndex((m) => m.message_id === messageId)
+    if (idx >= 0) {
+      setMessages((prev) => prev.slice(0, idx + 1))
+    }
+    setLoading(true)
+    setStreamingContent('')
+    setStreamingToolCalls([])
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+    try {
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: '',
+          session_id: selectedSessionId,
+          current_article: article || undefined,
+          context_type: 'article_writing',
+          regenerate_from_message_id: messageId,
+          ...(selectedModel ? { model: selectedModel } : {}),
+        }),
+        signal: ac.signal,
+      })
+      if (!res.ok) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${res.statusText || res.status}` }])
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullContent = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const block of parts) {
+          const dataLines = block.split('\n').filter((l) => l.startsWith('data: '))
+          for (const dataLine of dataLines) {
+            try {
+              const obj = JSON.parse(dataLine.slice(6))
+              if (obj.status === 'streaming' && obj.content != null) {
+                const raw = String(obj.content)
+                if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:') && !raw.startsWith('__TOOL__:')) {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
+                }
+              } else if (obj.status === 'done') {
+                const finalContent = fullContent.trim() || '（助手未返回内容）'
+                setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                setStreamingContent('')
+                setStreamingToolCalls([])
+                streamingContentRef.current = ''
+                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+                  .then((r) => r.json())
+                  .then((d) => {
+                    if (d.success && Array.isArray(d.messages)) {
+                      setMessages((prev) => {
+                        const apiCount = d.messages.length
+                        if (apiCount >= prev.length) {
+                          return d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
+                        }
+                        return prev
+                      })
+                    }
+                  })
+                  .catch(() => {})
+                fullContent = ''
+              } else if (obj.status === 'error') {
+                setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
+                setStreamingContent('')
+                fullContent = ''
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return
+      setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err?.message || '请求失败'}` }])
+    } finally {
+      setLoading(false)
+      abortControllerRef.current = null
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -651,17 +744,34 @@ export default function ArticleWriting() {
     }))
   }
 
-  const searchMediaWiki = () => {
+  const searchMediaWiki = useCallback(() => {
     const q = (editDialogSearchQuery || '').trim()
-    if (!q) return
+    if (!q) {
+      setEditDialogSearchResults([])
+      return
+    }
+    setEditDialogSearchLoading(true)
     fetch(`/api/mediawiki/search?query=${encodeURIComponent(q)}&limit=10`)
       .then((r) => r.json())
       .then((d) => {
-        const list = (d.results || []).map((r) => r.title)
+        const list = (d.results || []).map((r) => ({ title: r.title, snippet: r.snippet || '' }))
         setEditDialogSearchResults(list)
       })
       .catch(() => setEditDialogSearchResults([]))
-  }
+      .finally(() => setEditDialogSearchLoading(false))
+  }, [editDialogSearchQuery])
+
+  // 防抖搜索：输入变化后 300ms 自动搜索
+  useEffect(() => {
+    if (!editDialog) return
+    const q = (editDialogSearchQuery || '').trim()
+    if (!q) {
+      setEditDialogSearchResults([])
+      return
+    }
+    const t = setTimeout(searchMediaWiki, 300)
+    return () => clearTimeout(t)
+  }, [editDialog, editDialogSearchQuery, searchMediaWiki])
 
   const handleWriteToPreview = async (content) => {
     if (!selectedSessionId || content == null) return
@@ -850,9 +960,9 @@ export default function ArticleWriting() {
     fallbackCopy(toCopy)
   }
 
-  const handleAddContentToInput = (content) => {
+  const handleWriteToInput = (content) => {
     if (!content) return
-    setInput((prev) => (prev ? prev + '\n\n' + content : content))
+    setInput(typeof content === 'string' ? content : '')
   }
 
   /** 从助手回复中剥离「执行 xxx 代理... 」前缀，状态单独展示，正文不进入 Markdown */
@@ -1250,18 +1360,31 @@ export default function ArticleWriting() {
                         )}
                       </div>
                       {m.role === 'user' && (
-                        <div className="mt-1.5 flex items-center gap-2 flex-wrap justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleAddToReference(m.content)}
-                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
-                          >
-                            添加到参考信息
-                          </button>
-                        </div>
+                        <UserMessageActionButtons
+                          content={m.content}
+                          messageId={m.message_id}
+                          onRegenerate={handleRegenerate}
+                          onWriteToInput={handleWriteToInput}
+                          onAddToReference={(c) => {
+                            handleAddReferenceBlockWithContent(c)
+                            setReferencePanelOpen(true)
+                          }}
+                          loading={loading}
+                        />
                       )}
                       {m.role === 'assistant' && (
                         <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                          {i > 0 && messages[i - 1]?.role === 'user' && messages[i - 1]?.message_id && (
+                            <button
+                              type="button"
+                              onClick={() => handleRegenerate(messages[i - 1].message_id)}
+                              disabled={loading}
+                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10 disabled:opacity-50"
+                              title="要求 AI 重新回答此问题"
+                            >
+                              重新回答
+                            </button>
+                          )}
                           {extractPatchBlock(assistantContent) && (
                             <button
                               type="button"
@@ -1288,17 +1411,20 @@ export default function ArticleWriting() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAddContentToInput(assistantContent)}
+                            onClick={() => handleWriteToInput(assistantContent)}
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
-                            加入输入框
+                            写回输入框
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAddToReference(assistantContent)}
+                            onClick={() => {
+                              handleAddReferenceBlockWithContent(assistantContent)
+                              setReferencePanelOpen(true)
+                            }}
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
-                            添加到参考信息
+                            添加到参考
                           </button>
                         </div>
                       )}
@@ -1367,13 +1493,25 @@ export default function ArticleWriting() {
                           停止
                         </button>
                         {streamMarkdown && (
-                          <button
-                            type="button"
-                            onClick={() => handleAddToReference(streamMarkdown)}
-                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
-                          >
-                            添加到参考信息
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleWriteToInput(streamMarkdown)}
+                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+                            >
+                              写回输入框
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleAddReferenceBlockWithContent(streamMarkdown)
+                                setReferencePanelOpen(true)
+                              }}
+                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+                            >
+                              添加到参考
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1633,8 +1771,8 @@ export default function ArticleWriting() {
             <div className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-center gap-3 bg-black/20">
               <MarkdownActionButtons
                 content={previewContent}
-                onSendToArticle={handleAddContentToInput}
-                sendToArticleLabel="加入输入框"
+                onSendToArticle={handleWriteToInput}
+                sendToArticleLabel="写回输入框"
                 onAddToReference={handleAddToReference}
                 extra={
                   <button
@@ -1709,28 +1847,32 @@ export default function ArticleWriting() {
                     onChange={(e) => setEditDialogSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchMediaWiki())}
                     className="flex-1 rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                    placeholder="搜索 MediaWiki 页面"
+                    placeholder="搜索 MediaWiki 页面（输入即搜）"
                   />
                   <button
                     type="button"
                     onClick={searchMediaWiki}
-                    className="shrink-0 px-3 py-2 rounded-lg bg-white/10 text-[#e2e8f0] text-sm hover:bg-white/15"
+                    disabled={editDialogSearchLoading}
+                    className="shrink-0 px-3 py-2 rounded-lg bg-white/10 text-[#e2e8f0] text-sm hover:bg-white/15 disabled:opacity-50"
                   >
-                    搜索
+                    {editDialogSearchLoading ? '搜索中…' : '搜索'}
                   </button>
                 </div>
                 {editDialogSearchResults.length > 0 && (
-                  <div className="mb-2 p-2 rounded-lg bg-white/5 border border-border max-h-32 overflow-y-auto">
+                  <div className="mb-2 p-2 rounded-lg bg-white/5 border border-border max-h-40 overflow-y-auto">
                     <p className="text-xs text-muted mb-1">点击添加：</p>
                     <ul className="space-y-1">
-                      {editDialogSearchResults.map((tit) => (
-                        <li key={tit}>
+                      {editDialogSearchResults.map((r) => (
+                        <li key={r.title}>
                           <button
                             type="button"
-                            onClick={() => { addMwTitle(tit); setEditDialogSearchResults((prev) => prev.filter((t) => t !== tit)); }}
+                            onClick={() => { addMwTitle(r.title); setEditDialogSearchResults((prev) => prev.filter((x) => x.title !== r.title)); }}
                             className="w-full text-left px-2 py-1.5 rounded text-sm text-[#e2e8f0] hover:bg-white/10"
                           >
-                            {tit}
+                            <span className="font-medium">{r.title}</span>
+                            {r.snippet && (
+                              <span className="block text-xs text-muted mt-0.5 line-clamp-2 [&_.searchmatch]:text-cyan-400 [&_.searchmatch]:font-medium" dangerouslySetInnerHTML={{ __html: r.snippet }} />
+                            )}
                           </button>
                         </li>
                       ))}

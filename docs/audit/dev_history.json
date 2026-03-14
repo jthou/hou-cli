@@ -1,13 +1,13 @@
 {
-  "total_commits": 305,
+  "total_commits": 308,
   "authors": {
-    "侯金亭（Justin）": 262,
+    "侯金亭（Justin）": 265,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W10": 14,
+    "2026-W10": 17,
     "2026-W09": 27,
-    "2026-W08": 11
+    "2026-W08": 8
   },
   "commits_by_day": {
     "2025-12-31": 4,
@@ -52,7 +52,8 @@
     "2026-03-09": 5,
     "2026-03-10": 5,
     "2026-03-11": 2,
-    "2026-03-13": 2
+    "2026-03-13": 3,
+    "2026-03-14": 2
   },
   "lines_by_day": {
     "2025-12-31": {
@@ -266,62 +267,67 @@
       "total": 764
     },
     "2026-03-13": {
-      "add": 42,
-      "del": 8,
-      "total": 50
+      "add": 14240,
+      "del": 4175,
+      "total": 18415
+    },
+    "2026-03-14": {
+      "add": 526,
+      "del": 644,
+      "total": 1170
     }
   },
   "files_changed": {
-    "backend/core/agent/orchestrator.py": 76,
-    "backend/api/routes.py": 34,
-    "frontend/client/ipc_client.py": 29,
+    "backend/core/agent/orchestrator.py": 78,
+    "backend/api/routes.py": 36,
+    "frontend/client/ipc_client.py": 30,
+    "frontend/main.py": 27,
     "frontend/react-app/src/pages/TaskManagement.jsx": 27,
-    "frontend/main.py": 26,
-    "backend/infrastructure/execution/task_handlers.py": 25,
+    "frontend/react-app/src/components/Sidebar.jsx": 26,
+    "backend/infrastructure/execution/task_handlers.py": 26,
     "frontend/ui/command_handler.py": 25,
     "Makefile": 24,
-    "frontend/react-app/src/components/Sidebar.jsx": 24,
-    "backend/services/llm/llm_service.py": 22,
+    "backend/services/llm/llm_service.py": 23,
+    "frontend/react-app/src/App.jsx": 21,
+    "frontend/ui/stream_handler.py": 21,
     "frontend/react-app/src/pages/ArticleWriting.jsx": 20,
     "env.example": 20,
-    "frontend/react-app/src/App.jsx": 20,
-    "frontend/ui/stream_handler.py": 20,
     "docs/design/02-weather-tool-design.md": 20,
-    "backend/api/task_queue_routes.py": 17,
-    "requirements.txt": 17,
+    "backend/api/task_queue_routes.py": 18,
+    "requirements.txt": 18,
+    "docs/audit/AUDIT_REPORT.json": 16,
+    "docs/audit/code_stats.json": 16,
+    "docs/audit/dev_history.json": 16,
     "frontend/react-app/package.json": 16,
     "frontend/react-app/package-lock.json": 15,
-    "docs/audit/AUDIT_REPORT.json": 14,
-    "docs/audit/code_stats.json": 14,
-    "docs/audit/dev_history.json": 14,
+    "backend/main.py": 14,
+    "frontend/react-app/src/pages/MediaWikiReader.jsx": 13,
+    "backend/infrastructure/execution/tests/test_task_handlers.py": 13,
+    "backend/core/agent/system_prompt_templates.py": 13,
+    "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
     "pyproject.toml": 13,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
-    "backend/main.py": 13,
     "frontend/ui/command_input.py": 13,
-    "backend/core/agent/system_prompt_templates.py": 12,
     "backend/core/agent/tools/builtin/video_downloader_tool.py": 12,
-    "frontend/react-app/src/components/TaskResultDisplay.jsx": 12,
-    "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
     "backend/api/tests/test_task_queue_routes.py": 12,
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
+    "frontend/react-app/src/components/MarkdownActionButtons.jsx": 11,
+    "frontend/react-app/src/pages/PdfReader.jsx": 11,
+    "backend/services/llm/tests/__init__.py": 11,
+    "docs/audit/API_PATH_AUDIT.md": 11,
+    "backend/infrastructure/execution/task_worker.py": 11,
+    "frontend/react-app/src/components/task/TaskFormPage.jsx": 11,
     "backend/infrastructure/execution/tests/test_executor.py": 11,
     "backend/infrastructure/execution/tests/test_secure_executor.py": 11,
     "extension/manifest.json": 11,
-    "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
     "docs/todo/009-weather-tool-implementation.md": 11,
+    "frontend/react-app/src/pages/WebReader.jsx": 10,
     "frontend/react-app/src/utils/mdToHtml.js": 10,
-    "frontend/react-app/src/components/task/TaskFormPage.jsx": 10,
     "backend/core/context/manager.py": 10,
-    "backend/infrastructure/execution/task_worker.py": 10,
-    "frontend/react-app/src/pages/PdfReader.jsx": 10,
     "workflows/.gitkeep": 10,
     "backend/core/agent/tools/builtin/browser_tool.py": 10,
-    "cli.py": 10,
-    "backend/infrastructure/execution/tests/test_result_handler.py": 10,
-    "backend/services/llm/tests/__init__.py": 10,
-    "docs/design/dependency-management.md": 10,
-    "docs/design/getting-started.md": 10
+    "cli.py": 10
   },
-  "generated_at": "2026-03-13T09:51:39.242115Z"
+  "generated_at": "2026-03-14T13:20:05.849601Z"
 }

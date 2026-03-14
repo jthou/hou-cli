@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-03-13T09:51:38.728754Z",
+  "generated_at": "2026-03-14T13:20:05.229026Z",
   "code_stats": {
-    "total_files": 1124,
-    "total_lines": 294351,
+    "total_files": 1143,
+    "total_lines": 305657,
     "by_language": {
       "other": {
-        "files": 19,
-        "lines": 63085
-      },
-      "markdown": {
-        "files": 384,
-        "lines": 101292
+        "files": 20,
+        "lines": 66964
       },
       "python": {
-        "files": 550,
-        "lines": 96238
+        "files": 561,
+        "lines": 96613
+      },
+      "markdown": {
+        "files": 385,
+        "lines": 101457
       },
       "shell": {
         "files": 34,
@@ -22,23 +22,23 @@
       },
       "javascript": {
         "files": 32,
-        "lines": 5139
+        "lines": 5275
       },
       "json": {
-        "files": 8,
-        "lines": 5300
+        "files": 10,
+        "lines": 11040
       },
       "html": {
         "files": 2,
         "lines": 144
       },
       "css": {
-        "files": 3,
-        "lines": 539
+        "files": 4,
+        "lines": 577
       },
       "jsx": {
-        "files": 85,
-        "lines": 17657
+        "files": 88,
+        "lines": 18630
       },
       "yaml": {
         "files": 7,
@@ -47,20 +47,20 @@
     },
     "by_directory": {
       ".": {
-        "files": 9,
-        "lines": 1814
+        "files": 11,
+        "lines": 5356
       },
       "extension": {
         "files": 6,
         "lines": 1167
       },
       "frontend": {
-        "files": 144,
-        "lines": 38233
+        "files": 148,
+        "lines": 39285
       },
       "plans": {
         "files": 9,
-        "lines": 3993
+        "lines": 4013
       },
       "config": {
         "files": 2,
@@ -72,45 +72,45 @@
       },
       "tests": {
         "files": 65,
-        "lines": 8101
+        "lines": 8074
       },
       "backend": {
-        "files": 469,
-        "lines": 138055
+        "files": 476,
+        "lines": 138351
       },
       "shared": {
-        "files": 10,
-        "lines": 972
+        "files": 11,
+        "lines": 1023
       },
       "docs": {
-        "files": 326,
-        "lines": 93841
+        "files": 328,
+        "lines": 100071
       },
       "examples": {
         "files": 1,
         "lines": 138
       },
       "scripts": {
-        "files": 59,
-        "lines": 6361
+        "files": 62,
+        "lines": 6503
       },
       "archived": {
         "files": 21,
         "lines": 1341
       }
     },
-    "generated_at": "2026-03-13T09:51:38.943886Z"
+    "generated_at": "2026-03-14T13:20:05.536871Z"
   },
   "dev_history": {
-    "total_commits": 305,
+    "total_commits": 308,
     "authors": {
-      "侯金亭（Justin）": 262,
+      "侯金亭（Justin）": 265,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W10": 14,
+      "2026-W10": 17,
       "2026-W09": 27,
-      "2026-W08": 11
+      "2026-W08": 8
     },
     "commits_by_day": {
       "2025-12-31": 4,
@@ -155,7 +155,8 @@
       "2026-03-09": 5,
       "2026-03-10": 5,
       "2026-03-11": 2,
-      "2026-03-13": 2
+      "2026-03-13": 3,
+      "2026-03-14": 2
     },
     "lines_by_day": {
       "2025-12-31": {
@@ -369,64 +370,69 @@
         "total": 764
       },
       "2026-03-13": {
-        "add": 42,
-        "del": 8,
-        "total": 50
+        "add": 14240,
+        "del": 4175,
+        "total": 18415
+      },
+      "2026-03-14": {
+        "add": 526,
+        "del": 644,
+        "total": 1170
       }
     },
     "files_changed": {
-      "backend/core/agent/orchestrator.py": 76,
-      "backend/api/routes.py": 34,
-      "frontend/client/ipc_client.py": 29,
+      "backend/core/agent/orchestrator.py": 78,
+      "backend/api/routes.py": 36,
+      "frontend/client/ipc_client.py": 30,
+      "frontend/main.py": 27,
       "frontend/react-app/src/pages/TaskManagement.jsx": 27,
-      "frontend/main.py": 26,
-      "backend/infrastructure/execution/task_handlers.py": 25,
+      "frontend/react-app/src/components/Sidebar.jsx": 26,
+      "backend/infrastructure/execution/task_handlers.py": 26,
       "frontend/ui/command_handler.py": 25,
       "Makefile": 24,
-      "frontend/react-app/src/components/Sidebar.jsx": 24,
-      "backend/services/llm/llm_service.py": 22,
+      "backend/services/llm/llm_service.py": 23,
+      "frontend/react-app/src/App.jsx": 21,
+      "frontend/ui/stream_handler.py": 21,
       "frontend/react-app/src/pages/ArticleWriting.jsx": 20,
       "env.example": 20,
-      "frontend/react-app/src/App.jsx": 20,
-      "frontend/ui/stream_handler.py": 20,
       "docs/design/02-weather-tool-design.md": 20,
-      "backend/api/task_queue_routes.py": 17,
-      "requirements.txt": 17,
+      "backend/api/task_queue_routes.py": 18,
+      "requirements.txt": 18,
+      "docs/audit/AUDIT_REPORT.json": 16,
+      "docs/audit/code_stats.json": 16,
+      "docs/audit/dev_history.json": 16,
       "frontend/react-app/package.json": 16,
       "frontend/react-app/package-lock.json": 15,
-      "docs/audit/AUDIT_REPORT.json": 14,
-      "docs/audit/code_stats.json": 14,
-      "docs/audit/dev_history.json": 14,
+      "backend/main.py": 14,
+      "frontend/react-app/src/pages/MediaWikiReader.jsx": 13,
+      "backend/infrastructure/execution/tests/test_task_handlers.py": 13,
+      "backend/core/agent/system_prompt_templates.py": 13,
+      "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
       "pyproject.toml": 13,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
-      "backend/main.py": 13,
       "frontend/ui/command_input.py": 13,
-      "backend/core/agent/system_prompt_templates.py": 12,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 12,
-      "frontend/react-app/src/components/TaskResultDisplay.jsx": 12,
-      "frontend/react-app/src/pages/MediaWikiReader.jsx": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
+      "frontend/react-app/src/components/MarkdownActionButtons.jsx": 11,
+      "frontend/react-app/src/pages/PdfReader.jsx": 11,
+      "backend/services/llm/tests/__init__.py": 11,
+      "docs/audit/API_PATH_AUDIT.md": 11,
+      "backend/infrastructure/execution/task_worker.py": 11,
+      "frontend/react-app/src/components/task/TaskFormPage.jsx": 11,
       "backend/infrastructure/execution/tests/test_executor.py": 11,
       "backend/infrastructure/execution/tests/test_secure_executor.py": 11,
       "extension/manifest.json": 11,
-      "backend/infrastructure/execution/tests/test_task_handlers.py": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
+      "frontend/react-app/src/pages/WebReader.jsx": 10,
       "frontend/react-app/src/utils/mdToHtml.js": 10,
-      "frontend/react-app/src/components/task/TaskFormPage.jsx": 10,
       "backend/core/context/manager.py": 10,
-      "backend/infrastructure/execution/task_worker.py": 10,
-      "frontend/react-app/src/pages/PdfReader.jsx": 10,
       "workflows/.gitkeep": 10,
       "backend/core/agent/tools/builtin/browser_tool.py": 10,
-      "cli.py": 10,
-      "backend/infrastructure/execution/tests/test_result_handler.py": 10,
-      "backend/services/llm/tests/__init__.py": 10,
-      "docs/design/dependency-management.md": 10,
-      "docs/design/getting-started.md": 10
+      "cli.py": 10
     },
-    "generated_at": "2026-03-13T09:51:39.242115Z"
+    "generated_at": "2026-03-14T13:20:05.849601Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -441,6 +447,8 @@
       "GET /api/chat/mw-sources",
       "GET /api/heartbeat/status",
       "GET /api/latex/render",
+      "GET /api/mediawiki/base-url",
+      "GET /api/mediawiki/diagnostic",
       "GET /api/mediawiki/pages/{title:path}",
       "GET /api/mediawiki/random-read",
       "GET /api/mediawiki/recent-read",
@@ -470,6 +478,8 @@
       "GET /api/settings/model-config-audit",
       "GET /api/settings/model-stats",
       "GET /api/settings/system-prompt-audit/prompts",
+      "GET /api/settings/tavily-audit/path",
+      "GET /api/settings/tavily-audit/stats",
       "GET /api/settings/writing-profile",
       "GET /api/storage/audit",
       "GET /api/storage/config",
@@ -519,7 +529,9 @@
       "POST /api/execution/approve",
       "POST /api/execution/reject",
       "POST /api/mediawiki/pages/{title:path}",
+      "POST /api/mediawiki/parse",
       "POST /api/mediawiki/sync",
+      "POST /api/mediawiki/upload-image",
       "POST /api/network/audit/run",
       "POST /api/pdf/resolve",
       "POST /api/pdf/upload-from-extension",
@@ -564,10 +576,14 @@
       "GET /api/chat/stream",
       "GET /api/heartbeat/status",
       "GET /api/latex/render",
+      "GET /api/mediawiki/base-url",
+      "GET /api/mediawiki/pages/",
+      "GET /api/mediawiki/parse",
       "GET /api/mediawiki/random-read",
       "GET /api/mediawiki/recent-read",
       "GET /api/mediawiki/search",
       "GET /api/mediawiki/search-read",
+      "GET /api/mediawiki/upload-image",
       "GET /api/models/selectable",
       "GET /api/network/audit/env",
       "GET /api/network/audit/history",
@@ -633,6 +649,8 @@
       "POST /api/chat/article/patch",
       "POST /api/chat/article/restore",
       "POST /api/chat/stream",
+      "POST /api/mediawiki/parse",
+      "POST /api/mediawiki/upload-image",
       "POST /api/network/audit/run",
       "POST /api/pdf/resolve",
       "POST /api/pdf/upload-from-extension",
@@ -657,14 +675,15 @@
       "PUT /api/settings/writing-profile",
       "PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle"
     ],
-    "backend_path_count": 118,
-    "frontend_fetch_count": 106,
+    "backend_path_count": 124,
+    "frontend_fetch_count": 112,
     "unused_by_frontend": [
       "/api/audit/summary",
       "/api/chat",
       "/api/chat/article/merge",
       "/api/execution/approve",
       "/api/execution/reject",
+      "/api/mediawiki/diagnostic",
       "/api/mediawiki/pages/{id}",
       "/api/mediawiki/sync",
       "/api/mediawiki/sync/status",
@@ -677,6 +696,8 @@
       "/api/sessions/{id}/clear",
       "/api/sessions/{id}/summary",
       "/api/settings/kanban/status",
+      "/api/settings/tavily-audit/path",
+      "/api/settings/tavily-audit/stats",
       "/api/storage/config",
       "/api/system/cpu",
       "/api/system/load",
@@ -712,6 +733,7 @@
       "/api/wechat-mp/cover-image"
     ],
     "possibly_missing": [
+      "/api/mediawiki/pages/",
       "/api/sessions/",
       "/api/task-queue/scheduled-tasks/${id}",
       "/api/task-queue/scheduled-tasks/${id}/run-now",

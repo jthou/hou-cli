@@ -9,6 +9,7 @@ import TurndownService from 'turndown'
 import juice from 'juice'
 import { mdToWiki } from './wikiMdConvert.js'
 import { mdToHtmlCore } from './mdToHtmlCore.js'
+import { MEDIAWIKI_BASE_URL } from '../config/mediawiki.js'
 
 /** 任务类型：公众号草稿。凡提交该类型任务的 metadata 前，应对 content 做 MD→HTML。 */
 export const WECHAT_MP_DRAFT_TASK_TYPE = 'wechat_mp_draft'
@@ -20,12 +21,43 @@ export const MEDIAWIKI_WRITE_TASK_TYPE = 'mediawiki_write'
 export { mdToHtmlCore } from './mdToHtmlCore.js'
 
 /**
+ * 将 [[File:xxx]]、[[File:xxx|200px]]、[[File:xxx|200x300px]] 转为 <img>，使用 Special:FilePath。
+ * 时间：2025-03-13；理由：网页阅读上传图片后需在 Markdown 预览中显示；方法：Special:FilePath 重定向到真实图片 URL。
+ */
+function replaceWikiFileWithImg(md) {
+  if (md == null || typeof md !== 'string') return md
+  const base = (MEDIAWIKI_BASE_URL || '').replace(/\/$/, '')
+  if (!base) return md
+  const re = /\[\[(?:File|Image):([^\]|]+)(?:\|([^\]]*))?\]\]/gi
+  return md.replace(re, (_, filename, params) => {
+    const name = (filename || '').trim()
+    if (!name) return ''
+    const url = `${base}/index.php/Special:FilePath/${encodeURIComponent(name)}`
+    let style = 'max-width:100%;height:auto;border:1px solid #d0d7de;border-radius:6px;'
+    if (params) {
+      const parts = params.split('|').map((p) => p.trim())
+      const pxW = parts.find((p) => /^\d+px$/i.test(p))
+      const pxWh = parts.find((p) => /^\d+x\d+px$/i.test(p))
+      if (pxWh) {
+        const [w, h] = pxWh.split('x').map((s) => parseInt(s, 10))
+        if (w && h) style += `width:${w}px;height:${h}px;`
+      } else if (pxW) {
+        const w = parseInt(pxW, 10)
+        if (w) style += `width:${w}px;`
+      }
+    }
+    return `<img src="${url}" alt="${name}" style="${style}" />`
+  })
+}
+
+/**
  * Markdown 转 HTML（核心转换 + 与 mdToHtmlForWechat 共用同一实现）。
  * @param {string} md - Markdown 文本
  * @returns {string} HTML 字符串
  */
 export function mdToHtml(md) {
-  let out = mdToHtmlCore(md)
+  const withWikiImg = replaceWikiFileWithImg(md)
+  let out = mdToHtmlCore(withWikiImg)
   out = styleNumberedHeadings(out)
   return out
 }

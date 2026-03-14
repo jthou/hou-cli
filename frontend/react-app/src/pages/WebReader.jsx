@@ -29,6 +29,7 @@ export default function WebReader() {
   const [viewMode, setViewMode] = useState('markdown') // 'text' | 'html' | 'markdown'
   const timeoutRef = useRef(null)
   const saveDebounceRef = useRef(null)
+  const [imgUploadModal, setImgUploadModal] = useState(null) // { src, loading, result: { wikitext } }
 
   /** 恢复上次阅读内容 */
   useEffect(() => {
@@ -191,6 +192,65 @@ export default function WebReader() {
     doRead(url)
   }
 
+  const handleImgUploadToWiki = async () => {
+    const src = imgUploadModal?.src
+    const width = imgUploadModal?.width || 0
+    const height = imgUploadModal?.height || 0
+    const isWikiFile = imgUploadModal?.isWikiFile
+    const oldWikitext = imgUploadModal?.result?.wikitext
+    if (!src) return
+    setImgUploadModal((prev) => (prev ? { ...prev, loading: true, result: null } : null))
+    try {
+      const res = await fetch('/api/mediawiki/upload-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_url: src }),
+      })
+      const apiData = await res.json()
+      if (!res.ok) throw new Error(apiData.detail || '上传失败')
+      let wikitext = apiData.wikitext || `[[File:${apiData.filename}]]`
+      if (width > 0 || height > 0) {
+        const sizePart = height > 0 ? `${width}x${height}px` : `${width}px`
+        wikitext = wikitext.replace(/\]\]$/, `|${sizePart}]]`)
+      }
+      setImgUploadModal((prev) => (prev ? { ...prev, loading: false, result: { ...apiData, wikitext } } : null))
+      if (apiData.filename) {
+        const isWikiFile = imgUploadModal?.isWikiFile
+        const oldWikitext = imgUploadModal?.result?.wikitext
+        setData((prev) => {
+          if (!prev?.markdown) return prev
+          let newMd = prev.markdown
+          if (isWikiFile && oldWikitext) {
+            newMd = newMd.replaceAll(oldWikitext, wikitext)
+          } else {
+            const srcRaw = imgUploadModal?.srcRaw || src
+            const urlsToTry = [src, srcRaw].filter(Boolean)
+            const escapeForRe = (u) => u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            for (const u of urlsToTry) {
+              const re = new RegExp(`!\\[([^\\]]*)\\]\\(${escapeForRe(u)}\\)`, 'g')
+              newMd = newMd.replace(re, wikitext)
+              if (newMd !== prev.markdown) break
+            }
+          }
+          return newMd !== prev.markdown ? { ...prev, markdown: newMd } : prev
+        })
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(wikitext)
+            toast?.success?.(`已插入并复制 [[File:${apiData.filename}]] 到剪贴板`)
+          } else {
+            toast?.success?.(`已插入 [[File:${apiData.filename}]]`)
+          }
+        } catch (_) {
+          toast?.success?.(`已插入 [[File:${apiData.filename}]]`)
+        }
+      }
+    } catch (err) {
+      setImgUploadModal((prev) => (prev ? { ...prev, loading: false, result: { error: err?.message || '上传失败' } } : null))
+      toast?.error?.(err?.message || '上传失败')
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -300,6 +360,16 @@ export default function WebReader() {
                       onGenerateSummary={(content) => fetchSummarize(content)}
                       onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
                       onAddToReference={(c) => navigate('/add-reference', { state: { addToReference: c } })}
+                      onImgClick={(_, d) => {
+                        let wikitext = null
+                        if (d.isWikiFile && d.wikiFileName) {
+                          const md = data?.markdown || ''
+                          const escaped = d.wikiFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                          const m = md.match(new RegExp(`\\[\\[File:${escaped}(?:\\|[^\\]]*)?\\]\\]`))
+                          wikitext = m ? m[0] : `[[File:${d.wikiFileName}]]`
+                        }
+                        setImgUploadModal({ ...d, loading: false, result: wikitext ? { wikitext } : null })
+                      }}
                     />
                   </div>
                 ) : (
@@ -312,6 +382,39 @@ export default function WebReader() {
           )}
         </div>
       </div>
+
+      {imgUploadModal && (
+        <div className="fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)]">
+          <div className="bg-surface border border-border rounded-xl p-3 shadow-xl">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-medium text-white truncate">{imgUploadModal.isWikiFile ? 'MediaWiki 图片' : '上传到 MediaWiki'}</h3>
+              <button type="button" onClick={() => setImgUploadModal(null)} className="text-muted hover:text-white text-lg leading-none shrink-0 ml-1">&times;</button>
+            </div>
+            <div className="mb-2 max-h-24 overflow-hidden rounded bg-white/5">
+              <img src={imgUploadModal.src} alt="" className="max-h-24 w-full object-contain" />
+            </div>
+            {imgUploadModal.result?.wikitext && (
+              <div className="mb-2 p-1.5 rounded bg-white/5 text-xs font-mono text-accent break-all max-h-14 overflow-y-auto">{imgUploadModal.result.wikitext}</div>
+            )}
+            {imgUploadModal.result?.error && (
+              <p className="mb-2 text-xs text-red-400 line-clamp-2">{imgUploadModal.result.error}</p>
+            )}
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={handleImgUploadToWiki}
+                disabled={imgUploadModal.loading}
+                className="flex-1 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs disabled:opacity-50"
+              >
+                {imgUploadModal.loading ? '上传中…' : imgUploadModal.isWikiFile ? '再次上传' : imgUploadModal.result?.wikitext ? '重新上传' : '上传'}
+              </button>
+              <button type="button" onClick={() => setImgUploadModal(null)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-muted rounded-lg text-xs">
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

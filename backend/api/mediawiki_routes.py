@@ -1,7 +1,12 @@
 """MediaWiki 相关路由"""
-from typing import Optional
+import os
+import re
 import random
+import tempfile
+from typing import Optional
+from urllib.parse import urljoin, urlparse, unquote
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -12,6 +17,221 @@ from backend.services.mediawiki_client_service import (
 from shared.debug_utils import debug_log
 
 router = APIRouter()
+
+
+def _parse_via_http(wikitext: str, title: Optional[str] = None) -> str:
+    """直接 HTTP 请求 MediaWiki parse API，无需 mwclient 连接。"""
+    base = (os.getenv("MEDIAWIKI_URL") or "").rstrip("/")
+    if not base:
+        raise ValueError("MEDIAWIKI_URL 未配置")
+    api_url = urljoin(base + "/", "api.php")
+    params = {
+        "action": "parse",
+        "text": wikitext,
+        "contentmodel": "wikitext",
+        "prop": "text",
+        "format": "json",
+    }
+    if title:
+        params["title"] = title
+    r = httpx.post(api_url, data=params, timeout=30.0)
+    r.raise_for_status()
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data.get("error", {}).get("info", "Unknown API error"))
+    parsed = data.get("parse", {})
+    text_data = parsed.get("text", {})
+    html = text_data.get("*", "")
+    if not html:
+        raise ValueError("Parse API returned empty HTML")
+    return html
+
+
+def _make_wiki_links_absolute(html: str, base_url: str) -> str:
+    """将 parse 返回的 HTML 中相对 wiki 链接转为绝对 URL，便于预览时正确跳转。"""
+    if not base_url or not html:
+        return html
+    base = base_url.rstrip("/")
+    # href="/index.php/Page" 或 href="/wiki/Page" → href="base/index.php/Page"
+    html = re.sub(r'href="/index\.php/', f'href="{base}/index.php/', html)
+    html = re.sub(r'href="/wiki/', f'href="{base}/wiki/', html)
+    return html
+
+
+def _get_mediawiki_base_url() -> str:
+    """获取 MediaWiki 基础 URL（无末尾斜杠）"""
+    return (os.getenv("MEDIAWIKI_URL") or "http://www.jthou.com/mediawiki").rstrip("/")
+
+
+def _search_via_http(query: str, limit: int = 20) -> list[dict]:
+    """直接 HTTP 请求 MediaWiki search API，无需 mwclient。用于公开 Wiki 或 mwclient 失败时回退。"""
+    base = (os.getenv("MEDIAWIKI_URL") or "").rstrip("/")
+    if not base:
+        raise ValueError("MEDIAWIKI_URL 未配置")
+    api_url = urljoin(base + "/", "api.php")
+    params = {
+        "action": "query",
+        "list": "search",
+        "srsearch": query,
+        "srlimit": min(limit, 100),
+        "srprop": "size|wordcount|snippet|timestamp",
+        "format": "json",
+    }
+    r = httpx.get(api_url, params=params, timeout=15.0)
+    r.raise_for_status()
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data.get("error", {}).get("info", "Search API error"))
+    items = data.get("query", {}).get("search", [])
+    base_url = base.rstrip("/")
+    results = []
+    for i, hit in enumerate(items):
+        title = hit.get("title", "")
+        results.append({
+            "title": title,
+            "snippet": hit.get("snippet", ""),
+            "url": f"{base_url}/index.php/{title.replace(' ', '_')}",
+            "score": 1.0 / (i + 1),  # 排名分数：第 1 名 1.0，第 2 名 0.5，…
+        })
+    return results
+
+
+class MediaWikiEditRequest(BaseModel):
+    """MediaWiki 编辑请求"""
+    content: str
+    summary: Optional[str] = ""
+
+
+class MediaWikiParseRequest(BaseModel):
+    """MediaWiki parse 请求：wikitext 转 HTML 预览"""
+    wikitext: str
+    title: Optional[str] = None
+
+
+class MediaWikiUploadImageRequest(BaseModel):
+    """网页阅读：从图片 URL 上传到 MediaWiki，返回 [[File:xxx]] 格式"""
+    image_url: str
+
+
+@router.get("/mediawiki/diagnostic")
+async def mediawiki_diagnostic():
+    """诊断 MediaWiki 配置（不输出敏感值），用于排查 readapidenied"""
+    import os
+    return {
+        "url_set": bool((os.getenv("MEDIAWIKI_URL") or "").strip()),
+        "username_set": bool((os.getenv("MEDIAWIKI_USERNAME") or "").strip()),
+        "bot_name_set": bool((os.getenv("MEDIAWIKI_BOT_NAME") or "").strip()),
+        "password_set": bool((os.getenv("MEDIAWIKI_PASSWORD") or "").strip()),
+        "bot_password_set": bool((os.getenv("MEDIAWIKI_BOT_PASSWORD") or "").strip()),
+        "has_auth": bool((os.getenv("MEDIAWIKI_BOT_NAME") or os.getenv("MEDIAWIKI_USERNAME") or "").strip()),
+    }
+
+
+@router.get("/mediawiki/base-url")
+async def mediawiki_base_url():
+    """返回 MediaWiki 基础 URL，供前端将 [[xxx]] 解析为可点击链接。"""
+    return {"base_url": _get_mediawiki_base_url()}
+
+
+def _parse_and_postprocess(wikitext: str, title: Optional[str] = None) -> tuple[str, str]:
+    """解析 wikitext 为 HTML，并将相对链接转为绝对 URL。返回 (html, base_url)。"""
+    base_url = _get_mediawiki_base_url()
+    # 1. 优先 mwclient（支持私有 Wiki 认证）
+    try:
+        client = get_mediawiki_client()
+        html = client.parse_wikitext(wikitext, title=title)
+        return _make_wiki_links_absolute(html, base_url), base_url
+    except Exception as e:
+        debug_log(f"MediaWiki parse (mwclient) failed: {str(e)}", level="warning")
+
+    # 2. 回退：直接 HTTP（公开 Wiki 无需认证）
+    html = _parse_via_http(wikitext, title=title)
+    return _make_wiki_links_absolute(html, base_url), base_url
+
+
+@router.post("/mediawiki/parse")
+async def parse_mediawiki_wikitext(request: MediaWikiParseRequest):
+    """将 wikitext 解析为 HTML，用于预览。[[xxx]] 等链接会解析为绝对 URL 便于点击。"""
+    wikitext = (request.wikitext or "").strip()
+    if not wikitext:
+        return {"success": True, "html": "", "base_url": _get_mediawiki_base_url()}
+
+    try:
+        html, base_url = _parse_and_postprocess(wikitext, title=request.title)
+        return {"success": True, "html": html, "base_url": base_url}
+    except Exception as e:
+        debug_log(f"MediaWiki parse failed: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"Parse failed: {str(e)}")
+
+
+def _filename_from_url(url: str, content_type: str = "") -> str:
+    """从 URL 或 Content-Type 提取安全文件名。时间：2025-03-13；理由：网页图片上传需可预测扩展名；方法：优先 path，回退 mimetype。"""
+    parsed = urlparse(url)
+    path = unquote(parsed.path or "")
+    name = (path.split("/")[-1] or "image").strip()
+    # 移除 query 残留
+    if "?" in name:
+        name = name.split("?")[0]
+    # 仅保留安全字符
+    safe = re.sub(r"[^\w\-_.]", "_", name)
+    if not safe:
+        safe = "image"
+    # 确保有扩展名
+    ext_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+    if "." not in safe and content_type:
+        ext = ext_map.get(content_type.split(";")[0].strip().lower(), ".png")
+        safe = safe + ext
+    return safe or "image.png"
+
+
+@router.post("/mediawiki/upload-image")
+async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
+    """
+    从图片 URL 下载并上传到 MediaWiki，返回 [[File:xxx]] 格式。
+    用于网页阅读：选中网页中的图片，上传后得到 MediaWiki 引用。
+    """
+    url = (request.image_url or "").strip()
+    if not url or not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="image_url 必须为 http(s) URL")
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            content = resp.content
+            content_type = resp.headers.get("content-type", "")
+
+        if not content or len(content) > 50 * 1024 * 1024:  # 50MB
+            raise HTTPException(status_code=400, detail="图片为空或超过 50MB 限制")
+
+        filename = _filename_from_url(url, content_type)
+        ext = filename[filename.rfind("."):] if "." in filename else ".png"
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+            f.write(content)
+            tmp_path = f.name
+
+        try:
+            mw_client = get_mediawiki_client()
+            try:
+                mw_client.upload_file(filename, tmp_path, description="", ignore_warnings=True)
+            except Exception as up_err:
+                err_str = str(up_err).lower()
+                if "fileexists-no-change" in err_str or "exact duplicate" in err_str:
+                    pass
+                else:
+                    raise
+            wikitext = f"[[File:{filename}]]"
+            return {"success": True, "filename": filename, "wikitext": wikitext}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"MediaWiki upload-image failed: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
 
 
 # 延迟创建服务实例
@@ -49,60 +269,47 @@ def get_mediawiki_sync_service():
             raise
     return _mediawiki_sync_service
 
-class MediaWikiEditRequest(BaseModel):
-    """MediaWiki 编辑请求"""
-    content: str
-    summary: Optional[str] = ""
 
 @router.get("/mediawiki/search")
 async def search_mediawiki(
     query: str,
     limit: int = 20,
 ):
-    """搜索 MediaWiki 页面
-    
-    Args:
-        query: 搜索关键词
-        limit: 结果数量限制（默认 20，最大 100）
-        
-    Returns:
-        搜索结果列表
-    """
+    """搜索 MediaWiki 页面。优先 mwclient（带认证），失败时尝试直接 HTTP（公开 Wiki）。"""
     try:
         if limit < 1 or limit > 100:
             raise HTTPException(
                 status_code=400,
                 detail="limit must be between 1 and 100"
             )
-        
-        client = get_mediawiki_client()
-        results = client.search_pages(query, limit=limit)
-        
-        return {
-            "success": True,
-            "count": len(results),
-            "results": [
-                {
-                    "title": r.title,
-                    "snippet": r.snippet,
-                    "url": r.url,
-                    "score": r.score
-                }
+        q = (query or "").strip()
+        if not q:
+            return {"success": True, "count": 0, "results": [], "totalhits": None}
+
+        # 1. 优先 mwclient（支持私有 Wiki 认证）
+        try:
+            client = get_mediawiki_client()
+            results = client.search_pages(q, limit=limit)
+            out = [
+                {"title": r.title, "snippet": r.snippet, "url": r.url, "score": r.score}
                 for r in results
             ]
-        }
+            return {"success": True, "count": len(out), "results": out, "totalhits": None}
+        except Exception as e:
+            debug_log(f"MediaWiki search (mwclient) failed: {str(e)}", level="warning")
+
+        # 2. 回退：直接 HTTP（公开 Wiki 无需认证）
+        raw = _search_via_http(q, limit=limit)
+        out = [{"title": r["title"], "snippet": r["snippet"], "url": r["url"], "score": r["score"]} for r in raw]
+        return {"success": True, "count": len(out), "results": out, "totalhits": None}
     except HTTPException:
-        # 重新抛出 HTTPException（如参数验证错误）
         raise
+    except ValueError as e:
+        debug_log(f"MediaWiki search failed: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        debug_log(
-            f"MediaWiki search failed: {str(e)}",
-            level="error"
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Search failed: {str(e)}",
-        )
+        debug_log(f"MediaWiki search failed: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
 @router.get("/mediawiki/search-read")
@@ -153,7 +360,9 @@ async def search_and_read_mediawiki(
         if per_term > 20:
             per_term = 20
 
-        client = get_mediawiki_client()
+        # 每次请求新建 client，避免单例会话过期导致 readapidenied（2025-03-13）
+        client = MediaWikiClientService()
+        client.connect()
 
         results = []
         total_pages = 0

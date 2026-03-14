@@ -130,20 +130,22 @@ class MediaWikiClientService:
             self.connect()
     
     def _retry_on_error(self, func, max_retries: int = 3, delay: float = 1.0):
-        """错误重试装饰器
-        
-        Args:
-            func: 要执行的函数
-            max_retries: 最大重试次数
-            delay: 重试延迟（秒）
-        """
+        """错误重试装饰器。readapidenied 时强制重连（私有 Wiki 会话过期常见）"""
         for attempt in range(max_retries):
             try:
                 return func()
             except (APIError, ConnectionError, TimeoutError) as e:
+                err_str = str(e).lower()
+                if "readapidenied" in err_str and (self.bot_name or self.username) and attempt < max_retries - 1:
+                    logger.warning("readapidenied，重连后重试…")
+                    self._connected = False
+                    self.site = None
+                    self.connect()
+                    time.sleep(delay * (attempt + 1))
+                    continue
                 if attempt < max_retries - 1:
                     logger.warning(f"Attempt {attempt + 1} failed: {e}, retrying...")
-                    time.sleep(delay * (attempt + 1))  # 指数退避
+                    time.sleep(delay * (attempt + 1))
                 else:
                     raise MediaWikiClientError(f"Operation failed after {max_retries} attempts: {str(e)}")
     
@@ -167,23 +169,16 @@ class MediaWikiClientService:
         
         def _search():
             results = []
-            # 使用 max_items 替代 limit（避免弃用警告）
-            search_results = self.site.search(
-                query,
-                namespace=namespace,
-                max_items=limit
-            )
-            
-            for result in search_results:
+            for i, result in enumerate(self.site.search(query, namespace=namespace, limit=limit)):
+                title = result.get("title", "")
                 results.append(MediaWikiSearchResult(
-                    title=result.get("title", ""),
+                    title=title,
                     snippet=result.get("snippet", ""),
-                    url=f"{self.url}/index.php/{result.get('title', '').replace(' ', '_')}",
-                    score=result.get("size", 0) / 1000.0,  # 简单的相关性分数
+                    url=f"{self.url}/index.php/{title.replace(' ', '_')}",
+                    score=1.0 / (i + 1),  # 排名分数：第 1 名 1.0，第 2 名 0.5，…（API 已按相关性排序）
                     size=result.get("size"),
                     word_count=result.get("wordcount")
                 ))
-            
             return results
         
         return self._retry_on_error(_search)
@@ -376,7 +371,45 @@ class MediaWikiClientService:
         if page:
             return page.categories
         return []
-    
+
+    def parse_wikitext(self, wikitext: str, title: Optional[str] = None) -> str:
+        """使用 MediaWiki parse API 将 wikitext 解析为 HTML。
+
+        用于预览复杂表格、模板等，避免前端 wikiToMd 转换丢失内容。
+        时间：2025-03-13；理由：复杂 MediaWiki 表格经 wikiToMd 后丢失列表、合并单元格等；
+        方法：调用 action=parse，prop=text，contentmodel=wikitext。
+
+        Args:
+            wikitext: 要解析的 wikitext 内容
+            title: 可选页面标题，用于 {{PAGENAME}} 等魔术字
+
+        Returns:
+            str: 解析后的 HTML 字符串
+
+        Raises:
+            MediaWikiClientError: 解析失败时抛出
+        """
+        self._ensure_connected()
+
+        def _parse():
+            params = {
+                "text": wikitext,
+                "contentmodel": "wikitext",
+                "prop": "text",
+                "format": "json",
+            }
+            if title:
+                params["title"] = title
+            data = self.site.api("parse", **params)
+            parse_data = data.get("parse", {})
+            text_data = parse_data.get("text", {})
+            html = text_data.get("*", "")
+            if not html:
+                raise MediaWikiClientError("Parse API returned empty HTML")
+            return html
+
+        return self._retry_on_error(_parse)
+
     def get_recently_changed_pages(
         self,
         limit: int = 10,

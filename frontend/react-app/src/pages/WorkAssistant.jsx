@@ -12,6 +12,7 @@ import ModelSelector from '../components/ModelSelector'
 import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
+import UserMessageActionButtons from '../components/UserMessageActionButtons'
 
 const SESSION_TYPE = 'work_assistant'
 const STORAGE_KEY = 'work_assistant_selected_session'
@@ -45,6 +46,7 @@ export default function WorkAssistant() {
   const {
     referenceBlocks,
     handleAddReferenceBlock,
+    handleAddReferenceBlockWithContent,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,
@@ -585,24 +587,58 @@ export default function WorkAssistant() {
                 }`}
               >
                 {msg.role === 'user' ? (
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm whitespace-pre-wrap flex-1 min-w-0">{extractUserQuestionForDisplay(msg.content)}</p>
-                    {msg.message_id && (
+                  <>
+                    <p className="text-sm whitespace-pre-wrap">{extractUserQuestionForDisplay(msg.content)}</p>
+                    <UserMessageActionButtons
+                      content={msg.content}
+                      messageId={msg.message_id}
+                      onRegenerate={handleRegenerate}
+                      onWriteToInput={setInput}
+                      onAddToReference={(c) => {
+                        handleAddReferenceBlockWithContent(c)
+                        setReferencePanelOpen(true)
+                      }}
+                      loading={loading}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="prose prose-invert prose-sm max-w-none">
+                      <MarkdownPreview markdown={msg.content} theme="dark" />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {i > 0 && messages[i - 1]?.role === 'user' && messages[i - 1]?.message_id && (
+                        <button
+                          type="button"
+                          onClick={() => handleRegenerate(messages[i - 1].message_id)}
+                          disabled={loading}
+                          className="px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5 disabled:opacity-50"
+                          title="要求 AI 重新回答此问题"
+                        >
+                          重新回答
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => handleRegenerate(msg.message_id)}
-                        disabled={loading}
-                        className="shrink-0 px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5 disabled:opacity-50"
-                        title="要求 AI 重新回答此问题"
+                        onClick={() => setInput(msg.content || '')}
+                        className="px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5"
+                        title="将回复内容写入输入框"
                       >
-                        重新回答
+                        写回输入框
                       </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="prose prose-invert prose-sm max-w-none">
-                    <MarkdownPreview markdown={msg.content} theme="dark" />
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleAddReferenceBlockWithContent(msg.content)
+                          setReferencePanelOpen(true)
+                        }}
+                        className="px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5"
+                        title="添加到参考信息"
+                      >
+                        添加到参考
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

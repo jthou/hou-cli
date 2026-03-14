@@ -164,8 +164,11 @@ async def global_exception_handler(request, exc):
 # 延迟加载路由，避免启动时初始化 Orchestrator 失败导致服务无法启动
 logger = logging.getLogger(__name__)
 
-# API 路由
-app.include_router(router, prefix="/api")
+# API 路由：使用 Mount 确保 /api/* 优先匹配，避免被 web_router 的 GET /{path} 通配拦截导致 POST 返回 405
+# 时间：2025-03-14；理由：web_router 的 catch-all 会匹配 /api/mediawiki/upload-image 路径，POST 时返回 Method Not Allowed
+api_app = FastAPI()
+api_app.include_router(router)
+app.mount("/api", api_app)
 
 # React SPA 静态资源（必须在 web_router 通配路由之前挂载，否则 /assets/* 会被当成 SPA 路径返回 index.html 导致白屏）
 _react_dist = Path(__file__).parent.parent / "frontend" / "web" / "dist"

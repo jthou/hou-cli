@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
-import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
+import WikitextEditorPreview from '../components/WikitextEditorPreview'
 import PasteButton from '../components/PasteButton'
-import { wikiToMd } from '../utils/wikiMdConvert'
 import { fetchSummarize } from '../utils/summarizeApi'
 import { useToast } from '../components/ToastModal'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
@@ -21,7 +20,8 @@ export default function MediaWikiReader() {
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [selectedPage, setSelectedPage] = useState(null)
-  const [editedMarkdown, setEditedMarkdown] = useState(null)
+  const [editedWikitext, setEditedWikitext] = useState(null)
+  const [linkNavigateLoading, setLinkNavigateLoading] = useState(false)
   const [summaryPerPage, setSummaryPerPage] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY_SUMMARIES)
@@ -137,7 +137,7 @@ export default function MediaWikiReader() {
     if (!data) setSelectedPage(null)
   }, [data])
   useEffect(() => {
-    setEditedMarkdown(null)
+    setEditedWikitext(null)
   }, [selectedPage])
 
   useEffect(() => {
@@ -149,6 +149,34 @@ export default function MediaWikiReader() {
       // ignore
     }
   }, [summaryPerPage])
+
+  const handleWikiLinkClick = useCallback(
+    async (pageTitle) => {
+      if (!pageTitle?.trim()) return
+      setLinkNavigateLoading(true)
+      try {
+        const res = await fetch(`/api/mediawiki/pages/${encodeURIComponent(pageTitle)}`)
+        const json = await res.json()
+        if (!json.success || !json.page) {
+          toast?.warning?.(json.detail || '页面加载失败')
+          return
+        }
+        const p = json.page
+        setSelectedPage({
+          title: p.title,
+          content: p.content,
+          url: p.url,
+          categories: p.categories || [],
+        })
+        setEditedWikitext(null)
+      } catch (err) {
+        toast?.warning?.(err?.message || '页面加载失败')
+      } finally {
+        setLinkNavigateLoading(false)
+      }
+    },
+    [toast]
+  )
 
   const pageKey = selectedPage?.title || selectedPage?.url || ''
   const currentSummary = pageKey ? (summaryPerPage[pageKey] ?? '') : ''
@@ -322,18 +350,22 @@ export default function MediaWikiReader() {
                   在新标签页打开
                 </a>
               </div>
-              <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white flex flex-col">
+              <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white flex flex-col relative">
+                {linkNavigateLoading && (
+                  <div className="absolute inset-0 bg-black/30 z-10 flex items-center justify-center">
+                    <span className="text-sm text-muted">加载中…</span>
+                  </div>
+                )}
                 <div className="flex-1 min-h-0 p-4 flex flex-col">
-                  <MarkdownEditorPreview
+                  <WikitextEditorPreview
                     className="flex-1 min-h-0"
-                    content={editedMarkdown ?? wikiToMd(selectedPage.content || '')}
+                    wikiText={editedWikitext ?? (selectedPage.content || '')}
                     onContentChange={(v) => {
-                      setEditedMarkdown(v)
+                      setEditedWikitext(v)
                       setCurrentSummary('')
                     }}
                     editable
                     theme="dark"
-                    showMediaWiki
                     showSummary
                     summary={currentSummary}
                     onSummaryChange={setCurrentSummary}
@@ -342,6 +374,7 @@ export default function MediaWikiReader() {
                     onAddToReference={(content) =>
                       navigate('/add-reference', { state: { addToReference: content } })
                     }
+                    onWikiLinkClick={handleWikiLinkClick}
                   />
                 </div>
               </div>

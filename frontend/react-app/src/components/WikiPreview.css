@@ -1,0 +1,34 @@
+/* MediaWiki 解析 HTML 预览：表格、列表等样式 */
+.wiki-preview-html table.wikitable,
+.wiki-preview-html .mw-parser-output table.wikitable {
+  border-collapse: collapse;
+  border: 1px solid #a2a9b1;
+  margin: 1em 0;
+  background-color: #f8f9fa;
+}
+
+.wiki-preview-html table.wikitable th,
+.wiki-preview-html table.wikitable td {
+  border: 1px solid #a2a9b1;
+  padding: 0.2em 0.4em;
+  vertical-align: top;
+}
+
+.wiki-preview-html table.wikitable th {
+  background-color: #eaecf0;
+  font-weight: 600;
+}
+
+.wiki-preview-html table.wikitable tr:hover td {
+  background-color: #f1f3f4;
+}
+
+.wiki-preview-html .mw-parser-output ul,
+.wiki-preview-html .mw-parser-output ol {
+  margin: 0.3em 0;
+  padding-left: 1.5em;
+}
+
+.wiki-preview-html .mw-parser-output li {
+  margin: 0.2em 0;
+}

@@ -10,6 +10,36 @@ from typing import List, Tuple
 # 使用 \x01 避免被 _ 或 __ 的强调正则误匹配
 MATH_PLACEHOLDER_PREFIX = "\x01WIKIMATH"
 MATH_PLACEHOLDER_SUFFIX = "\x01"
+CODE_PLACEHOLDER_PREFIX = "\x01WIKICODE"
+CODE_PLACEHOLDER_SUFFIX = "\x01"
+
+
+def _md_extract_code_to_placeholders(md: str) -> Tuple[str, List[dict]]:
+    """提取 ```lang\\ncode``` 代码块，避免后续 emphasis/links 等正则破坏。转为占位符。"""
+    code_list: List[dict] = []
+    # 匹配 ```lang\ncode``` 或 ```\ncode```（无 lang）
+    pattern = r"```([\w.+-]*)\s*\n([\s\S]*?)```\s*"
+
+    def repl(match):
+        lang = (match.group(1) or "").strip() or "text"
+        code = match.group(2).rstrip("\n")
+        key = f"{CODE_PLACEHOLDER_PREFIX}{len(code_list)}{CODE_PLACEHOLDER_SUFFIX}"
+        code_list.append({"lang": lang, "code": code})
+        return key
+
+    out = re.sub(pattern, repl, md)
+    return out, code_list
+
+
+def _md_restore_code_placeholders(text: str, code_list: List[dict]) -> str:
+    """恢复代码块占位符为 MediaWiki <syntaxhighlight lang="xxx"> 标签"""
+    for i, c in enumerate(code_list):
+        lang = c["lang"]
+        code = c["code"]
+        tag = f'<syntaxhighlight lang="{lang}">\n{code}\n</syntaxhighlight>'
+        key = f"{CODE_PLACEHOLDER_PREFIX}{i}{CODE_PLACEHOLDER_SUFFIX}"
+        text = text.replace(key, tag)
+    return text
 
 
 def _md_extract_math_to_placeholders(md: str) -> Tuple[str, List[dict]]:
@@ -107,16 +137,18 @@ def _md_lists_to_wiki(md: str) -> str:
 def md_to_wiki(md: str) -> str:
     """
     Markdown → MediaWiki wikitext
-    覆盖：标题、粗/斜体、链接、列表、公式（$ / $$ → <math>）
+    覆盖：标题、粗/斜体、链接、列表、公式（$ / $$）、代码块（``` → <syntaxhighlight lang="xxx">）
     """
     if md is None or not isinstance(md, str):
         return ""
     s = md.strip()
     if not s:
         return ""
+    s, code_list = _md_extract_code_to_placeholders(s)
     s, math_list = _md_extract_math_to_placeholders(s)
     s = _md_headers_to_wiki(s)
     s = _md_links_to_wiki(s)
     s = _md_emphasis_to_wiki(s)
     s = _md_lists_to_wiki(s)
-    return _md_restore_math_placeholders(s, math_list)
+    s = _md_restore_math_placeholders(s, math_list)
+    return _md_restore_code_placeholders(s, code_list)

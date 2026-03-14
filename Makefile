@@ -1,4 +1,4 @@
-.PHONY: stop test restart start start-backend build-web test-task-weather migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
+.PHONY: stop test restart start start-backend build-web test-task-weather test-mediawiki migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
 
 # 默认目标：在项目根执行 make 时显示可用命令
 # 前端说明：源码在 frontend/react-app，构建产物在 frontend/web/dist。
@@ -15,6 +15,7 @@ help:
 	@echo "  make pre-check        - 验证第三方依赖（ffmpeg、yt-dlp、you-get、whisper，Python 包见 requirements.txt）"
 	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install + npm install）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
+	@echo "  make test-mediawiki    - MediaWiki search-read 诊断（.env、连接、搜索）"
 	@echo "  make migrate          - 执行任务队列 DB 迁移（在 backend 下执行 alembic upgrade head，部署时手动跑）"
 	@echo "  make create-venv      - 用 Python 3.12 创建 venv（需 python3.12，如 brew install python@3.12）"
 	@echo "  make audit            - 生成开发审计报告（代码统计、提交行数、API 审计）"
@@ -27,24 +28,31 @@ audit:
 	@test -f "$(VENV_ACTIVATE)" || (echo "错误: 未找到虚拟环境，请先执行 python3 -m venv venv"; exit 1)
 	@bash -c "source $(VENV_ACTIVATE) && python scripts/run_audit.py"
 
+# MediaWiki search-read 诊断（验证 .env 加载、连接、搜索）
+test-mediawiki:
+	@cd $(PROJECT_ROOT) && (test -f "$(VENV_ACTIVATE)" && . $(VENV_ACTIVATE) && python scripts/test_mediawiki_search_read.py || python3 scripts/test_mediawiki_search_read.py)
+
 clean:
 	@echo "清理缓存与构建产物..."
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	@rm -f .backend.pid 2>/dev/null || true
+	@rm -f $(PID_FILE) 2>/dev/null || true
 	@echo "清理完成"
 
 VENV := venv
 VENV_ACTIVATE := $(VENV)/bin/activate
-# 使用絕對路徑，避免 conda/base 與 venv 混用時 python 指向錯誤
-PROJECT_ROOT := $(shell pwd)
+# 使用 Makefile 所在目录作为项目根，避免从其他目录执行 make 时 .backend.pid、.env 等路径错乱
+# 2026-03-13：原用 pwd，在多个源码目录或子目录执行时会导致 stop 找不到 start 写入的 pid
+MAKEFILE_DIR := $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
+PROJECT_ROOT := $(patsubst %/,%,$(MAKEFILE_DIR))
 PYTHON := $(PROJECT_ROOT)/$(VENV)/bin/python
+PID_FILE := $(PROJECT_ROOT)/.backend.pid
 
 # 端口：与 backend 一致，优先 .env 的 WEB_PORT，其次 BACKEND_PORT，默认 8081
-WEB_PORT := $(shell grep -E '^WEB_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' \r')
+WEB_PORT := $(shell grep -E '^WEB_PORT=' $(PROJECT_ROOT)/.env 2>/dev/null | cut -d= -f2 | tr -d ' \r')
 ifeq ($(WEB_PORT),)
-    WEB_PORT := $(shell grep -E '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' \r')
+    WEB_PORT := $(shell grep -E '^BACKEND_PORT=' $(PROJECT_ROOT)/.env 2>/dev/null | cut -d= -f2 | tr -d ' \r')
 endif
 ifeq ($(WEB_PORT),)
     WEB_PORT := 8081
@@ -55,8 +63,8 @@ endif
 # 2. 否则按端口停止（兼容手动启动或 pid 文件丢失）
 stop:
 	@echo "1. 检查 .backend.pid..."; \
-	if [ -f .backend.pid ]; then \
-		pid=$$(cat .backend.pid); \
+	if [ -f "$(PID_FILE)" ]; then \
+		pid=$$(cat "$(PID_FILE)"); \
 		echo "2. 读取 PID: $$pid"; \
 		if kill -0 $$pid 2>/dev/null; then \
 			echo "3. 发送 SIGTERM 到 PID $$pid"; \
@@ -66,7 +74,7 @@ stop:
 			echo "3. 进程 $$pid 已不存在（可能已退出）"; \
 			echo "4. 清理 .backend.pid"; \
 		fi; \
-		rm -f .backend.pid; \
+		rm -f "$(PID_FILE)"; \
 		echo "5. 完成"; \
 	else \
 		echo "2. 未找到 .backend.pid，按端口 $(WEB_PORT) 停止"; \
@@ -145,7 +153,7 @@ start-backend:
 	@echo "3. 验证第三方依赖..."
 	@$(MAKE) pre-check
 	@echo "4. 启动后端 (端口 $(WEB_PORT))..."
-	@bash -c "source $(VENV_ACTIVATE) && export WEB_PORT='$(WEB_PORT)' && nohup $(PYTHON) -m backend.main >> backend.log 2>&1 & echo \$$! > .backend.pid && sleep 3"
+	@bash -c "cd $(PROJECT_ROOT) && source $(VENV_ACTIVATE) && export WEB_PORT='$(WEB_PORT)' && nohup $(PYTHON) -m backend.main >> $(PROJECT_ROOT)/backend.log 2>&1 & echo \$$! > $(PID_FILE) && sleep 3"
 	@echo "5. 等待后端就绪..."
 	@PORT=$(WEB_PORT); for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do sleep 2; if curl -sf --connect-timeout 2 --max-time 3 "http://127.0.0.1:$$PORT/health" >/dev/null; then echo "6. 后端已就绪 http://127.0.0.1:$$PORT"; exit 0; fi; done; echo "错误: 连接失败（约 60 秒内未就绪），请查看 backend.log"; exit 1
 

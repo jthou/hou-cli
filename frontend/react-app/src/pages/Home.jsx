@@ -151,9 +151,28 @@ export default function Home() {
   const { task: urlToWikiTask, loading: urlToWikiLoading, error: urlToWikiError } = useLatestScheduledUrlToWiki()
   const { task: webSearchTask, loading: webSearchLoading, error: webSearchError } = useLatestTask('web_search')
 
+  const quickLinks = [
+    { to: '/web-reader', icon: '🌐', label: '网页阅读' },
+    { to: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读' },
+    { to: '/general-chat', icon: '💬', label: '通用对话' },
+    { to: '/tasks', icon: '📋', label: '任务中心' },
+  ]
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader title="首页" />
+      <div className="shrink-0 px-6 py-2 flex flex-wrap gap-2">
+        {quickLinks.map(({ to, icon, label }) => (
+          <Link
+            key={to}
+            to={to}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface/60 border border-border text-sm text-muted hover:text-accent hover:border-accent/50 transition-colors"
+          >
+            <span>{icon}</span>
+            <span>{label}</span>
+          </Link>
+        ))}
+      </div>
       <div className="flex-1 flex overflow-hidden">
         {/* 左栏：天气预报、定时网文抓取 */}
         <div className="w-full lg:w-1/2 border-r border-border overflow-y-auto p-6 space-y-4">

@@ -4,6 +4,7 @@
  * 支持 LaTeX 公式预览：$...$ 行内、$$...$$ 行间，由 KaTeX 渲染。
  */
 import { useEffect, useRef } from 'react'
+import { parseWikiPageTitleFromUrl } from '../config/mediawiki'
 import renderMathInElement from 'katex/contrib/auto-render'
 import 'katex/dist/katex.min.css'
 import './WechatDraftPreview.css'
@@ -26,12 +27,24 @@ const KATEX_OPTIONS = {
 }
 
 /**
+ * 从 Special:FilePath URL 解析出文件名。时间：2025-03-14；理由：Markdown 预览点击图片需区分已上传/未上传。
+ */
+function parseWikiFileNameFromFilePathUrl(src) {
+  if (!src || typeof src !== 'string') return null
+  const m = src.match(/Special:FilePath\/([^?#]+)/i)
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+/**
  * @param {Object} props
  * @param {string} [props.html] - 正文 HTML 字符串
  * @param {string} [props.className] - 容器额外类名
  * @param {'light'|'dark'} [props.theme='light'] - light=白底深色字（公众号风格），dark=跟随应用主题
+ * @param {(pageTitle: string) => void} [props.onWikiLinkClick] - 点击本站 Wiki 链接时回调，传入页面标题；不传则按默认行为（新标签打开）
+ * @param {string} [props.wikiBaseUrl] - Wiki 基础 URL，用于判断是否本站链接
+ * @param {(e: Event, data: { src: string, srcRaw?: string, width: number, height: number, isWikiFile: boolean, wikiFileName?: string }) => void} [props.onImgClick] - 点击图片时回调；isWikiFile 表示已是 [[File:xxx]]
  */
-export default function WechatDraftPreview({ html = '', className = '', theme = 'light' }) {
+export default function WechatDraftPreview({ html = '', className = '', theme = 'light', onWikiLinkClick, wikiBaseUrl, onImgClick }) {
   const containerRef = useRef(null)
   const trimmed = typeof html === 'string' ? html.trim() : ''
   const isDark = theme === 'dark'
@@ -42,6 +55,30 @@ export default function WechatDraftPreview({ html = '', className = '', theme = 
     if (!containerRef.current || !trimmed) return
     renderMathInElement(containerRef.current, KATEX_OPTIONS)
   }, [trimmed])
+
+  const handleClick = (e) => {
+    const img = e.target?.closest?.('img')
+    if (img?.src && onImgClick) {
+      const src = img.src
+      const srcRaw = img.getAttribute('src') || src
+      const wikiFileName = parseWikiFileNameFromFilePathUrl(src)
+      const isWikiFile = !!wikiFileName
+      const w = img.offsetWidth || img.naturalWidth || 0
+      const h = img.offsetHeight || img.naturalHeight || 0
+      e.preventDefault()
+      e.stopPropagation()
+      onImgClick(e, { src, srcRaw, width: w, height: h, isWikiFile, wikiFileName: wikiFileName || undefined })
+      return
+    }
+    if (!onWikiLinkClick) return
+    const a = e.target?.closest?.('a')
+    if (!a?.href) return
+    const title = parseWikiPageTitleFromUrl(a.href, wikiBaseUrl)
+    if (title) {
+      e.preventDefault()
+      onWikiLinkClick(title)
+    }
+  }
 
   if (!trimmed) {
     return (
@@ -56,9 +93,10 @@ export default function WechatDraftPreview({ html = '', className = '', theme = 
   return (
     <div
       ref={containerRef}
-      className={`wechat-draft-preview${themeClass} ${className}`.trim()}
+      className={`wechat-draft-preview${themeClass} ${onImgClick ? ' wechat-draft-preview--img-clickable' : ''} ${className}`.trim()}
       style={rootStyle}
       dangerouslySetInnerHTML={{ __html: trimmed }}
+      onClick={onWikiLinkClick || onImgClick ? handleClick : undefined}
     />
   )
 }

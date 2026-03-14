@@ -15,8 +15,6 @@ const NOWIKI_PLACEHOLDER_PREFIX = '__WIKINOWIKI_'
 const NOWIKI_PLACEHOLDER_SUFFIX = '__'
 const PRE_PLACEHOLDER_PREFIX = '__WIKIPRE_'
 const PRE_PLACEHOLDER_SUFFIX = '__'
-const IMG_PLACEHOLDER_PREFIX = '___IMG_'
-const IMG_PLACEHOLDER_SUFFIX = '___'
 
 // ---------- Wikitext → Markdown ----------
 
@@ -302,13 +300,23 @@ function wikiTableToMd(wiki) {
         for (const p of parts) {
           currentRow.push({ ...parseWikiCell(p), header: true })
         }
+      } else if (currentRow.length > 0) {
+        // 续行：单元格内多行内容（如 * 列表），追加到当前行最后一格
+        const last = currentRow[currentRow.length - 1]
+        last.content = (last.content || '') + '\n' + trimmed
       }
     }
     flushRow()
     if (rows.length === 0) return block
     const hasSpan = rows.some((r) => r.some((c) => c.colspan > 1 || c.rowspan > 1))
-    if (hasSpan) {
-      const escape = (t) => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const hasMultiline = rows.some((r) => r.some((c) => (c.content || '').includes('\n')))
+    if (hasSpan || hasMultiline) {
+      const escape = (t) =>
+        (t || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>')
       const grid = []
       for (let ri = 0; ri < rows.length; ri++) {
         const r = rows[ri]
@@ -366,6 +374,41 @@ function wikiTableToMd(wiki) {
     if (caption) out = `**${caption}**\n\n` + out
     return out
   })
+}
+
+/**
+ * 将 wikitext 中的 [[xxx]]、[[xxx|yyy]] 转为可点击的 HTML 链接。
+ * 用于 parse API 失败时预览，或任意需展示 wikitext 的场景。
+ * @param {string} wikitext - MediaWiki wikitext
+ * @param {string} baseUrl - Wiki 基础 URL，如 http://www.jthou.com/mediawiki
+ * @returns {string} HTML 片段（含 <a> 标签，其余文本已转义）
+ */
+export function wikitextLinksToHtml(wikitext, baseUrl) {
+  if (wikitext == null || typeof wikitext !== 'string') return ''
+  const base = (baseUrl || 'http://www.jthou.com/mediawiki').replace(/\/$/, '')
+  const esc = (s) =>
+    String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  const linkRe = /\[\[(?:[^\]|]+\|[^\]]+|[^\]]+)\]\]/g
+  let result = ''
+  let lastIndex = 0
+  let match
+  while ((match = linkRe.exec(wikitext)) !== null) {
+    result += esc(wikitext.slice(lastIndex, match.index))
+    const inner = match[0].slice(2, -2)
+    const pipe = inner.indexOf('|')
+    const page = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim()
+    const label = pipe >= 0 ? inner.slice(pipe + 1) : inner
+    const slug = page.replace(/\s+/g, '_')
+    const href = `${base}/index.php/${encodeURIComponent(slug)}`
+    result += `<a href="${href}" target="_blank" rel="noopener">${esc(label)}</a>`
+    lastIndex = match.index + match[0].length
+  }
+  result += esc(wikitext.slice(lastIndex))
+  return result
 }
 
 /**
@@ -479,18 +522,11 @@ function mdEmphasisToWiki(md) {
 }
 
 /**
- * 提取 ![alt](url) 为占位符，避免被 mdLinksToWiki 误转为外部链接。
- * @returns {{ text: string, images: Array<{ url: string, alt: string, placeholder: string }> }}
+ * 移除 ![](http-url) 形式的图片（来自网页 HTML），保留 [[File:xxx]]。
+ * 时间：2025-03-13；理由：MD→Wiki 时仅保留已上传的 MediaWiki 图片；方法：删除 http(s) 图片引用。
  */
-function mdExtractImagesToPlaceholders(md) {
-  const images = []
-  const re = /!\[([^\]]*)\]\(([^)]+)\)/g
-  const out = md.replace(re, (_, alt, url) => {
-    const placeholder = `${IMG_PLACEHOLDER_PREFIX}${images.length}${IMG_PLACEHOLDER_SUFFIX}`
-    images.push({ url: url.trim(), alt: (alt || '').trim(), placeholder })
-    return placeholder
-  })
-  return { text: out, images }
+function mdStripHttpImages(md) {
+  return md.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/gi, '')
 }
 
 /**
@@ -661,7 +697,8 @@ export function mdToWiki(md) {
   if (!s) return ''
   const { text: afterCode, codeList } = mdExtractCodeToPlaceholders(s)
   const { text: afterMath, mathList } = mdExtractMathToPlaceholders(afterCode)
-  s = mdHeadersToWiki(afterMath)
+  s = mdStripHttpImages(afterMath)
+  s = mdHeadersToWiki(s)
   s = mdLinksToWiki(s)
   s = mdEmphasisToWiki(s)
   s = mdListsToWiki(s)
@@ -672,25 +709,22 @@ export function mdToWiki(md) {
 }
 
 /**
- * Markdown → MediaWiki wikitext，并提取图片信息供后端上传。
- * 图片 ![alt](url) 会被替换为占位符，后端下载并上传到 Wiki 后替换为 [[File:xxx|alt]]。
+ * Markdown → MediaWiki wikitext，并提取图片用于上传。
  * @param {string} md - Markdown 文本
- * @returns {{ wikitext: string, images: Array<{ url: string, alt: string, placeholder: string }> }}
+ * @returns {{ wikitext: string, images: Array<{ url: string, alt: string }> }}
  */
 export function mdToWikiWithImages(md) {
   if (md == null || typeof md !== 'string') return { wikitext: '', images: [] }
   let s = md.trim()
   if (!s) return { wikitext: '', images: [] }
-  const { text: afterCode, codeList } = mdExtractCodeToPlaceholders(s)
-  const { text: afterMath, mathList } = mdExtractMathToPlaceholders(afterCode)
-  const { text: afterImages, images } = mdExtractImagesToPlaceholders(afterMath)
-  s = mdHeadersToWiki(afterImages)
-  s = mdLinksToWiki(s)
-  s = mdEmphasisToWiki(s)
-  s = mdListsToWiki(s)
-  s = mdBlockquoteToWiki(s)
-  s = mdTableToWiki(s)
-  s = mdRestoreMathPlaceholders(s, mathList)
-  const wikitext = mdRestoreCodePlaceholders(s, codeList)
+  const images = []
+  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g
+  s = s.replace(imgRe, (_, alt, url) => {
+    const u = url.trim()
+    const a = (alt || '').trim()
+    images.push({ url: u, alt: a })
+    return a ? `[[File:${u}|${a}]]` : `[[File:${u}]]`
+  })
+  const wikitext = mdToWiki(s)
   return { wikitext, images }
 }

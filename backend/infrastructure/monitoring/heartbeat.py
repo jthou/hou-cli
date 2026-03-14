@@ -4,9 +4,9 @@ import logging
 import time
 import psutil
 from typing import Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from backend.infrastructure.storage.task_queue_db import TaskPriority
-from shared.time_utils import utc_now_iso
+from shared.time_utils import utc_now_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -158,8 +158,7 @@ class HeartbeatMonitor:
         """
         try:
             workers = task_queue_db.list_workers()
-            now = datetime.now()
-            
+            now = utc_now()  # Worker 的 last_heartbeat 存的是 UTC，需统一时区
             for worker in workers:
                 last_heartbeat_str = worker.get("last_heartbeat")
                 if not last_heartbeat_str:
