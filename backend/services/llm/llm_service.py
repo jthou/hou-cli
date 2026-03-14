@@ -36,19 +36,20 @@ class LLMService:
     PROVIDER_BAILIAN = "bailian"
     PROVIDER_TURBOGATEWAY = "theturbogateway"
     
-    def __init__(self, temperature: float = 0.7, max_tokens: int = 2000, provider: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, temperature: float = 0.7, max_tokens: Optional[int] = None, provider: Optional[str] = None, model: Optional[str] = None):
         """
         初始化 LLM 服务
         
         Args:
             temperature: 温度参数，控制输出的随机性 (0.0-2.0)，默认 0.7
-            max_tokens: 最大 token 数，默认 2000
+            max_tokens: 最大 token 数。None 表示不人为截断，使用模型上限；也可显式传入或通过 LLM_MAX_TOKENS 环境变量。
             provider: 提供商名称，如果为 None 则从环境变量或模型名称自动检测
             model: 初始模型名称，如果提供则自动检测提供商
         """
         # 参数配置：验证和设置参数
         self.temperature = max(0.0, min(2.0, temperature))
-        self.max_tokens = max(1, max_tokens)
+        # max_tokens=None: 不人为截断，使用模型上限；显式传入: 使用该值（请求时取 min(传入值, 模型上限)）
+        self._max_tokens_override = max_tokens
         
         # 调试输出
         self.debug = DebugOutput()
@@ -85,6 +86,21 @@ class LLMService:
         # 获取模型配置并初始化客户端
         config = self._get_model_config(self.model)
         self._init_client(config)
+    
+    def _get_effective_max_tokens(self) -> int:
+        """
+        获取本次请求的有效 max_tokens。
+        策略：不人为截断，除非超出模型能力。
+        - _max_tokens_override 为 None 且未设置 LLM_MAX_TOKENS：使用模型 max_output
+        - 设置了 LLM_MAX_TOKENS：取 min(env, 模型 max_output)
+        - 显式传入 max_tokens：取 min(传入值, 模型 max_output)
+        """
+        from backend.services.llm.model_token_limits import get_effective_max_tokens
+        requested = self._max_tokens_override
+        if requested is None:
+            env_val = os.getenv("LLM_MAX_TOKENS")
+            requested = int(env_val) if env_val else 999_999  # 未设置时用大数表示取模型上限
+        return get_effective_max_tokens(self.model, requested)
     
     def _ensure_env_loaded(self):
         """确保环境变量已加载（统一配置管理）"""
@@ -349,13 +365,13 @@ class LLMService:
         logger.debug(f"LLM User Prompt: {user_prompt}")
         self.debug.log_llm_request(system_prompt or "", user_prompt or "", self.model)
         
-        # 构建请求参数
+        # 构建请求参数（不人为截断，使用模型上限）
         request_params = {
             "model": self.model,
             "messages": messages,
             "stream": False,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens
+            "max_tokens": self._get_effective_max_tokens()
         }
         
         # 如果提供了工具，添加到请求中
@@ -619,7 +635,7 @@ class LLMService:
                 "messages": messages,
                 "stream": True,
                 "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
+                "max_tokens": self._get_effective_max_tokens(),
             }
             try:
                 stream = await asyncio.wait_for(
@@ -811,7 +827,7 @@ class LLMService:
             "messages": messages,
             "stream": True,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            "max_tokens": self._get_effective_max_tokens(),
         }
         if tools:
             request_params["tools"] = tools
@@ -1109,7 +1125,7 @@ async def probe_model(model: str, timeout_seconds: float = 15.0) -> Dict[str, An
     """
     t0 = time.perf_counter()
     try:
-        service = LLMService(model=model, max_tokens=10)
+        service = LLMService(model=model)
         result = await asyncio.wait_for(
             service.chat(user_prompt="hello", audit_meta={"is_probe": True}),
             timeout=timeout_seconds,

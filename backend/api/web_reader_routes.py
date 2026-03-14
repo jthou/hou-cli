@@ -130,7 +130,7 @@ async def summarize_content(req: SummarizeRequest):
         from backend.services.llm.llm_service import LLMService
 
         model_name = (req.model or "").strip() or os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-        llm = LLMService(model=model_name, max_tokens=4000)
+        llm = LLMService(model=model_name)
 
         messages = [
             {"role": "system", "content": SUMMARY_PROMPT},

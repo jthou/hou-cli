@@ -6,9 +6,9 @@
 
 ## 配置说明
 
-- **LLM_MAX_TOKENS**：单次请求的最大输出 token 数，默认 8192
-- 实际请求时会取 `min(LLM_MAX_TOKENS, 模型 max_output)`
-- 若输出因达到上限被截断，会在响应末尾追加警告
+- **LLM_MAX_TOKENS**：可选。不设置时**不人为截断**，使用模型 max_output；设置时取 `min(LLM_MAX_TOKENS, 模型 max_output)`
+- 截断仅发生在超出模型能力时
+- 若输出因达到模型上限被截断，会在响应末尾追加警告
 
 ## 各模型限制（概览）
 
