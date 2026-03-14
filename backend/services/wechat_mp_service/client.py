@@ -205,8 +205,7 @@ class WeChatMPClient:
         title = (title or "").strip()
         if not title:
             raise WeChatMPClientError("标题不能为空")
-        if len(title) > 32:
-            raise WeChatMPClientError("标题不能超过 32 字")
+        # 不在此处限制标题长度，由微信公众号 API 校验；若超限 API 会报错，由调用方处理
         author = (author or "").strip()
         if author and len(author) > 16:
             author = author[:16]

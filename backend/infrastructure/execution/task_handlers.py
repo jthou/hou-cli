@@ -729,7 +729,7 @@ TASK_TYPES = {
             "title": {
                 "type": "string",
                 "required": True,
-                "description": "标题（不超过 32 字）",
+                "description": "标题（微信 API 限制 32 字，超限由接口报错）",
                 "placeholder": "文章标题"
             },
             "content": {

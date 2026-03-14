@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 GENERATE_METADATA_SYSTEM = """你是公众号文章编辑。根据用户提供的文章正文，生成以下字段（JSON 格式，不要其他解释）：
 
-1. title: 文章标题，不超过 32 字，吸引读者点击
+1. title: 文章标题，吸引读者点击（微信草稿标题限制 32 字，超限由 API 报错）
 2. digest: 文章摘要，不超过 120 字，概括核心内容
 3. author: 作者名，不超过 16 字，可留空
 
@@ -36,7 +36,7 @@ def _parse_metadata_json(text: str) -> Dict[str, str]:
                 try:
                     data = json.loads(text[start : i + 1])
                     return {
-                        "title": (data.get("title") or "")[:32],
+                        "title": (data.get("title") or "").strip(),
                         "digest": (data.get("digest") or "")[:120],
                         "author": (data.get("author") or "")[:16],
                     }
