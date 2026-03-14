@@ -259,7 +259,7 @@ export default function MarkdownActionButtons({
                   <textarea
                     value={mwWikitextState}
                     onChange={(e) => setMwWikitextState(e.target.value)}
-                    className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] font-mono resize-y"
+                    className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed"
                     placeholder="Wikitext 内容"
                   />
                 </div>

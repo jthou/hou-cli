@@ -287,6 +287,7 @@ export default function WebReader() {
                 {viewMode === 'markdown' ? (
                   <div className="flex-1 min-h-0 p-4 flex flex-col">
                     <MarkdownEditorPreview
+                      className="flex-1 min-h-0"
                       content={data.markdown || ''}
                       onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v, summary: '' } : null))}
                       editable

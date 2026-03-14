@@ -453,6 +453,7 @@ export default function WereadReader() {
                       </div>
                     )}
                     <MarkdownEditorPreview
+                      className="flex-1 min-h-0"
                       content={data.markdown || ''}
                       onContentChange={(v) => setData((prev) => (prev ? { ...prev, markdown: v, summary: '' } : null))}
                       editable

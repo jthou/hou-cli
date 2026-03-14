@@ -7,7 +7,7 @@ import MarkdownPreview from './MarkdownPreview'
 import MarkdownActionButtons from './MarkdownActionButtons'
 
 const textareaCls =
-  'w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
+  'flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
 
 /**
  * @param {Object} props
@@ -109,24 +109,12 @@ export default function MarkdownEditorPreview({
                 摘要
               </button>
             )}
-            <span className="text-border/60">|</span>
           </>
         )}
-        <MarkdownActionButtons
-          content={effectiveContent}
-          onCopy={onCopy}
-          onSendToArticle={onSendToArticle}
-          sendToArticleLabel={sendToArticleLabel}
-          showMediaWiki={showMediaWiki}
-          onAddToReference={onAddToReference}
-          sourceUrl={sourceUrl}
-          extra={footerExtra}
-          className="flex-1"
-        />
       </div>
-      <div className="flex-1 min-h-[320px] overflow-hidden flex flex-col">
+      <div className="flex-1 min-h-[320px] overflow-y-auto flex flex-col">
         {viewMode === 'edit' ? (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-[280px] flex flex-col gap-2">
             <textarea
               value={editDraft}
               onChange={(e) => {
@@ -134,9 +122,8 @@ export default function MarkdownEditorPreview({
                 onContentChange?.(e.target.value)
               }}
               placeholder="在此编辑 Markdown 内容…"
-              className={`${textareaCls} flex-1 min-h-0 w-full block`}
+              className={textareaCls}
               spellCheck={false}
-              rows={1}
             />
           </div>
         ) : viewMode === 'summary' ? (
@@ -166,6 +153,18 @@ export default function MarkdownEditorPreview({
             <MarkdownPreview markdown={effectiveContent || ''} className="min-h-full p-4" theme={theme} />
           </div>
         )}
+      </div>
+      <div className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-center gap-3 bg-black/20">
+        <MarkdownActionButtons
+          content={effectiveContent}
+          onCopy={onCopy}
+          onSendToArticle={onSendToArticle}
+          sendToArticleLabel={sendToArticleLabel}
+          showMediaWiki={showMediaWiki}
+          onAddToReference={onAddToReference}
+          sourceUrl={sourceUrl}
+          extra={footerExtra}
+        />
       </div>
     </div>
   )

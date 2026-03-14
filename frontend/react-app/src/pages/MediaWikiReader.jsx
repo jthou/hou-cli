@@ -301,15 +301,15 @@ export default function MediaWikiReader() {
           </div>
         </div>
 
-        <div className="min-w-0 flex-[0.618] overflow-y-auto bg-white/[0.02] p-6">
+        <div className="min-w-0 flex-[0.618] overflow-y-auto bg-white/[0.02] p-6 flex flex-col min-h-0">
           {!selectedPage && (
             <div className="h-full flex items-center justify-center text-sm text-muted">
               在左上输入关键词抓取后，点击左下页面列表中的条目，即可在此预览。
             </div>
           )}
           {selectedPage && (
-            <div className="max-w-3xl">
-              <div className="flex items-baseline justify-between gap-3 mb-4">
+            <div className="flex flex-col h-full min-w-0">
+              <div className="shrink-0 flex items-baseline justify-between gap-3 mb-4">
                 <h2 className="text-lg font-medium text-white truncate">
                   {selectedPage.title || selectedPage.url}
                 </h2>
@@ -322,24 +322,29 @@ export default function MediaWikiReader() {
                   在新标签页打开
                 </a>
               </div>
-              <MarkdownEditorPreview
-                content={editedMarkdown ?? wikiToMd(selectedPage.content || '')}
-                onContentChange={(v) => {
-                  setEditedMarkdown(v)
-                  setCurrentSummary('')
-                }}
-                editable
-                theme="dark"
-                showMediaWiki
-                showSummary
-                summary={currentSummary}
-                onSummaryChange={setCurrentSummary}
-                onGenerateSummary={(content) => fetchSummarize(content)}
-                onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
-                onAddToReference={(content) =>
-                  navigate('/add-reference', { state: { addToReference: content } })
-                }
-              />
+              <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white flex flex-col">
+                <div className="flex-1 min-h-0 p-4 flex flex-col">
+                  <MarkdownEditorPreview
+                    className="flex-1 min-h-0"
+                    content={editedMarkdown ?? wikiToMd(selectedPage.content || '')}
+                    onContentChange={(v) => {
+                      setEditedMarkdown(v)
+                      setCurrentSummary('')
+                    }}
+                    editable
+                    theme="dark"
+                    showMediaWiki
+                    showSummary
+                    summary={currentSummary}
+                    onSummaryChange={setCurrentSummary}
+                    onGenerateSummary={(content) => fetchSummarize(content)}
+                    onSummaryError={(err) => toast?.warning?.(err?.message || '摘要生成失败')}
+                    onAddToReference={(content) =>
+                      navigate('/add-reference', { state: { addToReference: content } })
+                    }
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>
