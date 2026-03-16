@@ -1644,60 +1644,12 @@ def _download_pdf_to_temp(url: str) -> Tuple[str, int]:
         raise
 
 
-def _fix_doubled_pdf_text(text: str) -> str:
-    """
-    部分 PDF 导出会导致「每字重复」（如 TThhee -> The）。
-    若相邻重复对占比过高，尝试取偶数位还原（奇数长度时取前 n-1 再取偶，避免误伤）。
-    """
-    if not text or len(text) < 4:
-        return text
-    n = len(text)
-    pairs = sum(1 for i in range(n - 1) if text[i] == text[i + 1])
-    ratio = pairs / (n - 1) if n > 1 else 0
-    if ratio < 0.25:
-        return text
-    # 取偶数位即得到「去重」结果；长度为奇数时仍取 0::2，可能少一个尾字
-    undoubled = text[0::2]
-    # 校验：还原后不应出现大量连续相同字符（避免误伤正常文段）
-    if len(undoubled) > 1:
-        runs = sum(1 for i in range(len(undoubled) - 1) if undoubled[i] == undoubled[i + 1])
-        if runs / (len(undoubled) - 1) >= 0.5:
-            return text
-    return undoubled
-
-
 def _extract_text_from_pdf_page_range(pdf_path: str, page_from: int, page_to: int) -> str:
-    """从 PDF 提取指定页范围（1-based，含首尾）的文本。优先用 pdfminer.six（与 pdf2txt 同引擎），效果更好；失败则回退 pdfplumber。"""
-    # 优先使用 pdfminer.six（与 pdf2txt 同引擎，排版/编码通常更稳）
-    try:
-        from pdfminer.high_level import extract_text as pdfminer_extract_text
+    """从 PDF 提取指定页范围（1-based，含首尾）的文本。使用共享 pdf_extract 模块。"""
+    from backend.utils.pdf_extract import extract_text_from_pdf
 
-        page_numbers = list(range(page_from - 1, page_to))
-        if not page_numbers:
-            return ""
-        raw = pdfminer_extract_text(pdf_path, page_numbers=page_numbers)
-        if raw and raw.strip():
-            text = _fix_doubled_pdf_text(raw.strip())
-            return text
-    except Exception:
-        pass
-
-    # 回退：pdfplumber
-    import pdfplumber
-
-    parts = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for i in range(page_from - 1, min(page_to, len(pdf.pages))):
-            page = pdf.pages[i]
-            try:
-                page = page.dedupe_chars(tolerance=3)
-            except Exception:
-                pass
-            text = page.extract_text()
-            if text:
-                text = _fix_doubled_pdf_text(text.strip())
-                parts.append(text)
-    return "\n\n".join(parts)
+    page_numbers = list(range(page_from - 1, page_to))
+    return extract_text_from_pdf(pdf_path, page_numbers, use_layout=True, fix_doubled=True)
 
 
 def _chunk_text_by_paragraphs(text: str, max_chars: int = 4000) -> List[str]:

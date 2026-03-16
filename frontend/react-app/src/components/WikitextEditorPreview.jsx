@@ -2,12 +2,13 @@
  * Wikitext 编辑 + 预览 + 摘要 + 操作按钮
  * 供 MediaWikiReader 使用，直接编辑 Wikitext，不做 Markdown 转换
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import WikiPreview from './WikiPreview'
 import WikitextActionButtons from './WikitextActionButtons'
-
-const textareaCls =
-  'flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
+import { useWritingSuggestions } from '../hooks/useWritingSuggestions'
+import { tabCls } from './editor/EditorConstants'
+import WritingSuggestionsButton from './editor/WritingSuggestionsButton'
+import EditAreaWithSuggestions from './editor/EditAreaWithSuggestions'
 
 /**
  * @param {Object} props
@@ -24,6 +25,8 @@ const textareaCls =
  * @param {(v: string) => void} [props.onSummaryChange] - 摘要变化回调
  * @param {(content: string) => Promise<string>} [props.onGenerateSummary] - 生成摘要回调
  * @param {(err: Error) => void} [props.onSummaryError] - 生成失败时回调
+ * @param {'mediawiki'|'wikipedia'} [props.wikiSource='mediawiki'] - Wiki 来源
+ * @param {string} [props.wikiLang='zh'] - Wikipedia 语言（仅 wikiSource=wikipedia）
  */
 export default function WikitextEditorPreview({
   wikiText = '',
@@ -39,10 +42,29 @@ export default function WikitextEditorPreview({
   onSummaryChange,
   onGenerateSummary,
   onSummaryError,
+  wikiSource = 'mediawiki',
+  wikiLang = 'zh',
 }) {
   const [viewMode, setViewMode] = useState('preview')
   const [editDraft, setEditDraft] = useState(wikiText)
   const [summaryLoading, setSummaryLoading] = useState(false)
+  const textareaRef = useRef(null)
+
+  const handleInsertSuggestion = useCallback(
+    (newValue) => {
+      setEditDraft(newValue)
+      onContentChange?.(newValue)
+    },
+    [onContentChange]
+  )
+
+  const writingSuggestions = useWritingSuggestions({
+    textareaRef,
+    value: editDraft,
+    onInsert: handleInsertSuggestion,
+    format: 'wikitext',
+    enabled: viewMode === 'edit' && editable,
+  })
 
   useEffect(() => {
     if (viewMode === 'preview') setEditDraft(wikiText)
@@ -100,23 +122,24 @@ export default function WikitextEditorPreview({
                 摘要
               </button>
             )}
+            {viewMode === 'edit' && (
+              <WritingSuggestionsButton
+                onClick={() => writingSuggestions.fetchSuggestions?.()}
+                loading={writingSuggestions.loading}
+              />
+            )}
           </>
         )}
       </div>
       <div className="flex-1 min-h-[320px] overflow-y-auto flex flex-col">
         {viewMode === 'edit' ? (
-          <div className="flex-1 min-h-[280px] flex flex-col gap-2">
-            <textarea
-              value={editDraft}
-              onChange={(e) => {
-                setEditDraft(e.target.value)
-                onContentChange?.(e.target.value)
-              }}
-              placeholder="在此编辑 Wikitext 内容…"
-              className={textareaCls}
-              spellCheck={false}
-            />
-          </div>
+          <EditAreaWithSuggestions
+            textareaRef={textareaRef}
+            value={editDraft}
+            onChange={(v) => { setEditDraft(v); onContentChange?.(v) }}
+            placeholder="在此编辑 Wikitext 内容…"
+            writingSuggestions={writingSuggestions}
+          />
         ) : viewMode === 'summary' ? (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto flex flex-col p-4">
             <div className="shrink-0 flex justify-between gap-2 mb-3">
@@ -141,7 +164,7 @@ export default function WikitextEditorPreview({
           </div>
         ) : (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-            <WikiPreview wikiText={effectiveContent || ''} className="min-h-full p-4" theme={theme} hideActions onWikiLinkClick={onWikiLinkClick} />
+            <WikiPreview wikiText={effectiveContent || ''} className="min-h-full p-4" theme={theme} hideActions onWikiLinkClick={onWikiLinkClick} wikiSource={wikiSource} wikiLang={wikiLang} />
           </div>
         )}
       </div>

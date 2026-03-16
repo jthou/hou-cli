@@ -291,7 +291,8 @@ async def get_selectable_models():
         "models": models,
         "providers": providers,
         "vision_providers": vision_providers,
-        "default_model": chat_model,  # 默认使用对话模型
+        "default_model": chat_model,
+        "article_writing_default_model": "qwen3-max",  # 写作助手固定默认
     }
 
 

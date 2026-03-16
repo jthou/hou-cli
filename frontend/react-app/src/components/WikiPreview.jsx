@@ -42,6 +42,8 @@ const PARSE_DEBOUNCE_MS = 400
  * @param {(pageTitle: string) => void} [props.onWikiLinkClick] - 点击本站 Wiki 链接时回调，用于在应用内打开
  * @param {boolean} [props.hideActions=false] - 隐藏底部操作按钮（由父组件提供时使用）
  * @param {boolean} [props.useParseApi=true] - 是否使用 parse API 预览
+ * @param {'mediawiki'|'wikipedia'} [props.wikiSource='mediawiki'] - Wiki 来源，wikipedia 时用 /api/wikipedia/parse
+ * @param {string} [props.wikiLang='zh'] - Wikipedia 语言（仅 wikiSource=wikipedia 时生效）
  */
 export default function WikiPreview({
   wikiText = '',
@@ -52,6 +54,8 @@ export default function WikiPreview({
   onWikiLinkClick,
   hideActions = false,
   useParseApi = true,
+  wikiSource = 'mediawiki',
+  wikiLang = 'zh',
 }) {
   const toast = useToast()
   const [parsedHtml, setParsedHtml] = useState(null)
@@ -75,15 +79,21 @@ export default function WikiPreview({
       return
     }
     setParseFailed(false)
+    const parseUrl = wikiSource === 'wikipedia' ? '/api/wikipedia/parse' : '/api/mediawiki/parse'
+    const parseBody = wikiSource === 'wikipedia'
+      ? { wikitext: wikiText, lang: wikiLang }
+      : { wikitext: wikiText }
+    const baseUrlPath = wikiSource === 'wikipedia' ? '/api/wikipedia/base-url' : '/api/mediawiki/base-url'
+    const baseUrlParams = wikiSource === 'wikipedia' ? `?lang=${encodeURIComponent(wikiLang)}` : ''
     const timer = setTimeout(async () => {
       if (abortRef.current) abortRef.current.abort()
       abortRef.current = new AbortController()
       const signal = abortRef.current.signal
       try {
-        const res = await fetch('/api/mediawiki/parse', {
+        const res = await fetch(parseUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wikitext: wikiText }),
+          body: JSON.stringify(parseBody),
           signal,
         })
         const data = await res.json().catch(() => ({}))
@@ -94,13 +104,15 @@ export default function WikiPreview({
           setParsedHtml(null)
           setParseFailed(true)
           const msg = data?.detail || (res.ok ? '解析返回空' : `HTTP ${res.status}`)
-          toast?.warning?.(`MediaWiki 解析失败: ${msg}，请检查 MEDIAWIKI_URL 配置`)
+          const src = wikiSource === 'wikipedia' ? 'Wikipedia' : 'MediaWiki'
+          toast?.warning?.(`${src} 解析失败: ${msg}`)
         }
       } catch (err) {
         if (err?.name !== 'AbortError') {
           setParsedHtml(null)
           setParseFailed(true)
-          toast?.warning?.(`MediaWiki 解析失败: ${err?.message || err}`)
+          const src = wikiSource === 'wikipedia' ? 'Wikipedia' : 'MediaWiki'
+          toast?.warning?.(`${src} 解析失败: ${err?.message || err}`)
         }
       } finally {
         if (abortRef.current?.signal === signal) {
@@ -114,17 +126,18 @@ export default function WikiPreview({
         abortRef.current.abort()
       }
     }
-  }, [wikiText, useParseApi, toast])
+  }, [wikiText, useParseApi, toast, wikiSource, wikiLang])
 
   // parse 失败或未启用时获取 base_url，用于将 [[xxx]] 转为可点击链接
   useEffect(() => {
     const needFallback = parseFailed || !useParseApi
     if (!needFallback || !trimmedWiki || baseUrl) return
-    fetch('/api/mediawiki/base-url')
+    const path = wikiSource === 'wikipedia' ? `/api/wikipedia/base-url?lang=${encodeURIComponent(wikiLang)}` : '/api/mediawiki/base-url'
+    fetch(path)
       .then((r) => r.json())
       .then((d) => d?.base_url && setBaseUrl(d.base_url))
       .catch(() => {})
-  }, [parseFailed, useParseApi, baseUrl, trimmedWiki])
+  }, [parseFailed, useParseApi, baseUrl, trimmedWiki, wikiSource, wikiLang])
 
   const useHtmlPreview = parsedHtml != null && parsedHtml.length > 0
 

@@ -1,15 +1,12 @@
 """PDF 解析工具实现
 
-支持多种PDF解析后端：
-1. pypdf/pdfplumber - 基础文本提取（稳定可靠，无需网络）
+支持多种 PDF 解析后端：
+1. pdfplumber（pypdf 同装）- 基础文本提取，使用 pdfminer 布局参数改善分栏
 2. Camelot - 专业表格提取（金融年报等复杂表格）
-3. Logics-Parsing - 阿里Qwen2.5-VL模型，高质量解析（需要API密钥）
 
 自动选择最合适的后端，或根据用户需求指定。
 """
 
-import os
-import subprocess
 import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -49,23 +46,21 @@ class PDFParserTool(Tool):
                 name="extract_mode",
                 type="string",
                 description=(
-                    "提取模式：'full'（完整解析，包括文本、表格、公式、图片）、"
-                    "'text'（仅文本）、'table'（仅表格）、'formula'（仅公式），默认 'full'"
+                    "提取模式：'full'（完整文本）、'text'（仅文本）、'table'（仅表格），默认 'full'"
                 ),
                 required=False,
                 default="full",
-                enum=["full", "text", "table", "formula"]
+                enum=["full", "text", "table"]
             ),
             ToolParameter(
                 name="backend",
                 type="string",
                 description=(
-                    "指定使用的后端（可选）：'mineru'（本地，免费）、'logics'（阿里API，需密钥）、"
-                    "'camelot'（表格提取）、'auto'（自动选择），默认 'auto'"
+                    "指定后端：'pypdf'（文本，pdfminer+pdfplumber）、'camelot'（表格）、'auto'（自动），默认 'auto'"
                 ),
                 required=False,
                 default="auto",
-                enum=["auto", "pypdf", "logics", "camelot"]
+                enum=["auto", "pypdf", "camelot"]
             ),
             ToolParameter(
                 name="output_path",
@@ -78,22 +73,9 @@ class PDFParserTool(Tool):
         super().__init__(
             name="pdf_parser",
             description=(
-                "解析PDF文件，提取文本、表格、公式、图片等结构化内容。"
-                "支持多种解析后端，自动选择最合适的工具。"
-                "\n参数说明："
-                "- file_path: PDF文件路径（必需）"
-                "- output_format: 输出格式，'markdown'、'json'、'excel'、'text'，默认 'markdown'"
-                "- extract_mode: 提取模式，'full'（完整）、'text'（仅文本）、'table'（仅表格）、'formula'（仅公式），默认 'full'"
-                "- backend: 指定后端，'auto'（自动）、'pypdf'（基础文本）、'logics'（阿里API）、'camelot'（表格），默认 'auto'"
-                "- output_path: 输出文件路径（可选）"
-                "\n使用示例："
-                "- 解析PDF为Markdown：file_path='/path/to/file.pdf', output_format='markdown'"
-                "- 提取表格：file_path='/path/to/file.pdf', extract_mode='table', output_format='excel'"
-                "- 使用特定后端：file_path='/path/to/file.pdf', backend='mineru'"
-                "\n后端说明："
-                "- pypdf: 基础文本提取，稳定可靠，无需网络，适合一般PDF文本提取"
-                "- logics: 阿里Qwen2.5-VL API，高质量解析，需要API密钥，有免费额度"
-                "- camelot: 专业表格提取，免费，适合金融年报等复杂表格"
+                "解析PDF文件，提取文本或表格。"
+                "\n参数：file_path（必需）、output_format、extract_mode、backend、output_path"
+                "\n示例：extract_mode='table' 用 Camelot 提取表格；默认用 pdfplumber 提取文本（含分栏优化）"
             ),
             parameters=parameters
         )
@@ -113,31 +95,14 @@ class PDFParserTool(Tool):
         
         backends = {
             "pypdf": False,
-            "logics": False,
             "camelot": False,
         }
         
-        # 检查 pypdf/pdfplumber（基础文本提取，稳定可靠）
+        # 检查 pdfplumber（文本提取，与 pdf_routes 共享 pdfminer 布局逻辑）
         try:
-            import pypdf
             import pdfplumber
             backends["pypdf"] = True
         except ImportError:
-            pass
-        
-        # 检查 Logics-Parsing（需要API密钥）
-        try:
-            # 检查是否有API密钥
-            api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIBABA_CLOUD_API_KEY")
-            if api_key:
-                # 尝试导入
-                try:
-                    import logics_parsing
-                    backends["logics"] = True
-                except ImportError:
-                    # 可能通过其他方式安装
-                    pass
-        except Exception:
             pass
         
         # 检查 Camelot
@@ -151,16 +116,29 @@ class PDFParserTool(Tool):
         return backends
     
     def _parse_with_pypdf(self, file_path: str, output_format: str, extract_mode: str, output_path: Optional[str]) -> Dict[str, Any]:
-        """使用 pypdf/pdfplumber 解析PDF（基础文本提取）"""
+        """使用共享 pdf_extract 提取文本（pdfminer 布局 + pdfplumber 回退，含分栏优化）"""
         try:
-            import pypdf
             import pdfplumber
-            
+            from backend.utils.pdf_extract import extract_text_from_pdf
+
             pdf_path = Path(file_path)
             if not pdf_path.exists():
                 raise FileNotFoundError(f"PDF文件不存在: {file_path}")
-            
-            # 确定输出路径
+
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                page_count = len(pdf.pages)
+
+            text_content = []
+            for page_num in range(1, page_count + 1):
+                page_text = extract_text_from_pdf(file_path, [page_num - 1], use_layout=True, fix_doubled=True)
+                if page_text:
+                    if output_format == "markdown":
+                        text_content.append(f"## 第 {page_num} 页\n\n{page_text}\n")
+                    else:
+                        text_content.append(f"第 {page_num} 页:\n{page_text}\n")
+
+            content = "\n".join(text_content)
+
             if not output_path:
                 if output_format == "json":
                     output_path = str(pdf_path.parent / f"{pdf_path.stem}.json")
@@ -168,22 +146,7 @@ class PDFParserTool(Tool):
                     output_path = str(pdf_path.parent / f"{pdf_path.stem}.txt")
                 else:
                     output_path = str(pdf_path.parent / f"{pdf_path.stem}.md")
-            
-            # 使用 pdfplumber 提取文本（比 pypdf 更准确）
-            text_content = []
-            page_count = 0
-            with pdfplumber.open(str(pdf_path)) as pdf:
-                page_count = len(pdf.pages)
-                for page_num, page in enumerate(pdf.pages, 1):
-                    text = page.extract_text()
-                    if text:
-                        if output_format == "markdown":
-                            text_content.append(f"## 第 {page_num} 页\n\n{text}\n")
-                        else:
-                            text_content.append(f"第 {page_num} 页:\n{text}\n")
-            
-            content = "\n".join(text_content)
-            
+
             # 根据输出格式保存
             output_file = Path(output_path)
             if output_format == "json":
@@ -207,44 +170,6 @@ class PDFParserTool(Tool):
             raise RuntimeError("pypdf/pdfplumber未安装，请运行: pip install pypdf pdfplumber")
         except Exception as e:
             raise RuntimeError(f"PDF解析失败: {str(e)}")
-    
-    def _parse_with_logics(self, file_path: str, output_format: str, extract_mode: str, output_path: Optional[str]) -> Dict[str, Any]:
-        """使用 Logics-Parsing 解析PDF"""
-        try:
-            # 检查API密钥
-            api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIBABA_CLOUD_API_KEY")
-            if not api_key:
-                raise RuntimeError("Logics-Parsing需要API密钥，请设置 DASHSCOPE_API_KEY 或 ALIBABA_CLOUD_API_KEY 环境变量")
-            
-            # 这里需要根据 Logics-Parsing 的实际API调整
-            # 示例代码（需要根据实际API调整）
-            try:
-                from logics_parsing import PDFParser
-                parser = PDFParser(api_key=api_key)
-                result = parser.parse(file_path, format=output_format)
-                
-                # 保存输出
-                if not output_path:
-                    output_path = str(Path(file_path).parent / f"{Path(file_path).stem}.{output_format}")
-                
-                if output_format == "markdown":
-                    Path(output_path).write_text(result.get("markdown", ""), encoding='utf-8')
-                elif output_format == "json":
-                    import json
-                    Path(output_path).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
-                
-                return {
-                    "success": True,
-                    "output_path": output_path,
-                    "content": result.get("markdown", ""),
-                    "content_length": len(result.get("markdown", "")),
-                    "backend": "logics"
-                }
-            except ImportError:
-                raise RuntimeError("Logics-Parsing未安装，请运行: pip install logics-parsing")
-                
-        except Exception as e:
-            raise RuntimeError(f"Logics-Parsing解析失败: {str(e)}")
     
     def _parse_with_camelot(self, file_path: str, output_format: str, extract_mode: str, output_path: Optional[str]) -> Dict[str, Any]:
         """使用 Camelot 提取表格"""
@@ -315,24 +240,16 @@ class PDFParserTool(Tool):
         if extract_mode == "table" and available.get("camelot"):
             return "camelot"
         
-        # 2. 文本提取优先使用 pypdf（稳定可靠，无需网络）
+        # 2. 文本提取优先使用 pypdf（pdfplumber + pdfminer 布局）
         if available.get("pypdf"):
             return "pypdf"
         
-        # 3. Logics-Parsing：API工具（如果有密钥）
-        if available.get("logics"):
-            return "logics"
-        
-        # 4. Camelot：也可以用于一般提取
+        # 3. Camelot：也可用于一般提取（表格模式已优先）
         if available.get("camelot"):
             return "camelot"
         
         raise RuntimeError(
-            "没有可用的PDF解析后端。\n"
-            "请安装以下工具之一：\n"
-            "1. pypdf/pdfplumber: pip install pypdf pdfplumber（已包含在 requirements.txt）\n"
-            "2. Camelot: pip install camelot-py[cv]\n"
-            "3. Logics-Parsing: pip install logics-parsing（需要API密钥）"
+            "没有可用的PDF解析后端。请安装：pip install pdfplumber 或 pip install camelot-py[cv]"
         )
     
     def execute(self, **kwargs) -> ToolResult:
@@ -386,8 +303,6 @@ class PDFParserTool(Tool):
             # 根据后端执行解析
             if selected_backend == "pypdf":
                 result = self._parse_with_pypdf(file_path, output_format, extract_mode, output_path)
-            elif selected_backend == "logics":
-                result = self._parse_with_logics(file_path, output_format, extract_mode, output_path)
             elif selected_backend == "camelot":
                 result = self._parse_with_camelot(file_path, output_format, extract_mode, output_path)
             else:

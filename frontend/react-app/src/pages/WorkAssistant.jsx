@@ -2,7 +2,7 @@
  * 工作助手 - 通用对话入口，支持模型选择、会话持久化、参考块（与写作助手概念和操作一致）
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import ChatInput from '../components/ChatInput'
 import MarkdownPreview from '../components/MarkdownPreview'
@@ -477,7 +477,18 @@ export default function WorkAssistant() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="工作助手" subtitle="通用对话入口，可指定具体模型" />
+      <PageHeader
+        title="工作助手"
+        subtitle="通用对话入口，可指定具体模型；会遵循工作配置。"
+        actions={
+          <Link
+            to="/settings/work-config"
+            className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-fg hover:bg-white/10"
+          >
+            工作配置
+          </Link>
+        }
+      />
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧会话列表（可收缩） */}
         <div

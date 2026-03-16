@@ -164,6 +164,35 @@ async def chat_stream(request: ChatRequest):
     )
 
 
+class RateMessageRequest(BaseModel):
+    """对某条助手回复打分及理由（时间：2025-03-15；理由：供系统提示词注入、调整后续回答）"""
+    session_id: str
+    message_id: str
+    score: int  # 1-5
+    reason: Optional[str] = None
+
+
+@router.post("/chat/rate-message")
+async def rate_message(request: RateMessageRequest):
+    """对某条助手回复打分并记录理由，供后续写作调整。"""
+    if not request.session_id or not request.message_id:
+        return {"success": False, "error": "缺少 session_id 或 message_id"}
+    if not 1 <= request.score <= 5:
+        return {"success": False, "error": "score 需在 1-5 之间"}
+    try:
+        from backend.services.writing_acceptance import record_message_rating
+        ok = record_message_rating(
+            session_id=request.session_id,
+            message_id=request.message_id,
+            score=request.score,
+            reason=request.reason,
+        )
+        return {"success": ok}
+    except Exception as e:
+        debug_log(f"rate_message failed: {e}", level="error")
+        return {"success": False, "error": str(e)}
+
+
 @router.get("/chat/article")
 async def get_chat_article(session_id: Optional[str] = None):
     """获取写文章会话的当前文章草稿（右侧预览），用于恢复页面时加载。"""
@@ -214,6 +243,10 @@ async def put_chat_mw_sources(request: MwSourcesRequest):
 class SetArticleRequest(BaseModel):
     session_id: str
     content: str
+    # 时间：2025-03-15；理由：记录接受修改用于后续抽样打分、改进写作画像；方法：可选传入
+    message_id: Optional[str] = None
+    previous_content: Optional[str] = None  # 接受前的文章内容
+    ai_content: Optional[str] = None  # 助手回复内容（接受修改时与 content 相同，可省略）
 
 
 @router.put("/chat/article")
@@ -227,6 +260,21 @@ async def set_chat_article(request: SetArticleRequest):
             request.session_id, request.content or "", source="user"
         )
         article = orchestrator.context_manager.get_current_article(request.session_id) if ok else None
+
+        # 记录接受修改（用于抽样打分、持续改进写作画像）
+        if ok and (request.message_id or request.previous_content is not None):
+            try:
+                from backend.services.writing_acceptance import record_acceptance
+                record_acceptance(
+                    session_id=request.session_id,
+                    ai_content=request.ai_content or request.content or "",
+                    accepted_content=request.content or "",
+                    original_content=request.previous_content,
+                    message_id=request.message_id,
+                )
+            except Exception:
+                pass
+
         return {"article": article, "status": "success" if ok else "error", "success": ok}
     except Exception as e:
         debug_log(f"set_chat_article failed: {e}", level="error")

@@ -64,7 +64,11 @@ import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
+import { useWritingSuggestions } from '../hooks/useWritingSuggestions'
+import EditAreaWithSuggestions from '../components/editor/EditAreaWithSuggestions'
+import WritingSuggestionsButton from '../components/editor/WritingSuggestionsButton'
 import WritingProfileForm from '../components/WritingProfileForm'
+import MessageRatingInline from '../components/MessageRatingInline'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
 
@@ -139,7 +143,7 @@ export default function ArticleWriting() {
   /** 参考信息面板内标签：'blocks' 参考块 | 'profile' 写作画像 */
   const [referenceTab, setReferenceTab] = useState('blocks')
   const [selectedModel, setSelectedModel] = useState('')
-  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
+  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels({ context: 'article_writing' })
   useEffect(() => {
     if (defaultModel && !selectedModel) setSelectedModel(defaultModel)
     else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
@@ -158,7 +162,17 @@ export default function ArticleWriting() {
   const messagesEndRef = useRef(null)
   const messagesScrollRef = useRef(null)
   const abortControllerRef = useRef(null)
+  const articleEditRef = useRef(null)
   const streamingContentRef = useRef('')
+
+  const handleInsertSuggestion = useCallback((newValue) => setEditDraft(newValue), [])
+  const writingSuggestions = useWritingSuggestions({
+    textareaRef: articleEditRef,
+    value: editDraft,
+    onInsert: handleInsertSuggestion,
+    format: 'markdown',
+    enabled: editMode,
+  })
 
   const handleAddReferenceBlockAndOpen = () => {
     setReferencePanelOpen(true)
@@ -325,21 +339,36 @@ export default function ArticleWriting() {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }
   }, [])
+
+  /** 打分提交后「继续提问」：滚动到输入区并聚焦（时间：2025-03-15；理由：引导进入下一轮对话） */
+  const scrollToInputAndFocus = useCallback(() => {
+    const el = document.getElementById('article-writing-chat-input')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      const textarea = el.querySelector('textarea')
+      textarea?.focus()
+    }
+  }, [])
   useEffect(() => {
     scrollToBottom()
   }, [messages, streamingContent, scrollToBottom])
 
-  const handleNewSession = () => {
+  const handleNewSession = (workflow = null) => {
+    const meta = { type: ARTICLE_SESSION_TYPE }
+    if (workflow === 'doc_coauthoring') meta.workflow = 'doc_coauthoring'
     fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ metadata: { type: ARTICLE_SESSION_TYPE } }),
+      body: JSON.stringify({ metadata: meta }),
     })
       .then((r) => r.json())
       .then((d) => {
         if (d.success && d.session_id) {
           loadSessions()
           setSelectedSessionId(d.session_id)
+          if (workflow === 'doc_coauthoring') {
+            toast?.success?.('已启用结构化文档协作流程，助手将引导你完成三阶段：上下文收集 → 逐节精修 → 读者测试')
+          }
         } else {
           toast?.error?.(d.error || '创建会话失败')
         }
@@ -441,16 +470,16 @@ export default function ArticleWriting() {
     }
   }
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e, overrideMessage) => {
     e?.preventDefault?.()
     if (!selectedSessionId) return
-    const text = (input || '').trim()
+    const text = (overrideMessage ?? (input || '').trim()).trim()
     if (!text) return
 
     const referenceContext = formatReferenceContext(referenceBlocks)
     const messageForModel = referenceContext ? `${referenceContext}【用户本次提问】\n${text}` : text
 
-    setInput('')
+    if (!overrideMessage) setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
     setStreamingToolCalls([])
@@ -529,6 +558,15 @@ export default function ArticleWriting() {
                     .then((d) => { if (d.success) loadSessions() })
                     .catch(() => {})
                 }
+                // 时间：2025-03-15；理由：流式完成后获取 message_id 以支持打分；方法：拉取最新消息
+                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+                  .then((r) => r.json())
+                  .then((d) => {
+                    if (d.success && Array.isArray(d.messages) && d.messages.length > 0) {
+                      setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+                    }
+                  })
+                  .catch(() => {})
                 fullContent = ''
               } else if (obj.status === 'error') {
                 const err = obj.error || '请求失败'
@@ -589,6 +627,14 @@ export default function ArticleWriting() {
                   .then((d) => { if (d.success) loadSessions() })
                   .catch(() => {})
               }
+              fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+                .then((r) => r.json())
+                .then((d) => {
+                  if (d.success && Array.isArray(d.messages) && d.messages.length > 0) {
+                    setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+                  }
+                })
+                .catch(() => {})
             } else if (lastObj?.status === 'error') {
               const err = lastObj.error || '请求失败'
               toast?.error?.(err)
@@ -604,6 +650,14 @@ export default function ArticleWriting() {
       if (fullContent.trim()) {
         const finalContent = fullContent.trim()
         setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+        fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.success && Array.isArray(d.messages) && d.messages.length > 0) {
+              setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
+            }
+          })
+          .catch(() => {})
       }
       abortControllerRef.current = null
     } catch (err) {
@@ -773,13 +827,20 @@ export default function ArticleWriting() {
     return () => clearTimeout(t)
   }, [editDialog, editDialogSearchQuery, searchMediaWiki])
 
-  const handleWriteToPreview = async (content) => {
+  const handleWriteToPreview = async (content, options = {}) => {
     if (!selectedSessionId || content == null) return
     try {
+      const body = {
+        session_id: selectedSessionId,
+        content: content || '',
+        ...(options.messageId && { message_id: options.messageId }),
+        ...(options.previousContent != null && { previous_content: options.previousContent }),
+        ...(options.messageId != null && { ai_content: content || '' }),
+      }
       const r = await fetch('/api/chat/article', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedSessionId, content: content || '' }),
+        body: JSON.stringify(body),
       })
       const d = await r.json()
       if (d.status !== 'success' || d.article == null) {
@@ -1210,10 +1271,18 @@ export default function ArticleWriting() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleNewSession}
+                    onClick={() => handleNewSession()}
                     className="flex-1 py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
                   >
                     新建会话
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNewSession('doc_coauthoring')}
+                    className="px-2 py-2 rounded-lg border border-border text-xs text-muted hover:text-fg hover:bg-white/5"
+                    title="新建会话并启用结构化文档协作流程（上下文收集→逐节精修→读者测试）"
+                  >
+                    结构化
                   </button>
                   <button
                     type="button"
@@ -1397,7 +1466,12 @@ export default function ArticleWriting() {
                             )}
                           <button
                             type="button"
-                            onClick={() => handleWriteToPreview(assistantContent)}
+                            onClick={() =>
+                              handleWriteToPreview(assistantContent, {
+                                messageId: m.message_id,
+                                previousContent: article ?? '',
+                              })
+                            }
                             className="px-2.5 py-1 text-xs rounded border border-border text-cyan-400 hover:bg-white/10"
                           >
                             接受修改
@@ -1426,6 +1500,13 @@ export default function ArticleWriting() {
                           >
                             添加到参考
                           </button>
+                          {m.message_id && selectedSessionId && (
+                            <MessageRatingInline
+                              sessionId={selectedSessionId}
+                              messageId={m.message_id}
+                              onScrollToInput={scrollToInputAndFocus}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
@@ -1578,14 +1659,36 @@ export default function ArticleWriting() {
                   loading={modelsLoading}
                 />
               </div>
-              <ChatInput
-                value={input}
-                onChange={setInput}
-                onSubmit={() => handleSubmit({ preventDefault: () => {} })}
-                placeholder="输入消息，Enter 换行，Ctrl+Enter 发送"
-                disabled={loading}
-                submitLabel="发送"
-              />
+              {/* 写作技能快捷按钮（时间：2025-03-15；理由：在 UI 中体现 4 个写作技能，便于一键触发；方法：点击即发送预设文案） */}
+              <div className="shrink-0 flex flex-wrap gap-1.5 px-4 py-2 border-t border-border/60 bg-surface/30">
+                <span className="text-xs text-muted self-center mr-1">快捷：</span>
+                {[
+                  { label: '生成大纲', msg: '帮我生成大纲' },
+                  { label: '撰写正文', msg: '根据大纲撰写正文' },
+                  { label: '风格润色', msg: '按照写作画像润色全文' },
+                  { label: '总结画像', msg: '帮我总结这些文章的写作画像' },
+                ].map(({ label, msg }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    disabled={loading || !selectedSessionId}
+                    onClick={() => handleSubmit({ preventDefault: () => {} }, msg)}
+                    className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10 hover:text-fg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div id="article-writing-chat-input">
+                <ChatInput
+                  value={input}
+                  onChange={setInput}
+                  onSubmit={() => handleSubmit({ preventDefault: () => {} })}
+                  placeholder="输入消息，Enter 换行，Ctrl+Enter 发送"
+                  disabled={loading}
+                  submitLabel="发送"
+                />
+              </div>
             </>
           )}
         </div>
@@ -1624,6 +1727,10 @@ export default function ArticleWriting() {
             <div className="flex items-center gap-2">
               {editMode && (
                 <>
+                  <WritingSuggestionsButton
+                    onClick={() => writingSuggestions.fetchSuggestions?.()}
+                    loading={writingSuggestions.loading}
+                  />
                   <button
                     type="button"
                     onClick={saveEditAndExit}
@@ -1738,15 +1845,13 @@ export default function ArticleWriting() {
                   </div>
                 )}
                 {editMode ? (
-                <div className="flex-1 min-h-0 flex flex-col gap-2">
-                  <textarea
-                    value={editDraft}
-                    onChange={(e) => setEditDraft(e.target.value)}
-                    placeholder="在此编辑文章内容（Markdown）…"
-                    className="flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed"
-                    spellCheck={false}
-                  />
-                </div>
+                <EditAreaWithSuggestions
+                  textareaRef={articleEditRef}
+                  value={editDraft}
+                  onChange={(v) => setEditDraft(v)}
+                  placeholder="在此编辑文章内容（Markdown）…"
+                  writingSuggestions={writingSuggestions}
+                />
               ) : showDiffView && previewRevisionId != null ? (
                 <ArticleDiffView
                   oldText={article ?? ''}

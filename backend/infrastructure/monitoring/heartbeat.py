@@ -166,6 +166,9 @@ class HeartbeatMonitor:
                 
                 try:
                     last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
+                    # 2025-03-15：兼容 naive datetime，避免 can't subtract offset-naive and offset-aware
+                    if last_heartbeat.tzinfo is None:
+                        last_heartbeat = last_heartbeat.replace(tzinfo=timezone.utc)
                     silence = (now - last_heartbeat).total_seconds()
                     
                     # 如果 Worker 超过最大静默时间，清理其任务

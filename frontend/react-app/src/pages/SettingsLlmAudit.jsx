@@ -22,8 +22,10 @@ const DIRECTION_CLASS = {
   response_error: 'bg-red-500/20 text-red-400',
 }
 
+const SOURCE_LABEL = { writing_suggestions: '写作建议' }
+
 function RecordCard({ record }) {
-  const { ts, direction, model, payload, audit_id, session_id, usage, ...rest } = record
+  const { ts, direction, model, payload, audit_id, session_id, source, usage, ...rest } = record
   const dirClass = DIRECTION_CLASS[direction] || 'bg-slate-500/20 text-slate-400'
   const label = DIRECTION_LABEL[direction] ?? direction
 
@@ -76,6 +78,9 @@ function RecordCard({ record }) {
         )}
         {audit_id && <span className="text-xs text-muted">audit_id: {audit_id}</span>}
         {session_id && <span className="text-xs text-violet-400">session: {session_id.slice(0, 8)}…</span>}
+        {source && SOURCE_LABEL[source] && (
+          <span className="text-xs text-amber-400/90">{SOURCE_LABEL[source]}</span>
+        )}
       </div>
       <div className="p-4 text-sm">
         {renderPayload()}

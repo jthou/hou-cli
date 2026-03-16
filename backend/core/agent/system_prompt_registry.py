@@ -13,6 +13,7 @@ from backend.core.agent.system_prompt_templates import (
     ORCHESTRATOR_SELECTOR_AUDIT_PROMPT,
     SKILL_MATCHING_AUDIT_PROMPT,
     MODEL_SELECTOR_PROMPT,
+    WRITING_SUGGESTIONS_AUDIT_PROMPT,
 )
 from backend.core.agent.agent_tools_registry import get_tool_names_for_agent
 
@@ -36,4 +37,7 @@ def get_all_system_prompts() -> List[Dict[str, Any]]:
          "tools": get_tool_names_for_agent("skill_matching"), "category": "orchestrator"},
         {"id": "model_selector", "name": "模型选择", "prompt": MODEL_SELECTOR_PROMPT,
          "tools": get_tool_names_for_agent("model_selector"), "category": "orchestrator"},
+        # 写作建议：编辑器内 AI 续写/改写
+        {"id": "writing_suggestions", "name": "写作建议", "prompt": WRITING_SUGGESTIONS_AUDIT_PROMPT,
+         "tools": [], "category": "agent"},
     ]

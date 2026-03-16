@@ -10,6 +10,7 @@ const navItems = [
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'read' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },
+  { path: '/wikipedia-reader', icon: '📚', label: 'Wikipedia', group: 'read' },
   { path: '/weread-reader', icon: '📱', label: '微信读书', group: 'read' },
   { path: '/pdf-reader', icon: '📘', label: 'PDF阅读', group: 'read' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'task_tools' },
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/disk-scan', icon: '💾', label: '磁盘扫描', group: 'task_tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/writing-profile', icon: '✍️', label: '写作画像', group: 'settings' },
+  { path: '/settings/work-config', icon: '📋', label: '工作配置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储审计', group: 'settings' },
   { path: '/settings/llm-audit', icon: '📜', label: 'LLM审计', group: 'settings' },
   { path: '/settings/network-audit', icon: '🌐', label: '网络审计', group: 'settings' },
@@ -84,20 +86,7 @@ export default function Sidebar({ open, onToggle }) {
         <ul className="space-y-2 px-2">
           <li>
             <NavLink
-              to="/web-reader"
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
-                }`
-              }
-            >
-              <span>🌐</span>
-              <span>网页阅读</span>
-            </NavLink>
-          </li>
-          <li>
-            <NavLink
-              to="/home"
+              to="/"
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
@@ -105,7 +94,7 @@ export default function Sidebar({ open, onToggle }) {
               }
             >
               <span>🏠</span>
-              <span>工作台</span>
+              <span>首页</span>
             </NavLink>
           </li>
           {itemsByGroup.map(({ id, meta, items }) => (

@@ -81,7 +81,11 @@ class TestPDFParserTool:
         backend_param = next((p for p in tool.parameters if p.name == "backend"), None)
         assert backend_param is not None
         assert backend_param.default == "auto"
-        assert backend_param.enum == ["auto", "pypdf", "logics", "camelot"]
+        assert backend_param.enum == ["auto", "pypdf", "camelot"]
+
+        extract_mode_param = next((p for p in tool.parameters if p.name == "extract_mode"), None)
+        assert extract_mode_param is not None
+        assert "formula" not in (extract_mode_param.enum or [])
     
     def test_validate_parameters_missing_required(self, tool):
         """测试参数验证：缺少必需参数"""
@@ -145,8 +149,7 @@ class TestPDFParserTool:
     
     def test_execute_no_backend_available(self, tool, sample_pdf):
         """测试执行：没有可用的后端"""
-        # 模拟没有可用后端的情况
-        tool._available_backends = {"mineru": False, "logics": False, "camelot": False}
+        tool._available_backends = {"pypdf": False, "camelot": False}
         
         result = tool.execute(file_path=str(sample_pdf))
         
@@ -158,43 +161,33 @@ class TestPDFParserTool:
     def test_check_backend_availability(self, tool):
         """测试检查后端可用性"""
         backends = tool._check_backend_availability()
-        
-        # 结果应该是字典
         assert isinstance(backends, dict)
         assert "pypdf" in backends
-        assert "logics" in backends
         assert "camelot" in backends
-        # 值应该是布尔类型
         for available in backends.values():
             assert isinstance(available, bool)
     
     def test_select_backend_auto_table_mode(self, tool):
         """测试自动选择后端：表格模式"""
-        available = {"mineru": True, "logics": True, "camelot": True}
-        
-        # 表格模式应该优先选择 Camelot
+        available = {"pypdf": True, "camelot": True}
         backend = tool._select_backend("auto", "table", available)
         assert backend == "camelot"
     
     def test_select_backend_auto_full_mode(self, tool):
         """测试自动选择后端：完整模式"""
-        available = {"pypdf": True, "logics": True, "camelot": True}
-        
-        # 完整模式应该优先选择 pypdf
+        available = {"pypdf": True, "camelot": True}
         backend = tool._select_backend("auto", "full", available)
         assert backend == "pypdf"
     
     def test_select_backend_specified(self, tool):
         """测试指定后端"""
-        available = {"mineru": True, "logics": True, "camelot": True}
-        
-        # 指定后端应该使用指定的
-        backend = tool._select_backend("logics", "full", available)
-        assert backend == "logics"
+        available = {"pypdf": True, "camelot": True}
+        backend = tool._select_backend("camelot", "table", available)
+        assert backend == "camelot"
     
     def test_select_backend_unavailable(self, tool):
         """测试选择不可用的后端"""
-        available = {"mineru": False, "logics": False, "camelot": False}
+        available = {"pypdf": False, "camelot": False}
         
         with pytest.raises(RuntimeError, match="没有可用的"):
             tool._select_backend("auto", "full", available)
@@ -286,10 +279,7 @@ if not _has_available_backend:
     pytestmark = pytest.mark.skip(
         reason=(
             "没有可用的PDF解析后端，所有测试被跳过。\n"
-            "请安装以下工具之一：\n"
-            "  1. MinerU: pip install mineru\n"
-            "  2. Camelot: pip install camelot-py[cv]\n"
-            "  3. Logics-Parsing: pip install logics-parsing（需要 DASHSCOPE_API_KEY）\n"
+            "请安装：pip install pdfplumber 或 pip install camelot-py[cv]\n"
             f"当前后端状态: {_backends_status}"
         )
     )

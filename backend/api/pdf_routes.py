@@ -117,38 +117,10 @@ async def resolve_pdf_source(payload: PdfResolveRequest):
     }
 
 
-def _extract_pdf_text_with_layout(pdf_path: Path, page_numbers: list[int]) -> str:
-    """用 pdfminer 提取文本，保持原文缩进与排版。"""
-    try:
-        from pdfminer.high_level import extract_text as pdfminer_extract_text
-
-        raw = pdfminer_extract_text(str(pdf_path), page_numbers=page_numbers)
-        if raw and raw.strip():
-            return raw.strip()
-    except Exception:
-        pass
-    return ""
-
-
-def _extract_pdf_text_fallback(pdf_path: Path, page_numbers: list[int]) -> str:
-    """回退：用 pdfplumber 提取。"""
-    try:
-        import pdfplumber  # type: ignore
-    except ImportError:
-        return ""
-    parts = []
-    with pdfplumber.open(str(pdf_path)) as pdf:
-        for i in page_numbers:
-            if 0 <= i < len(pdf.pages):
-                pg = pdf.pages[i]
-                try:
-                    pg = pg.dedupe_chars(tolerance=3)
-                except Exception:
-                    pass
-                t = pg.extract_text()
-                if t:
-                    parts.append(t.strip())
-    return "\n\n".join(parts)
+def _extract_pdf_text(pdf_path: Path, page_numbers: list[int], layout: bool, columns: bool) -> str:
+    """提取 PDF 文本。layout=True 用 pdfminer；columns=True 时按分栏优化 LAParams。"""
+    from backend.utils.pdf_extract import extract_text_from_pdf
+    return extract_text_from_pdf(pdf_path, page_numbers, use_layout=layout, fix_doubled=False, columns=columns)
 
 
 @router.get("/pdf/page-text")
@@ -186,12 +158,7 @@ async def get_pdf_page_text(
             raise HTTPException(status_code=400, detail=f"页码超出范围: 1–{page_count}")
 
         page_numbers = [page - 1]
-        if layout:
-            text = _extract_pdf_text_with_layout(pdf_path, page_numbers)
-            if not text:
-                text = _extract_pdf_text_fallback(pdf_path, page_numbers)
-        else:
-            text = _extract_pdf_text_fallback(pdf_path, page_numbers)
+        text = _extract_pdf_text(pdf_path, page_numbers, layout, columns)
 
         return {
             "success": True,
@@ -249,8 +216,9 @@ async def get_pdf_page_range_text(
         description="跳着抓取：如 1,3,5 或 1-3,5,7-9。传此参数时忽略 page_from/page_to",
     ),
     layout: bool = Query(True, description="保持原文缩进与排版"),
+    columns: bool = Query(False, description="按分栏提取（改善多栏 PDF 阅读顺序，需 layout=True）"),
 ):
-    """提取多页文本（含首尾），返回合并文本及每页明细。支持 pages 参数跳着抓取。"""
+    """提取多页文本（含首尾），返回合并文本及每页明细。columns=True 时按分栏优化。"""
     try:
         pdf_path = _resolve_local_pdf(file_path)
         if not pdf_path.exists():
@@ -288,12 +256,7 @@ async def get_pdf_page_range_text(
         pages_detail = []
         for pn in page_numbers:
             pg_num = pn + 1
-            if layout:
-                pg_text = _extract_pdf_text_with_layout(pdf_path, [pn])
-                if not pg_text:
-                    pg_text = _extract_pdf_text_fallback(pdf_path, [pn])
-            else:
-                pg_text = _extract_pdf_text_fallback(pdf_path, [pn])
+            pg_text = _extract_pdf_text(pdf_path, [pn], layout, columns)
             pages_detail.append({"page": pg_num, "text": pg_text or ""})
         text = "\n\n".join(p["text"] for p in pages_detail if p["text"])
         pg_nums = [p["page"] for p in pages_detail]
@@ -325,7 +288,7 @@ async def view_pdf(
 ):
     """直接返回 PDF 文件本身，供浏览器原生 PDF 查看器使用。仅支持本地文件路径。"""
     try:
-        pdf_path = Path(file_path).expanduser().resolve()
+        pdf_path = _resolve_local_pdf(file_path)
         if not pdf_path.exists():
             raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {file_path}")
         if pdf_path.suffix.lower() != ".pdf":

@@ -11,16 +11,19 @@ from backend.api.chat_routes import router as chat_router
 from backend.api.session_routes import router as session_router
 from backend.api.search_routes import router as search_router
 from backend.api.mediawiki_routes import router as mediawiki_router
+from backend.api.wikipedia_routes import router as wikipedia_router
 from backend.api.wechat_mp_routes import router as wechat_mp_router
 from backend.api.latex_routes import router as latex_router
 from backend.api.tool_routes import router as tool_router
 from backend.api.kanban_routes import router as kanban_router
 from backend.api.writing_profile_routes import router as writing_profile_router
+from backend.api.work_config_routes import router as work_config_router
 from backend.api.heartbeat_routes import router as heartbeat_router
 from backend.api.version_routes import router as version_router
 from backend.api.storage_routes import router as storage_router
 from backend.api.pdf_routes import router as pdf_router
 from backend.api.web_reader_routes import router as web_reader_router
+from backend.api.writing_suggestions_routes import router as writing_suggestions_router
 from backend.api.llm_audit_routes import router as llm_audit_router
 from backend.api.tavily_audit_routes import router as tavily_audit_router
 from backend.api.network_audit_routes import router as network_audit_router
@@ -50,6 +53,7 @@ router.include_router(chat_router, tags=["chat"])
 router.include_router(session_router, tags=["sessions"])
 router.include_router(search_router, tags=["search"])
 router.include_router(mediawiki_router, tags=["mediawiki"])
+router.include_router(wikipedia_router, tags=["wikipedia"])
 router.include_router(wechat_mp_router, tags=["wechat-mp"])
 router.include_router(latex_router, tags=["latex"])
 router.include_router(tool_router, tags=["tools"])
@@ -65,8 +69,10 @@ router.include_router(task_router, tags=["tasks"])
 router.include_router(audit_router, tags=["audit"])
 router.include_router(kanban_router, tags=["kanban"])
 router.include_router(writing_profile_router, tags=["writing-profile"])
+router.include_router(work_config_router, tags=["work-config"])
 router.include_router(pdf_router, tags=["pdf"])
 router.include_router(web_reader_router)
+router.include_router(writing_suggestions_router)
 
 # 注册系统监控路由
 try:

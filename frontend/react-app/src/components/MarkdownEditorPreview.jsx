@@ -2,12 +2,13 @@
  * Markdown 编辑 + 预览 + 摘要 + 操作按钮（复制、发送到写作助手、写入 MediaWiki）
  * 供 WebReader、ArticleWriting 等页面复用
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import MarkdownPreview from './MarkdownPreview'
 import MarkdownActionButtons from './MarkdownActionButtons'
-
-const textareaCls =
-  'flex-1 min-h-[200px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed'
+import { useWritingSuggestions } from '../hooks/useWritingSuggestions'
+import { tabCls } from './editor/EditorConstants'
+import WritingSuggestionsButton from './editor/WritingSuggestionsButton'
+import EditAreaWithSuggestions from './editor/EditAreaWithSuggestions'
 
 /**
  * @param {Object} props
@@ -53,6 +54,23 @@ export default function MarkdownEditorPreview({
   const [viewMode, setViewMode] = useState('preview')
   const [editDraft, setEditDraft] = useState(content)
   const [summaryLoading, setSummaryLoading] = useState(false)
+  const textareaRef = useRef(null)
+
+  const handleInsertSuggestion = useCallback(
+    (newValue) => {
+      setEditDraft(newValue)
+      onContentChange?.(newValue)
+    },
+    [onContentChange]
+  )
+
+  const writingSuggestions = useWritingSuggestions({
+    textareaRef,
+    value: editDraft,
+    onInsert: handleInsertSuggestion,
+    format: 'markdown',
+    enabled: viewMode === 'edit' && editable,
+  })
 
   useEffect(() => {
     if (viewMode === 'preview') setEditDraft(content)
@@ -111,23 +129,24 @@ export default function MarkdownEditorPreview({
                 摘要
               </button>
             )}
+            {viewMode === 'edit' && (
+              <WritingSuggestionsButton
+                onClick={() => writingSuggestions.fetchSuggestions?.()}
+                loading={writingSuggestions.loading}
+              />
+            )}
           </>
         )}
       </div>
       <div className="flex-1 min-h-[320px] overflow-y-auto flex flex-col">
         {viewMode === 'edit' ? (
-          <div className="flex-1 min-h-[280px] flex flex-col gap-2">
-            <textarea
-              value={editDraft}
-              onChange={(e) => {
-                setEditDraft(e.target.value)
-                onContentChange?.(e.target.value)
-              }}
-              placeholder="在此编辑 Markdown 内容…"
-              className={textareaCls}
-              spellCheck={false}
-            />
-          </div>
+          <EditAreaWithSuggestions
+            textareaRef={textareaRef}
+            value={editDraft}
+            onChange={(v) => { setEditDraft(v); onContentChange?.(v) }}
+            placeholder="在此编辑 Markdown 内容…"
+            writingSuggestions={writingSuggestions}
+          />
         ) : viewMode === 'summary' ? (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto flex flex-col p-4">
             <div className="shrink-0 flex items-center justify-between gap-2 mb-3">

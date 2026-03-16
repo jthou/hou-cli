@@ -2,7 +2,7 @@
 Agent 配备工具唯一配置：各 agent 使用的 tool 名称均在此定义，orchestrator 与审计页仅引用本模块，保证唯一性和准确性。
 - 新增/修改工具时只改此处，orchestrator 按 agent 过滤工具、审计 API 返回 tools 列表均基于此配置。
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # 各 agent 配备的工具名称（与 ToolRegistry 中注册的 tool.name 一致）
@@ -52,6 +52,34 @@ def get_tool_names_for_agent(agent_id: str) -> List[str]:
     （调用方可按需回退为「全部工具」）。
     """
     return list(AGENT_TOOLS.get(agent_id, []))
+
+
+# ---------------------------------------------------------------------------
+# 各 agent 配备的技能名称（时间：2025-03-15；理由：按 agent 过滤技能，减少误触发；方法：白名单）
+# 空列表表示使用全部技能；非空则仅匹配列表中的技能
+# ---------------------------------------------------------------------------
+AGENT_SKILLS: Dict[str, List[str]] = {
+    "article_writing": [
+        "article_outline",
+        "article_write",
+        "article_style_apply",
+        "writing_profile_summary",
+    ],
+    "work_assistant": [],  # 工作助手不匹配技能
+    # general_chat 未配置，使用全部技能（video_*, blog_writing 等）
+}
+
+
+def get_skill_names_for_agent(agent_id: str) -> Optional[List[str]]:
+    """
+    返回指定 agent 配备的技能名称列表。
+    - None：未配置，使用全部技能
+    - []：显式配置为空，不匹配任何技能
+    - [...]：白名单，仅匹配列表中的技能
+    """
+    if agent_id not in AGENT_SKILLS:
+        return None
+    return list(AGENT_SKILLS[agent_id])
 
 
 def get_tools_for_llm_by_agent(

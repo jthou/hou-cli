@@ -1,10 +1,14 @@
 """
 统一网页搜索入口：有 TAVILY_API_KEY 时用 Tavily（审计调用），否则用 DuckDuckGo。
+Tavily 失败（如 SSL/网络错误）时自动回退到 DuckDuckGo。
 """
+import logging
 import os
 from typing import Optional
 
 from .models import GoogleSearchResponse
+
+logger = logging.getLogger(__name__)
 
 
 def web_search(
@@ -14,6 +18,7 @@ def web_search(
 ) -> GoogleSearchResponse:
     """
     统一网页搜索：TAVILY_API_KEY 存在时用 Tavily API（调用纳入审计），否则用 DuckDuckGo。
+    Tavily 失败（SSL、网络等）时自动回退到 DuckDuckGo。
 
     Args:
         query: 搜索查询
@@ -35,7 +40,8 @@ def web_search(
                 search_depth="basic",
             )
         except TavilySearchError as e:
-            raise RuntimeError(f"Tavily 搜索失败: {e}") from e
+            # 2025-03-13: Tavily SSL/网络错误时回退 DuckDuckGo，避免代理/TLS 导致搜索完全不可用
+            logger.warning("Tavily 搜索失败，回退到 DuckDuckGo: %s", e)
 
     from .browser_search import search as browser_search, BrowserSearchError
 

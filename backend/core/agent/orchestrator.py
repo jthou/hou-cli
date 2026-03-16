@@ -41,7 +41,9 @@ from backend.core.agent.task_manager import task_manager
 from backend.core.agent.system_prompt_templates import (
     CHAT_SYSTEM_PROMPT,
     WORK_ASSISTANT_SYSTEM_PROMPT,
+    DOC_COAUTHORING_WORKFLOW,
     get_article_writing_system_prompt,
+    format_feedback_history_for_prompt,
     get_orchestrator_selector_prompt,
     get_skill_matching_prompt,
     MODEL_SELECTOR_PROMPT,
@@ -49,6 +51,7 @@ from backend.core.agent.system_prompt_templates import (
 )
 from backend.core.agent.agent_tools_registry import get_tools_for_llm_by_agent, get_tool_names_for_agent
 from backend.core.agent.writing_profile import get_profile_block_for_prompt
+from backend.core.agent.work_config import get_config_block_for_prompt
 
 
 class UnifiedOrchestrator:
@@ -409,11 +412,19 @@ class UnifiedOrchestrator:
             "details": {"task": task[:50] + "..." if len(task) > 50 else task}
         }
         yield StreamMessageBuilder.build_debug(debug_info)
-        
+
+        # 获取 context_type 用于技能过滤（时间：2025-03-15；理由：article_writing 仅匹配写作技能；方法：从 context 或 session 读取）
+        ctx_type = (context or {}).get("context_type")
+        session_id_for_ctx = (context or {}).get("session_id")
+        if not ctx_type and session_id_for_ctx:
+            session_obj = self.context_manager.get_session(session_id_for_ctx)
+            if session_obj and session_obj.metadata:
+                ctx_type = session_obj.metadata.get("type")
+
         # 优先检查是否有匹配的技能
         matched_skill = None
         if self.skill_registry is not None:
-            matched_skill = await self.skill_matcher.match(task)
+            matched_skill = await self.skill_matcher.match(task, context_type=ctx_type)
         
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
@@ -459,6 +470,7 @@ class UnifiedOrchestrator:
                     result_text = self._format_skill_result(matched_skill, skill_result)
                     for char in result_text:
                         yield char
+                    return  # 时间：2025-03-15；理由：技能成功时避免继续走 LLM 导致重复输出；方法：提前 return
                 else:
                     logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
                     error_msg = f"技能执行失败: {skill_result.error}，将使用LLM处理\n\n"
@@ -471,7 +483,6 @@ class UnifiedOrchestrator:
                     yield char
         
         # 工作助手：直接使用 WORK_ASSISTANT_SYSTEM_PROMPT，跳过编排选择器
-        ctx_type = (context or {}).get("context_type")
         session_id = context.get("session_id") if context else None
         if not ctx_type and session_id:
             session_obj = self.context_manager.get_session(session_id)
@@ -522,6 +533,9 @@ class UnifiedOrchestrator:
             user_prompt = f"【历史对话】\n{history_text}\n\n【当前用户问题】\n{task}"
         else:
             user_prompt = task
+        config_block = get_config_block_for_prompt()
+        if config_block:
+            user_prompt = config_block + "\n\n" + user_prompt
         audit_meta = {"session_id": session_id} if session_id else None
         response = await self.llm_service.chat(
             system_prompt=WORK_ASSISTANT_SYSTEM_PROMPT,
@@ -1061,30 +1075,43 @@ class UnifiedOrchestrator:
         3. 按照技能的重要性和使用频率排序
         """
         try:
-            # 导入所有技能类
-            from backend.core.agent.skills.video_downloader.skill import VideoDownloaderSkill
-            from backend.core.agent.skills.video_cut.skill import VideoCutSkill
-            from backend.core.agent.skills.video_extract_srt.skill import VideoExtractSRTSkill
+            # 导入并注册写作技能（时间：2025-03-15；理由：写作助手 4 技能；方法：优先注册，与视频技能解耦）
+            from backend.core.agent.skills.article_outline.skill import ArticleOutlineSkill
+            from backend.core.agent.skills.article_write.skill import ArticleWriteSkill
+            from backend.core.agent.skills.article_style_apply.skill import ArticleStyleApplySkill
+            from backend.core.agent.skills.writing_profile_summary.skill import WritingProfileSummarySkill
             from backend.core.agent.skills.blog_writing.skill import BlogWritingSkill
-            
-            # 创建技能实例
-            skills_to_register = [
-                (VideoDownloaderSkill(), "video_downloader"),
-                (VideoCutSkill(), "video_cut"),
-                (VideoExtractSRTSkill(), "video_extract_srt"),
+
+            writing_skills = [
+                (ArticleOutlineSkill(), "article_outline"),
+                (ArticleWriteSkill(), "article_write"),
+                (ArticleStyleApplySkill(), "article_style_apply"),
+                (WritingProfileSummarySkill(), "writing_profile_summary"),
                 (BlogWritingSkill(), "blog_writing"),
             ]
-            
-            # 注册所有技能
-            for skill, skill_name in skills_to_register:
-                try:
+            for skill, name in writing_skills:
+                self.skill_registry.register(skill)
+                logger.info(f"技能注册成功: {name}")
+                self.debug.log_orchestrator_step("技能注册", {"skill": name, "status": "success"})
+
+            # 导入并注册视频类技能（可能因依赖缺失而失败）
+            try:
+                from backend.core.agent.skills.video_downloader import VideoDownloaderSkill
+                from backend.core.agent.skills.video_editing import VideoCutSkill
+                from backend.core.agent.skills.video_extract_srt import VideoExtractSrtSkill
+
+                video_skills = [
+                    (VideoDownloaderSkill(self.skill_executor), "video_downloader"),
+                    (VideoCutSkill(self.skill_executor), "video_cut"),
+                    (VideoExtractSrtSkill(self.skill_executor), "video_extract_srt"),
+                ]
+                for skill, skill_name in video_skills:
                     self.skill_registry.register(skill)
                     logger.info(f"技能注册成功: {skill_name}")
                     self.debug.log_orchestrator_step("技能注册", {"skill": skill_name, "status": "success"})
-                except Exception as e:
-                    logger.error(f"技能注册失败: {skill_name}, 错误: {str(e)}")
-                    self.debug.log_orchestrator_step("技能注册", {"skill": skill_name, "status": "failed", "error": str(e)})
-        
+            except Exception as imp_e:
+                logger.warning(f"视频技能导入失败，跳过: {imp_e}")
+
         except ImportError as e:
             logger.warning(f"某些技能模块未安装，部分技能不可用: {str(e)}")
         except Exception as e:
@@ -1150,21 +1177,31 @@ class UnifiedOrchestrator:
 
     class SkillMatcher:
         """统一的技能匹配服务（嵌套于 UnifiedOrchestrator）"""
-        
+
         def __init__(self, skill_registry):
             self.skill_registry = skill_registry
-            
-        async def match(self, task: str) -> Optional[SkillResult]:
+
+        async def match(self, task: str, context_type: Optional[str] = None) -> Optional[SkillResult]:
             """
             Use LLM to intelligently match the most suitable skill
-            
+
             Args:
                 task: User task description
-                
+                context_type: article_writing/work_assistant/general_chat，用于按 agent 过滤技能
+
             Returns:
                 Matched skill or None
             """
-            available_skills = list(self.skill_registry._skills.keys())
+            from backend.core.agent.agent_tools_registry import get_skill_names_for_agent
+
+            all_skills = list(self.skill_registry._skills.keys())
+            allowed = get_skill_names_for_agent(context_type or "")
+            if allowed is None:
+                available_skills = all_skills  # 未配置，使用全部
+            elif not allowed:
+                available_skills = []  # 显式配置为空，不匹配任何技能
+            else:
+                available_skills = [s for s in all_skills if s in allowed]
             if not available_skills:
                 return None
             skills_description = "\n".join([
@@ -1688,7 +1725,7 @@ class UnifiedOrchestrator:
         planning_context = ""  # 任务分解时可能追加，需预先定义
 
         if is_work_assistant:
-            # 工作助手：专用提示词，无文章注入，不调用工具
+            # 工作助手：专用提示词 + 工作配置，无文章注入，不调用工具
             system_prompt = WORK_ASSISTANT_SYSTEM_PROMPT
             filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
             if filtered_history:
@@ -1701,6 +1738,10 @@ class UnifiedOrchestrator:
             else:
                 user_prompt = task
                 self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+            config_block = get_config_block_for_prompt()
+            if config_block:
+                user_prompt = config_block + "\n\n" + user_prompt
+                self.debug.log_orchestrator_step("注入工作配置", {"length": len(config_block)})
         elif is_general_chat:
             # 通用对话：CHAT 提示词，可调用全部工具，支持历史+参考块
             # 支持 session metadata 中的 persona（限定身份）与 enabled_tools（工具选择）
@@ -1730,7 +1771,34 @@ class UnifiedOrchestrator:
                 self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         else:
             # 写文章场景：写作画像 + 前端参考块 + 用户提问，不参考历史、不调用工具
-            system_prompt = get_article_writing_system_prompt(planning_context)
+            # 检测是否启用文档协作写作流程（时间：2025-03-15；理由：落地 Anthropic doc-coauthoring；方法：session metadata 或用户关键词触发）
+            session_obj = self.context_manager.get_session(session_id) if session_id else None
+            session_meta = (session_obj.metadata or {}) if session_obj else {}
+            use_doc_coauthoring = (
+                session_meta.get("workflow") == "doc_coauthoring"
+                or any(
+                    kw in (task or "")
+                    for kw in ["协作写作", "结构化文档", "用文档流程", "写PRD", "写设计文档", "写决策文档", "写技术规格"]
+                )
+            )
+            if use_doc_coauthoring:
+                planning_context = DOC_COAUTHORING_WORKFLOW
+                self.debug.log_orchestrator_step("注入文档协作写作流程", {})
+            # 时间：2025-03-15；理由：根据历史对话打分调整后续回答；方法：注入 feedback_history
+            feedback_history = ""
+            if session_id:
+                try:
+                    from backend.services.writing_acceptance import get_message_ratings_for_session
+                    ratings = get_message_ratings_for_session(session_id, limit=15)
+                    feedback_history = format_feedback_history_for_prompt(ratings)
+                    if feedback_history:
+                        self.debug.log_orchestrator_step("注入历史反馈", {"count": len(ratings)})
+                except Exception:
+                    pass
+            system_prompt = get_article_writing_system_prompt(
+                planning_context=planning_context,
+                feedback_history=feedback_history,
+            )
             # 参考信息仅来自前端参考块（task 中已含参考块 + 用户提问）
             user_prompt = task
             profile_block = get_profile_block_for_prompt()
@@ -2703,7 +2771,15 @@ class UnifiedOrchestrator:
             if param.name not in parameters:
                 if param.default is not None:
                     parameters[param.name] = param.default
-        
+
+        # 写作类技能：将完整 task 传入（时间：2025-03-15；理由：写作技能需解析参考块+用户提问；方法：统一注入）
+        if skill.name in {"article_outline", "article_write", "article_style_apply", "writing_profile_summary"}:
+            parameters["input"] = task
+        elif skill.name == "blog_writing" and ("topic" not in parameters or not parameters.get("topic")):
+            user_part = task.split("【用户本次提问】")[-1].strip() if "【用户本次提问】" in task else task
+            parameters["topic"] = (user_part or task)[:200]
+            parameters.setdefault("draft", "")
+
         logger.info(f"提取的技能参数: {parameters}")
         return parameters
     
@@ -2762,6 +2838,27 @@ class UnifiedOrchestrator:
                     result_text += f"   错误: {error_msg}\n\n"
             
             return result_text
+        elif skill.name == "article_outline":
+            return data.get("outline", "✅ 大纲生成完成")
+        elif skill.name == "article_write":
+            return data.get("article", "✅ 文章撰写完成")
+        elif skill.name == "article_style_apply":
+            return data.get("polished", "✅ 风格润色完成")
+        elif skill.name == "writing_profile_summary":
+            prefs = data.get("preferences", [])
+            notes = data.get("style_notes", "")
+            summary = data.get("summary", "")
+            path = data.get("profile_path", "")
+            parts = [f"**写作画像已保存** → {path}"] if path else []
+            if summary:
+                parts.append(f"\n**风格总结**：{summary}")
+            if prefs:
+                parts.append("\n**喜好**：\n" + "\n".join(f"- {p}" for p in prefs))
+            if notes:
+                parts.append(f"\n**表述习惯**：\n{notes}")
+            return "\n".join(parts) if parts else "✅ 写作画像总结完成"
+        elif skill.name == "blog_writing":
+            return data.get("article", data.get("mediawiki_content", "✅ 博客写作完成"))
         else:
             # 其他技能，使用通用格式
             if data:

@@ -1,10 +1,12 @@
 /**
  * 写作画像设置：用户喜好、表述习惯、范文。
  * 写作助手会根据此配置在生成时遵循并模仿用户风格。
+ * 含「参与改进」：为已接受的章节打分，据此持续更新画像。
  */
 import { useRef, useState } from 'react'
 import PageHeader from '../components/PageHeader'
 import WritingProfileForm from '../components/WritingProfileForm'
+import WritingRatingSection from '../components/WritingRatingSection'
 
 export default function SettingsWritingProfile() {
   const formRef = useRef(null)
@@ -32,6 +34,7 @@ export default function SettingsWritingProfile() {
           showSaveButton={false}
           onSavingChange={setSaving}
         />
+        <WritingRatingSection onLearnComplete={() => formRef.current?.load?.()} />
       </div>
     </div>
   )

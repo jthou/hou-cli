@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 124
-- 前端 fetch 数: 112
+- 后端路由数: 138
+- 前端 fetch 数: 126
 
 ## 后端路由
 
@@ -50,7 +50,10 @@ GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
 GET /api/settings/tavily-audit/path
 GET /api/settings/tavily-audit/stats
+GET /api/settings/work-config
 GET /api/settings/writing-profile
+GET /api/settings/writing-profile/acceptance-records
+GET /api/settings/writing-profile/acceptance-records/{record_id}/sections
 GET /api/storage/audit
 GET /api/storage/config
 GET /api/system/cpu
@@ -85,6 +88,12 @@ GET /api/wechat-mp/drafts
 GET /api/wechat-mp/drafts/detail
 GET /api/wechat-mp/materials/images
 GET /api/wechat-mp/outbound-ip
+GET /api/wikipedia/base-url
+GET /api/wikipedia/diagnostic
+GET /api/wikipedia/pages/{title:path}
+GET /api/wikipedia/random-read
+GET /api/wikipedia/recent-read
+GET /api/wikipedia/search-read
 PATCH /api/sessions/{session_id}
 PATCH /api/task-queue/scheduled-tasks/{schedule_id}
 PATCH /api/task-queue/tasks/{task_id}
@@ -95,6 +104,7 @@ POST /api/chat/article/generate-metadata
 POST /api/chat/article/merge
 POST /api/chat/article/patch
 POST /api/chat/article/restore
+POST /api/chat/rate-message
 POST /api/chat/stream
 POST /api/execution/approve
 POST /api/execution/reject
@@ -109,6 +119,8 @@ POST /api/sessions
 POST /api/sessions/{session_id}/clear
 POST /api/sessions/{session_id}/summary
 POST /api/settings/model-availability-audit/probe
+POST /api/settings/writing-profile/learn-from-ratings
+POST /api/settings/writing-profile/rate-section
 POST /api/storage/audit/cleanup-tmp-dbs
 POST /api/task-queue/cleanup
 POST /api/task-queue/scheduled-tasks
@@ -126,8 +138,10 @@ POST /api/web-reader/ocr
 POST /api/web-reader/summarize
 POST /api/wechat-mp/upload-article-image
 POST /api/wechat-mp/upload-cover
+POST /api/wikipedia/parse
 PUT /api/chat/article
 PUT /api/chat/mw-sources
+PUT /api/settings/work-config
 PUT /api/settings/writing-profile
 PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 ```
@@ -145,12 +159,11 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/chat/article/restore
 - GET /api/chat/article/revisions
 - GET /api/chat/mw-sources
+- GET /api/chat/rate-message
 - GET /api/chat/stream
 - GET /api/heartbeat/status
 - GET /api/latex/render
-- GET /api/mediawiki/base-url
 - GET /api/mediawiki/pages/
-- GET /api/mediawiki/parse
 - GET /api/mediawiki/random-read
 - GET /api/mediawiki/recent-read
 - GET /api/mediawiki/search
@@ -178,7 +191,13 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/settings/model-config-audit
 - GET /api/settings/model-stats
 - GET /api/settings/system-prompt-audit/prompts
+- GET /api/settings/work-config
 - GET /api/settings/writing-profile
+- GET /api/settings/writing-profile/acceptance-records
+- GET /api/settings/writing-profile/acceptance-records/${selectedRecordId}/sections
+- GET /api/settings/writing-profile/acceptance-records//sections
+- GET /api/settings/writing-profile/learn-from-ratings
+- GET /api/settings/writing-profile/rate-section
 - GET /api/storage/audit
 - GET /api/storage/audit/cleanup-tmp-dbs
 - GET /api/system/disk
@@ -213,6 +232,11 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/wechat-mp/outbound-ip
 - GET /api/wechat-mp/upload-article-image
 - GET /api/wechat-mp/upload-cover
+- GET /api/wikipedia/pages/
+- GET /api/wikipedia/random-read
+- GET /api/wikipedia/recent-read
+- GET /api/wikipedia/search-read
+- GET /api/writing-suggestions
 - PATCH /api/task-queue/scheduled-tasks/${task.schedule_id}
 - PATCH /api/task-queue/tasks/${task.task_id}/patch-result-output-file
 - PATCH /api/task-queue/tasks/${taskId}
@@ -220,14 +244,16 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/chat/article/generate-metadata
 - POST /api/chat/article/patch
 - POST /api/chat/article/restore
+- POST /api/chat/rate-message
 - POST /api/chat/stream
-- POST /api/mediawiki/parse
 - POST /api/mediawiki/upload-image
 - POST /api/network/audit/run
 - POST /api/pdf/resolve
 - POST /api/pdf/upload-from-extension
 - POST /api/sessions
 - POST /api/settings/model-availability-audit/probe
+- POST /api/settings/writing-profile/learn-from-ratings
+- POST /api/settings/writing-profile/rate-section
 - POST /api/storage/audit/cleanup-tmp-dbs
 - POST /api/task-queue/cleanup
 - POST /api/task-queue/scheduled-tasks
@@ -242,8 +268,10 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/web-reader/summarize
 - POST /api/wechat-mp/upload-article-image
 - POST /api/wechat-mp/upload-cover
+- POST /api/writing-suggestions
 - PUT /api/chat/article
 - PUT /api/chat/mw-sources
+- PUT /api/settings/work-config
 - PUT /api/settings/writing-profile
 - PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle
 
@@ -254,8 +282,10 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/chat/article/merge
 - /api/execution/approve
 - /api/execution/reject
+- /api/mediawiki/base-url
 - /api/mediawiki/diagnostic
 - /api/mediawiki/pages/{id}
+- /api/mediawiki/parse
 - /api/mediawiki/sync
 - /api/mediawiki/sync/status
 - /api/pdf/view
@@ -269,6 +299,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/settings/kanban/status
 - /api/settings/tavily-audit/path
 - /api/settings/tavily-audit/stats
+- /api/settings/writing-profile/acceptance-records/{id}/sections
 - /api/storage/config
 - /api/system/cpu
 - /api/system/load
@@ -302,11 +333,17 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/tests/status
 - /api/web-reader/ocr
 - /api/wechat-mp/cover-image
+- /api/wikipedia/base-url
+- /api/wikipedia/diagnostic
+- /api/wikipedia/pages/{id}
+- /api/wikipedia/parse
 
 ## 前端调用但可能未实现（需人工核对）
 
 - /api/mediawiki/pages/
 - /api/sessions/
+- /api/settings/writing-profile/acceptance-records/${id}/sections
+- /api/settings/writing-profile/acceptance-records//sections
 - /api/task-queue/scheduled-tasks/${id}
 - /api/task-queue/scheduled-tasks/${id}/run-now
 - /api/task-queue/scheduled-tasks/${id}/toggle
@@ -323,3 +360,5 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/task-queue/tasks/${id}/soft-delete
 - /api/task-queue/tasks//output-file
 - /api/task-queue/tasks//queue-status
+- /api/wikipedia/pages/
+- /api/writing-suggestions

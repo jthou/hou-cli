@@ -18,6 +18,7 @@ import WebSearch from './pages/WebSearch'
 import ArticleWriting from './pages/ArticleWriting'
 import SettingsGeneral from './pages/SettingsGeneral'
 import SettingsWritingProfile from './pages/SettingsWritingProfile'
+import SettingsWorkConfig from './pages/SettingsWorkConfig'
 import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
@@ -34,6 +35,7 @@ import PdfToWiki from './pages/PdfToWiki'
 import PdfReader from './pages/PdfReader'
 import WikiDirectory from './pages/WikiDirectory'
 import MediaWikiReader from './pages/MediaWikiReader'
+import WikipediaReader from './pages/WikipediaReader'
 import WebReader from './pages/WebReader'
 import WereadReader from './pages/WereadReader'
 import AddReference from './pages/AddReference'
@@ -48,7 +50,7 @@ export default function App() {
           <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
           <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface overflow-hidden">
             <Routes>
-              <Route path="/" element={<Navigate to="/web-reader" replace />} />
+              <Route path="/" element={<Home />} />
               <Route path="/home" element={<Home />} />
               <Route path="/work-assistant" element={<WorkAssistant />} />
               <Route path="/general-chat" element={<GeneralChat />} />
@@ -69,11 +71,13 @@ export default function App() {
               <Route path="/pdf-to-wiki" element={<PdfToWiki />} />
               <Route path="/pdf-reader" element={<PdfReader />} />
               <Route path="/mediawiki-reader" element={<MediaWikiReader />} />
+              <Route path="/wikipedia-reader" element={<WikipediaReader />} />
               <Route path="/web-reader" element={<WebReader />} />
               <Route path="/weread-reader" element={<WereadReader />} />
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/writing-profile" element={<SettingsWritingProfile />} />
+              <Route path="/settings/work-config" element={<SettingsWorkConfig />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
               <Route path="/settings/network-audit" element={<SettingsNetworkAudit />} />

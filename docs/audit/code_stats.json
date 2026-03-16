@@ -1,30 +1,30 @@
 {
-  "total_files": 1143,
-  "total_lines": 305657,
+  "total_files": 1192,
+  "total_lines": 319910,
   "by_language": {
     "other": {
       "files": 20,
       "lines": 66964
     },
     "python": {
-      "files": 561,
-      "lines": 96613
+      "files": 575,
+      "lines": 98661
     },
     "markdown": {
-      "files": 385,
-      "lines": 101457
+      "files": 405,
+      "lines": 111076
     },
     "shell": {
       "files": 34,
       "lines": 2143
     },
     "javascript": {
-      "files": 32,
-      "lines": 5275
+      "files": 37,
+      "lines": 5568
     },
     "json": {
-      "files": 10,
-      "lines": 11040
+      "files": 11,
+      "lines": 11996
     },
     "html": {
       "files": 2,
@@ -35,8 +35,8 @@
       "lines": 577
     },
     "jsx": {
-      "files": 88,
-      "lines": 18630
+      "files": 97,
+      "lines": 19967
     },
     "yaml": {
       "files": 7,
@@ -53,16 +53,16 @@
       "lines": 1167
     },
     "frontend": {
-      "files": 148,
-      "lines": 39285
+      "files": 162,
+      "lines": 41818
     },
     "plans": {
-      "files": 9,
-      "lines": 4013
+      "files": 27,
+      "lines": 13351
     },
     "config": {
-      "files": 2,
-      "lines": 40
+      "files": 3,
+      "lines": 54
     },
     "patches": {
       "files": 3,
@@ -73,16 +73,16 @@
       "lines": 8074
     },
     "backend": {
-      "files": 476,
-      "lines": 138351
+      "files": 490,
+      "lines": 140399
     },
     "shared": {
       "files": 11,
       "lines": 1023
     },
     "docs": {
-      "files": 328,
-      "lines": 100071
+      "files": 330,
+      "lines": 100391
     },
     "examples": {
       "files": 1,
@@ -97,5 +97,5 @@
       "lines": 1341
     }
   },
-  "generated_at": "2026-03-14T13:20:05.536871Z"
+  "generated_at": "2026-03-16T02:59:10.872040Z"
 }

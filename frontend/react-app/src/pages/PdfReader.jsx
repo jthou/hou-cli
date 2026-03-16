@@ -7,7 +7,6 @@ import PasteButton from '../components/PasteButton'
 import PageHeader from '../components/PageHeader'
 import { useExtensionReady } from '../hooks/useExtensionReady'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
-import { mdToWiki } from '../utils/wikiMdConvert'
 import { requestPdfFromExtension } from '../utils/extensionCookies'
 import { fetchSummarize } from '../utils/summarizeApi'
 
@@ -23,16 +22,13 @@ export default function PdfReader() {
 
   const [mergedPages, setMergedPages] = useState([]) // { page, text }[]
   const [useLayout, setUseLayout] = useState(true)
+  const [useColumns, setUseColumns] = useState(false) // 按分栏提取（多栏 PDF）
   const [rangeInput, setRangeInput] = useState('1-1') // 支持 1-8、1,3,5、1-3,5,7-9
   const [loadingRange, setLoadingRange] = useState(false)
   const [sourceInput, setSourceInput] = useState('')
   const [sourceOriginal, setSourceOriginal] = useState('')
   const [recentSources, setRecentSources] = useState([])
 
-  const [mwDialogOpen, setMwDialogOpen] = useState(false)
-  const [mwTitle, setMwTitle] = useState('')
-  const [mwSummary, setMwSummary] = useState('')
-  const [mwSubmitting, setMwSubmitting] = useState(false)
   const extensionReady = useExtensionReady()
   const [loadingResolve, setLoadingResolve] = useState(false)
   const [mergedEditedContent, setMergedEditedContent] = useState(null)
@@ -81,6 +77,7 @@ export default function PdfReader() {
           : '1-1')
       )
       setUseLayout(saved.useLayout !== false)
+      setUseColumns(saved.useColumns === true)
       setContentSummary(saved.contentSummary ?? '')
       restoredRef.current = true
     } catch {
@@ -105,6 +102,7 @@ export default function PdfReader() {
           mergedPages,
           rangeInput,
           useLayout,
+          useColumns,
           contentSummary,
         }
         localStorage.setItem('pdf_reader_last', JSON.stringify(toSave))
@@ -115,7 +113,7 @@ export default function PdfReader() {
     return () => {
       if (saveLastRef.current) clearTimeout(saveLastRef.current)
     }
-  }, [filePath, sourceInput, sourceOriginal, pageCount, currentPage, pageText, mergedPages, rangeInput, useLayout, contentSummary])
+  }, [filePath, sourceInput, sourceOriginal, pageCount, currentPage, pageText, mergedPages, rangeInput, useLayout, useColumns, contentSummary])
 
   useEffect(() => {
     if (pageCount && pageCount > 1 && rangeInput === '1-1') {
@@ -240,6 +238,7 @@ export default function PdfReader() {
         file_path: path,
         page: String(page),
         layout: String(useLayout),
+        columns: String(useColumns),
       })
       const res = await fetch(`/api/pdf/page-text?${params.toString()}`)
       const json = await res.json()
@@ -268,6 +267,7 @@ export default function PdfReader() {
       const params = new URLSearchParams({
         file_path: filePath,
         layout: String(useLayout),
+        columns: String(useColumns),
       })
       if (spec) {
         params.set('pages', spec)
@@ -294,7 +294,8 @@ export default function PdfReader() {
       toast?.info?.(
         `已提取 ${pgList.length} 页` +
           (pgList.length <= 5 ? `：${pgList.join(', ')}` : `：${pgList.slice(0, 3).join(', ')}…`) +
-          (useLayout ? '（保持排版）' : '')
+          (useLayout ? '（保持排版）' : '') +
+          (useColumns ? '（分栏）' : '')
       )
     } catch (err) {
       const msg = err.message || String(err)
@@ -363,53 +364,6 @@ export default function PdfReader() {
       toast.error('加载 PDF 失败: ' + msg)
     } finally {
       setLoadingResolve(false)
-    }
-  }
-
-  const submitMediaWikiOutput = async () => {
-    const title = (mwTitle || '').trim()
-    if (!title) {
-      toast.warning('请输入页面标题')
-      return
-    }
-    const content =
-      mergedPagesSorted.length > 0
-        ? mergedPreviewText
-        : (pageText || '').trim() || '(该页未提取到文字内容)'
-    if (!content.trim()) {
-      toast.warning('没有可写入的内容')
-      return
-    }
-    setMwSubmitting(true)
-    try {
-      const wikitext = mdToWiki(content)
-      const res = await fetch('/api/task-queue/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task_type: 'mediawiki_write',
-          priority: 2,
-          max_retries: 3,
-          metadata: {
-            title,
-            content: wikitext,
-            summary: (mwSummary || '').trim() || (filePath ? `从 PDF 导入: ${filePath.split('/').slice(-1)[0]}` : '从 PDF 导入'),
-          },
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.task_id) {
-        toast.info(`已创建 MediaWiki 写入任务 ${data.task_id.slice(0, 8)}…`)
-        setMwDialogOpen(false)
-        setMwTitle('')
-        setMwSummary('')
-      } else {
-        throw new Error(data.detail || data.message || '创建任务失败')
-      }
-    } catch (e) {
-      toast.error(e?.message || '创建任务失败')
-    } finally {
-      setMwSubmitting(false)
     }
   }
 
@@ -551,6 +505,16 @@ export default function PdfReader() {
                   />
                   <span>保持原文缩进排版</span>
                 </label>
+                <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0" title="多栏 PDF 时勾选，可改善左右栏阅读顺序">
+                  <input
+                    type="checkbox"
+                    checked={useColumns}
+                    onChange={(e) => setUseColumns(e.target.checked)}
+                    disabled={!useLayout}
+                    className="rounded border-border bg-transparent text-accent focus:ring-accent disabled:opacity-50"
+                  />
+                  <span>按分栏提取</span>
+                </label>
                 {pageCount > 1 && (
                   <div className="flex items-center gap-1 shrink-0">
                     <span>提取范围:</span>
@@ -649,73 +613,6 @@ export default function PdfReader() {
         </div>
       </div>
 
-      {mwDialogOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setMwDialogOpen(false)}
-        >
-          <div
-            className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-border">
-              <h3 className="text-lg font-semibold text-white">当前 PDF 页写入 MediaWiki</h3>
-              {/* 标题在正文说明里区分「单页」与「多页合并」 */}
-              <button
-                type="button"
-                onClick={() => setMwDialogOpen(false)}
-                className="text-muted hover:text-fg text-2xl leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-muted">
-                {mergedPagesSorted.length > 0
-                  ? '将已选择的多页 PDF 文本合并后，以 Wikitext 形式写入指定页面，不存在则创建。'
-                  : '将当前 PDF 页提取到的文字内容以 Wikitext 形式写入指定页面，不存在则创建。'}
-              </p>
-              <div>
-                <label className="block text-sm text-muted mb-1">页面标题 *</label>
-                <input
-                  type="text"
-                  value={mwTitle}
-                  onChange={(e) => setMwTitle(e.target.value)}
-                  placeholder="MediaWiki 页面标题"
-                  className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-muted mb-1">编辑摘要（选填）</label>
-                <input
-                  type="text"
-                  value={mwSummary}
-                  onChange={(e) => setMwSummary(e.target.value)}
-                  placeholder="本次写入说明，例如：从某 PDF 第 N 页导入"
-                  className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-            </div>
-            <div className="shrink-0 flex gap-3 px-5 py-4 border-t border-border bg-surface">
-              <button
-                type="button"
-                onClick={() => setMwDialogOpen(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-muted hover:text-fg"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={submitMediaWikiOutput}
-                disabled={mwSubmitting || !mwTitle.trim()}
-                className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50"
-              >
-                {mwSubmitting ? '写入中…' : '写入'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
