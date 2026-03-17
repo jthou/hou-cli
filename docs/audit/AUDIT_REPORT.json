@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-03-16T02:59:10.264786Z",
+  "generated_at": "2026-03-16T04:17:09.919644Z",
   "code_stats": {
-    "total_files": 1192,
-    "total_lines": 319910,
+    "total_files": 1196,
+    "total_lines": 320376,
     "by_language": {
       "other": {
         "files": 20,
         "lines": 66964
       },
       "python": {
-        "files": 575,
-        "lines": 98661
+        "files": 576,
+        "lines": 98838
       },
       "markdown": {
-        "files": 405,
-        "lines": 111076
+        "files": 408,
+        "lines": 111351
       },
       "shell": {
         "files": 34,
@@ -26,7 +26,7 @@
       },
       "json": {
         "files": 11,
-        "lines": 11996
+        "lines": 12010
       },
       "html": {
         "files": 2,
@@ -59,8 +59,8 @@
         "lines": 41818
       },
       "plans": {
-        "files": 27,
-        "lines": 13351
+        "files": 30,
+        "lines": 13626
       },
       "config": {
         "files": 3,
@@ -75,8 +75,8 @@
         "lines": 8074
       },
       "backend": {
-        "files": 490,
-        "lines": 140399
+        "files": 491,
+        "lines": 140576
       },
       "shared": {
         "files": 11,
@@ -84,7 +84,7 @@
       },
       "docs": {
         "files": 330,
-        "lines": 100391
+        "lines": 100405
       },
       "examples": {
         "files": 1,
@@ -99,18 +99,19 @@
         "lines": 1341
       }
     },
-    "generated_at": "2026-03-16T02:59:10.872040Z"
+    "generated_at": "2026-03-16T04:17:10.500359Z"
   },
   "dev_history": {
-    "total_commits": 311,
+    "total_commits": 312,
     "authors": {
-      "侯金亭（Justin）": 268,
+      "侯金亭（Justin）": 269,
       "jthou": 43
     },
     "commits_by_week": {
+      "2026-W11": 1,
       "2026-W10": 20,
       "2026-W09": 27,
-      "2026-W08": 5
+      "2026-W08": 4
     },
     "commits_by_day": {
       "2025-12-31": 4,
@@ -156,7 +157,8 @@
       "2026-03-10": 5,
       "2026-03-11": 2,
       "2026-03-13": 3,
-      "2026-03-14": 5
+      "2026-03-14": 5,
+      "2026-03-16": 1
     },
     "lines_by_day": {
       "2025-12-31": {
@@ -378,40 +380,46 @@
         "add": 2683,
         "del": 1041,
         "total": 3724
+      },
+      "2026-03-16": {
+        "add": 4597,
+        "del": 596,
+        "total": 5193
       }
     },
     "files_changed": {
-      "backend/core/agent/orchestrator.py": 78,
-      "backend/api/routes.py": 36,
+      "backend/core/agent/orchestrator.py": 79,
+      "backend/api/routes.py": 37,
       "frontend/client/ipc_client.py": 30,
-      "backend/infrastructure/execution/task_handlers.py": 27,
+      "backend/infrastructure/execution/task_handlers.py": 28,
+      "frontend/react-app/src/components/Sidebar.jsx": 27,
       "frontend/main.py": 27,
       "frontend/react-app/src/pages/TaskManagement.jsx": 27,
-      "frontend/react-app/src/components/Sidebar.jsx": 26,
       "Makefile": 25,
       "frontend/ui/command_handler.py": 25,
       "backend/services/llm/llm_service.py": 24,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 21,
-      "frontend/react-app/src/App.jsx": 21,
+      "frontend/react-app/src/App.jsx": 22,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 22,
       "frontend/ui/stream_handler.py": 21,
       "env.example": 20,
       "docs/design/02-weather-tool-design.md": 20,
+      "docs/audit/AUDIT_REPORT.json": 18,
+      "docs/audit/code_stats.json": 18,
+      "docs/audit/dev_history.json": 18,
       "backend/api/task_queue_routes.py": 18,
       "requirements.txt": 18,
-      "docs/audit/AUDIT_REPORT.json": 17,
-      "docs/audit/code_stats.json": 17,
-      "docs/audit/dev_history.json": 17,
-      "frontend/react-app/package.json": 16,
+      "frontend/react-app/package.json": 17,
+      "frontend/react-app/package-lock.json": 16,
       "backend/main.py": 15,
-      "frontend/react-app/package-lock.json": 15,
+      "backend/core/agent/system_prompt_templates.py": 14,
       "frontend/react-app/src/pages/MediaWikiReader.jsx": 14,
+      "docs/audit/API_PATH_AUDIT.md": 13,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 13,
-      "backend/core/agent/system_prompt_templates.py": 13,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
       "pyproject.toml": 13,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
       "frontend/ui/command_input.py": 13,
-      "docs/audit/API_PATH_AUDIT.md": 12,
+      "frontend/react-app/src/pages/PdfReader.jsx": 12,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
@@ -419,7 +427,6 @@
       "frontend/react-app/src/pages/WebReader.jsx": 11,
       "frontend/react-app/src/utils/mdToHtml.js": 11,
       "frontend/react-app/src/components/MarkdownActionButtons.jsx": 11,
-      "frontend/react-app/src/pages/PdfReader.jsx": 11,
       "backend/services/llm/tests/__init__.py": 11,
       "backend/infrastructure/execution/task_worker.py": 11,
       "frontend/react-app/src/components/task/TaskFormPage.jsx": 11,
@@ -427,12 +434,12 @@
       "backend/infrastructure/execution/tests/test_secure_executor.py": 11,
       "extension/manifest.json": 11,
       "docs/todo/009-weather-tool-implementation.md": 11,
+      "backend/api/chat_routes.py": 10,
+      "frontend/react-app/src/pages/WorkAssistant.jsx": 10,
       "backend/core/context/manager.py": 10,
-      "workflows/.gitkeep": 10,
-      "backend/core/agent/tools/builtin/browser_tool.py": 10,
-      "cli.py": 10
+      "workflows/.gitkeep": 10
     },
-    "generated_at": "2026-03-16T02:59:11.474313Z"
+    "generated_at": "2026-03-16T04:17:10.864964Z"
   },
   "api_audit": {
     "backend_routes": [

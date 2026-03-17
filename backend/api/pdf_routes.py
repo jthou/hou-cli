@@ -131,6 +131,7 @@ async def get_pdf_page_text(
     ),
     page: int = Query(1, ge=1, description="要提取的页码，从 1 开始"),
     layout: bool = Query(True, description="保持原文缩进与排版（默认 True，使用 pdfminer）"),
+    columns: bool = Query(False, description="按分栏提取（改善多栏 PDF 阅读顺序）"),
 ):
     """读取指定 PDF 的某一页文本内容。layout=True 时用 pdfminer 保持缩进排版。"""
     try:

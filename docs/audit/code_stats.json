@@ -1,18 +1,18 @@
 {
-  "total_files": 1192,
-  "total_lines": 319910,
+  "total_files": 1196,
+  "total_lines": 320376,
   "by_language": {
     "other": {
       "files": 20,
       "lines": 66964
     },
     "python": {
-      "files": 575,
-      "lines": 98661
+      "files": 576,
+      "lines": 98838
     },
     "markdown": {
-      "files": 405,
-      "lines": 111076
+      "files": 408,
+      "lines": 111351
     },
     "shell": {
       "files": 34,
@@ -24,7 +24,7 @@
     },
     "json": {
       "files": 11,
-      "lines": 11996
+      "lines": 12010
     },
     "html": {
       "files": 2,
@@ -57,8 +57,8 @@
       "lines": 41818
     },
     "plans": {
-      "files": 27,
-      "lines": 13351
+      "files": 30,
+      "lines": 13626
     },
     "config": {
       "files": 3,
@@ -73,8 +73,8 @@
       "lines": 8074
     },
     "backend": {
-      "files": 490,
-      "lines": 140399
+      "files": 491,
+      "lines": 140576
     },
     "shared": {
       "files": 11,
@@ -82,7 +82,7 @@
     },
     "docs": {
       "files": 330,
-      "lines": 100391
+      "lines": 100405
     },
     "examples": {
       "files": 1,
@@ -97,5 +97,5 @@
       "lines": 1341
     }
   },
-  "generated_at": "2026-03-16T02:59:10.872040Z"
+  "generated_at": "2026-03-16T04:17:10.500359Z"
 }

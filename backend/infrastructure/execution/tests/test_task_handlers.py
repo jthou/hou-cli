@@ -9,8 +9,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
+from backend.utils.pdf_extract import _fix_doubled_pdf_text
 from backend.infrastructure.execution.task_handlers import (
-    _fix_doubled_pdf_text,
     _validate_input_path_in_home,
     _validate_video_download_url,
     process_video_download_task,

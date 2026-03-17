@@ -2,6 +2,7 @@
  * 公众号草稿正文 HTML 预览组件
  * 按 HTML 渲染正文内容，明亮风格；用内联样式固定背景与文字色，避免被全局/深色主题覆盖。
  * 支持 LaTeX 公式预览：$...$ 行内、$$...$$ 行间，由 KaTeX 渲染。
+ * 时间：2025-03-16；理由：流式输出或父级频繁重渲染时，KaTeX 每次都会重跑导致「不停刷新」；方法：防抖 + 内容未变则跳过
  */
 import { useEffect, useRef } from 'react'
 import { parseWikiPageTitleFromUrl } from '../config/mediawiki'
@@ -26,6 +27,8 @@ const KATEX_OPTIONS = {
   throwOnError: false,
 }
 
+const KATEX_DEBOUNCE_MS = 280
+
 /**
  * 从 Special:FilePath URL 解析出文件名。时间：2025-03-14；理由：Markdown 预览点击图片需区分已上传/未上传。
  */
@@ -46,14 +49,25 @@ function parseWikiFileNameFromFilePathUrl(src) {
  */
 export default function WechatDraftPreview({ html = '', className = '', theme = 'light', onWikiLinkClick, wikiBaseUrl, onImgClick }) {
   const containerRef = useRef(null)
+  const lastRenderedRef = useRef('')
   const trimmed = typeof html === 'string' ? html.trim() : ''
   const isDark = theme === 'dark'
   const rootStyle = isDark ? DARK_ROOT_STYLE : LIGHT_ROOT_STYLE
   const themeClass = isDark ? ' wechat-draft-preview--dark' : ''
 
   useEffect(() => {
-    if (!containerRef.current || !trimmed) return
-    renderMathInElement(containerRef.current, KATEX_OPTIONS)
+    if (!trimmed) {
+      lastRenderedRef.current = ''
+      return
+    }
+    if (!containerRef.current) return
+    if (lastRenderedRef.current === trimmed) return
+    const t = setTimeout(() => {
+      if (!containerRef.current) return
+      renderMathInElement(containerRef.current, KATEX_OPTIONS)
+      lastRenderedRef.current = trimmed
+    }, KATEX_DEBOUNCE_MS)
+    return () => clearTimeout(t)
   }, [trimmed])
 
   const handleClick = (e) => {
