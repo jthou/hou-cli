@@ -2783,6 +2783,24 @@ class UnifiedOrchestrator:
         logger.info(f"提取的技能参数: {parameters}")
         return parameters
     
+    def _article_to_markdown(self, article) -> str:
+        """将文章 dict 转为 Markdown 预览格式。时间：2025-03-17；理由：用户期望 Markdown 预览而非 raw dict；方法：按 title/introduction/sections/conclusion/cta 拼接。"""
+        if not isinstance(article, dict):
+            return str(article) if article else "✅ 文章撰写完成"
+        parts = [f"# {article.get('title', '')}\n", article.get("introduction", ""), ""]
+        for sec in article.get("sections", []):
+            parts.append(f"## {sec.get('title', '')}\n")
+            parts.append(sec.get("content", ""))
+            parts.append("")
+        parts.append("## 结论\n")
+        parts.append(article.get("conclusion", ""))
+        if article.get("call_to_action"):
+            parts.extend(["\n## 后续思考\n", article["call_to_action"]])
+        tags = (article.get("metadata") or {}).get("tags", [])
+        if tags:
+            parts.append(f"\n\n*标签：{', '.join(tags)}*")
+        return "\n".join(parts).strip() or "✅ 文章撰写完成"
+
     def _format_skill_result(self, skill, skill_result: 'SkillResult') -> str:
         """
         格式化技能执行结果为文本
@@ -2841,7 +2859,7 @@ class UnifiedOrchestrator:
         elif skill.name == "article_outline":
             return data.get("outline", "✅ 大纲生成完成")
         elif skill.name == "article_write":
-            return data.get("article", "✅ 文章撰写完成")
+            return self._article_to_markdown(data.get("article"))
         elif skill.name == "article_style_apply":
             return data.get("polished", "✅ 风格润色完成")
         elif skill.name == "writing_profile_summary":
@@ -2858,7 +2876,8 @@ class UnifiedOrchestrator:
                 parts.append(f"\n**表述习惯**：\n{notes}")
             return "\n".join(parts) if parts else "✅ 写作画像总结完成"
         elif skill.name == "blog_writing":
-            return data.get("article", data.get("mediawiki_content", "✅ 博客写作完成"))
+            art = data.get("article")
+            return self._article_to_markdown(art) if art else data.get("mediawiki_content", "✅ 博客写作完成")
         else:
             # 其他技能，使用通用格式
             if data:

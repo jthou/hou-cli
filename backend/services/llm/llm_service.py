@@ -102,6 +102,39 @@ class LLMService:
             requested = int(env_val) if env_val else 999_999  # 未设置时用大数表示取模型上限
         return get_effective_max_tokens(self.model, requested)
     
+    def _normalize_messages_for_api(self, messages: list) -> list:
+        """
+        规范化 messages，确保 content 为数组时每个块含 type 字段。
+        时间：2025-03-14；理由：部分 API（如 Claude 代理）要求 content 块有 type；方法：补全缺失的 type。
+        """
+        out = []
+        for m in messages:
+            if not isinstance(m, dict):
+                out.append(m)
+                continue
+            role = m.get("role", "user")
+            content = m.get("content")
+            extra = {k: v for k, v in m.items() if k not in ("role", "content")}
+            if isinstance(content, list):
+                normalized_parts = []
+                for part in content:
+                    if isinstance(part, str):
+                        normalized_parts.append({"type": "text", "text": part})
+                    elif isinstance(part, dict):
+                        if "type" not in part:
+                            if "text" in part:
+                                part = {"type": "text", "text": part["text"]}
+                            elif "image_url" in part:
+                                part = {"type": "image_url", "image_url": part["image_url"]}
+                            else:
+                                part = {"type": "text", "text": str(part)}
+                        normalized_parts.append(part)
+                    else:
+                        normalized_parts.append({"type": "text", "text": str(part)})
+                content = normalized_parts
+            out.append({"role": role, "content": content, **extra})
+        return out
+    
     def _ensure_env_loaded(self):
         """确保环境变量已加载（统一配置管理）"""
         if not os.environ.get('DEEPSEEK_API_KEY'):
@@ -364,6 +397,9 @@ class LLMService:
             logger.debug(f"LLM System Prompt: {system_prompt}")
         logger.debug(f"LLM User Prompt: {user_prompt}")
         self.debug.log_llm_request(system_prompt or "", user_prompt or "", self.model)
+        
+        # 规范化 messages：content 为数组时，每个块需含 type 字段（2025-03-14：修复 missing field type）
+        messages = self._normalize_messages_for_api(messages)
         
         # 构建请求参数（不人为截断，使用模型上限）
         request_params = {
@@ -822,6 +858,7 @@ class LLMService:
         content_chunks = []
         tool_calls_acc = {}  # index -> {id, function: {name, arguments}}
 
+        messages = self._normalize_messages_for_api(messages)
         request_params = {
             "model": self.model,
             "messages": messages,

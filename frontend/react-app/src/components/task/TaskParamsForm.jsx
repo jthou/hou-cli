@@ -73,14 +73,34 @@ export default function TaskParamsForm({
   onMaxRetriesChange,
   // 公众号草稿：封面上传回调 (file) => Promise<{ success, media_id? }>
   onCoverUpload,
+  // 写作助手场景：各字段旁的生成按钮 { title?: ReactNode, digest?: ReactNode }；封面前的三步流程 coverBeforeContent
+  fieldActions,
+  coverBeforeContent,
+  // 不渲染的字段（如写作助手场景隐藏 author，默认老猴）
+  fieldsToHide,
 }) {
   const toast = useToast()
   const [coverUploading, setCoverUploading] = useState(false)
   const [draftList, setDraftList] = useState([])
   const [draftsLoading, setDraftsLoading] = useState(false)
+  const [materialItems, setMaterialItems] = useState([])
+  const [materialsLoading, setMaterialsLoading] = useState(false)
 
   const isWechatDraft = taskType === 'wechat_mp_draft' && (metadata?.operation === 'add' || !metadata?.operation)
   const isWechatUpdate = taskType === 'wechat_mp_draft' && metadata?.operation === 'update'
+
+  useEffect(() => {
+    if (!isWechatDraft) return
+    setMaterialsLoading(true)
+    fetch('/api/wechat-mp/materials/images?offset=0&count=12')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success && Array.isArray(d?.item)) setMaterialItems(d.item)
+        else setMaterialItems([])
+      })
+      .catch(() => setMaterialItems([]))
+      .finally(() => setMaterialsLoading(false))
+  }, [isWechatDraft])
 
   useEffect(() => {
     if (!isWechatUpdate) return
@@ -100,9 +120,12 @@ export default function TaskParamsForm({
       const text = (metadata?.title ?? value ?? '').toString()
       return (
         <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
             <label className={labelCls + ' mb-0'}>{label || '标题'} *</label>
-            <CopyBtn text={text} label="标题" toast={toast} />
+            <div className="flex items-center gap-2">
+              {fieldActions?.title}
+              <CopyBtn text={text} label="标题" toast={toast} />
+            </div>
           </div>
           <input
             value={text}
@@ -139,7 +162,7 @@ export default function TaskParamsForm({
             <label className={labelCls + ' mb-0'}>正文（Markdown）</label>
             <CopyBtn text={html} asHtml label="正文" toast={toast} />
           </div>
-          <WechatDraftEditor value={md} onChange={onChange} />
+          <WechatDraftEditor value={md} onChange={onChange} hideLabel />
         </div>
       )
     }
@@ -150,9 +173,12 @@ export default function TaskParamsForm({
       const over = len > DIGEST_MAX
       return (
         <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
             <label className="block text-sm text-muted mb-0">摘要（不超过 120 字，超限接口报 45004）</label>
-            <CopyBtn text={text} label="摘要" toast={toast} />
+            <div className="flex items-center gap-2">
+              {fieldActions?.digest}
+              <CopyBtn text={text} label="摘要" toast={toast} />
+            </div>
           </div>
           <textarea
             value={text}
@@ -233,13 +259,14 @@ export default function TaskParamsForm({
           inputFileAccept={inputFileAccept}
           fileUploadFields={fileUploadFields}
           customFieldRender={customFieldRender}
-          fieldsToHide={taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : []}
+          fieldsToHide={fieldsToHide ?? (taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : [])}
         />
       )}
 
       {isWechatDraft && typeof onCoverUpload === 'function' && (
         <div>
           <label className={labelCls}>封面</label>
+          {coverBeforeContent}
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
@@ -262,16 +289,43 @@ export default function TaskParamsForm({
               e.target.value = ''
             }}
           />
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <WechatMaterialImagePicker onSelect={(mediaId) => setMetadata(m => ({ ...m, thumb_media_id: mediaId }))} />
-            <span className="text-xs text-muted">或填写 media_id：</span>
-            <input
-              type="text"
-              value={metadata?.thumb_media_id ?? ''}
-              onChange={e => setMetadata(m => ({ ...m, thumb_media_id: e.target.value.trim() || undefined }))}
-              placeholder="粘贴 media_id"
-              className={`${inputCls} flex-1 min-w-[120px]`}
-            />
+          <div className="mt-2 space-y-2">
+            {(materialsLoading || materialItems.length > 0) && (
+              <>
+                <div className="text-xs text-muted">已有素材（点击选择）：</div>
+                {materialsLoading ? (
+                  <p className="text-xs text-muted">加载中…</p>
+                ) : (
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                {materialItems.map((it) => (
+                  <button
+                    key={it.media_id}
+                    type="button"
+                    onClick={() => setMetadata(m => ({ ...m, thumb_media_id: it.media_id }))}
+                    className={`rounded-lg border-2 overflow-hidden hover:border-accent focus:outline-none focus:ring-1 focus:ring-accent transition-colors ${(metadata?.thumb_media_id || '') === it.media_id ? 'border-accent ring-1 ring-accent' : 'border-border'}`}
+                  >
+                    <img
+                      src={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(it.media_id)}`}
+                      alt={it.name || it.media_id}
+                      className="w-full aspect-square object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+                )}
+              </>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <WechatMaterialImagePicker onSelect={(mediaId) => setMetadata(m => ({ ...m, thumb_media_id: mediaId }))} />
+              <span className="text-xs text-muted">或填写 media_id：</span>
+              <input
+                type="text"
+                value={metadata?.thumb_media_id ?? ''}
+                onChange={e => setMetadata(m => ({ ...m, thumb_media_id: e.target.value.trim() || undefined }))}
+                placeholder="粘贴 media_id"
+                className={`${inputCls} flex-1 min-w-[120px]`}
+              />
+            </div>
           </div>
           {metadata?.thumb_media_id && (
             <div className="mt-2 flex items-start gap-3">

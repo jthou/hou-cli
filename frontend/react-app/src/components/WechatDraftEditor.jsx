@@ -15,8 +15,9 @@ const inputCls =
  * @param {(v: string) => void} [props.onChange] - 内容变化回调
  * @param {string} [props.placeholder] - 输入框占位
  * @param {string} [props.className] - 容器类名
+ * @param {boolean} [props.hideLabel] - 隐藏「正文（Markdown）」标签（嵌入 TaskParamsForm 时由外层统一显示）
  */
-export default function WechatDraftEditor({ value = '', onChange, placeholder = '', className = '' }) {
+export default function WechatDraftEditor({ value = '', onChange, placeholder = '', className = '', hideLabel = false }) {
   const textareaRef = useRef(null)
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -67,8 +68,8 @@ export default function WechatDraftEditor({ value = '', onChange, placeholder = 
   return (
     <div className={`grid grid-cols-1 md:grid-cols-2 gap-5 min-h-[360px] ${className}`.trim()}>
       <div className="flex flex-col min-h-[320px]">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-muted">正文（Markdown）</span>
+        <div className={`flex items-center justify-between mb-1 ${hideLabel ? 'justify-end' : ''}`}>
+          {!hideLabel && <span className="text-xs text-muted">正文（Markdown）</span>}
           <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}

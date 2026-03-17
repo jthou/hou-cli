@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 138
-- 前端 fetch 数: 126
+- 后端路由数: 143
+- 前端 fetch 数: 132
 
 ## 后端路由
 
@@ -25,6 +25,7 @@ GET /api/mediawiki/recent-read
 GET /api/mediawiki/search
 GET /api/mediawiki/search-read
 GET /api/mediawiki/sync/status
+GET /api/mediawiki/test-connection
 GET /api/models/selectable
 GET /api/network/audit/env
 GET /api/network/audit/history
@@ -100,16 +101,20 @@ PATCH /api/task-queue/tasks/{task_id}
 PATCH /api/task-queue/tasks/{task_id}/patch-result-output-file
 POST /api/chat
 POST /api/chat/article/apply-patch
+POST /api/chat/article/generate-cover-images
+POST /api/chat/article/generate-cover-prompt
 POST /api/chat/article/generate-metadata
 POST /api/chat/article/merge
 POST /api/chat/article/patch
 POST /api/chat/article/restore
+POST /api/chat/article/upload-cover-to-wechat
 POST /api/chat/rate-message
 POST /api/chat/stream
 POST /api/execution/approve
 POST /api/execution/reject
 POST /api/mediawiki/pages/{title:path}
 POST /api/mediawiki/parse
+POST /api/mediawiki/reset-client
 POST /api/mediawiki/sync
 POST /api/mediawiki/upload-image
 POST /api/network/audit/run
@@ -153,11 +158,14 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/audit/report
 - GET /api/chat/article
 - GET /api/chat/article/apply-patch
+- GET /api/chat/article/generate-cover-images
+- GET /api/chat/article/generate-cover-prompt
 - GET /api/chat/article/generate-metadata
 - GET /api/chat/article/metadata
 - GET /api/chat/article/patch
 - GET /api/chat/article/restore
 - GET /api/chat/article/revisions
+- GET /api/chat/article/upload-cover-to-wechat
 - GET /api/chat/mw-sources
 - GET /api/chat/rate-message
 - GET /api/chat/stream
@@ -241,9 +249,12 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - PATCH /api/task-queue/tasks/${task.task_id}/patch-result-output-file
 - PATCH /api/task-queue/tasks/${taskId}
 - POST /api/chat/article/apply-patch
+- POST /api/chat/article/generate-cover-images
+- POST /api/chat/article/generate-cover-prompt
 - POST /api/chat/article/generate-metadata
 - POST /api/chat/article/patch
 - POST /api/chat/article/restore
+- POST /api/chat/article/upload-cover-to-wechat
 - POST /api/chat/rate-message
 - POST /api/chat/stream
 - POST /api/mediawiki/upload-image
@@ -286,8 +297,10 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/mediawiki/diagnostic
 - /api/mediawiki/pages/{id}
 - /api/mediawiki/parse
+- /api/mediawiki/reset-client
 - /api/mediawiki/sync
 - /api/mediawiki/sync/status
+- /api/mediawiki/test-connection
 - /api/pdf/view
 - /api/search/availability
 - /api/search/files

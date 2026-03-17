@@ -83,8 +83,8 @@ class ArticleWritingAgent(BlogWritingAgent):
 特殊要求: {parsed_input.get('special_requirements', [])}
 {profile_block}
 
-大纲应包含：1. 标题 2. 引言 3. 主体（3-5 章）4. 结论 5. 后续思考。
-请返回 JSON 格式大纲；风格与表述需符合上述作者画像。
+        大纲应包含：1. 标题 2. 引言 3. 主体（sections 数组，3-5 个章节，每项含 title、description、content_hint）4. 结论 5. 后续思考。
+请返回 JSON 格式，必须包含 sections 数组且至少 3 个章节；风格与表述需符合上述作者画像。
 """  # noqa: E501
         import json
         import re

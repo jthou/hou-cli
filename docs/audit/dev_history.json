@@ -1,14 +1,14 @@
 {
-  "total_commits": 312,
+  "total_commits": 314,
   "authors": {
-    "侯金亭（Justin）": 269,
+    "侯金亭（Justin）": 271,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W11": 1,
+    "2026-W11": 3,
     "2026-W10": 20,
     "2026-W09": 27,
-    "2026-W08": 4
+    "2026-W08": 2
   },
   "commits_by_day": {
     "2025-12-31": 4,
@@ -55,7 +55,8 @@
     "2026-03-11": 2,
     "2026-03-13": 3,
     "2026-03-14": 5,
-    "2026-03-16": 1
+    "2026-03-16": 1,
+    "2026-03-17": 2
   },
   "lines_by_day": {
     "2025-12-31": {
@@ -282,6 +283,11 @@
       "add": 4597,
       "del": 596,
       "total": 5193
+    },
+    "2026-03-17": {
+      "add": 323,
+      "del": 959,
+      "total": 1282
     }
   },
   "files_changed": {
@@ -297,21 +303,21 @@
     "backend/services/llm/llm_service.py": 24,
     "frontend/react-app/src/App.jsx": 22,
     "frontend/react-app/src/pages/ArticleWriting.jsx": 22,
+    "env.example": 21,
     "frontend/ui/stream_handler.py": 21,
-    "env.example": 20,
     "docs/design/02-weather-tool-design.md": 20,
-    "docs/audit/AUDIT_REPORT.json": 18,
-    "docs/audit/code_stats.json": 18,
-    "docs/audit/dev_history.json": 18,
+    "docs/audit/AUDIT_REPORT.json": 19,
+    "docs/audit/code_stats.json": 19,
+    "docs/audit/dev_history.json": 19,
     "backend/api/task_queue_routes.py": 18,
     "requirements.txt": 18,
     "frontend/react-app/package.json": 17,
     "frontend/react-app/package-lock.json": 16,
+    "backend/core/agent/system_prompt_templates.py": 15,
     "backend/main.py": 15,
-    "backend/core/agent/system_prompt_templates.py": 14,
+    "backend/infrastructure/execution/tests/test_task_handlers.py": 14,
     "frontend/react-app/src/pages/MediaWikiReader.jsx": 14,
     "docs/audit/API_PATH_AUDIT.md": 13,
-    "backend/infrastructure/execution/tests/test_task_handlers.py": 13,
     "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
     "pyproject.toml": 13,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
@@ -336,5 +342,5 @@
     "backend/core/context/manager.py": 10,
     "workflows/.gitkeep": 10
   },
-  "generated_at": "2026-03-16T04:17:10.864964Z"
+  "generated_at": "2026-03-17T03:28:12.195994Z"
 }

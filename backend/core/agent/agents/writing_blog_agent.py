@@ -228,11 +228,11 @@ class BlogWritingAgent(BaseAgent):
         大纲应包含：
         1. 吸引人的标题（考虑SEO）
         2. 简洁有力的引言
-        3. 逻辑清晰的主体部分（建议3-5个主要章节）
+        3. 逻辑清晰的主体部分（sections 数组，必须包含 3-5 个章节，每项含 title、description、content_hint）
         4. 总结性结论
         5. 可能的后续行动或思考问题
         
-        请返回结构化的JSON格式大纲，包含每个部分的简要描述。
+        请返回结构化的 JSON 格式大纲，必须包含 sections 数组且至少 3 个章节。
         """
         response = await self.llm_service.chat([{"role": "user", "content": prompt}])
         json_match = re.search(r"\{.*\}", response, re.DOTALL)
@@ -293,8 +293,15 @@ class BlogWritingAgent(BaseAgent):
         introduction = await self.llm_service.chat([{"role": "user", "content": intro_prompt}])
         article["introduction"] = introduction.strip()
         
-        # 生成各个部分
+        # 生成各个部分（2025-03-17：sections 为空时使用默认结构，避免主体缺失）
         sections = outline.get("sections", [])
+        if not sections:
+            topic = outline.get("title", "主题")
+            sections = [
+                {"title": "背景与现状", "description": "介绍相关背景与当前状况", "content_hint": ""},
+                {"title": "核心分析", "description": "深入分析主要观点与论据", "content_hint": ""},
+                {"title": "实践与启示", "description": "总结实践建议与启示", "content_hint": ""},
+            ]
         for i, section in enumerate(sections):
             sec = dict(section)
             sec["_reference_content"] = ref_block

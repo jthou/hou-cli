@@ -300,6 +300,75 @@ class GenerateMetadataRequest(BaseModel):
     fields: Optional[List[str]] = None  # ["title","digest","author","cover"] 子集，空则全部
 
 
+class GenerateCoverPromptRequest(BaseModel):
+    """第一步：生成封面提示词。时间：2025-03-17；理由：封面三步流程；方法：从当前文章提炼。"""
+    session_id: str
+
+
+class GenerateCoverImagesRequest(BaseModel):
+    """第二步：根据提示词生成多张图。时间：2025-03-17；理由：封面三步流程；方法：文生图 n=4。"""
+    prompt: str
+    n: Optional[int] = 4
+
+
+class UploadCoverToWechatRequest(BaseModel):
+    """第三步：上传选中图片到公众号。时间：2025-03-17；理由：封面三步流程；方法：base64/URL 解码后上传。"""
+    image_data: str  # data:image/png;base64,xxx 或 https://... 或纯 base64
+
+
+@router.post("/chat/article/generate-cover-prompt")
+async def generate_cover_prompt_endpoint(request: GenerateCoverPromptRequest):
+    """第一步：根据当前文章内容生成封面提示词，供用户编辑后用于第二步。"""
+    if not request.session_id:
+        return {"status": "error", "error": "缺少 session_id", "prompt": ""}
+    try:
+        from backend.services.article_metadata_service import generate_cover_prompt_from_content
+        orchestrator = get_orchestrator()
+        content = orchestrator.context_manager.get_current_article(request.session_id)
+        if not content or not content.strip():
+            return {"status": "error", "error": "当前文章为空", "prompt": ""}
+        out = await generate_cover_prompt_from_content(content)
+        if out.get("error"):
+            return {"status": "error", "error": out["error"], "prompt": out.get("prompt", "")}
+        return {"status": "success", "prompt": out.get("prompt", "")}
+    except Exception as e:
+        debug_log(f"generate_cover_prompt failed: {e}", level="error")
+        return {"status": "error", "error": str(e) or "生成失败", "prompt": ""}
+
+
+@router.post("/chat/article/generate-cover-images")
+async def generate_cover_images_endpoint(request: GenerateCoverImagesRequest):
+    """第二步：根据提示词生成多张封面图供选择。"""
+    try:
+        from backend.services.article_metadata_service import generate_cover_images_from_prompt
+        out = await generate_cover_images_from_prompt(
+            prompt=request.prompt,
+            n=request.n if request.n is not None else 4,
+        )
+        if out.get("error"):
+            return {"status": "error", "error": out["error"], "images": []}
+        return {"status": "success", "images": out.get("images", [])}
+    except Exception as e:
+        debug_log(f"generate_cover_images failed: {e}", level="error")
+        return {"status": "error", "error": str(e) or "生成失败", "images": []}
+
+
+@router.post("/chat/article/upload-cover-to-wechat")
+async def upload_cover_to_wechat_endpoint(request: UploadCoverToWechatRequest):
+    """第三步：将选中的图片上传到公众号永久素材，返回 thumb_media_id。"""
+    if not (request.image_data or "").strip():
+        return {"status": "error", "error": "图片数据为空", "thumb_media_id": ""}
+    try:
+        from backend.services.article_metadata_service import upload_cover_to_wechat
+        out = await upload_cover_to_wechat(request.image_data)
+        if out.get("error"):
+            return {"status": "error", "error": out["error"], "thumb_media_id": ""}
+        return {"status": "success", "thumb_media_id": out.get("thumb_media_id", "")}
+    except Exception as e:
+        debug_log(f"upload_cover_to_wechat failed: {e}", level="error")
+        return {"status": "error", "error": str(e) or "上传失败", "thumb_media_id": ""}
+
+
 @router.post("/chat/article/generate-metadata")
 async def generate_article_metadata_endpoint(request: GenerateMetadataRequest):
     """根据当前文章内容生成公众号元数据（可选：标题、摘要、作者、封面图）并保存。"""

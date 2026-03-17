@@ -99,7 +99,7 @@ class ImageGenService:
                 "messages": [
                     {
                         "role": "user",
-                        "content": [{"text": (prompt or "").strip() or "一只可爱的猫"}],
+                        "content": [{"type": "text", "text": (prompt or "").strip() or "一只可爱的猫"}],
                     }
                 ],
             },

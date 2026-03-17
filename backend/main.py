@@ -1,7 +1,11 @@
 """后端服务入口 - API + Web UI 统一服务"""
+# 最先加载 .env，确保 MEDIAWIKI_* 等环境变量在导入任何路由前就绪（2025-03-14：readapidenied 排查）
+from pathlib import Path
+from shared.load_env import load_env
+load_env(Path(__file__).parent.parent)
+
 import os
 import logging
-from pathlib import Path
 from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
@@ -11,10 +15,6 @@ from backend.api.web_routes import router as web_router
 from shared.platform_utils import save_port, load_port, get_port_file
 from shared.config import Config
 from rich.console import Console
-
-# 加载 .env（统一逻辑，见 shared/load_env.py）
-from shared.load_env import load_env
-load_env(Path(__file__).parent.parent)
 
 # 配置日志系统
 config = Config()

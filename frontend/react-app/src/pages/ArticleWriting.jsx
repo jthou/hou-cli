@@ -139,6 +139,10 @@ export default function ArticleWriting() {
   const [wechatOutputSubmitting, setWechatOutputSubmitting] = useState(false)
   const [wechatGeneratingField, setWechatGeneratingField] = useState(null) // 'title'|'digest'|'author'|'cover'
   const [wechatCoverPrompt, setWechatCoverPrompt] = useState('')
+  /** 封面三步流程：1 生成提示词，2 生成图片，3 上传选中图。时间：2025-03-17；理由：用户可编辑提示词、多选一、再上传 */
+  const [wechatCoverStep, setWechatCoverStep] = useState(1)
+  const [wechatCoverImages, setWechatCoverImages] = useState([]) // 第二步生成的图片 data URL 或 base64
+  const [wechatCoverUploading, setWechatCoverUploading] = useState(false)
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   /** 参考信息面板内标签：'blocks' 参考块 | 'profile' 写作画像 */
   const [referenceTab, setReferenceTab] = useState('blocks')
@@ -899,6 +903,11 @@ export default function ArticleWriting() {
 
   const handleGenerateWechatField = async (field) => {
     if (!selectedSessionId || wechatGeneratingField) return
+    if (field === 'cover') {
+      toast?.info?.('请使用封面三步流程：生成提示词 → 生成图片 → 上传')
+      return
+    }
+    if (field === 'author') return
     setWechatGeneratingField(field)
     try {
       const res = await fetch('/api/chat/article/generate-metadata', {
@@ -924,20 +933,11 @@ export default function ArticleWriting() {
           author: m.author ?? prev?.author ?? '',
           thumb_media_id: m.thumb_media_id ?? prev?.thumb_media_id ?? '',
         }))
-        if (field === 'cover') {
-          if (m.cover_prompt) setWechatCoverPrompt(m.cover_prompt)
-          if (m.thumb_media_id) {
-            toast?.info?.('封面已生成')
-          } else {
-            toast?.error?.(m.cover_error || '封面生成失败')
-          }
+        if (m.metadata_error) {
+          toast?.error?.(m.metadata_error)
         } else {
-          if (m.metadata_error) {
-            toast?.error?.(m.metadata_error)
-          } else {
-            const msg = { title: '标题已生成', digest: '摘要已生成', author: '作者已生成' }[field]
-            toast?.info?.(msg)
-          }
+          const msg = { title: '标题已生成', digest: '摘要已生成', author: '作者已生成' }[field]
+          toast?.info?.(msg)
         }
       } else {
         toast?.error?.(d?.error || '生成失败')
@@ -946,6 +946,80 @@ export default function ArticleWriting() {
       toast?.error?.(e?.message || e?.toString?.() || '生成失败')
     } finally {
       setWechatGeneratingField(null)
+    }
+  }
+
+  /** 封面第一步：生成提示词。时间：2025-03-17；理由：三步流程；方法：调用 generate-cover-prompt */
+  const handleCoverStep1Prompt = async () => {
+    if (!selectedSessionId || wechatGeneratingField) return
+    setWechatGeneratingField('cover')
+    try {
+      const res = await fetch('/api/chat/article/generate-cover-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedSessionId }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (d.status === 'success' && d.prompt) {
+        setWechatCoverPrompt(d.prompt)
+        setWechatCoverStep(2)
+        toast?.info?.('提示词已生成，可编辑后点击「生成图片」')
+      } else {
+        toast?.error?.(d?.error || '生成提示词失败')
+      }
+    } catch (e) {
+      toast?.error?.(e?.message || '生成提示词失败')
+    } finally {
+      setWechatGeneratingField(null)
+    }
+  }
+
+  /** 封面第二步：根据提示词生成多张图。时间：2025-03-17；理由：三步流程；方法：调用 generate-cover-images */
+  const handleCoverStep2Images = async () => {
+    if (!wechatCoverPrompt?.trim() || wechatGeneratingField) return
+    setWechatGeneratingField('cover')
+    try {
+      const res = await fetch('/api/chat/article/generate-cover-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: wechatCoverPrompt.trim(), n: 4 }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (d.status === 'success' && Array.isArray(d.images) && d.images.length) {
+        setWechatCoverImages(d.images)
+        setWechatCoverStep(3)
+        toast?.info?.('图片已生成，选择一张后点击「上传到公众号」')
+      } else {
+        toast?.error?.(d?.error || '生成图片失败')
+      }
+    } catch (e) {
+      toast?.error?.(e?.message || '生成图片失败')
+    } finally {
+      setWechatGeneratingField(null)
+    }
+  }
+
+  /** 封面第三步：上传选中图片到公众号。时间：2025-03-17；理由：三步流程；方法：调用 upload-cover-to-wechat */
+  const handleCoverStep3Upload = async (imageData) => {
+    if (!imageData || wechatCoverUploading) return
+    setWechatCoverUploading(true)
+    try {
+      const res = await fetch('/api/chat/article/upload-cover-to-wechat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_data: imageData }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (d.status === 'success' && d.thumb_media_id) {
+        setWechatOutputMetadata((prev) => ({ ...prev, thumb_media_id: d.thumb_media_id }))
+        toast?.info?.('封面已上传到公众号')
+      } else {
+        toast?.error?.(d?.error || '上传失败')
+      }
+    } catch (e) {
+      toast?.error?.(e?.message || '上传失败')
+    } finally {
+      setWechatCoverUploading(false)
     }
   }
 
@@ -1126,7 +1200,7 @@ export default function ArticleWriting() {
           content: previewContent,
           title: meta?.title || restDefaults.title || '',
           digest: meta?.digest || restDefaults.digest || '',
-          author: meta?.author || restDefaults.author || '',
+          author: meta?.author || restDefaults.author || '老猴',
           thumb_media_id: meta?.thumb_media_id || restDefaults.thumb_media_id || '',
         })
       })
@@ -2132,46 +2206,6 @@ export default function ArticleWriting() {
             <form onSubmit={submitWechatOutputTask} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
                 <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。创建任务后由任务队列执行，可在任务管理中审计。请填写标题与封面。</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={!!wechatGeneratingField}
-                    onClick={() => handleGenerateWechatField('title')}
-                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
-                  >
-                    {wechatGeneratingField === 'title' ? '生成中…' : '生成标题建议'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!!wechatGeneratingField}
-                    onClick={() => handleGenerateWechatField('digest')}
-                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
-                  >
-                    {wechatGeneratingField === 'digest' ? '生成中…' : '生成摘要建议'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!!wechatGeneratingField}
-                    onClick={() => handleGenerateWechatField('author')}
-                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
-                  >
-                    {wechatGeneratingField === 'author' ? '生成中…' : '生成作者建议'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!!wechatGeneratingField}
-                    onClick={() => handleGenerateWechatField('cover')}
-                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
-                  >
-                    {wechatGeneratingField === 'cover' ? '生成中…' : '生成封面'}
-                  </button>
-                </div>
-                {wechatCoverPrompt && (
-                  <div className="text-xs text-muted">
-                    <span className="font-medium text-fg">封面提示词：</span>
-                    {wechatCoverPrompt}
-                  </div>
-                )}
                 <TaskParamsForm
                   taskType="wechat_mp_draft"
                   schema={wechatOutputSchemaForForm}
@@ -2179,6 +2213,104 @@ export default function ArticleWriting() {
                   setMetadata={setWechatOutputMetadata}
                   fieldIdPrefix="article-wechat-output"
                   onCoverUpload={(file) => WECHAT_MP_API.uploadCover(file)}
+                  fieldActions={{
+                    title: (
+                      <button
+                        type="button"
+                        disabled={!!wechatGeneratingField}
+                        onClick={() => handleGenerateWechatField('title')}
+                        className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                      >
+                        {wechatGeneratingField === 'title' ? '生成中…' : '标题建议'}
+                      </button>
+                    ),
+                    digest: (
+                      <button
+                        type="button"
+                        disabled={!!wechatGeneratingField}
+                        onClick={() => handleGenerateWechatField('digest')}
+                        className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                      >
+                        {wechatGeneratingField === 'digest' ? '生成中…' : '摘要建议'}
+                      </button>
+                    ),
+                  }}
+                  fieldsToHide={['author']}
+                  coverBeforeContent={(
+                    <div className="rounded-lg border border-border p-3 space-y-2 bg-white/3 mb-3">
+                      <div className="flex items-center gap-2 text-xs text-muted">
+                        <span className={wechatCoverStep >= 1 ? 'text-accent' : ''}>① 提示词</span>
+                        <span>→</span>
+                        <span className={wechatCoverStep >= 2 ? 'text-accent' : ''}>② 生成图</span>
+                        <span>→</span>
+                        <span className={wechatCoverStep >= 3 ? 'text-accent' : ''}>③ 上传</span>
+                      </div>
+                      {wechatCoverStep === 1 && (
+                        <button
+                          type="button"
+                          disabled={!!wechatGeneratingField}
+                          onClick={handleCoverStep1Prompt}
+                          className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                        >
+                          {wechatGeneratingField === 'cover' ? '生成中…' : '① 生成提示词'}
+                        </button>
+                      )}
+                      {wechatCoverStep >= 2 && (
+                        <div className="space-y-2">
+                          <div className="text-xs text-muted">提示词（可编辑）：</div>
+                          <textarea
+                            value={wechatCoverPrompt}
+                            onChange={(e) => setWechatCoverPrompt(e.target.value)}
+                            placeholder="封面图描述…"
+                            rows={2}
+                            className="w-full rounded bg-white/5 border border-border px-2 py-1.5 text-xs text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent resize-y"
+                          />
+                          {wechatCoverStep === 2 && (
+                            <button
+                              type="button"
+                              disabled={!!wechatGeneratingField || !wechatCoverPrompt?.trim()}
+                              onClick={handleCoverStep2Images}
+                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                            >
+                              {wechatGeneratingField === 'cover' ? '生成中…' : '② 生成图片'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {wechatCoverStep >= 3 && wechatCoverImages?.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-xs text-muted">选择一张上传：</div>
+                          <div className="grid grid-cols-4 gap-2">
+                            {wechatCoverImages.map((src, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => handleCoverStep3Upload(src)}
+                                disabled={wechatCoverUploading}
+                                className="relative aspect-square rounded border-2 border-border overflow-hidden hover:border-accent focus:border-accent focus:outline-none disabled:opacity-50"
+                              >
+                                <img
+                                  src={src.startsWith('data:') || src.startsWith('http') ? src : `data:image/png;base64,${src}`}
+                                  alt={`封面 ${i + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                                {wechatCoverUploading && (
+                                  <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs">上传中…</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setWechatCoverStep(2); setWechatCoverImages([]) }}
+                            className="text-xs text-muted hover:text-fg"
+                          >
+                            重新生成图片
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 />
               </div>
               <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">

@@ -127,6 +127,27 @@ async def mediawiki_diagnostic():
     }
 
 
+@router.get("/mediawiki/test-connection")
+async def mediawiki_test_connection():
+    """测试 MediaWiki 连接与读权限。新建 client 连接并调用 query，用于排查 readapidenied。"""
+    try:
+        client = MediaWikiClientService()
+        client.connect()
+        ok, msg = client.verify_read_access()
+        return {"success": ok, "message": msg}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/mediawiki/reset-client")
+async def mediawiki_reset_client():
+    """重置 MediaWiki 客户端单例。修改 .env 后调用此接口，下次请求会重新连接。"""
+    global _mediawiki_client, _mediawiki_sync_service
+    _mediawiki_client = None
+    _mediawiki_sync_service = None
+    return {"success": True, "message": "Client reset. Next request will reconnect."}
+
+
 @router.get("/mediawiki/base-url")
 async def mediawiki_base_url():
     """返回 MediaWiki 基础 URL，供前端将 [[xxx]] 解析为可点击链接。"""

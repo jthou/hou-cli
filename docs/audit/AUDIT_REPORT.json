@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-16T04:17:09.919644Z",
+  "generated_at": "2026-03-17T03:28:11.154294Z",
   "code_stats": {
-    "total_files": 1196,
-    "total_lines": 320376,
+    "total_files": 1199,
+    "total_lines": 321729,
     "by_language": {
       "other": {
         "files": 20,
@@ -10,11 +10,11 @@
       },
       "python": {
         "files": 576,
-        "lines": 98838
+        "lines": 99099
       },
       "markdown": {
-        "files": 408,
-        "lines": 111351
+        "files": 411,
+        "lines": 112260
       },
       "shell": {
         "files": 34,
@@ -26,7 +26,7 @@
       },
       "json": {
         "files": 11,
-        "lines": 12010
+        "lines": 12035
       },
       "html": {
         "files": 2,
@@ -38,7 +38,7 @@
       },
       "jsx": {
         "files": 97,
-        "lines": 19967
+        "lines": 20125
       },
       "yaml": {
         "files": 7,
@@ -56,11 +56,11 @@
       },
       "frontend": {
         "files": 162,
-        "lines": 41818
+        "lines": 41976
       },
       "plans": {
-        "files": 30,
-        "lines": 13626
+        "files": 33,
+        "lines": 14522
       },
       "config": {
         "files": 3,
@@ -76,7 +76,7 @@
       },
       "backend": {
         "files": 491,
-        "lines": 140576
+        "lines": 140837
       },
       "shared": {
         "files": 11,
@@ -84,7 +84,7 @@
       },
       "docs": {
         "files": 330,
-        "lines": 100405
+        "lines": 100443
       },
       "examples": {
         "files": 1,
@@ -99,19 +99,19 @@
         "lines": 1341
       }
     },
-    "generated_at": "2026-03-16T04:17:10.500359Z"
+    "generated_at": "2026-03-17T03:28:11.818247Z"
   },
   "dev_history": {
-    "total_commits": 312,
+    "total_commits": 314,
     "authors": {
-      "侯金亭（Justin）": 269,
+      "侯金亭（Justin）": 271,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W11": 1,
+      "2026-W11": 3,
       "2026-W10": 20,
       "2026-W09": 27,
-      "2026-W08": 4
+      "2026-W08": 2
     },
     "commits_by_day": {
       "2025-12-31": 4,
@@ -158,7 +158,8 @@
       "2026-03-11": 2,
       "2026-03-13": 3,
       "2026-03-14": 5,
-      "2026-03-16": 1
+      "2026-03-16": 1,
+      "2026-03-17": 2
     },
     "lines_by_day": {
       "2025-12-31": {
@@ -385,6 +386,11 @@
         "add": 4597,
         "del": 596,
         "total": 5193
+      },
+      "2026-03-17": {
+        "add": 323,
+        "del": 959,
+        "total": 1282
       }
     },
     "files_changed": {
@@ -400,21 +406,21 @@
       "backend/services/llm/llm_service.py": 24,
       "frontend/react-app/src/App.jsx": 22,
       "frontend/react-app/src/pages/ArticleWriting.jsx": 22,
+      "env.example": 21,
       "frontend/ui/stream_handler.py": 21,
-      "env.example": 20,
       "docs/design/02-weather-tool-design.md": 20,
-      "docs/audit/AUDIT_REPORT.json": 18,
-      "docs/audit/code_stats.json": 18,
-      "docs/audit/dev_history.json": 18,
+      "docs/audit/AUDIT_REPORT.json": 19,
+      "docs/audit/code_stats.json": 19,
+      "docs/audit/dev_history.json": 19,
       "backend/api/task_queue_routes.py": 18,
       "requirements.txt": 18,
       "frontend/react-app/package.json": 17,
       "frontend/react-app/package-lock.json": 16,
+      "backend/core/agent/system_prompt_templates.py": 15,
       "backend/main.py": 15,
-      "backend/core/agent/system_prompt_templates.py": 14,
+      "backend/infrastructure/execution/tests/test_task_handlers.py": 14,
       "frontend/react-app/src/pages/MediaWikiReader.jsx": 14,
       "docs/audit/API_PATH_AUDIT.md": 13,
-      "backend/infrastructure/execution/tests/test_task_handlers.py": 13,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
       "pyproject.toml": 13,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 13,
@@ -439,7 +445,7 @@
       "backend/core/context/manager.py": 10,
       "workflows/.gitkeep": 10
     },
-    "generated_at": "2026-03-16T04:17:10.864964Z"
+    "generated_at": "2026-03-17T03:28:12.195994Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -462,6 +468,7 @@
       "GET /api/mediawiki/search",
       "GET /api/mediawiki/search-read",
       "GET /api/mediawiki/sync/status",
+      "GET /api/mediawiki/test-connection",
       "GET /api/models/selectable",
       "GET /api/network/audit/env",
       "GET /api/network/audit/history",
@@ -537,16 +544,20 @@
       "PATCH /api/task-queue/tasks/{task_id}/patch-result-output-file",
       "POST /api/chat",
       "POST /api/chat/article/apply-patch",
+      "POST /api/chat/article/generate-cover-images",
+      "POST /api/chat/article/generate-cover-prompt",
       "POST /api/chat/article/generate-metadata",
       "POST /api/chat/article/merge",
       "POST /api/chat/article/patch",
       "POST /api/chat/article/restore",
+      "POST /api/chat/article/upload-cover-to-wechat",
       "POST /api/chat/rate-message",
       "POST /api/chat/stream",
       "POST /api/execution/approve",
       "POST /api/execution/reject",
       "POST /api/mediawiki/pages/{title:path}",
       "POST /api/mediawiki/parse",
+      "POST /api/mediawiki/reset-client",
       "POST /api/mediawiki/sync",
       "POST /api/mediawiki/upload-image",
       "POST /api/network/audit/run",
@@ -588,11 +599,14 @@
       "GET /api/audit/report",
       "GET /api/chat/article",
       "GET /api/chat/article/apply-patch",
+      "GET /api/chat/article/generate-cover-images",
+      "GET /api/chat/article/generate-cover-prompt",
       "GET /api/chat/article/generate-metadata",
       "GET /api/chat/article/metadata",
       "GET /api/chat/article/patch",
       "GET /api/chat/article/restore",
       "GET /api/chat/article/revisions",
+      "GET /api/chat/article/upload-cover-to-wechat",
       "GET /api/chat/mw-sources",
       "GET /api/chat/rate-message",
       "GET /api/chat/stream",
@@ -676,9 +690,12 @@
       "PATCH /api/task-queue/tasks/${task.task_id}/patch-result-output-file",
       "PATCH /api/task-queue/tasks/${taskId}",
       "POST /api/chat/article/apply-patch",
+      "POST /api/chat/article/generate-cover-images",
+      "POST /api/chat/article/generate-cover-prompt",
       "POST /api/chat/article/generate-metadata",
       "POST /api/chat/article/patch",
       "POST /api/chat/article/restore",
+      "POST /api/chat/article/upload-cover-to-wechat",
       "POST /api/chat/rate-message",
       "POST /api/chat/stream",
       "POST /api/mediawiki/upload-image",
@@ -710,8 +727,8 @@
       "PUT /api/settings/writing-profile",
       "PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle"
     ],
-    "backend_path_count": 138,
-    "frontend_fetch_count": 126,
+    "backend_path_count": 143,
+    "frontend_fetch_count": 132,
     "unused_by_frontend": [
       "/api/audit/summary",
       "/api/chat",
@@ -722,8 +739,10 @@
       "/api/mediawiki/diagnostic",
       "/api/mediawiki/pages/{id}",
       "/api/mediawiki/parse",
+      "/api/mediawiki/reset-client",
       "/api/mediawiki/sync",
       "/api/mediawiki/sync/status",
+      "/api/mediawiki/test-connection",
       "/api/pdf/view",
       "/api/search/availability",
       "/api/search/files",

@@ -114,8 +114,12 @@ class MediaWikiClientService:
                 self.site.login(self.username, self.password)
                 logger.info(f"Connected to MediaWiki as user: {self.username}")
             else:
-                # 无认证连接（只读）
-                logger.info("Connected to MediaWiki without authentication (read-only)")
+                # 无认证连接（私有 Wiki 会触发 readapidenied）
+                logger.warning(
+                    "Connected to MediaWiki without authentication. "
+                    "Private wikis will fail with readapidenied. "
+                    "Set MEDIAWIKI_BOT_NAME/MEDIAWIKI_BOT_PASSWORD or MEDIAWIKI_USERNAME/MEDIAWIKI_PASSWORD."
+                )
             
             self._connected = True
             return True
@@ -123,6 +127,19 @@ class MediaWikiClientService:
         except Exception as e:
             logger.error(f"Failed to connect to MediaWiki: {e}")
             raise MediaWikiClientError(f"Connection failed: {str(e)}")
+    
+    def verify_read_access(self) -> tuple[bool, str]:
+        """验证是否有读权限（私有 Wiki 无认证会 readapidenied）。
+        时间：2025-03-14；理由：readapidenied 排查需区分连接成功与权限不足；方法：调用 query meta=siteinfo。
+        Returns:
+            (success, message)
+        """
+        self._ensure_connected()
+        try:
+            self.site.api("query", meta="siteinfo")
+            return True, "ok"
+        except Exception as e:
+            return False, str(e)
     
     def _ensure_connected(self):
         """确保已连接"""
@@ -134,7 +151,7 @@ class MediaWikiClientService:
         for attempt in range(max_retries):
             try:
                 return func()
-            except (APIError, ConnectionError, TimeoutError) as e:
+            except (APIError, ConnectionError, TimeoutError, MediaWikiClientError) as e:
                 err_str = str(e).lower()
                 if "readapidenied" in err_str and (self.bot_name or self.username) and attempt < max_retries - 1:
                     logger.warning("readapidenied，重连后重试…")
