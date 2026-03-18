@@ -1,6 +1,7 @@
 """
 写作画像：用户喜好、表述习惯、范文。
 供写文章 Agent 读取，在生成时遵循并模仿。
+写文约束：JSON 无定义时从 prompts.WRITING_CONSTRAINTS 使用默认值，与 system_prompt、测试共用同一来源。
 """
 import json
 import os
@@ -85,8 +86,20 @@ def get_profile_path() -> Path:
 
 def get_profile_block_for_prompt(path: Optional[Path] = None, include_samples: bool = True) -> str:
     """返回写作画像的 prompt 片段，供 orchestrator 注入到 user 消息。无画像时返回空。"""
+    from backend.core.agent.prompts import WRITING_CONSTRAINTS
+
     profile = load_writing_profile(path)
     parts = []
+    # 时间：2025-03-17；理由：约束与测试共用同一来源；方法：JSON 无则用 prompts 默认
+    constraints = (profile.extra or {}).get("writing_constraints")
+    if isinstance(constraints, list) and constraints:
+        pass  # 使用 JSON 中的
+    elif isinstance(constraints, str) and constraints.strip():
+        constraints = [constraints.strip()]
+    else:
+        constraints = WRITING_CONSTRAINTS
+    if constraints:
+        parts.append("【写文约束（必须遵守）】\n" + "\n".join(f"- {c}" for c in constraints))
     if profile.preferences:
         parts.append("【用户喜好】\n" + "\n".join(f"- {p}" for p in profile.preferences))
     if profile.style_notes:
