@@ -133,7 +133,7 @@ export default function TaskMetadataFormFields({
                 className={inputCls}
                 required={required}
               >
-                {!required && <option value="">请选择</option>}
+                {!required && !spec.enum.some(opt => String(opt.value) === '') && <option value="">请选择</option>}
                 {spec.enum.map(opt => (
                   <option key={String(opt.value)} value={String(opt.value)}>{opt.label ?? opt.value}</option>
                 ))}

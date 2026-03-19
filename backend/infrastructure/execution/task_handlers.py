@@ -200,6 +200,12 @@ TASK_TYPES = {
                 ]
             },
             "download_danmaku": {"type": "boolean", "required": False, "description": "下载 B 站弹幕（ASS）", "default": False},
+            "no_check_certificate": {
+                "type": "boolean",
+                "required": False,
+                "description": "跳过 SSL 证书校验（代理/VPN 下出现 SSL 错误时可勾选）",
+                "default": False
+            },
         },
         "pipeline_outputs": [
             {"path": "result.data.output_file", "type": "file", "format": "audio", "description": "输出音频文件路径（仅当 extract_audio_only 为 true 时有效）"},
@@ -566,6 +572,80 @@ TASK_TYPES = {
                 "required": False,
                 "description": "保存目录，须在用户主目录下",
                 "placeholder": "留空使用 ~/hou-cli/outputs/image_generation",
+            },
+        },
+    },
+    "comic": {
+        "name": "漫画生成",
+        "description": "将文章或故事转化为知识漫画（基于 baoyu-comic）。支持 TheTurbo.ai、万相图生。需 ANTHROPIC_API_KEY 或 TURBOGATEWAY_API_KEY，及 .baoyu-skills/.env 中图生 API（DASHSCOPE 万相等）。",
+        "pipeline_outputs": [
+            {
+                "path": "result.data.output_dir",
+                "type": "directory",
+                "format": "comic",
+                "description": "漫画输出目录（含 PDF、分镜等）",
+            }
+        ],
+        "output_spec": {
+            "content": "知识漫画（分镜 + 图片 + PDF）",
+            "format": "PDF + PNG",
+            "naming_rule": "comic/{slug}/*.pdf",
+            "default_path": "~/hou-cli/outputs/comic",
+        },
+        "metadata_schema": {
+            "source": {
+                "type": "string",
+                "required": True,
+                "description": "源内容：Markdown 文件路径或直接粘贴文本",
+                "placeholder": "path/to/article.md 或直接粘贴文章内容",
+            },
+            "art": {
+                "type": "string",
+                "required": False,
+                "default": "ligne-claire",
+                "enum": [
+                    {"value": "ligne-claire", "label": "清线"},
+                    {"value": "manga", "label": "日漫"},
+                    {"value": "realistic", "label": "写实"},
+                    {"value": "ink-brush", "label": "水墨"},
+                    {"value": "chalk", "label": "粉笔"},
+                ],
+            },
+            "tone": {
+                "type": "string",
+                "required": False,
+                "default": "neutral",
+                "enum": [
+                    {"value": "neutral", "label": "中性"},
+                    {"value": "warm", "label": "温馨"},
+                    {"value": "dramatic", "label": "戏剧"},
+                    {"value": "romantic", "label": "浪漫"},
+                    {"value": "energetic", "label": "活力"},
+                    {"value": "vintage", "label": "复古"},
+                    {"value": "action", "label": "动作"},
+                ],
+            },
+            "style": {
+                "type": "string",
+                "required": False,
+                "enum": [
+                    {"value": "ohmsha", "label": "Ohmsha 教程风"},
+                    {"value": "wuxia", "label": "武侠"},
+                    {"value": "shoujo", "label": "少女漫"},
+                ],
+            },
+            "output_dir": {
+                "type": "string",
+                "required": False,
+                "description": "输出目录，须在用户主目录下",
+                "placeholder": "留空使用 ~/hou-cli/outputs/comic",
+            },
+            # 时间：2025-03-18；理由：统一「先选平台再选模型」UI，由前端 ModelSelector 渲染
+            "llm_model": {
+                "type": "string",
+                "required": False,
+                "description": "LLM 模型（先选平台再选模型，仅 TheTurbo.ai）",
+                "placeholder": "留空用默认",
             },
         },
     },
@@ -1164,6 +1244,7 @@ async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, An
             "download_danmaku": metadata.get("download_danmaku", False),
             "audio_format": metadata.get("audio_format", "mp3"),
             "audio_quality": metadata.get("audio_quality", "192k"),
+            "no_check_certificate": metadata.get("no_check_certificate", False),
         }
         if metadata.get("preferred_tool"):
             opts["preferred_tool"] = metadata["preferred_tool"]
@@ -2285,6 +2366,87 @@ async def process_image_generation_task(task_info: Dict[str, Any]) -> Dict[str, 
     }
 
 
+async def process_comic_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """处理漫画生成任务。调用 ComicSkill，output_dir 使用 get_task_output_dir。"""
+    metadata = task_info.get("metadata") or {}
+    worker = get_task_worker()
+
+    source = (metadata.get("source") or "").strip()
+    if not source:
+        return _err("SOURCE_REQUIRED", "缺少源内容", "source 参数是必需的（文件路径或文本）")
+
+    from shared.platform_utils import get_task_output_dir
+
+    output_dir_raw = (metadata.get("output_dir") or "").strip()
+    if output_dir_raw:
+        out_path = Path(output_dir_raw).expanduser().resolve()
+        ok, err_msg = _validate_output_path_in_home(out_path)
+        if not ok:
+            return _err("OUTPUT_PATH_DENIED", "输出路径不允许", err_msg or "输出路径须在用户主目录下")
+    out_path = get_task_output_dir("comic", output_dir_raw or None)
+    output_dir = str(out_path)
+
+    def progress_cb(msg: str):
+        try:
+            worker.update_task_progress(-1, msg)
+        except Exception:
+            pass
+
+    worker.update_task_progress(0, "准备漫画生成...")
+
+    try:
+        from backend.core.agent.skills.comic.skill import ComicSkill
+
+        skill = ComicSkill()
+        result = await skill.execute(
+            parameters={
+                "source": source,
+                "art": metadata.get("art") or "ligne-claire",
+                "tone": metadata.get("tone") or "neutral",
+                "style": metadata.get("style") or None,
+                "output_dir": output_dir,
+                "llm_model": (metadata.get("llm_model") or "").strip() or get_comic_default_model(),
+            },
+            context={"progress_callback": progress_cb},
+        )
+    except Exception as e:
+        logger.exception("漫画生成失败")
+        return _err("COMIC_GEN_FAILED", "漫画生成失败", str(e), details=traceback.format_exc())
+
+    if not result.success:
+        return _err("COMIC_GEN_FAILED", "漫画生成失败", result.error or "未知错误")
+
+    worker.update_task_progress(100, "完成")
+    data = result.data or {}
+    pdf_files = data.get("pdf_files") or []
+    output_dir_res = data.get("output_dir") or output_dir
+    summary = f"已生成 {len(pdf_files)} 个 PDF，输出目录: {output_dir_res}" if pdf_files else f"输出目录: {output_dir_res}"
+
+    return {
+        "status": "success",
+        "summary": summary,
+        "data": {
+            "output_dir": output_dir_res,
+            "pdf_files": pdf_files,
+            "log_preview": data.get("log_preview", ""),
+        },
+    }
+
+
+# 漫画默认模型：ANTHROPIC_MODEL > COMIC_DEFAULT_MODEL > 固定默认
+# 时间：2025-03-19；理由：TheTurbo 模型均不可用，改用百炼；方法：qwen3-max，需 make litellm-comic-proxy
+COMIC_DEFAULT_MODEL_FALLBACK = "qwen3-max"
+
+
+def get_comic_default_model() -> str:
+    """漫画生成默认 LLM 模型。优先级：ANTHROPIC_MODEL > COMIC_DEFAULT_MODEL > 固定默认。"""
+    return (
+        (os.environ.get("ANTHROPIC_MODEL") or "").strip()
+        or (os.environ.get("COMIC_DEFAULT_MODEL") or "").strip()
+        or COMIC_DEFAULT_MODEL_FALLBACK
+    )
+
+
 def register_default_handlers():
     """注册默认的任务处理器"""
     worker = get_task_worker()
@@ -2301,22 +2463,32 @@ def register_default_handlers():
     worker.register_handler("wiki_directory_refresh", process_wiki_directory_refresh_task)
     worker.register_handler("wechat_mp_draft", process_wechat_mp_draft_task)
     worker.register_handler("image_generation", process_image_generation_task)
+    worker.register_handler("comic", process_comic_task)
     logger.info(f"已注册 {len(worker.task_handlers)} 个任务处理器")
 
 
 def get_available_task_types() -> List[Dict[str, Any]]:
     """获取可用的任务类型列表（含 pipeline_outputs / metadata_schema 中的 pipeline_accept，供管道编排判断可链接性）"""
-    return [
-        {
+    result = []
+    for task_type, info in TASK_TYPES.items():
+        schema = info.get("metadata_schema") or {}
+        if task_type == "comic" and "llm_model" in schema:
+            default_model = get_comic_default_model()
+            schema = dict(schema)
+            enum_list = list(schema.get("llm_model", {}).get("enum") or [])
+            if enum_list and isinstance(enum_list[0], dict) and enum_list[0].get("value") == "":
+                enum_list[0] = {"value": "", "label": f"默认（{default_model}）"}
+                schema["llm_model"] = dict(schema["llm_model"])
+                schema["llm_model"]["enum"] = enum_list
+        result.append({
             "type": task_type,
             "name": info["name"],
             "description": info["description"],
-            "metadata_schema": info["metadata_schema"],
+            "metadata_schema": schema,
             "pipeline_outputs": info.get("pipeline_outputs"),
             "output_spec": info.get("output_spec"),
-        }
-        for task_type, info in TASK_TYPES.items()
-    ]
+        })
+    return result
 
 
 def get_task_type_info(task_type: str) -> Optional[Dict[str, Any]]:
@@ -2325,11 +2497,20 @@ def get_task_type_info(task_type: str) -> Optional[Dict[str, Any]]:
         return None
 
     info = TASK_TYPES[task_type]
+    schema = info.get("metadata_schema") or {}
+    if task_type == "comic" and "llm_model" in schema:
+        default_model = get_comic_default_model()
+        schema = dict(schema)
+        enum_list = list(schema.get("llm_model", {}).get("enum") or [])
+        if enum_list and isinstance(enum_list[0], dict) and enum_list[0].get("value") == "":
+            enum_list[0] = {"value": "", "label": f"默认（{default_model}）"}
+            schema["llm_model"] = dict(schema["llm_model"])
+            schema["llm_model"]["enum"] = enum_list
     return {
         "type": task_type,
         "name": info["name"],
         "description": info["description"],
-        "metadata_schema": info["metadata_schema"],
+        "metadata_schema": schema,
         "pipeline_outputs": info.get("pipeline_outputs"),
         "output_spec": info.get("output_spec"),
     }

@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 143
-- 前端 fetch 数: 132
+- 后端路由数: 145
+- 前端 fetch 数: 135
 
 ## 后端路由
 
@@ -84,6 +84,7 @@ GET /api/tests/statistics
 GET /api/tests/status
 GET /api/tools/list
 GET /api/version
+GET /api/wechat-mp/check
 GET /api/wechat-mp/cover-image
 GET /api/wechat-mp/drafts
 GET /api/wechat-mp/drafts/detail
@@ -128,6 +129,7 @@ POST /api/settings/writing-profile/learn-from-ratings
 POST /api/settings/writing-profile/rate-section
 POST /api/storage/audit/cleanup-tmp-dbs
 POST /api/task-queue/cleanup
+POST /api/task-queue/expand-prompt
 POST /api/task-queue/scheduled-tasks
 POST /api/task-queue/scheduled-tasks/{schedule_id}/run-now
 POST /api/task-queue/tasks
@@ -211,6 +213,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/system/disk
 - GET /api/system/disk-scan-report
 - GET /api/task-queue/cleanup
+- GET /api/task-queue/expand-prompt
 - GET /api/task-queue/scheduled-tasks
 - GET /api/task-queue/scheduled-tasks/${task.schedule_id}
 - GET /api/task-queue/scheduled-tasks/${task.schedule_id}/run-now
@@ -234,6 +237,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/tools/list
 - GET /api/version
 - GET /api/web-reader/summarize
+- GET /api/wechat-mp/check
 - GET /api/wechat-mp/drafts
 - GET /api/wechat-mp/drafts/detail
 - GET /api/wechat-mp/materials/images
@@ -267,6 +271,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/settings/writing-profile/rate-section
 - POST /api/storage/audit/cleanup-tmp-dbs
 - POST /api/task-queue/cleanup
+- POST /api/task-queue/expand-prompt
 - POST /api/task-queue/scheduled-tasks
 - POST /api/task-queue/scheduled-tasks/${task.schedule_id}/run-now
 - POST /api/task-queue/tasks

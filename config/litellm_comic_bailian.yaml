@@ -1,0 +1,33 @@
+# LiteLLM 代理配置：漫画生成使用百炼（DashScope）模型
+# 时间：2025-03-19；理由：baoyu-comic 依赖 Claude Agent SDK（Anthropic API），百炼为 OpenAI 兼容格式。
+# 方法：LiteLLM 代理将 Anthropic /v1/messages 请求转发到 DashScope。
+# 用法：litellm --config config/litellm_comic_bailian.yaml
+# 需：DASHSCOPE_API_KEY 或 BAILIAN_API_KEY 在 .env 中
+#
+# 漫画使用百炼时：ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_API_KEY=sk-any ANTHROPIC_MODEL=qwen3-max
+#
+# 时间：2025-03-19；理由：Claude Agent SDK 传 reasoning_effort/context_management，dashscope 不支持；方法：drop_params
+litellm_settings:
+  drop_params: true
+
+model_list:
+  - model_name: qwen3-max
+    litellm_params:
+      model: dashscope/qwen3-max
+      api_key: os.environ/DASHSCOPE_API_KEY
+  - model_name: qwen-plus-2025-12-01
+    litellm_params:
+      model: dashscope/qwen-plus-2025-12-01
+      api_key: os.environ/DASHSCOPE_API_KEY
+  - model_name: qwen-turbo-latest
+    litellm_params:
+      model: dashscope/qwen-turbo-latest
+      api_key: os.environ/DASHSCOPE_API_KEY
+  - model_name: deepseek-v3.2
+    litellm_params:
+      model: dashscope/deepseek-v3.2
+      api_key: os.environ/DASHSCOPE_API_KEY
+  - model_name: qwq-plus
+    litellm_params:
+      model: dashscope/qwq-plus
+      api_key: os.environ/DASHSCOPE_API_KEY

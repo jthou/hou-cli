@@ -153,6 +153,7 @@ export default function ArticleWriting() {
     else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
   }, [defaultModel, selectedModel, selectableModels])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [newSessionMenuOpen, setNewSessionMenuOpen] = useState(false)
   /** 摘要按版本存储：{ [revisionId|'current']: summary } */
   const [summaryPerVersion, setSummaryPerVersion] = useState({})
   const {
@@ -1343,21 +1344,48 @@ export default function ArticleWriting() {
             <>
               <div className="shrink-0 p-3 border-b border-border space-y-2">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleNewSession()}
-                    className="flex-1 py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium"
-                  >
-                    新建会话
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleNewSession('doc_coauthoring')}
-                    className="px-2 py-2 rounded-lg border border-border text-xs text-muted hover:text-fg hover:bg-white/5"
-                    title="新建会话并启用结构化文档协作流程（上下文收集→逐节精修→读者测试）"
-                  >
-                    结构化
-                  </button>
+                  <div className="flex-1 relative">
+                    <button
+                      type="button"
+                      onClick={() => setNewSessionMenuOpen((o) => !o)}
+                      className="w-full py-2.5 rounded-lg bg-accent hover:opacity-90 text-white text-sm font-medium flex items-center justify-center gap-1"
+                    >
+                      新建会话
+                      <span className="text-[10px] opacity-80">▾</span>
+                    </button>
+                    {newSessionMenuOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setNewSessionMenuOpen(false)}
+                          aria-hidden
+                        />
+                        <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] py-1 rounded-lg border border-border bg-surface shadow-lg">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleNewSession()
+                              setNewSessionMenuOpen(false)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-fg hover:bg-white/10"
+                          >
+                            自由写作
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleNewSession('doc_coauthoring')
+                              setNewSessionMenuOpen(false)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-fg hover:bg-white/10"
+                            title="上下文收集 → 逐节精修 → 读者测试"
+                          >
+                            协作写作（三阶段）
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setSidebarCollapsed(true)}

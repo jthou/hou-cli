@@ -62,6 +62,29 @@ def _fetch_outbound_ip() -> Optional[str]:
     return None
 
 
+@router.get("/wechat-mp/check")
+async def check_wechat_mp():
+    """校验公众号 API：token 获取 + 白名单。时间：2025-03-19；理由：打开对话框时立即检查，有问题在顶部出警告。"""
+    try:
+        client = _get_client()
+        # 轻量调用：获取草稿列表 count=1，验证 token 与 IP 白名单
+        client.get_draft_list(offset=0, count=1, no_content=1)
+        return {"success": True, "error": None}
+    except WeChatMPClientError as e:
+        msg = str(e)
+        hint = ""
+        if "40164" in msg or "whitelist" in msg.lower() or "invalid ip" in msg.lower():
+            hint = "请将本机出口 IP 加入微信公众平台白名单：mp.weixin.qq.com → 开发 → 基本配置 → IP 白名单"
+        elif "APP_ID" in msg or "APP_SECRET" in msg or "token" in msg.lower():
+            hint = "请配置 .env 中的 WECHAT_MP_APP_ID 和 WECHAT_MP_APP_SECRET"
+        return {"success": False, "error": msg, "hint": hint or None}
+    except HTTPException as e:
+        return {"success": False, "error": (e.detail or str(e)), "hint": "请配置 .env 中的 WECHAT_MP_APP_ID 和 WECHAT_MP_APP_SECRET"}
+    except Exception as e:
+        logger.exception("公众号 check 异常: %s", e)
+        return {"success": False, "error": str(e), "hint": None}
+
+
 @router.get("/wechat-mp/outbound-ip")
 async def get_outbound_ip():
     """返回本机出口 IP，供公众号 API IP 白名单配置时复制使用。"""

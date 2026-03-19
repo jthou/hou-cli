@@ -107,7 +107,7 @@ export default function TaskCard({
       )}
       {task.status === 'completed' && task.result != null && (
         <div className="p-3 bg-green-500/5 rounded-lg border border-green-500/20 mb-3">
-          <TaskResultDisplay taskType={task.task_type} result={task.result} />
+          <TaskResultDisplay taskType={task.task_type} result={task.result} taskId={task.task_id} />
         </div>
       )}
       {task.status === 'completed' && task.result == null && task.result_summary && (

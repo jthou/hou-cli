@@ -19,6 +19,7 @@ const navItems = [
   { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'task_tools' },
   { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'task_tools' },
   { path: '/image-generation', icon: '🖼️', label: '图片生成', group: 'task_tools' },
+  { path: '/comic-generation', icon: '📖', label: '漫画生成', group: 'task_tools' },
   { path: '/video-extract-audio', icon: '🎧', label: '音频提取', group: 'task_tools' },
   { path: '/speech-to-text', icon: '🎤', label: '字幕提取', group: 'task_tools' },
   { path: '/pdf-to-wiki', icon: '📄', label: 'PDF转Wiki', group: 'task_tools' },

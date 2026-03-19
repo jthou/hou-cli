@@ -237,14 +237,53 @@ def _get_vision_providers():
     return {"providers": providers, "default": env_default}
 
 
+# 漫画生成专用：TheTurbo.ai + 百炼（百炼需 LiteLLM 代理，见 config/litellm_comic_bailian.yaml）
+# 时间：2025-03-19；理由：用户要求支持百炼平台模型
+COMIC_MODELS_BY_PROVIDER = {
+    "theturbogateway": [
+        ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet"),
+        ("claude-3-5-haiku-20241022", "Claude 3.5 Haiku"),
+        ("claude-sonnet-4-20250514", "Claude Sonnet 4"),
+        ("claude-opus-4-20250514", "Claude Opus 4"),
+        ("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"),
+        ("claude-opus-4-5-20251101", "Claude Opus 4.5"),
+        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+        ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-5", "GPT-5"),
+    ],
+    "bailian": [
+        ("qwen3-max", "Qwen3 Max（百炼）"),
+        ("qwen-plus-2025-12-01", "Qwen Plus（百炼）"),
+        ("qwen-turbo-latest", "Qwen Turbo（百炼）"),
+        ("deepseek-v3.2", "DeepSeek V3.2（百炼）"),
+        ("qwq-plus", "QWQ Plus（百炼）"),
+    ],
+}
+
+
 @router.get("/models/selectable")
-async def get_selectable_models():
+async def get_selectable_models(context: str = None):
     """
     返回前端可选的模型列表，按供应商分组。
     - providers: [{ id, label, models: [{value, label}] }]，含各供应商可选模型列表
     - models: 扁平列表（向后兼容）
+    - context=comic: 仅返回漫画可用的 providers（TheTurbo.ai）
     """
     from backend.services.llm.model_registry import ModelRegistry
+
+    if context == "comic":
+        providers = []
+        for pid in ("theturbogateway", "bailian"):
+            models = COMIC_MODELS_BY_PROVIDER.get(pid, [])
+            if models:
+                providers.append({
+                    "id": pid,
+                    "label": PROVIDER_LABELS.get(pid, "百炼平台" if pid == "bailian" else pid),
+                    "models": [{"value": v, "label": lbl} for v, lbl in models],
+                })
+        default = os.getenv("ANTHROPIC_MODEL") or os.getenv("COMIC_DEFAULT_MODEL") or "claude-3-5-sonnet-20241022"
+        return {"success": True, "providers": providers, "models": [m for p in providers for m in p["models"]], "default_model": default}
 
     chat_model = os.getenv("CHAT_MODEL", "deepseek-chat")
     code_model = os.getenv("CODE_MODEL", "deepseek-coder")
@@ -292,7 +331,7 @@ async def get_selectable_models():
         "providers": providers,
         "vision_providers": vision_providers,
         "default_model": chat_model,
-        "article_writing_default_model": "qwen3-max",  # 写作助手固定默认
+        "article_writing_default_model": "qwen-max",  # 写作助手固定默认（时间：2025-03-17；理由：用户指定；可改为 qwen3-max）
     }
 
 

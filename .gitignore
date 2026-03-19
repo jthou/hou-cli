@@ -39,6 +39,7 @@ ENV/
 .env.local
 .env copy
 .env copy 2
+.baoyu-skills/.env
 
 # Logs
 *.log

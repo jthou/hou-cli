@@ -6,7 +6,10 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useToast } from '../ToastModal'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
+import PromptExpandStep from './PromptExpandStep'
+import ModelSelector from '../ModelSelector'
 import WikiTitlePreviewHint from './WikiTitlePreviewHint'
+import { useSelectableModels } from '../../hooks/useSelectableModels'
 import { getDefaultMetadata, getApiErrorMessage, getDateCategoryStrings } from './taskFormUtils'
 import { prepareMetadataForSubmitAsync } from '../../utils/mdToHtml'
 import { requestCookiesFromExtension } from '../../utils/extensionCookies'
@@ -37,7 +40,11 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
   const [linkableUpstreams, setLinkableUpstreams] = useState({ linkable_task_types: [], suggested_bindings: {} })
   const [dependsOnTaskId, setDependsOnTaskId] = useState('')
   const [inputBindings, setInputBindings] = useState({})
+  const [expandedPromptSource, setExpandedPromptSource] = useState('')
+  const [comicProviders, setComicProviders] = useState([])
+  const [comicDefaultModel, setComicDefaultModel] = useState('')
 
+  const { providers, defaultModel, loading: modelsLoading } = useSelectableModels()
   const effectiveTaskType = submitTaskType ?? taskType
   const typeInfo = taskTypes.find(t => t.type === taskType) || null
   const schema = typeInfo?.metadata_schema || {}
@@ -75,9 +82,26 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
         setInputSource('manual')
         setDependsOnTaskId('')
         setInputBindings({})
+        setExpandedPromptSource('')
       })
       .catch(() => setTaskTypes([]))
   }, [taskType, location.search])
+
+  useEffect(() => {
+    if (taskType !== 'comic') return
+    fetch('/api/models/selectable?context=comic')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.providers) {
+          setComicProviders(d.providers)
+          setComicDefaultModel(d.default_model || '')
+        } else {
+          setComicProviders([])
+          setComicDefaultModel('')
+        }
+      })
+      .catch(() => { setComicProviders([]); setComicDefaultModel('') })
+  }, [taskType])
 
   useEffect(() => {
     if (!supportsUpstream || !taskType) return
@@ -125,9 +149,15 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
         return
       }
     } else {
+      const promptOrSourceKey = (taskType === 'image_generation' || taskType === 'comic')
+        ? (taskType === 'image_generation' ? 'prompt' : 'source')
+        : null
       for (const [key, spec] of Object.entries(schema)) {
         if (spec?.required) {
-          const v = metadata[key]
+          let v = metadata[key]
+          if (key === promptOrSourceKey && promptOrSourceKey) {
+            v = (expandedPromptSource || v || '').trim() || v
+          }
           if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
             toast.warning(`请填写必填项: ${spec.description || key}`)
             return
@@ -139,6 +169,11 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
     setResult(null)
     try {
       let meta = { ...metadata }
+      if (taskType === 'image_generation' || taskType === 'comic') {
+        const fieldKey = taskType === 'image_generation' ? 'prompt' : 'source'
+        const effective = (expandedPromptSource || metadata[fieldKey] || '').trim()
+        if (effective) meta[fieldKey] = effective
+      }
       if (taskType === 'video_download' && metadata.cookies_from_extension) {
         const url = (metadata.url || '').trim().toLowerCase()
         const domain = url.includes('youtube.com') || url.includes('youtu.be') ? 'youtube.com'
@@ -264,17 +299,75 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
               ...(inputSource === 'from_task' ? ['input_file'] : []),
               ...(taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : []),
             ]}
+            customFieldRender={
+              (taskType === 'image_generation' || taskType === 'comic')
+                ? (fieldKey, { value, onChange, spec, required, label }) => {
+                    if (fieldKey === (taskType === 'image_generation' ? 'prompt' : 'source')) {
+                      return (
+                        <div key={fieldKey}>
+                          <label className="block text-sm text-muted mb-1">{label}{required ? ' *' : ''}</label>
+                          <div className="space-y-2">
+                            <textarea
+                              value={value ?? ''}
+                              onChange={e => onChange(e.target.value)}
+                              placeholder={spec?.placeholder || ''}
+                              rows={taskType === 'comic' ? 6 : 3}
+                              className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none resize-y"
+                              required={required}
+                            />
+                            <PromptExpandStep
+                              taskType={taskType}
+                              value={value ?? ''}
+                              expandedValue={expandedPromptSource}
+                              onExpandedChange={setExpandedPromptSource}
+                              providers={providers}
+                              defaultModel={defaultModel}
+                              loading={modelsLoading}
+                            />
+                          </div>
+                        </div>
+                      )
+                    }
+                    if (taskType === 'comic' && fieldKey === 'llm_model') {
+                      return (
+                        <div key={fieldKey}>
+                          <label className="block text-sm text-muted mb-1">{label}{required ? ' *' : ''}</label>
+                          <ModelSelector
+                            value={value || comicDefaultModel}
+                            onChange={onChange}
+                            providers={comicProviders}
+                            loading={comicProviders.length === 0}
+                            className="mt-1"
+                          />
+                        </div>
+                      )
+                    }
+                    return null
+                  }
+                : null
+            }
           />
           {taskType === 'video_download' && (
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!metadata.cookies_from_extension}
-                onChange={e => setMetadata(m => ({ ...m, cookies_from_extension: e.target.checked }))}
-                className="text-accent focus:ring-accent rounded"
-              />
-              <span className="text-sm text-muted">使用扩展获取 cookies（YouTube/Bilibili 需登录时勾选，需安装 Hou CLI 扩展）</span>
-            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!metadata.cookies_from_extension}
+                  onChange={e => setMetadata(m => ({ ...m, cookies_from_extension: e.target.checked }))}
+                  className="text-accent focus:ring-accent rounded"
+                />
+                <span className="text-sm text-muted">使用扩展获取 cookies（YouTube/Bilibili 需登录时勾选，需安装 Hou CLI 扩展）</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!metadata.no_check_certificate}
+                  onChange={e => setMetadata(m => ({ ...m, no_check_certificate: e.target.checked }))}
+                  className="text-accent focus:ring-accent rounded"
+                />
+                <span className="text-sm text-muted">跳过 SSL 证书校验（代理/VPN 下出现 SSL 错误时可勾选）</span>
+              </label>
+            </div>
           )}
           {taskType === 'mediawiki_write' && (
             <label className="flex items-center gap-2 cursor-pointer">

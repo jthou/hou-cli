@@ -1,0 +1,9 @@
+{
+  "name": "run-baoyu-comic",
+  "private": true,
+  "type": "module",
+  "description": "子进程调用 baoyu-comic，供 hou-cli comic skill 使用",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.70"
+  }
+}

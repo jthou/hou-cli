@@ -1,4 +1,4 @@
-.PHONY: stop test restart start start-backend build-web test-task-weather test-mediawiki migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
+.PHONY: stop test restart start start-backend build-web test-task-weather test-task-comic test-mediawiki litellm-comic-proxy migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
 
 # 默认目标：在项目根执行 make 时显示可用命令
 # 前端说明：源码在 frontend/react-app，构建产物在 frontend/web/dist。
@@ -13,8 +13,10 @@ help:
 	@echo "  make build-web        - 仅构建前端到 frontend/web/dist"
 	@echo "  make test             - 运行全部测试"
 	@echo "  make pre-check        - 验证第三方依赖（ffmpeg、yt-dlp、you-get、whisper，Python 包见 requirements.txt）"
-	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install + npm install）"
+	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip + 前端 npm + run_baoyu_comic npm）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
+	@echo "  make test-task-comic  - 漫画生成真实 API 测试（需 API key，约 5-10 分钟）"
+	@echo "  make litellm-comic-proxy - 启动 LiteLLM 代理（百炼漫画用，另开终端）"
 	@echo "  make test-mediawiki    - MediaWiki search-read 诊断（.env、连接、搜索）"
 	@echo "  make migrate          - 执行任务队列 DB 迁移（在 backend 下执行 alembic upgrade head，部署时手动跑）"
 	@echo "  make create-venv      - 用 Python 3.12 创建 venv（需 python3.12，如 brew install python@3.12）"
@@ -98,6 +100,19 @@ test-task-weather:
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
 	@bash -c "source $(VENV_ACTIVATE) && pytest backend/core/agent/tools/tests/test_weather_tool_integration.py::TestWeatherToolLiveEnv backend/infrastructure/execution/tests/test_task_handlers.py::TestWeatherQueryLiveEnv -v --tb=short"
 
+# 漫画生成真实 API 集成测试（需 ANTHROPIC/TURBOGATEWAY + DASHSCOPE 等图生 API，约 5-10 分钟）
+# 模型不可用时设置 COMIC_DEFAULT_MODEL=gemini-2.5-flash 等
+test-task-comic:
+	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
+	@PATH="/opt/homebrew/bin:/usr/local/bin:$$PATH" bash -c "source $(VENV_ACTIVATE) && pytest backend/infrastructure/execution/tests/test_task_handlers.py::TestComicLiveEnv -v --tb=short"
+
+# LiteLLM 代理：百炼漫画用，将 Anthropic 请求转发到 DashScope（需 DASHSCOPE_API_KEY 或 BAILIAN_API_KEY）
+# 另开终端运行，漫画选百炼模型时 ANTHROPIC_BASE_URL 指向 http://localhost:4000
+litellm-comic-proxy:
+	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
+	@bash -c "source $(VENV_ACTIVATE) && pip show litellm >/dev/null 2>&1 || pip install 'litellm[proxy]'"
+	@$(PYTHON) scripts/start_litellm_comic_proxy.py
+
 migrate:
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
 	@bash -c "source $(VENV_ACTIVATE) && cd backend && alembic upgrade head"
@@ -121,6 +136,7 @@ install-deps:
 	@$(PYTHON) -m pip install -r requirements.txt -q
 	@$(PYTHON) -m pip install -U yt-dlp -q
 	@test -d "frontend/react-app" && (cd frontend/react-app && npm install) || true
+	@test -d "scripts/run_baoyu_comic" && (cd scripts/run_baoyu_comic && npm install) || true
 	@echo "系统依赖安装完成"
 
 # 验证第三方依赖（ffmpeg 在 PATH；yt-dlp/you-get/whisper 来自 requirements.txt；google_search 用 DuckDuckGo）

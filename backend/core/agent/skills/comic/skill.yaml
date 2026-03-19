@@ -1,0 +1,36 @@
+# 漫画绘图技能配置 - 集成 baoyu-comic
+# 时间：2025-03-17；理由：用户要求先集成 baoyu；方法：子进程调用 baoyu-comic
+name: comic
+version: 1.0.0
+description: |
+  知识漫画生成器，基于 baoyu-comic。将文章或故事转化为分镜漫画。
+  适用于：知识漫画、教育漫画、传记漫画、教程漫画、Logicomix 风格漫画。
+  需配置 .baoyu-skills/.env 中至少一个图生 API key（如 DASHSCOPE_API_KEY）。
+category: content_generation
+priority: P2
+
+parameters:
+  - name: source
+    type: string
+    description: 源内容（Markdown 文件路径或直接文本）。若为路径需可访问。
+    required: true
+  - name: art
+    type: string
+    description: 画风。ligne-claire(默认), manga, realistic, ink-brush, chalk
+    required: false
+    default: ligne-claire
+    enum: [ligne-claire, manga, realistic, ink-brush, chalk]
+  - name: tone
+    type: string
+    description: 基调。neutral(默认), warm, dramatic, romantic, energetic, vintage, action
+    required: false
+    default: neutral
+    enum: [neutral, warm, dramatic, romantic, energetic, vintage, action]
+  - name: style
+    type: string
+    description: 预设。ohmsha(教程), wuxia(武侠), shoujo(少女)
+    required: false
+  - name: output_dir
+    type: string
+    description: 输出目录，默认 comic/{slug}/
+    required: false

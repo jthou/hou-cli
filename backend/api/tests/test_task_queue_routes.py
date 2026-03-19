@@ -11,7 +11,7 @@ from backend.infrastructure.storage.task_queue_db import (
     TaskPriority
 )
 from backend.infrastructure.execution.task_handlers import TASK_TYPES
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 
 @pytest.fixture
@@ -1094,3 +1094,48 @@ class TestTaskQueueIntegration:
         assert task["status"] == "completed"
         assert task.get("result", {}).get("status") == "success"
         assert "E2E Test" in (task.get("result") or {}).get("summary", "") or "output_dir" in str(task.get("result"))
+
+    def test_expand_prompt_comic_success(self, client):
+        """POST expand-prompt（comic）由 LLM 扩写，返回成功。时间：2025-03-18；理由：漫画页扩写为文章；方法：mock LLMService。"""
+        with patch("backend.services.llm.llm_service.LLMService") as mock_llm_cls:
+            mock_llm = mock_llm_cls.return_value
+            mock_llm.chat = AsyncMock(return_value="这是一段由 LLM 扩写后的完整故事。")
+            response = client.post(
+                "/api/task-queue/expand-prompt",
+                json={"task_type": "comic", "input": "一个小男孩遇见了一只龙"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("success") is True
+        assert "prompt" in data
+        assert "LLM" in data["prompt"] or "故事" in data["prompt"]
+
+    def test_expand_prompt_image_generation_success(self, client):
+        """POST expand-prompt（image_generation）由 LLM 生成提示词。"""
+        with patch("backend.services.llm.llm_service.LLMService") as mock_llm_cls:
+            mock_llm = mock_llm_cls.return_value
+            mock_llm.chat = AsyncMock(return_value="一只橘猫在阳光下打盹，写实风格，光线柔和。")
+            response = client.post(
+                "/api/task-queue/expand-prompt",
+                json={"task_type": "image_generation", "input": "橘猫"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("success") is True
+        assert "prompt" in data
+
+    def test_expand_prompt_empty_input_400(self, client):
+        """POST expand-prompt 空 input 返回 400"""
+        response = client.post(
+            "/api/task-queue/expand-prompt",
+            json={"task_type": "comic", "input": ""},
+        )
+        assert response.status_code == 400
+
+    def test_expand_prompt_invalid_task_type_400(self, client):
+        """POST expand-prompt 无效 task_type 返回 400"""
+        response = client.post(
+            "/api/task-queue/expand-prompt",
+            json={"task_type": "invalid", "input": "测试"},
+        )
+        assert response.status_code == 400

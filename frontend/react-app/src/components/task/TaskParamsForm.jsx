@@ -8,6 +8,7 @@ import TaskMetadataFormFields from './TaskMetadataFormFields'
 import WikiTitlePreviewHint from './WikiTitlePreviewHint'
 import WechatDraftEditor from '../WechatDraftEditor'
 import WechatOutboundIpHint from '../WechatOutboundIpHint'
+import WechatMpCheckBanner from '../WechatMpCheckBanner'
 import WechatMaterialImagePicker from '../WechatMaterialImagePicker'
 import { useToast } from '../ToastModal'
 import { formatWechatMpError } from '../../utils/wechatMpError'
@@ -249,6 +250,7 @@ export default function TaskParamsForm({
 
   return (
     <div className="space-y-4">
+      {taskType === 'wechat_mp_draft' && <WechatMpCheckBanner />}
       {schema && Object.keys(schema).length > 0 && (
         <TaskMetadataFormFields
           schema={schema}
@@ -354,15 +356,26 @@ export default function TaskParamsForm({
       {taskType === 'wechat_mp_draft' && <WechatOutboundIpHint />}
 
       {taskType === 'video_download' && (
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={!!metadata?.cookies_from_extension}
-            onChange={e => setMetadata(m => ({ ...m, cookies_from_extension: e.target.checked }))}
-            className="text-accent focus:ring-accent rounded"
-          />
-          <span className="text-sm text-muted">使用扩展获取 cookies（YouTube/Bilibili 需登录时勾选，需安装 Hou CLI 扩展）</span>
-        </label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!metadata?.cookies_from_extension}
+              onChange={e => setMetadata(m => ({ ...m, cookies_from_extension: e.target.checked }))}
+              className="text-accent focus:ring-accent rounded"
+            />
+            <span className="text-sm text-muted">使用扩展获取 cookies（YouTube/Bilibili 需登录时勾选，需安装 Hou CLI 扩展）</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!metadata?.no_check_certificate}
+              onChange={e => setMetadata(m => ({ ...m, no_check_certificate: e.target.checked }))}
+              className="text-accent focus:ring-accent rounded"
+            />
+            <span className="text-sm text-muted">跳过 SSL 证书校验（代理/VPN 下出现 SSL 错误时可勾选）</span>
+          </label>
+        </div>
       )}
 
       {taskType === 'mediawiki_write' && (

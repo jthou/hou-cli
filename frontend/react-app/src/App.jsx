@@ -10,6 +10,7 @@ import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
 import ImageGeneration from './pages/ImageGeneration'
+import ComicGeneration from './pages/ComicGeneration'
 import VideoExtractAudio from './pages/VideoExtractAudio'
 import SpeechToText from './pages/SpeechToText'
 import WeatherQuery from './pages/WeatherQuery'
@@ -59,6 +60,7 @@ export default function App() {
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />
               <Route path="/image-generation" element={<ImageGeneration />} />
+              <Route path="/comic-generation" element={<ComicGeneration />} />
               <Route path="/video-extract-audio" element={<VideoExtractAudio />} />
               <Route path="/speech-to-text" element={<SpeechToText />} />
               <Route path="/weather-query" element={<WeatherQuery />} />

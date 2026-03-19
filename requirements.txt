@@ -158,6 +158,10 @@ croniter>=2.0.0
 # 预提交钩子
 pre-commit>=3.5.0
 
+# ===== 百炼漫画（LiteLLM 代理，TheTurbo 模型不可用时必选） =====
+# 时间：2025-03-19；理由：TheTurbo 模型均不可用，漫画改用百炼；方法：make litellm-comic-proxy
+litellm[proxy]>=1.0.0
+
 # ===== 可选依赖 =====
 # 如果需要使用其他向量数据库，可以取消注释
 # faiss-cpu>=1.7.4  # Facebook AI Similarity Search

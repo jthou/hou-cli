@@ -45,6 +45,13 @@ class TaskPatchRequest(BaseModel):
     max_retries: Optional[int] = None  # >= 0
 
 
+class ExpandPromptRequest(BaseModel):
+    """生成提示词请求。时间：2025-03-18；理由：图片/漫画页在生成前增加步骤；方法：LLM 扩展用户输入。"""
+    task_type: str  # image_generation | comic
+    input: str  # 用户输入的简短描述或想法
+    model: Optional[str] = None  # 留空用 LLMService 默认；支持先选平台再选模型
+
+
 def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
     """根据任务类型和参数自动生成任务名称"""
     from datetime import datetime
@@ -379,10 +386,10 @@ def _validate_path_in_home(p: Path) -> bool:
 
 
 @router.get("/task-queue/tasks/{task_id}/output-file")
-async def stream_task_output_file(task_id: str):
+async def stream_task_output_file(task_id: str, file_index: Optional[int] = None):
     """
-    流式返回任务输出文件（视频/音频），供任务详情中的播放器使用。
-    仅支持 video_download、video_extract_audio、speech_to_text 等有 output_file 的任务。
+    流式返回任务输出文件（视频/音频/PDF），供任务详情中的播放器或预览使用。
+    支持 video_download、video_extract_audio、speech_to_text（output_file）、comic（pdf_files 需 file_index）。
     支持 8 位短 id。
     """
     try:
@@ -402,6 +409,11 @@ async def stream_task_output_file(task_id: str):
             raise HTTPException(status_code=400, detail="任务无 result")
         data = result.get("data") or {}
         out_file = data.get("output_file")
+        if task.get("task_type") == "comic" and file_index is not None:
+            pdf_files = data.get("pdf_files") or []
+            if not isinstance(pdf_files, list) or file_index < 0 or file_index >= len(pdf_files):
+                raise HTTPException(status_code=404, detail="任务无该 PDF 或索引超出范围")
+            out_file = pdf_files[file_index]
         if not out_file or not isinstance(out_file, str):
             raise HTTPException(status_code=404, detail="任务无 output_file")
         file_path = Path(out_file).expanduser().resolve()
@@ -857,6 +869,45 @@ def _sanitize_upload_filename(name: str) -> str:
     safe_stem = re.sub(r"[^\w\u4e00-\u9fff.\- ]", "_", stem)[:180] or "file"
     suffix = "_" + uuid.uuid4().hex[:8] if len(stem) > 160 else ""
     return safe_stem + suffix + (("." + ext) if ext else "")
+
+
+@router.post("/task-queue/expand-prompt")
+async def expand_prompt(request: ExpandPromptRequest):
+    """
+    将用户输入扩展为提示词。图片生成：短描述→详细图片提示词；漫画生成：简短想法→完整故事。
+    时间：2025-03-18；理由：生成前增加步骤，用户可编辑后再提交。
+    """
+    task_type = (request.task_type or "").strip()
+    user_input = (request.input or "").strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="input 不能为空")
+    if task_type not in ("image_generation", "comic"):
+        raise HTTPException(status_code=400, detail="task_type 须为 image_generation 或 comic")
+    try:
+        from backend.services.llm.llm_service import LLMService
+        llm = LLMService()
+        if (request.model or "").strip():
+            llm.set_model((request.model or "").strip())
+        if task_type == "image_generation":
+            sys_prompt = (
+                "你是图片提示词专家。将用户提供的简短描述扩展成适合文生图模型的详细提示词（50–200 字）。"
+                "包含：画面主体、风格、光线、氛围、构图。只输出提示词本身，不要解释。"
+            )
+        else:  # comic
+            sys_prompt = (
+                "你是故事创作专家。将用户提供的简短想法扩展成适合漫画改编的完整故事或文章（300–800 字）。"
+                "包含：开头、发展、结尾，适合分镜呈现。格式为 Markdown，可分段。只输出内容本身，不要解释。"
+            )
+        result = await llm.chat(system_prompt=sys_prompt, user_prompt=user_input)
+        prompt = (result or "").strip()
+        if not prompt:
+            raise HTTPException(status_code=500, detail="LLM 未返回有效内容")
+        return {"success": True, "prompt": prompt}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("expand-prompt 失败: %s", e)
+        raise HTTPException(status_code=500, detail=str(e) or "扩展失败")
 
 
 @router.post("/task-queue/upload-input-file")

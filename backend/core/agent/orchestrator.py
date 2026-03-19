@@ -1094,6 +1094,15 @@ class UnifiedOrchestrator:
                 logger.info(f"技能注册成功: {name}")
                 self.debug.log_orchestrator_step("技能注册", {"skill": name, "status": "success"})
 
+            # 导入并注册漫画技能（集成 baoyu-comic，时间：2025-03-17）
+            try:
+                from backend.core.agent.skills.comic.skill import ComicSkill
+                self.skill_registry.register(ComicSkill())
+                logger.info("技能注册成功: comic")
+                self.debug.log_orchestrator_step("技能注册", {"skill": "comic", "status": "success"})
+            except Exception as imp_e:
+                logger.warning(f"漫画技能导入失败，跳过: {imp_e}")
+
             # 导入并注册视频类技能（可能因依赖缺失而失败）
             try:
                 from backend.core.agent.skills.video_downloader import VideoDownloaderSkill

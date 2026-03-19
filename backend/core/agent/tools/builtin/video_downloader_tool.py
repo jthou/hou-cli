@@ -433,6 +433,10 @@ class YtDlpDownloader(DownloaderAdapter):
             ydl_opts: Dict[str, Any] = {
                 'outtmpl': outtmpl,
             }
+            # 时间：2025-03-17；理由：代理/VPN 下常见 SSL UNEXPECTED_EOF_WHILE_READING；方法：可选跳过证书校验
+            if options.get('no_check_certificate'):
+                ydl_opts['nocheckcertificate'] = True
+                logger.info("已启用 nocheckcertificate（跳过 SSL 证书校验），适用于代理/VPN 场景")
             
             # 处理 cookies（从浏览器提取的临时文件用后需清理）
             # 日志显示：YouTube 上 cookies + default 客户端易触发 PO Token/403；无 cookies + default,tv 可成功。
@@ -805,6 +809,46 @@ class YtDlpDownloader(DownloaderAdapter):
                     detailed_error = (
                         f"HTTP 404 错误（Not Found）\n"
                         f"视频不存在或已被删除。\n\n"
+                        f"原始错误: {error_msg}"
+                    )
+                    return DownloadResult(success=False, error=detailed_error)
+                elif 'SSL' in error_msg or 'UNEXPECTED_EOF_WHILE_READING' in error_msg or 'EOF occurred in violation of protocol' in error_msg:
+                    # 时间：2025-03-17；理由：代理/VPN 下常见 SSL 握手失败；方法：先尝试 nocheckcertificate 重试
+                    if not ydl_opts.get('nocheckcertificate'):
+                        logger.warning("检测到 SSL 错误，尝试使用 nocheckcertificate 重试...")
+                        retry_opts = ydl_opts.copy()
+                        retry_opts['nocheckcertificate'] = True
+                        _log_ytdlp_equiv_cmd(retry_opts, url)
+                        try:
+                            with yt_dlp.YoutubeDL(retry_opts) as ydl:
+                                info = ydl.extract_info(url, download=True)
+                                result_data = {
+                                    'tool': 'yt-dlp',
+                                    'output_dir': str(output_dir),
+                                    'title': info.get('title', ''),
+                                    'duration': info.get('duration'),
+                                    'uploader': info.get('uploader', ''),
+                                }
+                                if info:
+                                    try:
+                                        out_path = ydl.prepare_filename(info)
+                                        if out_path and not Path(out_path).is_absolute():
+                                            out_path = str((output_dir / out_path).resolve())
+                                        result_data['output_file'] = out_path
+                                    except Exception:
+                                        pass
+                                logger.info("SSL 错误重试（nocheckcertificate）成功")
+                                return DownloadResult(success=True, data=result_data)
+                        except Exception as retry_err:
+                            logger.warning(f"SSL 错误重试仍失败: {retry_err}")
+                    detailed_error = (
+                        f"SSL/TLS 连接错误\n"
+                        f"常见于代理、VPN 或网络不稳定导致 SSL 握手失败。\n\n"
+                        f"建议解决方案：\n"
+                        f"1. 关闭代理/VPN 后重试\n"
+                        f"2. 创建任务时勾选「跳过 SSL 证书校验」（no_check_certificate）\n"
+                        f"3. 更新 yt-dlp: pip install -U yt-dlp\n"
+                        f"4. 检查网络连接是否稳定\n\n"
                         f"原始错误: {error_msg}"
                     )
                     return DownloadResult(success=False, error=detailed_error)
@@ -1233,6 +1277,13 @@ class VideoDownloaderTool(Tool):
                 description="从浏览器提取 cookies。可选值：'chrome'、'firefox'、'safari'、'edge'。需要安装 browser_cookie3 库。",
                 required=False,
                 enum=["chrome", "firefox", "safari", "edge"]
+            ),
+            ToolParameter(
+                name="no_check_certificate",
+                type="boolean",
+                description="跳过 SSL 证书校验。适用于代理/VPN 下出现 SSL UNEXPECTED_EOF_WHILE_READING 等错误时。",
+                required=False,
+                default=False
             ),
         ]
         

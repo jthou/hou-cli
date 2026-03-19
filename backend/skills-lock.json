@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "baoyu-comic": {
+      "source": "JimLiu/baoyu-skills",
+      "sourceType": "github",
+      "computedHash": "1880fb88dae5eee85cbb1055e285ee800916ddd923e31b52f233089de53f830a"
+    }
+  }
+}

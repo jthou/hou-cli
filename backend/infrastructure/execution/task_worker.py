@@ -30,6 +30,7 @@ TASK_TIMEOUT_SECONDS = {
     "pdf_to_wiki": 60 * 60,          # 60 分钟（下载 + 拆分 + 转文字 + 翻译 + 写入）
     "wiki_directory_refresh": 5 * 60,  # 5 分钟（查任务 + 生成目录 + 写入）
     "image_generation": 2 * 60,        # 2 分钟（API 调用 + 保存）
+    "comic": 45 * 60,                  # 45 分钟（分镜 + 多格图生 + PDF 合并）
 }
 
 

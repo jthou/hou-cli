@@ -371,6 +371,54 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
     )
   }
 
+  if (taskType === 'comic' && result.data) {
+    const d = result.data
+    const pdfFiles = d.pdf_files || []
+    return (
+      <div className="space-y-2 text-muted">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.output_dir && <p><span className="text-muted">输出目录 </span><code className="text-cyan-300 break-all">{d.output_dir}</code></p>}
+        {pdfFiles.length > 0 && (
+          <div className="mt-2">
+            <p className="text-muted text-xs mb-1">PDF 文件（{pdfFiles.length} 个）</p>
+            <div className="space-y-2">
+              {pdfFiles.map((path, i) => {
+                const streamUrl = taskId ? `/api/task-queue/tasks/${taskId}/output-file?file_index=${i}` : null
+                const fileName = path.split(/[/\\]/).pop() || `comic-${i + 1}.pdf`
+                return (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {streamUrl && (
+                      <>
+                        <a href={streamUrl} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">预览</a>
+                        <a href={streamUrl} download={fileName} className="text-cyan-300 hover:underline">下载</a>
+                      </>
+                    )}
+                    <code className="text-cyan-300/80 break-all flex-1">{fileName}</code>
+                  </div>
+                )
+              })}
+            </div>
+            {taskId && pdfFiles.length > 0 && (
+              <div className="mt-3 rounded-lg overflow-hidden bg-black/20 border border-border">
+                <iframe
+                  src={`/api/task-queue/tasks/${taskId}/output-file?file_index=0`}
+                  title="漫画 PDF 预览"
+                  className="w-full h-[480px]"
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {d.log_preview && (
+          <details className="text-xs text-muted mt-2">
+            <summary>日志预览</summary>
+            <pre className="mt-1 p-2 bg-black/20 rounded overflow-x-auto max-h-32 overflow-y-auto whitespace-pre-wrap break-all">{d.log_preview}</pre>
+          </details>
+        )}
+      </div>
+    )
+  }
+
   if (taskType === 'mediawiki_write' && result.data) {
     const d = result.data
     const pageUrl = d.title ? getMediaWikiPageUrl(d.title) : ''

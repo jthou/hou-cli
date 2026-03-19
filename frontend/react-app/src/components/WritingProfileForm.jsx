@@ -38,6 +38,8 @@ const WritingProfileForm = forwardRef(function WritingProfileForm({
   const [preferences, setPreferences] = useState([])
   const [styleNotes, setStyleNotes] = useState('')
   const [sampleArticles, setSampleArticles] = useState([])
+  const [writingConstraints, setWritingConstraints] = useState([])
+  const [extraRest, setExtraRest] = useState({}) // 保留 extra 中非 writing_constraints 的键
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -57,6 +59,11 @@ const WritingProfileForm = forwardRef(function WritingProfileForm({
       setPreferences(p.preferences || [])
       setStyleNotes(p.style_notes || '')
       setSampleArticles(p.sample_articles || [])
+      const ex = p.extra || {}
+      const constraints = ex.writing_constraints
+      setWritingConstraints(Array.isArray(constraints) ? constraints : (typeof constraints === 'string' && constraints ? [constraints] : []))
+      const { writing_constraints: _, ...rest } = ex
+      setExtraRest(rest)
       onLoad?.(json.profile)
     } catch (e) {
       setError(e.message || String(e))
@@ -80,7 +87,7 @@ const WritingProfileForm = forwardRef(function WritingProfileForm({
           preferences,
           style_notes: styleNotes,
           sample_articles: sampleArticles,
-          extra: {},
+          extra: { ...extraRest, writing_constraints: writingConstraints.filter(Boolean) },
         }),
       })
       const ct = res.headers.get('content-type') || ''
@@ -104,6 +111,14 @@ const WritingProfileForm = forwardRef(function WritingProfileForm({
     load,
   }), [handleSave, load])
 
+  const addConstraint = () => setWritingConstraints((prev) => [...prev, ''])
+  const removeConstraint = (i) => setWritingConstraints((prev) => prev.filter((_, idx) => idx !== i))
+  const updateConstraint = (i, v) =>
+    setWritingConstraints((prev) => {
+      const next = [...prev]
+      next[i] = v
+      return next
+    })
   const addPreference = () => setPreferences((prev) => [...prev, ''])
   const removePreference = (i) => setPreferences((prev) => prev.filter((_, idx) => idx !== i))
   const updatePreference = (i, v) =>
@@ -143,6 +158,41 @@ const WritingProfileForm = forwardRef(function WritingProfileForm({
           配置文件：<code className="break-all">{profilePath}</code>
         </p>
       )}
+
+      <section className="space-y-2">
+        <h3 className={LABEL_CLASS}>写文约束（必须遵守）</h3>
+        <p className="text-[11px] text-muted mb-1.5">
+          改写时需遵守的硬性约束，如：严格沿用户思路、不擅自扩展、不堆砌
+        </p>
+        <ul className="space-y-2.5">
+          {writingConstraints.map((c, i) => (
+            <li key={i} className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={c}
+                onChange={(e) => updateConstraint(i, e.target.value)}
+                placeholder={`约束 ${i + 1}`}
+                className={`${INPUT_CLASS} flex-1 min-w-0`}
+              />
+              <button
+                type="button"
+                onClick={() => removeConstraint(i)}
+                className="px-2 py-1 text-xs rounded border border-border text-muted hover:bg-white/10 shrink-0"
+                title="删除"
+              >
+                删除
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={addConstraint}
+          className="mt-1.5 px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+        >
+          + 添加约束
+        </button>
+      </section>
 
       <section className="space-y-2">
         <h3 className={LABEL_CLASS}>用户喜好</h3>

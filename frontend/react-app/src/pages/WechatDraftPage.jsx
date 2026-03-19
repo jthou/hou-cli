@@ -9,6 +9,7 @@ import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
 import HtmlPreview from '../components/HtmlPreview'
 import WechatDraftEditor from '../components/WechatDraftEditor'
 import WechatOutboundIpHint from '../components/WechatOutboundIpHint'
+import WechatMpCheckBanner from '../components/WechatMpCheckBanner'
 import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
 import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
@@ -375,6 +376,7 @@ export default function WechatDraftPage() {
             </div>
             <form onSubmit={handleFormSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+              <WechatMpCheckBanner />
               <WechatOutboundIpHint />
               <TaskMetadataFormFields
                 schema={schema}
