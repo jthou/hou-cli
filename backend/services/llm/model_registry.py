@@ -144,10 +144,24 @@ class ModelRegistry:
         "qwen-mt-turbo",
         "qwen-mt-lite",
         "qwen-mt-image",
-        # 通义千问 图像生成系列
+        # 通义千问 图像生成系列（官方模型列表，时间：2025-03）
+        "qwen-image-2.0",
+        "qwen-image-2.0-pro",
+        "qwen-image-max",
+        "qwen-image-plus",
+        "qwen-image-edit-max",
+        "qwen-image-edit-plus",
         "qwen-image-max-2025-12-30",
         "qwen-image-plus-2026-01-09",
         "qwen-image-edit-plus-2025-12-15",
+        # 通义万相 / 其他图像模型
+        "z-image-turbo",
+        "wan-t2i",
+        "ai试衣-plus版",  # AI试衣-Plus版
+        "ai试衣-基础版",  # AI试衣-基础版
+        "flux-schnell",
+        "flux-dev",
+        "flux-merged",
         # 通义万相系列
         "wan2.6-t2v",  # 文生视频
         "wan2.6-i2v",  # 图生视频

@@ -19,6 +19,7 @@ from backend.infrastructure.execution.task_handlers import (
     process_web_search_task,
     process_speech_to_text_task,
     process_image_generation_task,
+    process_comic_task,
     validate_task_creation,
     get_available_task_types,
     get_linkable_upstream_types,
@@ -403,6 +404,18 @@ class TestValidateTaskCreation:
         assert ok is True
         assert err is None
 
+    def test_validate_comic_source_required(self):
+        """comic 任务：source 必填"""
+        ok, err = validate_task_creation("comic", {})
+        assert ok is False
+        assert "source" in (err or "")
+
+    def test_validate_comic_source_ok(self):
+        """comic 任务：source 填写时通过"""
+        ok, err = validate_task_creation("comic", {"source": "hello world"})
+        assert ok is True
+        assert err is None
+
 
 class TestImageGenerationHandler:
     """图片生成任务处理器"""
@@ -473,6 +486,105 @@ class TestImageGenerationHandler:
             out = await process_image_generation_task({
                 "task_id": "t1", "task_type": "image_generation",
                 "metadata": {"prompt": "一只猫", "output_dir": outside_home},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "OUTPUT_PATH_DENIED"
+
+    @pytest.mark.asyncio
+    async def test_image_generation_with_bailian_model_passes_to_service(self):
+        """metadata 含 model（如 Qwen-Image-2.0）时正确传给 ImageGenService"""
+        mock_result = {
+            "images": ["data:image/png;base64,xxx"],
+            "output_file": str(Path.home() / "hou-cli" / "outputs" / "images" / "gen_0.png"),
+            "output_dir": str(Path.home() / "hou-cli" / "outputs" / "images"),
+            "prompt": "一只猫",
+        }
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            with patch(
+                "backend.services.llm.image_gen_service.ImageGenService"
+            ) as MockSvc:
+                mock_svc = MagicMock()
+                mock_svc.generate = AsyncMock(return_value=mock_result)
+                MockSvc.return_value = mock_svc
+                out = await process_image_generation_task({
+                    "task_id": "t1", "task_type": "image_generation",
+                    "metadata": {"prompt": "一只猫", "model": "Qwen-Image-2.0"},
+                })
+        assert out["status"] == "success"
+        mock_svc.generate.assert_called_once()
+        call_kwargs = mock_svc.generate.call_args[1]
+        assert call_kwargs.get("model") == "Qwen-Image-2.0"
+
+    def test_image_generation_metadata_schema_includes_bailian_models(self):
+        """image_generation metadata_schema 包含百炼平台模型列表"""
+        types = get_available_task_types()
+        ig = next((t for t in types if t["type"] == "image_generation"), None)
+        assert ig is not None
+        schema = ig.get("metadata_schema") or {}
+        model_field = schema.get("model")
+        assert model_field is not None
+        enum = model_field.get("enum") or []
+        values = [e.get("value") for e in enum if e.get("value")]
+        assert "Qwen-Image-2.0" in values
+        assert "Qwen-Image-2.0-Pro" in values
+        assert "Z-Image-Turbo" in values
+        assert "Wan-T2I" in values
+        assert "wan2.6-t2i" in values
+        assert model_field.get("default") == "Qwen-Image-2.0"
+
+
+class TestComicHandler:
+    """漫画生成任务处理器"""
+
+    @pytest.mark.asyncio
+    async def test_comic_missing_source_returns_error_struct(self):
+        """缺 source 时返回 SOURCE_REQUIRED"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_comic_task({
+                "task_id": "t1", "task_type": "comic", "metadata": {},
+            })
+        assert out["status"] == "error"
+        assert out.get("error", {}).get("code") == "SOURCE_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_comic_mock_success_return_shape(self):
+        """mock ComicSkill 成功时返回 status/summary/data（output_dir、pdf_files）"""
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.data = {
+            "output_dir": str(Path.home() / "hou-cli" / "outputs" / "comic"),
+            "pdf_files": ["/path/to/comic.pdf"],
+            "log_preview": "log...",
+        }
+        mock_result.error = None
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            with patch(
+                "backend.core.agent.skills.comic.skill.ComicSkill"
+            ) as MockSkill:
+                mock_skill = MagicMock()
+                mock_skill.execute = AsyncMock(return_value=mock_result)
+                MockSkill.return_value = mock_skill
+                out = await process_comic_task({
+                    "task_id": "t1", "task_type": "comic",
+                    "metadata": {"source": "hello world"},
+                })
+        assert out["status"] == "success"
+        assert "summary" in out
+        assert "data" in out
+        assert out["data"]["output_dir"] == mock_result.data["output_dir"]
+        assert out["data"]["pdf_files"] == mock_result.data["pdf_files"]
+
+    @pytest.mark.asyncio
+    async def test_comic_output_dir_outside_home_returns_error(self):
+        """output_dir 在主目录外时返回 OUTPUT_PATH_DENIED"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+            out = await process_comic_task({
+                "task_id": "t1", "task_type": "comic",
+                "metadata": {"source": "hello", "output_dir": "/etc"},
             })
         assert out["status"] == "error"
         assert out.get("error", {}).get("code") == "OUTPUT_PATH_DENIED"
@@ -730,3 +842,104 @@ class TestWeatherQueryLiveEnv:
         assert out["status"] == "success"
         assert "result" in out
         assert "daily" in out["result"] and isinstance(out["result"].get("daily"), list)
+
+
+class TestComicLiveEnv:
+    """漫画生成真实 API 集成测试。需 ANTHROPIC_API_KEY 或 TURBOGATEWAY_API_KEY，及 .baoyu-skills/.env 中图生 API（DASHSCOPE_API_KEY 等）。
+    时间：2025-03-19；理由：用户要求用真实 API 验证漫画生成，mock 无法发现实际失败原因。
+    """
+
+    def _skip_if_no_comic_env(self):
+        """检查并加载 .env：与 skill 一致，支持项目根 .env 及 .baoyu-skills/.env"""
+        project_root = Path(__file__).resolve().parents[4]
+        from shared.load_env import load_env
+        load_env(project_root)
+        env_paths = [
+            project_root / ".env",
+            project_root / ".baoyu-skills" / ".env",
+            Path.home() / ".baoyu-skills" / ".env",
+        ]
+
+        def _load_env_into_os(paths):
+            for p in paths:
+                if p.exists():
+                    try:
+                        for line in p.read_text(encoding="utf-8").splitlines():
+                            line = line.strip()
+                            if line and not line.startswith("#") and "=" in line:
+                                k, v = line.split("=", 1)
+                                k, v = k.strip(), v.strip()
+                                if k and v and not os.getenv(k):
+                                    os.environ[k] = v
+                    except Exception:
+                        pass
+
+        _load_env_into_os(env_paths)
+
+        has_llm = bool(
+            os.getenv("ANTHROPIC_API_KEY") or os.getenv("TURBOGATEWAY_API_KEY")
+            or os.getenv("DASHSCOPE_API_KEY") or os.getenv("BAILIAN_API_KEY")
+        )
+        if not has_llm:
+            pytest.skip("需要 LLM API：ANTHROPIC/TURBOGATEWAY 或 DASHSCOPE/BAILIAN（百炼需另开终端 make litellm-comic-proxy）")
+
+        img_keys = ("DASHSCOPE_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "BAILIAN_API_KEY")
+        has_image = any(os.getenv(k) for k in img_keys)
+        if not has_image:
+            pytest.skip("需要图生 API：在 .env 或 .baoyu-skills/.env 中配置 DASHSCOPE_API_KEY 等")
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_process_comic_task_live_generates_pdf(self):
+        """真实 API 调用：生成漫画并断言 PDF 存在。使用 /api/models/selectable?context=comic 的模型列表依次尝试。"""
+        self._skip_if_no_comic_env()
+        from backend.api.model_config_routes import COMIC_MODELS_BY_PROVIDER
+
+        output_dir = Path.home() / "hou-cli" / "outputs" / "comic" / "test_live"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        source = """艾伦·图灵（1912-1956）是英国数学家、计算机科学之父。他提出了图灵机概念，奠定了可计算理论的基础。二战期间，他破解了德军密码，为盟军胜利做出重要贡献。"""
+        # 模型列表：优先 COMIC_DEFAULT_MODEL；否则百炼优先（TheTurbo 模型均不可用，时间：2025-03-19）
+        default = (os.getenv("COMIC_DEFAULT_MODEL") or os.getenv("ANTHROPIC_MODEL") or "").strip()
+        if default:
+            models_to_try = [default]
+        else:
+            models_to_try = [v for v, _ in COMIC_MODELS_BY_PROVIDER.get("bailian", [])]
+            models_to_try += [v for v, _ in COMIC_MODELS_BY_PROVIDER.get("theturbogateway", [])]
+
+        last_err = None
+        for llm_model in models_to_try:
+            llm_model = (llm_model or "").strip() or None
+            task_info = {
+                "task_id": "comic-live-1",
+                "task_type": "comic",
+                "task_name": "漫画",
+                "metadata": {
+                    "source": source,
+                    "art": "ligne-claire",
+                    "tone": "neutral",
+                    "output_dir": str(output_dir),
+                    "llm_model": llm_model,
+                },
+            }
+            with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+                m_worker.return_value.update_task_progress = MagicMock()
+                out = await process_comic_task(task_info)
+            if out["status"] == "success":
+                break
+            last_err = out.get("error", out)
+            if "model" in str(last_err).lower() and "not exist" in str(last_err).lower():
+                continue
+            break
+        assert out["status"] == "success", (
+            f"漫画生成失败（已尝试 {len(models_to_try)} 个模型）: {last_err}\n"
+            f"输出目录: {output_dir}\n"
+            "若用百炼模型，需另开终端执行: make litellm-comic-proxy"
+        )
+        assert "data" in out
+        pdf_files = out["data"].get("pdf_files") or []
+        assert len(pdf_files) >= 1, (
+            f"未生成 PDF，data={out.get('data')}\n"
+            f"输出目录: {output_dir}（成功时 PDF 会在此）"
+        )
+        for p in pdf_files:
+            assert Path(p).exists(), f"PDF 文件不存在: {p}"

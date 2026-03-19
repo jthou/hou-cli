@@ -53,10 +53,12 @@ class ImageGenService:
         else:
             api_base = base_url.rstrip("/").rsplit("/", 1)[0] if "/" in base_url else base_url
 
+        # 时间：2025-03；理由：百炼 API 报 Model not exist；方法：API 要求小写模型 ID，如 qwen-image-2.0
+        api_model = actual_model.lower() if isinstance(actual_model, str) else actual_model
         return {
             "api_key": api_key,
             "api_url": f"{api_base}{BAILIAN_IMAGE_API_PATH}",
-            "model": actual_model,
+            "model": api_model,
         }
 
     async def generate(
@@ -107,12 +109,12 @@ class ImageGenService:
                 "size": size,
                 "n": n,
                 "watermark": False,
+                "stream": True,  # 时间：2025-03；理由：百炼 API 报 stream=False is not supported；方法：显式传 stream=True
             },
         }
         # wan2.6-image 图文混排模式可做文生图
         if actual_model == "wan2.6-image":
             body["parameters"]["enable_interleave"] = True
-            body["parameters"]["stream"] = False
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
