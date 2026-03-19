@@ -806,6 +806,29 @@ TASK_TYPES = {
                 ],
                 "default": "add"
             },
+            "media_id": {
+                "type": "string",
+                "required": False,
+                "description": "要更新的草稿（从当前草稿列表选择，operation=update 时必填，无需手动填写）",
+                "placeholder": ""
+            },
+            "thumb_media_id": {
+                "type": "string",
+                "required": False,
+                "description": "封面图素材 media_id（新增草稿时必填，需先通过上传图文消息内图片接口获取）",
+                "placeholder": "永久素材 media_id"
+            },
+            "digest": {
+                "type": "string",
+                "required": False,
+                "description": "摘要（不超过 120 字，超限接口报 45004）"
+            },
+            "content_source_url": {
+                "type": "string",
+                "required": False,
+                "description": "阅读原文链接",
+                "placeholder": "https://..."
+            },
             "title": {
                 "type": "string",
                 "required": True,
@@ -822,29 +845,6 @@ TASK_TYPES = {
                 "type": "string",
                 "required": False,
                 "description": "作者（不超过 16 字）"
-            },
-            "digest": {
-                "type": "string",
-                "required": False,
-                "description": "摘要（不超过 120 字，超限接口报 45004）"
-            },
-            "thumb_media_id": {
-                "type": "string",
-                "required": False,
-                "description": "封面图素材 media_id（新增草稿时必填，需先通过上传图文消息内图片接口获取）",
-                "placeholder": "永久素材 media_id"
-            },
-            "content_source_url": {
-                "type": "string",
-                "required": False,
-                "description": "阅读原文链接",
-                "placeholder": "https://..."
-            },
-            "media_id": {
-                "type": "string",
-                "required": False,
-                "description": "要更新的草稿（从当前草稿列表选择，operation=update 时必填，无需手动填写）",
-                "placeholder": ""
             },
         }
     },

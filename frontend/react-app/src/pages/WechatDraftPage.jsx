@@ -4,13 +4,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/ToastModal'
 import PageHeader from '../components/PageHeader'
-import { formatWechatMpError } from '../utils/wechatMpError'
-import TaskMetadataFormFields from '../components/task/TaskMetadataFormFields'
+import TaskParamsForm from '../components/task/TaskParamsForm'
 import HtmlPreview from '../components/HtmlPreview'
-import WechatDraftEditor from '../components/WechatDraftEditor'
-import WechatOutboundIpHint from '../components/WechatOutboundIpHint'
-import WechatMpCheckBanner from '../components/WechatMpCheckBanner'
-import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
 import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
@@ -44,7 +39,6 @@ export default function WechatDraftPage() {
   const [formModalMode, setFormModalMode] = useState(null)
   const [formMetadata, setFormMetadata] = useState({})
   const [formSubmitting, setFormSubmitting] = useState(false)
-  const [coverUploading, setCoverUploading] = useState(false)
 
   const loadDrafts = useCallback(async () => {
     setDraftsLoading(true)
@@ -376,114 +370,14 @@ export default function WechatDraftPage() {
             </div>
             <form onSubmit={handleFormSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
-              <WechatMpCheckBanner />
-              <WechatOutboundIpHint />
-              <TaskMetadataFormFields
-                schema={schema}
-                metadata={formMetadata}
-                setMetadata={setFormMetadata}
-                fieldIdPrefix="wechat-draft-form"
-                customFieldRender={(fieldKey, { value, onChange }) => {
-                  if (fieldKey === 'content')
-                    return (
-                      <WechatDraftEditor
-                        value={value ?? ''}
-                        onChange={onChange}
-                        placeholder="支持 **加粗**、# 标题、列表、[链接](url)、![图片](url)"
-                      />
-                    )
-                  if (fieldKey === 'media_id' && formModalMode === 'update') {
-                    const mid = (formMetadata?.media_id ?? value ?? '').toString().trim()
-                    const title = (formMetadata?.title ?? '').toString().trim()
-                    if (!mid) return null
-                    return (
-                      <div className="space-y-1">
-                        <label className="block text-sm text-muted">要更新的草稿</label>
-                        <p className="text-sm text-white py-2 px-3 rounded-lg bg-white/5 border border-border">
-                          {title ? <span className="font-medium">{title}</span> : null}
-                          {title && mid ? ' · ' : null}
-                          <code className="text-cyan-300 text-xs break-all">{mid}</code>
-                        </p>
-                        <p className="text-xs text-muted">media_id 来自当前选中的草稿</p>
-                      </div>
-                    )
-                  }
-                  if (fieldKey === 'digest') {
-                    const DIGEST_MAX = 120
-                    const text = (formMetadata?.digest ?? value ?? '').toString()
-                    const len = text.length
-                    const over = len > DIGEST_MAX
-                    return (
-                      <div className="space-y-1">
-                        <label className="block text-sm text-muted mb-1">摘要（不超过 120 字，超限接口报 45004）</label>
-                        <textarea
-                          value={text}
-                          onChange={(e) => setFormMetadata((m) => ({ ...m, digest: e.target.value }))}
-                          placeholder="选填，不超过 120 字"
-                          rows={3}
-                          className="w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none resize-y min-h-[72px]"
-                        />
-                        <div className="text-xs">
-                          <span className={over ? 'text-amber-400' : 'text-muted'}>
-                            {len} / {DIGEST_MAX} 字
-                            {over && ' · 超过 120 字，接口可能报 45004'}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  }
-                  return null
-                }}
-              />
-              <div>
-                <label className="block text-sm text-muted mb-1">封面{formModalMode === 'add' ? ' *' : ''}</label>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  className="w-full text-sm text-muted file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-accent file:text-white file:cursor-pointer"
-                  disabled={coverUploading}
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    setCoverUploading(true)
-                    try {
-                      const data = await WECHAT_MP_API.uploadCover(file)
-                      if (data.success && data.media_id) {
-                        setFormMetadata((m) => ({ ...m, thumb_media_id: data.media_id }))
-                        toast.info('封面上传成功')
-                      } else throw new Error(data.detail || '上传失败')
-                    } catch (err) {
-                      toast.error(formatWechatMpError('封面上传失败', err))
-                    }
-                    setCoverUploading(false)
-                    e.target.value = ''
-                  }}
+                <TaskParamsForm
+                  taskType="wechat_mp_draft"
+                  schema={schema}
+                  metadata={formMetadata}
+                  setMetadata={setFormMetadata}
+                  fieldIdPrefix="wechat-draft-form"
+                  onCoverUpload={(file) => WECHAT_MP_API.uploadCover(file)}
                 />
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  <WechatMaterialImagePicker onSelect={(mediaId) => setFormMetadata((m) => ({ ...m, thumb_media_id: mediaId }))} />
-                  <span className="text-xs text-muted">或填写 media_id：</span>
-                  <input
-                    type="text"
-                    value={formMetadata?.thumb_media_id ?? ''}
-                    onChange={e => setFormMetadata((m) => ({ ...m, thumb_media_id: e.target.value.trim() || undefined }))}
-                    placeholder="粘贴 media_id"
-                    className="flex-1 min-w-[120px] px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none text-sm"
-                  />
-                </div>
-                {formMetadata.thumb_media_id && (
-                  <div className="mt-2 flex items-start gap-3">
-                    <img
-                      src={`/api/wechat-mp/cover-image?media_id=${encodeURIComponent(formMetadata.thumb_media_id)}`}
-                      alt="封面预览"
-                      className="w-20 h-20 object-cover rounded border border-border shrink-0"
-                    />
-                    <p className="text-xs text-green-400/90 pt-1">
-                      封面 media_id: {formMetadata.thumb_media_id}
-                    </p>
-                  </div>
-                )}
-                <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG，WebP 自动转 PNG；≤2MB；也可直接填已有素材的 media_id{formModalMode === 'update' ? '，可重新上传替换' : ''}</p>
-              </div>
               </div>
               <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">
                 <button

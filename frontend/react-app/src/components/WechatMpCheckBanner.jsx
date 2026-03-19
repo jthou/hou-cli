@@ -15,15 +15,24 @@ export default function WechatMpCheckBanner() {
     setError(null)
     setHint(null)
     fetch('/api/wechat-mp/check')
-      .then((r) => r.json())
-      .then((data) => {
+      .then(async (r) => {
+        let data
+        try {
+          data = await r.json()
+        } catch {
+          data = {}
+        }
+        return { ok: r.ok, status: r.status, data }
+      })
+      .then(({ ok, status, data }) => {
         if (cancelled) return
-        if (data.success) {
+        if (ok && data?.success) {
           setStatus('ok')
         } else {
           setStatus('error')
-          setError(data.error || '未知错误')
-          setHint(data.hint || null)
+          const errMsg = data?.error || data?.detail || data?.message || (ok ? '未知错误' : `请求失败 (${status})`)
+          setError(errMsg)
+          setHint(data?.hint || null)
         }
       })
       .catch((err) => {

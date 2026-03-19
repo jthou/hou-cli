@@ -3,7 +3,7 @@
  * 含：schema 驱动的 TaskMetadataFormFields、公众号草稿正文+封面上传、MediaWiki 选项、Wiki 分类提示等。
  * 更新草稿时：media_id 用草稿列表选择，而非手输。
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import TaskMetadataFormFields from './TaskMetadataFormFields'
 import WikiTitlePreviewHint from './WikiTitlePreviewHint'
 import WechatDraftEditor from '../WechatDraftEditor'
@@ -74,6 +74,8 @@ export default function TaskParamsForm({
   onMaxRetriesChange,
   // 公众号草稿：封面上传回调 (file) => Promise<{ success, media_id? }>
   onCoverUpload,
+  // 写作助手封面 step3 上传后递增，触发已有素材刷新（时间：2025-03-19；理由：生成的封面上传后应在已有素材中显示）
+  materialsRefreshTrigger,
   // 写作助手场景：各字段旁的生成按钮 { title?: ReactNode, digest?: ReactNode }；封面前的三步流程 coverBeforeContent
   fieldActions,
   coverBeforeContent,
@@ -90,10 +92,10 @@ export default function TaskParamsForm({
   const isWechatDraft = taskType === 'wechat_mp_draft' && (metadata?.operation === 'add' || !metadata?.operation)
   const isWechatUpdate = taskType === 'wechat_mp_draft' && metadata?.operation === 'update'
 
-  useEffect(() => {
-    if (!isWechatDraft) return
+  const loadMaterials = useCallback(() => {
+    if (taskType !== 'wechat_mp_draft') return
     setMaterialsLoading(true)
-    fetch('/api/wechat-mp/materials/images?offset=0&count=12')
+    fetch('/api/wechat-mp/materials/images?offset=0&count=20')
       .then((r) => r.json())
       .then((d) => {
         if (d?.success && Array.isArray(d?.item)) setMaterialItems(d.item)
@@ -101,7 +103,15 @@ export default function TaskParamsForm({
       })
       .catch(() => setMaterialItems([]))
       .finally(() => setMaterialsLoading(false))
-  }, [isWechatDraft])
+  }, [taskType])
+
+  useEffect(() => {
+    loadMaterials()
+  }, [loadMaterials])
+
+  useEffect(() => {
+    if (materialsRefreshTrigger > 0) loadMaterials()
+  }, [materialsRefreshTrigger, loadMaterials])
 
   useEffect(() => {
     if (!isWechatUpdate) return
@@ -248,24 +258,16 @@ export default function TaskParamsForm({
     return null
   }
 
+  const wechatFieldsToHide = taskType === 'wechat_mp_draft'
+    ? ['thumb_media_id', ...(metadata?.operation === 'add' || !metadata?.operation ? ['media_id'] : [])]
+    : []
+  const effectiveFieldsToHide = fieldsToHide ?? (taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : [])
+  const mergedFieldsToHide = [...wechatFieldsToHide, ...(Array.isArray(effectiveFieldsToHide) ? effectiveFieldsToHide : [])]
+
   return (
     <div className="space-y-4">
       {taskType === 'wechat_mp_draft' && <WechatMpCheckBanner />}
-      {schema && Object.keys(schema).length > 0 && (
-        <TaskMetadataFormFields
-          schema={schema}
-          metadata={metadata}
-          setMetadata={setMetadata}
-          fieldIdPrefix={fieldIdPrefix}
-          isInputFileTask={isInputFileTask}
-          inputFileAccept={inputFileAccept}
-          fileUploadFields={fileUploadFields}
-          customFieldRender={customFieldRender}
-          fieldsToHide={fieldsToHide ?? (taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : [])}
-        />
-      )}
-
-      {isWechatDraft && typeof onCoverUpload === 'function' && (
+      {taskType === 'wechat_mp_draft' && typeof onCoverUpload === 'function' && (
         <div>
           <label className={labelCls}>封面</label>
           {coverBeforeContent}
@@ -282,6 +284,7 @@ export default function TaskParamsForm({
                 const data = await onCoverUpload(file)
                 if (data?.success && data?.media_id) {
                   setMetadata(m => ({ ...m, thumb_media_id: data.media_id }))
+                  loadMaterials()
                   toast.info('封面上传成功')
                 } else throw new Error(data?.detail || '上传失败')
               } catch (err) {
@@ -354,6 +357,20 @@ export default function TaskParamsForm({
       )}
 
       {taskType === 'wechat_mp_draft' && <WechatOutboundIpHint />}
+
+      {schema && Object.keys(schema).length > 0 && (
+        <TaskMetadataFormFields
+          schema={schema}
+          metadata={metadata}
+          setMetadata={setMetadata}
+          fieldIdPrefix={fieldIdPrefix}
+          isInputFileTask={isInputFileTask}
+          inputFileAccept={inputFileAccept}
+          fileUploadFields={fileUploadFields}
+          customFieldRender={customFieldRender}
+          fieldsToHide={mergedFieldsToHide}
+        />
+      )}
 
       {taskType === 'video_download' && (
         <div className="space-y-2">

@@ -64,14 +64,15 @@ def _fetch_outbound_ip() -> Optional[str]:
 
 @router.get("/wechat-mp/check")
 async def check_wechat_mp():
-    """校验公众号 API：token 获取 + 白名单。时间：2025-03-19；理由：打开对话框时立即检查，有问题在顶部出警告。"""
+    """校验公众号 API：token 获取 + 白名单。时间：2025-03-19；理由：打开对话框时立即检查，有问题在顶部出警告。
+    时间：2025-03-19；理由：素材能展示则 API 可用，check 改用 materials 与前端素材接口一致，避免 get_draft_list 报错而素材正常时的误报。"""
     try:
         client = _get_client()
-        # 轻量调用：获取草稿列表 count=1，验证 token 与 IP 白名单
-        client.get_draft_list(offset=0, count=1, no_content=1)
+        # 轻量调用：获取素材列表 count=1，与前端「已有素材」使用同一接口，验证 token 与 IP 白名单
+        client.batchget_material("image", offset=0, count=1)
         return {"success": True, "error": None}
     except WeChatMPClientError as e:
-        msg = str(e)
+        msg = str(e).strip() or "公众号 API 调用失败"
         hint = ""
         if "40164" in msg or "whitelist" in msg.lower() or "invalid ip" in msg.lower():
             hint = "请将本机出口 IP 加入微信公众平台白名单：mp.weixin.qq.com → 开发 → 基本配置 → IP 白名单"
@@ -79,10 +80,11 @@ async def check_wechat_mp():
             hint = "请配置 .env 中的 WECHAT_MP_APP_ID 和 WECHAT_MP_APP_SECRET"
         return {"success": False, "error": msg, "hint": hint or None}
     except HTTPException as e:
-        return {"success": False, "error": (e.detail or str(e)), "hint": "请配置 .env 中的 WECHAT_MP_APP_ID 和 WECHAT_MP_APP_SECRET"}
+        err = (e.detail if hasattr(e, "detail") else str(e)) or "服务不可用"
+        return {"success": False, "error": err, "hint": "请配置 .env 中的 WECHAT_MP_APP_ID 和 WECHAT_MP_APP_SECRET"}
     except Exception as e:
         logger.exception("公众号 check 异常: %s", e)
-        return {"success": False, "error": str(e), "hint": None}
+        return {"success": False, "error": str(e) or "未知异常", "hint": None}
 
 
 @router.get("/wechat-mp/outbound-ip")
