@@ -80,7 +80,8 @@ class FileLongTermMemory(LongTermMemory):
         self,
         query: str,
         memory_type: Optional[MemoryType] = None,
-        top_k: int = 10
+        top_k: int = 10,
+        session_id: Optional[str] = None,
     ) -> List[Memory]:
         """搜索记忆（简单关键词匹配）"""
         query_words = set(query.lower().split())

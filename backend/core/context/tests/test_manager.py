@@ -178,3 +178,15 @@ class TestContextManager:
         assert len(memories) > 0
         assert any("important" in mem.content.lower() for mem in memories)
 
+    def test_get_daily_log_context_for_llm(self, manager):
+        """测试获取每日日志上下文（短期记忆）"""
+        # 写入一条日志
+        manager.daily_log_memory.write_daily_entry("今日完成 Python 重构")
+        block = manager.get_daily_log_context_for_llm(hours=48)
+        assert "今日完成 Python 重构" in block
+
+    def test_get_daily_log_context_empty(self, manager):
+        """无每日日志时返回空字符串"""
+        block = manager.get_daily_log_context_for_llm(hours=48)
+        assert block == ""
+

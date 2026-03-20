@@ -19,6 +19,8 @@ load_env(PROJECT_ROOT)
 
 from backend.core.context.manager import ContextManager as FullContextManager
 from backend.core.context.models import MessageRole
+from backend.core.memory.long_term.markdown_memory import MarkdownLongTermMemory
+from backend.core.memory.flush_trigger import MemoryFlushTrigger
 from backend.core.agent.tools.registry import ToolRegistry
 from backend.core.agent.tools.base import ToolResult
 from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
@@ -59,8 +61,10 @@ class UnifiedOrchestrator:
     
     def __init__(self):
         self.llm_service = LLMService()
-        self.context_manager = FullContextManager()
+        # 三级记忆：短期（DailyLogMemory）已内置；长期（MarkdownLongTermMemory）始终启用
+        self.context_manager = FullContextManager(long_term_memory=MarkdownLongTermMemory())
         self.tool_registry = ToolRegistry()
+        self.memory_flush_trigger = MemoryFlushTrigger()
         self.debug = DebugOutput()  # 调试输出
         
         # 初始化技能系统
@@ -72,7 +76,6 @@ class UnifiedOrchestrator:
         self.auto_execute_code = True  # 配置项：是否自动执行代码块
         
         # 规划文件管理
-        import os
         planning_enabled = os.getenv("ENABLE_PLANNING", "true").lower() == "true"
         self.enable_planning = planning_enabled
         
@@ -791,6 +794,14 @@ class UnifiedOrchestrator:
             self.debug.log_orchestrator_step("工具注册失败", {"error": error_msg})
             logger.warning(error_msg)
         
+        # 注册记忆写入工具（三级记忆）
+        try:
+            from backend.core.agent.tools.builtin.memory_write_tool import MemoryWriteTool
+            self.tool_registry.register(MemoryWriteTool(self.context_manager))
+            self.debug.log_orchestrator_step("注册工具", {"memory_write": "registered"})
+        except Exception as e:
+            logger.warning("Failed to register memory_write tool: %s", e)
+
         # 注册文件搜索工具（本地操作）
         try:
             from backend.core.agent.tools.builtin.file_search_tool import FileSearchTool
@@ -1571,7 +1582,20 @@ class UnifiedOrchestrator:
             yield StreamMessageBuilder.build_debug(debug_info)
             self.debug.log_context_operation("创建新会话", session_id)
         
-        # 2. 获取历史消息（不压缩，保留完整历史）
+        # 2. 压缩前记忆刷新（设计文档 9.4：每个压缩周期最多触发一次）
+        raw_messages = self.context_manager.get_messages(session_id, compressed=False)
+        msg_count = len(raw_messages)
+        est_tokens = sum(len(m.content) for m in raw_messages) // 4 if raw_messages else 0
+        if self.memory_flush_trigger.should_flush(
+            self.context_manager, session_id, msg_count, est_tokens
+        ):
+            try:
+                await self._run_memory_flush_silent_round(session_id)
+                self.memory_flush_trigger.mark_flushed(self.context_manager, session_id)
+            except Exception as e:
+                logger.warning("记忆刷新触发失败: %s", e)
+        
+        # 3. 获取历史消息（不压缩，保留完整历史）
         history = self.context_manager.get_messages_for_llm(
             session_id,
             max_messages=None,  # 不限制消息数量
@@ -2894,6 +2918,73 @@ class UnifiedOrchestrator:
             yield text[i : i + chunk_size]
             await asyncio.sleep(0)  # 让出事件循环，确保及时发送
 
+    def _inject_memory_to_system_prompt(
+        self, system_prompt: str, user_prompt: str = "", session_id: Optional[str] = None
+    ) -> str:
+        """将短期记忆（每日日志）和长期记忆注入 system_prompt；session_id 用于按 session 过滤长期记忆"""
+        parts = []
+        daily = self.context_manager.get_daily_log_context_for_llm(hours=48)
+        if daily:
+            parts.append(f"【近期记忆（每日日志）】\n{daily}")
+        lt = self.context_manager.long_term_memory
+        if lt and user_prompt:
+            if hasattr(lt, "get_content_for_llm"):
+                lt_block = lt.get_content_for_llm(query=user_prompt, top_k=5, session_id=session_id)
+            else:
+                lt_block = "\n\n".join(
+                    m.content for m in lt.search_memories(user_prompt, top_k=5, session_id=session_id)
+                )
+            if lt_block:
+                parts.append(f"【长期记忆】\n{lt_block}")
+        if not parts:
+            return system_prompt
+        return "\n\n".join(parts) + "\n\n" + system_prompt
+
+    async def _run_memory_flush_silent_round(self, session_id: str) -> None:
+        """
+        压缩前静默回合：仅 memory_write 工具，提醒 LLM 写入持久记忆。
+        设计文档：docs/design/01-three-level-memory-and-context-design.md 9.4
+        """
+        import json
+        memory_write_tool = self.tool_registry.get_tool("memory_write")
+        if not memory_write_tool:
+            return
+        tools_for_llm = [t for t in self.tool_registry.get_tools_for_llm() if t.get("function", {}).get("name") == "memory_write"]
+        if not tools_for_llm:
+            return
+        raw = self.context_manager.get_messages(session_id, compressed=False)
+        recent = raw[-10:] if len(raw) > 10 else raw
+        recent_text = "\n".join(
+            f"{'用户' if m.role == MessageRole.USER else '助手'}: {m.content[:200]}..."
+            if len(m.content) > 200 else f"{'用户' if m.role == MessageRole.USER else '助手'}: {m.content}"
+            for m in recent
+        )
+        prompt = self.memory_flush_trigger.get_flush_prompt(recent_text)
+        user_content = f"【近期对话摘要】\n{recent_text}\n\n{prompt}" if recent_text else prompt
+        messages = [
+            {"role": "system", "content": "你是记忆助手。请根据提示将值得持久记忆的内容写入 memory_write 工具。若无内容需存储，直接回复 NO_REPLY。"},
+            {"role": "user", "content": user_content},
+        ]
+        audit_meta = {"session_id": session_id}
+        try:
+            response = await self.llm_service.chat(messages=messages, tools=tools_for_llm, audit_meta=audit_meta)
+        except Exception as e:
+            logger.warning("记忆刷新静默回合 LLM 调用失败: %s", e)
+            return
+        if isinstance(response, str):
+            if "NO_REPLY" in response.upper():
+                return
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            for tc in response.tool_calls:
+                if tc.function.name != "memory_write":
+                    continue
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                    args["session_id"] = session_id
+                    self.tool_registry.execute("memory_write", **args)
+                except Exception as e:
+                    logger.warning("记忆刷新执行 memory_write 失败: %s", e)
+
     async def _chat_with_tools_stream(
         self,
         system_prompt: str,
@@ -2918,6 +3009,7 @@ class UnifiedOrchestrator:
         """
         import json
         
+        system_prompt = self._inject_memory_to_system_prompt(system_prompt, user_prompt, session_id)
         try:
             messages = []
             if system_prompt:
@@ -3100,6 +3192,8 @@ class UnifiedOrchestrator:
                             tool_args = json.loads(tool_args_str)
                         except json.JSONDecodeError:
                             tool_args = {}
+                        if tool_name == "memory_write" and session_id:
+                            tool_args["session_id"] = session_id
                         
                         # 执行工具（支持进度报告）
                         try:
@@ -3560,6 +3654,7 @@ class UnifiedOrchestrator:
         """
         import json
 
+        system_prompt = self._inject_memory_to_system_prompt(system_prompt, user_prompt, session_id)
         audit_meta = {"session_id": session_id} if session_id else None
 
         try:
@@ -3707,6 +3802,8 @@ class UnifiedOrchestrator:
                             tool_args = json.loads(tool_args_str)
                         except json.JSONDecodeError:
                             tool_args = {}
+                        if tool_name == "memory_write" and session_id:
+                            tool_args["session_id"] = session_id
                         
                         # 执行工具（支持进度报告）
                         try:

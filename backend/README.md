@@ -78,7 +78,7 @@ from backend.core.agent.orchestrator import Orchestrator
 from backend.services.llm.llm_service import LLMService
 
 # Core 层导入 Infrastructure 层
-from backend.infrastructure.memory.context_manager import ContextManager
+from backend.core.context.manager import ContextManager
 
 # Services 层导入 Infrastructure 层
 from backend.infrastructure.security.sandbox import Sandbox

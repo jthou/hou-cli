@@ -12,6 +12,9 @@ from backend.core.context.retrieval.keyword import KeywordRetrievalEngine
 from backend.core.context.long_term_memory.base import LongTermMemory
 from backend.core.context.long_term_memory.models import Memory, MemoryType
 
+# 短期记忆（每日日志）
+from backend.core.memory.short_term.daily_log import DailyLogMemory
+
 
 class ContextManager:
     """上下文管理器（统一接口）"""
@@ -22,6 +25,7 @@ class ContextManager:
         compression_strategy: Optional[CompressionStrategy] = None,
         retrieval_engine: Optional[RetrievalEngine] = None,
         long_term_memory: Optional[LongTermMemory] = None,
+        daily_log_memory: Optional["DailyLogMemory"] = None,
         storage_dir: Optional[Path] = None,
         default_max_messages: int = 10,
         default_max_tokens: Optional[int] = None,
@@ -35,6 +39,7 @@ class ContextManager:
             compression_strategy: 压缩策略（默认：TimeWindowCompression）
             retrieval_engine: 检索引擎（默认：KeywordRetrievalEngine）
             long_term_memory: 长期记忆（可选）
+            daily_log_memory: 短期记忆/每日日志（可选，None 时自动创建）
             storage_dir: 存储目录（仅当使用默认 FileStorageBackend 时有效）
             default_max_messages: 默认最大消息数
             default_max_tokens: 默认最大 token 数
@@ -53,6 +58,9 @@ class ContextManager:
         self.compression = compression_strategy or TimeWindowCompression()
         self.retrieval = retrieval_engine or KeywordRetrievalEngine()
         self.long_term_memory = long_term_memory
+        _ctx_dir = getattr(self.storage, "storage_dir", None)
+        _daily_dir = Path(_ctx_dir) / "memory" if _ctx_dir else None
+        self.daily_log_memory = daily_log_memory if daily_log_memory is not None else DailyLogMemory(storage_dir=_daily_dir)
         self.auto_save_to_memory = auto_save_to_memory
         self.default_max_messages = default_max_messages
         self.default_max_tokens = default_max_tokens
@@ -212,6 +220,10 @@ class ContextManager:
             if m.message_id == message_id:
                 return m
         return None
+
+    def delete_message(self, session_id: str, message_id: str) -> bool:
+        """删除单条消息。前端删除后需同步到后端。"""
+        return self.storage.delete_message(session_id, message_id)
 
     def truncate_after_message(self, session_id: str, message_id: str) -> bool:
         """删除指定消息之后的所有消息（用于「重新回答」时清除该回答及后续对话）。"""
@@ -424,7 +436,8 @@ class ContextManager:
         self,
         query: str,
         memory_type: Optional[MemoryType] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        session_id: Optional[str] = None,
     ) -> List[Memory]:
         """
         从长期记忆获取相关信息
@@ -433,6 +446,7 @@ class ContextManager:
             query: 搜索查询
             memory_type: 记忆类型过滤（可选）
             top_k: 返回前 K 条记忆
+            session_id: 可选，MarkdownLongTermMemory 按 session 过滤
             
         Returns:
             相关记忆列表
@@ -440,5 +454,19 @@ class ContextManager:
         if not self.long_term_memory:
             return []
         
-        return self.long_term_memory.search_memories(query, memory_type, top_k)
+        return self.long_term_memory.search_memories(query, memory_type, top_k, session_id)
+
+    def get_daily_log_context_for_llm(self, hours: int = 48) -> str:
+        """
+        获取近期每日日志，用于注入 LLM 上下文（短期记忆）
+        
+        Args:
+            hours: 最近 N 小时，默认 48
+            
+        Returns:
+            合并后的 Markdown 文本，无内容时返回空字符串
+        """
+        if not self.daily_log_memory:
+            return ""
+        return self.daily_log_memory.get_recent_entries(hours=hours)
 

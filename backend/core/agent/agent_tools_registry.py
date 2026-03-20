@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 # 各 agent 配备的工具名称（与 ToolRegistry 中注册的 tool.name 一致）
 # ---------------------------------------------------------------------------
 CHAT_TOOLS = [
+    "memory_write",  # 三级记忆：LLM 可写入短期/长期记忆
     "browser",
     "browser_navigate",
     "browser_click",

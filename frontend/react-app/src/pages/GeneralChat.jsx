@@ -57,7 +57,6 @@ export default function GeneralChat({
   const {
     referenceBlocks,
     handleAddReferenceBlock,
-    handleAddReferenceBlockWithContent,
     handleUpdateReferenceBlock,
     handleRemoveReferenceBlock,
     reloadBlocks,
@@ -221,6 +220,37 @@ export default function GeneralChat({
     } catch (_) {}
     reloadBlocks(focusId)
   }, [location.state?.focusSessionId, location.pathname, location.search, navigate, reloadBlocks])
+
+  const handleDeleteMessage = async (messageId) => {
+    if (!selectedSessionId || !messageId) {
+      console.warn('[删除消息] 提前返回: selectedSessionId=', selectedSessionId, 'messageId=', messageId)
+      return
+    }
+    const confirmFn = typeof toast?.confirm === 'function' ? toast.confirm : (msg) => Promise.resolve(window.confirm(msg))
+    const ok = await confirmFn('确定删除这条消息？删除后不可恢复。')
+    if (!ok) return
+    const url = `${window.location.origin}/api/sessions/${encodeURIComponent(selectedSessionId)}/messages/${encodeURIComponent(messageId)}`
+    console.log('[删除消息] 发起 DELETE 请求:', url)
+    try {
+      const r = await fetch(url, { method: 'DELETE' })
+      console.log('[删除消息] 响应 status=', r.status, 'ok=', r.ok)
+      let d
+      try {
+        d = await r.json()
+      } catch (_) {
+        toast?.error?.('响应解析失败')
+        return
+      }
+      if (d?.success) {
+        setMessages((prev) => prev.filter((m) => m.message_id !== messageId))
+        toast?.info?.('已删除')
+      } else {
+        toast?.error?.(d?.error || '删除失败')
+      }
+    } catch (err) {
+      toast?.error?.(err?.message || '删除失败')
+    }
+  }
 
   const handleDeleteSession = async (sessionId, e) => {
     e?.stopPropagation?.()
@@ -472,18 +502,22 @@ export default function GeneralChat({
                     .then((d) => { if (d.success) loadSessions() })
                     .catch(() => {})
                 }
-                fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
-                  .then((r) => r.json())
-                  .then((d) => {
-                    if (d.success && Array.isArray(d.messages)) {
+                // 2025-03-20：后端可能尚未持久化，若 API 返回条数少于当前则延迟重试一次，确保拿到带 message_id 的完整列表（否则最新消息无法删除）
+                const doFetch = (isRetry = false) => {
+                  fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+                    .then((r) => r.json())
+                    .then((d) => {
+                      if (!d.success || !Array.isArray(d.messages)) return
+                      const mapped = d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
                       setMessages((prev) => {
-                        const apiCount = d.messages.length
-                        if (apiCount >= prev.length) return d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
+                        if (mapped.length >= prev.length || isRetry) return mapped
+                        if (!isRetry) setTimeout(() => doFetch(true), 400)
                         return prev
                       })
-                    }
-                  })
-                  .catch(() => {})
+                    })
+                    .catch(() => {})
+                }
+                doFetch()
                 fullContent = ''
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
@@ -686,13 +720,8 @@ export default function GeneralChat({
                     <UserMessageActionButtons
                       content={msg.content}
                       messageId={msg.message_id}
-                      onRegenerate={handleRegenerate}
                       onWriteToInput={setInput}
-                      onAddToReference={(c) => {
-                        handleAddReferenceBlockWithContent(c)
-                        setReferencePanelOpen(true)
-                      }}
-                      loading={loading}
+                      onDeleteMessage={handleDeleteMessage}
                     />
                   </>
                 ) : (
@@ -720,17 +749,16 @@ export default function GeneralChat({
                       >
                         写回输入框
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleAddReferenceBlockWithContent(msg.content)
-                          setReferencePanelOpen(true)
-                        }}
-                        className="px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5"
-                        title="添加到参考信息"
-                      >
-                        添加到参考
-                      </button>
+                      {msg.message_id && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMessage(msg.message_id)}
+                          className="px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5"
+                          title="删除此消息"
+                        >
+                          删除
+                        </button>
+                      )}
                     </div>
                   </>
                 )}

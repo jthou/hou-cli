@@ -1,9 +1,13 @@
 """会话管理路由单元测试"""
 import pytest
+import tempfile
+import shutil
+from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
 from fastapi.testclient import TestClient
 from backend.core.context.models import Session, Message, MessageRole
+from backend.core.context.manager import ContextManager
 
 
 class TestSessionRoutes:
@@ -143,6 +147,64 @@ class TestSessionRoutes:
             data = response.json()
             assert data["success"] is False
     
+    def test_delete_message_success(self, client):
+        """测试删除单条消息成功"""
+        with patch('backend.api.session_routes.get_orchestrator') as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.context_manager = MagicMock()
+            mock_orch.context_manager.delete_message = MagicMock(return_value=True)
+            mock_get_orch.return_value = mock_orch
+
+            response = client.delete("/api/sessions/test_session_1/messages/msg_123")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            mock_orch.context_manager.delete_message.assert_called_once_with("test_session_1", "msg_123")
+
+    def test_delete_message_not_found(self, client):
+        """测试删除不存在的消息"""
+        with patch('backend.api.session_routes.get_orchestrator') as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.context_manager = MagicMock()
+            mock_orch.context_manager.delete_message = MagicMock(return_value=False)
+            mock_get_orch.return_value = mock_orch
+
+            response = client.delete("/api/sessions/test_session_1/messages/nonexistent_msg")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False
+
+    def test_delete_message_integration_real_storage(self, app):
+        """集成测试：使用真实存储验证删除接口（2025-03-20）"""
+        temp_path = Path(tempfile.mkdtemp())
+        try:
+            ctx = ContextManager(storage_dir=temp_path)
+            session_id = ctx.create_session()
+            mid1 = ctx.add_message(session_id, MessageRole.USER, "问题1")
+            mid2 = ctx.add_message(session_id, MessageRole.ASSISTANT, "回复1")
+            assert len(ctx.get_messages(session_id, compressed=False)) == 2
+
+            with patch('backend.api.session_routes.get_orchestrator') as mock_get_orch:
+                mock_orch = MagicMock()
+                mock_orch.context_manager = ctx
+                mock_get_orch.return_value = mock_orch
+
+                client = TestClient(app)
+                response = client.delete(
+                    f"/api/sessions/{session_id}/messages/{mid1}"
+                )
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True, data.get("error", "")
+
+            msgs = ctx.get_messages(session_id, compressed=False)
+            assert len(msgs) == 1
+            assert msgs[0].message_id == mid2
+        finally:
+            shutil.rmtree(temp_path, ignore_errors=True)
+
     def test_clear_session_messages_success(self, client):
         """测试清除会话消息成功"""
         with patch('backend.api.session_routes.get_orchestrator') as mock_get_orch:
@@ -150,9 +212,9 @@ class TestSessionRoutes:
             mock_orch.context_manager = MagicMock()
             mock_orch.context_manager.clear_session = MagicMock(return_value=True)
             mock_get_orch.return_value = mock_orch
-            
+
             response = client.post("/api/sessions/test_session_1/clear")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True

@@ -142,6 +142,16 @@ async def _lifespan(app):
 
 app = FastAPI(title="LLM Agent API", lifespan=_lifespan)
 
+
+@app.middleware("http")
+async def log_all_requests(request, call_next):
+    """2025-03-20：记录所有请求，用于排查删除接口是否被调用"""
+    if request.method == "DELETE" and "/sessions/" in request.url.path and "/messages/" in request.url.path:
+        logging.getLogger(__name__).info(f"[REQUEST] DELETE {request.url.path}")
+    response = await call_next(request)
+    return response
+
+
 # 添加全局异常处理器
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

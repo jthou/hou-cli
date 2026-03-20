@@ -1,13 +1,14 @@
 /**
- * 用户问题下方的三个操作按钮：重新回答、写回输入框、添加到参考
+ * 用户问题下方的三个操作按钮：重新回答、写回输入框、添加到参考、删除
  * 供 GeneralChat、WorkAssistant、ArticleWriting 等 LLM 对话页面复用
  *
  * @param {Object} props
  * @param {string} props.content - 用户问题内容
- * @param {string} [props.messageId] - 消息 ID，有则显示「重新回答」
+ * @param {string} [props.messageId] - 消息 ID，有则显示「重新回答」「删除」
  * @param {(messageId: string) => void} [props.onRegenerate] - 重新回答回调
  * @param {(content: string) => void} [props.onWriteToInput] - 写回输入框回调
  * @param {(content: string) => void} [props.onAddToReference] - 添加到参考回调
+ * @param {(messageId: string) => void} [props.onDeleteMessage] - 删除消息回调
  * @param {boolean} [props.loading=false] - 是否禁用「重新回答」
  * @param {string} [props.className=''] - 容器类名
  */
@@ -17,6 +18,7 @@ export default function UserMessageActionButtons({
   onRegenerate,
   onWriteToInput,
   onAddToReference,
+  onDeleteMessage,
   loading = false,
   className = '',
 }) {
@@ -46,6 +48,16 @@ export default function UserMessageActionButtons({
           title="将问题写回输入框"
         >
           写回输入框
+        </button>
+      )}
+      {messageId && onDeleteMessage && (
+        <button
+          type="button"
+          onClick={() => onDeleteMessage(messageId)}
+          className={btnCls}
+          title="删除此消息"
+        >
+          删除
         </button>
       )}
       {onAddToReference && (

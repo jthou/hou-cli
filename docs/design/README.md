@@ -55,6 +55,11 @@
   - 持久化存储方案、上下文压缩策略
   - 上下文摘要生成
 
+- **[01-three-level-memory-and-context-design.md](./01-three-level-memory-and-context-design.md)** - 三级记忆体系与上下文系统设计
+  - 短期/近端/长期三层记忆架构
+  - 记忆系统与记忆内容分离、统一记忆管理（MemoryManager）
+  - 上下文系统与记忆系统职责划分与协作
+
 ### 02X - 通信和集成
 
 - **[02-ipc-and-packaging.md](./02-ipc-and-packaging.md)** - IPC 通信和打包方案

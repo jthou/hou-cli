@@ -142,6 +142,36 @@ async def search_sessions(keyword: str, limit: int = 10):
             "error": str(e)
         }
 
+@router.delete("/sessions/{session_id}/messages/{message_id}")
+async def delete_message(session_id: str, message_id: str):
+    """删除会话中的单条消息。前端删除后需同步到后端。"""
+    debug_log(
+        "收到删除消息请求",
+        data={"session_id": session_id, "message_id": message_id}
+    )
+    try:
+        if not message_id or not message_id.strip():
+            return {"success": False, "error": "message_id 不能为空"}
+        message_id = message_id.strip()
+        orchestrator = get_orchestrator()
+        result = orchestrator.context_manager.delete_message(session_id, message_id)
+        if result:
+            return {"success": True, "message": "消息已删除"}
+        debug_log(
+            "删除消息失败：未找到匹配的 message_id",
+            level="warning",
+            data={"session_id": session_id, "message_id": message_id}
+        )
+        return {"success": False, "error": "消息不存在或删除失败"}
+    except Exception as e:
+        debug_log(
+            f"删除消息异常: {str(e)}",
+            level="error",
+            data={"session_id": session_id, "message_id": message_id}
+        )
+        return {"success": False, "error": str(e)}
+
+
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
     """清除会话的所有消息与当前文章草稿（含 current_article.md），会话本身保留。"""

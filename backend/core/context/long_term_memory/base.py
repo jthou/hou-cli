@@ -22,9 +22,10 @@ class LongTermMemory(ABC):
         self,
         query: str,
         memory_type: Optional[MemoryType] = None,
-        top_k: int = 10
+        top_k: int = 10,
+        session_id: Optional[str] = None,
     ) -> List[Memory]:
-        """搜索记忆"""
+        """搜索记忆；session_id 可选，MarkdownLongTermMemory 用于按 session 过滤"""
         pass
     
     @abstractmethod

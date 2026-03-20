@@ -1,12 +1,13 @@
 # API 路径审计
 
-- 后端路由数: 143
+- 后端路由数: 144
 - 前端 fetch 数: 132
 
 ## 后端路由
 
 ```
 DELETE /api/sessions/{session_id}
+DELETE /api/sessions/{session_id}/messages/{message_id}
 DELETE /api/task-queue/scheduled-tasks/{schedule_id}
 DELETE /api/task-queue/tasks/{task_id}
 GET /api/audit/report
@@ -308,6 +309,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/search
 - /api/sessions/{id}
 - /api/sessions/{id}/clear
+- /api/sessions/{id}/messages/{id}
 - /api/sessions/{id}/summary
 - /api/settings/kanban/status
 - /api/settings/tavily-audit/path

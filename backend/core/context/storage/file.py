@@ -33,8 +33,31 @@ class FileStorageBackend(StorageBackend):
         return self.storage_dir / session_id
     
     def _get_messages_file(self, session_id: str) -> Path:
-        """获取消息文件"""
+        """获取消息文件（JSON 格式）"""
         return self._get_session_dir(session_id) / "messages.json"
+
+    def _get_messages_jsonl_file(self, session_id: str) -> Path:
+        """获取消息文件（JSONL 格式，2025-03-20：兼容仅存在 jsonl 的历史会话）"""
+        return self._get_session_dir(session_id) / "messages.jsonl"
+
+    def _read_messages_jsonl(self, path: Path) -> List[Message]:
+        """从 JSONL 文件读取消息，每行格式为 {"message": {...}}"""
+        messages: List[Message] = []
+        if not path.exists():
+            return messages
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    msg_data = data.get("message") or data
+                    if isinstance(msg_data, dict):
+                        messages.append(Message.from_dict(msg_data))
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    continue
+        return messages
 
     def _get_article_file(self, session_id: str) -> Path:
         """获取当前文章草稿文件路径（写文章会话的右侧输出）"""
@@ -144,8 +167,9 @@ class FileStorageBackend(StorageBackend):
         session_dir.mkdir(parents=True, exist_ok=True)
         
         messages_file = self._get_messages_file(session_id)
-        
-        # 加载现有消息（单条解析失败不拖垮）
+        jsonl_file = self._get_messages_jsonl_file(session_id)
+
+        # 加载现有消息。2025-03-20：json 不存在但 jsonl 存在时从 jsonl 加载，避免丢失历史
         messages = []
         if messages_file.exists():
             try:
@@ -160,7 +184,9 @@ class FileStorageBackend(StorageBackend):
                             continue
             except (json.JSONDecodeError, OSError):
                 pass
-        
+        elif jsonl_file.exists():
+            messages = self._read_messages_jsonl(jsonl_file)
+
         # 幂等检查
         idempotency_key = (message.metadata or {}).get("idempotency_key")
         if idempotency_key:
@@ -213,52 +239,93 @@ class FileStorageBackend(StorageBackend):
         limit: Optional[int] = None,
         offset: int = 0
     ) -> List[Message]:
-        """获取消息列表"""
+        """获取消息列表。优先 json，无则回退到 jsonl（2025-03-20：兼容仅 jsonl 的历史会话）。"""
         messages_file = self._get_messages_file(session_id)
-        
-        if not messages_file.exists():
+        jsonl_file = self._get_messages_jsonl_file(session_id)
+
+        messages: List[Message] = []
+        needs_save = False
+        use_jsonl = False
+
+        if messages_file.exists():
+            with open(messages_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for m in data.get("messages", []):
+                if not isinstance(m, dict):
+                    continue
+                try:
+                    msg = Message.from_dict(m)
+                    if not msg.message_id:
+                        msg.message_id = str(uuid.uuid4())
+                        needs_save = True
+                    messages.append(msg)
+                except Exception:
+                    continue
+        elif jsonl_file.exists():
+            use_jsonl = True
+            messages = self._read_messages_jsonl(jsonl_file)
+            for msg in messages:
+                if not msg.message_id:
+                    msg.message_id = str(uuid.uuid4())
+                    needs_save = True
+        else:
             return []
-        
-        with open(messages_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        messages = []
-        for m in data.get("messages", []):
-            if not isinstance(m, dict):
-                continue
+
+        if needs_save and use_jsonl:
             try:
-                messages.append(Message.from_dict(m))
-            except Exception:
-                continue
-        # 应用 offset 和 limit
+                with open(jsonl_file, 'w', encoding='utf-8') as f:
+                    for m in messages:
+                        f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
+            except (OSError, TypeError):
+                pass
+        elif needs_save:
+            try:
+                with open(messages_file, 'w', encoding='utf-8') as f:
+                    json.dump(
+                        {"messages": [m.to_dict() for m in messages]},
+                        f, ensure_ascii=False, indent=2
+                    )
+            except (OSError, TypeError):
+                pass
+
         if offset > 0:
             messages = messages[offset:]
         if limit:
             messages = messages[:limit]
-        
         return messages
     
     def delete_message(self, session_id: str, message_id: str) -> bool:
-        """删除消息"""
+        """删除消息。message_id 比较时统一转为 str 并 strip。优先 json，无则回退 jsonl（2025-03-20：兼容仅 jsonl 的历史会话）。"""
         messages_file = self._get_messages_file(session_id)
-        
-        if not messages_file.exists():
+        jsonl_file = self._get_messages_jsonl_file(session_id)
+
+        target_id = str(message_id).strip() if message_id else ""
+        if not target_id:
             return False
-        
-        with open(messages_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+
+        if messages_file.exists():
+            with open(messages_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             messages = [Message.from_dict(m) for m in data.get("messages", [])]
-        
-        # 删除消息
+            use_jsonl = False
+        elif jsonl_file.exists():
+            messages = self._read_messages_jsonl(jsonl_file)
+            use_jsonl = True
+        else:
+            return False
+
         original_count = len(messages)
-        messages = [m for m in messages if m.message_id != message_id]
-        
+        messages = [m for m in messages if (m.message_id or "").strip() != target_id]
+
         if len(messages) < original_count:
-            with open(messages_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "messages": [m.to_dict() for m in messages]
-                }, f, ensure_ascii=False, indent=2)
+            if use_jsonl:
+                with open(jsonl_file, 'w', encoding='utf-8') as f:
+                    for m in messages:
+                        f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
+            else:
+                with open(messages_file, 'w', encoding='utf-8') as f:
+                    json.dump({"messages": [m.to_dict() for m in messages]}, f, ensure_ascii=False, indent=2)
             return True
-        
         return False
     
     def clear_session(self, session_id: str) -> bool:
