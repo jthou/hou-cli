@@ -13,6 +13,9 @@ import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import UserMessageActionButtons from '../components/UserMessageActionButtons'
+import { useDeleteSessionMessage } from '../hooks/useDeleteSessionMessage'
+import { useBatchDeleteSessions } from '../hooks/useBatchDeleteSessions'
+import { useBatchDeleteMessages } from '../hooks/useBatchDeleteMessages'
 
 const DEFAULT_SESSION_TYPE = 'general_chat'
 const DEFAULT_STORAGE_KEY = 'general_chat_selected_session'
@@ -51,6 +54,11 @@ export default function GeneralChat({
   const [sessionEnabledTools, setSessionEnabledTools] = useState([])
   const [availableTools, setAvailableTools] = useState([])
   const [settingsSaving, setSettingsSaving] = useState(false)
+  /** 2026-03-21：侧栏/对话区批量删除（设计见 docs/design/01-batch-delete-sessions-and-messages-design.md） */
+  const [sessionBulkMode, setSessionBulkMode] = useState(false)
+  const [bulkSessionIds, setBulkSessionIds] = useState([])
+  const [messageBulkMode, setMessageBulkMode] = useState(false)
+  const [bulkMessageIds, setBulkMessageIds] = useState([])
   const messagesEndRef = useRef(null)
   const abortControllerRef = useRef(null)
   const streamingContentRef = useRef('')
@@ -129,7 +137,22 @@ export default function GeneralChat({
       })
       .catch((e) => toast?.error?.(e?.message || '加载会话列表失败'))
       .finally(() => setSessionsLoading(false))
-  }, [sessionType])
+  }, [sessionType, toast])
+
+  const executeBatchDeleteSessions = useBatchDeleteSessions({
+    sessionType,
+    loadSessions,
+    selectedSessionId,
+    setSelectedSessionId,
+    setMessages,
+    storageKey,
+    toast,
+  })
+  const executeBatchDeleteMessages = useBatchDeleteMessages({
+    selectedSessionId,
+    setMessages,
+    toast,
+  })
 
   useEffect(() => {
     loadSessions()
@@ -195,6 +218,11 @@ export default function GeneralChat({
   }, [selectedSessionId])
 
   useEffect(() => {
+    setBulkMessageIds([])
+    setMessageBulkMode(false)
+  }, [selectedSessionId])
+
+  useEffect(() => {
     if (settingsPanelOpen && availableTools.length === 0) {
       fetch('/api/tools/list?agent=general_chat')
         .then((r) => r.json())
@@ -221,35 +249,41 @@ export default function GeneralChat({
     reloadBlocks(focusId)
   }, [location.state?.focusSessionId, location.pathname, location.search, navigate, reloadBlocks])
 
-  const handleDeleteMessage = async (messageId) => {
-    if (!selectedSessionId || !messageId) {
-      console.warn('[删除消息] 提前返回: selectedSessionId=', selectedSessionId, 'messageId=', messageId)
-      return
-    }
-    const confirmFn = typeof toast?.confirm === 'function' ? toast.confirm : (msg) => Promise.resolve(window.confirm(msg))
-    const ok = await confirmFn('确定删除这条消息？删除后不可恢复。')
+  const handleDeleteMessage = useDeleteSessionMessage({ selectedSessionId, setMessages, toast })
+
+  const toggleBulkSession = (sid) => {
+    setBulkSessionIds((prev) =>
+      prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]
+    )
+  }
+
+  const handleBulkDeleteSessions = async () => {
+    if (bulkSessionIds.length === 0) return
+    const ok = await toast.confirm(
+      `确定删除选中的 ${bulkSessionIds.length} 个会话？删除后不可恢复。`
+    )
     if (!ok) return
-    const url = `${window.location.origin}/api/sessions/${encodeURIComponent(selectedSessionId)}/messages/${encodeURIComponent(messageId)}`
-    console.log('[删除消息] 发起 DELETE 请求:', url)
-    try {
-      const r = await fetch(url, { method: 'DELETE' })
-      console.log('[删除消息] 响应 status=', r.status, 'ok=', r.ok)
-      let d
-      try {
-        d = await r.json()
-      } catch (_) {
-        toast?.error?.('响应解析失败')
-        return
-      }
-      if (d?.success) {
-        setMessages((prev) => prev.filter((m) => m.message_id !== messageId))
-        toast?.info?.('已删除')
-      } else {
-        toast?.error?.(d?.error || '删除失败')
-      }
-    } catch (err) {
-      toast?.error?.(err?.message || '删除失败')
-    }
+    await executeBatchDeleteSessions(bulkSessionIds)
+    setBulkSessionIds([])
+    setSessionBulkMode(false)
+  }
+
+  const toggleBulkMessage = (mid) => {
+    if (!mid) return
+    setBulkMessageIds((prev) =>
+      prev.includes(mid) ? prev.filter((x) => x !== mid) : [...prev, mid]
+    )
+  }
+
+  const handleBulkDeleteMessages = async () => {
+    if (bulkMessageIds.length === 0) return
+    const ok = await toast.confirm(
+      `确定删除选中的 ${bulkMessageIds.length} 条消息？删除后不可恢复。`
+    )
+    if (!ok) return
+    await executeBatchDeleteMessages(bulkMessageIds)
+    setBulkMessageIds([])
+    setMessageBulkMode(false)
   }
 
   const handleDeleteSession = async (sessionId, e) => {
@@ -644,6 +678,20 @@ export default function GeneralChat({
                     收起
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSessionBulkMode((v) => !v)
+                    setBulkSessionIds([])
+                  }}
+                  className={`w-full py-1.5 text-xs rounded-lg border ${
+                    sessionBulkMode
+                      ? 'border-accent text-accent bg-accent/10'
+                      : 'border-border text-muted hover:bg-white/5'
+                  }`}
+                >
+                  {sessionBulkMode ? '退出多选会话' : '多选会话'}
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
             {sessionsLoading && (
@@ -657,6 +705,15 @@ export default function GeneralChat({
               <ul className="p-2 space-y-1">
               {sessions.map((s) => (
                 <li key={s.session_id} className="flex items-center gap-1 rounded-lg overflow-hidden">
+                {sessionBulkMode && (
+                  <input
+                    type="checkbox"
+                    className="shrink-0 ml-1 rounded border-border"
+                    checked={bulkSessionIds.includes(s.session_id)}
+                    onChange={() => toggleBulkSession(s.session_id)}
+                    title="选中以批量删除"
+                  />
+                )}
                 <div
                   className={`flex-1 flex items-center gap-1 min-w-0 px-3 py-2.5 text-sm rounded-lg ${
                     selectedSessionId === s.session_id
@@ -666,12 +723,15 @@ export default function GeneralChat({
                 >
                   <button
                     type="button"
-                    onClick={() => setSelectedSessionId(s.session_id)}
+                    onClick={() => {
+                      if (!sessionBulkMode) setSelectedSessionId(s.session_id)
+                    }}
                     className="flex-1 min-w-0 text-left truncate"
                     title={s.title || s.preview || s.session_id}
                   >
                     {s.title || s.preview || `会话 ${s.session_id?.slice(0, 8)}`}
                   </button>
+                  {!sessionBulkMode && (
                   <button
                     type="button"
                     onClick={(e) => handleDeleteSession(s.session_id, e)}
@@ -682,17 +742,76 @@ export default function GeneralChat({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                   </button>
+                  )}
                 </div>
               </li>
               ))}
               </ul>
             )}
+              {sessionBulkMode && sessions.length > 0 && (
+                <div className="shrink-0 border-t border-border p-2 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted">已选 {bulkSessionIds.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => setBulkSessionIds(sessions.map((x) => x.session_id))}
+                    className="px-2 py-1 rounded border border-border text-muted hover:bg-white/5"
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkSessionIds([])}
+                    className="px-2 py-1 rounded border border-border text-muted hover:bg-white/5"
+                  >
+                    清空
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkSessionIds.length === 0}
+                    onClick={handleBulkDeleteSessions}
+                    className="px-2 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    批量删除
+                  </button>
+                </div>
+              )}
               </div>
             </>
           )}
         </div>
         {/* 右侧对话区 */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {selectedSessionId && (
+            <div className="shrink-0 px-4 py-2 border-b border-border flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMessageBulkMode((v) => !v)
+                  setBulkMessageIds([])
+                }}
+                className={`px-2.5 py-1 text-xs rounded border ${
+                  messageBulkMode
+                    ? 'border-accent text-accent bg-accent/10'
+                    : 'border-border text-muted hover:bg-white/5'
+                }`}
+              >
+                {messageBulkMode ? '取消选择消息' : '选择消息'}
+              </button>
+              {messageBulkMode && (
+                <>
+                  <span className="text-xs text-muted">已选 {bulkMessageIds.length}</span>
+                  <button
+                    type="button"
+                    disabled={loading || bulkMessageIds.length === 0}
+                    onClick={handleBulkDeleteMessages}
+                    className="px-2.5 py-1 text-xs rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    删除选中消息
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {detailLoading && (
               <div className="text-center py-8 text-muted text-sm">加载会话…</div>
@@ -705,8 +824,17 @@ export default function GeneralChat({
           {messages.map((msg, i) => (
             <div
               key={msg.message_id || i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex items-start gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
+              {messageBulkMode && msg.message_id && (
+                <input
+                  type="checkbox"
+                  className="mt-3 shrink-0 rounded border-border"
+                  checked={bulkMessageIds.includes(msg.message_id)}
+                  onChange={() => toggleBulkMessage(msg.message_id)}
+                  title="选中以批量删除"
+                />
+              )}
               <div
                 className={`max-w-[85%] rounded-lg px-4 py-2.5 ${
                   msg.role === 'user'

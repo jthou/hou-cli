@@ -182,3 +182,33 @@ async function deleteLegacyReferenceBlocks() {
     })
   } catch (_) {}
 }
+
+/**
+ * 批量删除会话的参考块（用于批量删除会话时清理）
+ * @param {Array<{sessionId: string, type: string}>} sessionInfo - 会话信息数组，每个元素包含 sessionId 和 type
+ */
+export async function deleteReferenceBlocksForSessions(sessionInfo) {
+  if (!Array.isArray(sessionInfo) || sessionInfo.length === 0) return
+
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+
+      // 对每个会话删除对应的参考块
+      for (const {sessionId, type} of sessionInfo) {
+        const contextType = type || 'article_writing'
+        const key = keyForSession(sessionId, contextType)
+        if (key) {
+          store.delete(key)
+        }
+      }
+
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (e) {
+    console.warn('[ArticleWriting] IndexedDB batch delete failed:', e)
+  }
+}

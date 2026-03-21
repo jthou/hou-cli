@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 144
-- 前端 fetch 数: 132
+- 后端路由数: 146
+- 前端 fetch 数: 134
 
 ## 后端路由
 
@@ -122,7 +122,9 @@ POST /api/network/audit/run
 POST /api/pdf/resolve
 POST /api/pdf/upload-from-extension
 POST /api/sessions
+POST /api/sessions/batch-delete
 POST /api/sessions/{session_id}/clear
+POST /api/sessions/{session_id}/messages/batch-delete
 POST /api/sessions/{session_id}/summary
 POST /api/settings/model-availability-audit/probe
 POST /api/settings/writing-profile/learn-from-ratings
@@ -189,6 +191,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/pdf/upload-from-extension
 - GET /api/sessions
 - GET /api/sessions/
+- GET /api/sessions/batch-delete
 - GET /api/sessions/list
 - GET /api/settings/kanban/board
 - GET /api/settings/kanban/boards
@@ -263,6 +266,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/pdf/resolve
 - POST /api/pdf/upload-from-extension
 - POST /api/sessions
+- POST /api/sessions/batch-delete
 - POST /api/settings/model-availability-audit/probe
 - POST /api/settings/writing-profile/learn-from-ratings
 - POST /api/settings/writing-profile/rate-section
@@ -309,6 +313,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/sessions/search
 - /api/sessions/{id}
 - /api/sessions/{id}/clear
+- /api/sessions/{id}/messages/batch-delete
 - /api/sessions/{id}/messages/{id}
 - /api/sessions/{id}/summary
 - /api/settings/kanban/status

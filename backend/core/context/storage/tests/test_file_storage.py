@@ -1,9 +1,10 @@
 """FileStorageBackend 测试"""
+import json
 import pytest
 import tempfile
 import shutil
 from pathlib import Path
-from backend.core.context.storage.file import FileStorageBackend
+from backend.core.context.storage.file import FileStorageBackend, _normalize_message_id
 from backend.core.context.models import Message, MessageRole, Session
 
 
@@ -87,6 +88,35 @@ class TestFileStorageBackend:
         assert len(messages) == 3
         assert messages[0].content == "消息2"
     
+    def test_normalize_message_id(self):
+        assert _normalize_message_id(None) == ""
+        assert _normalize_message_id(42) == "42"
+        assert _normalize_message_id("  x  ") == "x"
+
+    def test_delete_message_numeric_id_in_json(self, storage):
+        """JSON 中 message_id 为数字时仍能删除（2026-03-13）"""
+        session_id = "test_session"
+        storage.create_session(Session(session_id=session_id))
+        session_dir = storage._get_session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        mid = 1001
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "hi",
+                    "timestamp": "2020-01-01T00:00:00",
+                    "metadata": {},
+                    "message_id": mid,
+                }
+            ]
+        }
+        (session_dir / "messages.json").write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+        assert storage.delete_message(session_id, "1001") is True
+        assert len(storage.get_messages(session_id)) == 0
+
     def test_delete_message(self, storage):
         """测试删除消息"""
         session_id = "test_session"
@@ -125,9 +155,10 @@ class TestFileStorageBackend:
         messages = storage.get_messages(session_id)
         assert len(messages) == 0
         
-        # 验证会话已删除
+        # clear_session 仅清空会话目录内消息与草稿，会话记录仍保留（与 file.py 实现一致）
         session = storage.get_session(session_id)
-        assert session is None
+        assert session is not None
+        assert session.session_id == session_id
     
     def test_list_sessions(self, storage):
         """测试列出会话"""

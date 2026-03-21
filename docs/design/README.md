@@ -60,6 +60,11 @@
   - 记忆系统与记忆内容分离、统一记忆管理（MemoryManager）
   - 上下文系统与记忆系统职责划分与协作
 
+- **[01-batch-delete-sessions-and-messages-design.md](./01-batch-delete-sessions-and-messages-design.md)** - 四助手会话与历史消息批量删除设计
+  - 批量删除会话、批量删除单会话内消息的 API 与语义（部分成功/失败）
+  - 前端多选交互、与 IndexedDB 参考块的可选联动
+  - 存储层一次读写的批量删除建议与实施顺序
+
 ### 02X - 通信和集成
 
 - **[02-ipc-and-packaging.md](./02-ipc-and-packaging.md)** - IPC 通信和打包方案

@@ -4,10 +4,17 @@ import uuid
 import shutil
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from backend.core.context.storage.base import StorageBackend
 from backend.core.context.models import Message, Session
+
+
+def _normalize_message_id(value) -> str:
+    """message_id 在 JSON 中可能为 int/str/None，删除与比对时统一为 strip 后的 str（2026-03-13）。"""
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 class FileStorageBackend(StorageBackend):
@@ -26,7 +33,22 @@ class FileStorageBackend(StorageBackend):
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.sessions_file = self.storage_dir / "sessions.json"
         self._sessions_lock = threading.Lock()
+        # 2026-03-21：同一会话 messages.json/jsonl 的读-改-写必须串行，否则并发 batch/save 会互相覆盖（终端审查：竞态）
+        self._session_msg_locks: dict = {}
+        self._session_msg_locks_guard = threading.Lock()
         self._load_sessions()
+
+    def _session_messages_lock(self, session_id: str) -> threading.Lock:
+        """返回该 session 消息文件专用锁；方法：每 session 一个 threading.Lock，由 guard 字典惰性创建。"""
+        with self._session_msg_locks_guard:
+            if session_id not in self._session_msg_locks:
+                self._session_msg_locks[session_id] = threading.Lock()
+            return self._session_msg_locks[session_id]
+
+    def _drop_session_messages_lock(self, session_id: str) -> None:
+        """会话从索引移除后摘掉锁条目，避免字典无限增长（仅删会话时调用）。"""
+        with self._session_msg_locks_guard:
+            self._session_msg_locks.pop(session_id, None)
     
     def _get_session_dir(self, session_id: str) -> Path:
         """获取会话目录"""
@@ -163,75 +185,76 @@ class FileStorageBackend(StorageBackend):
     
     def save_message(self, session_id: str, message: Message) -> bool:
         """保存消息（支持幂等：metadata.idempotency_key 已存在则跳过）"""
-        session_dir = self._get_session_dir(session_id)
-        session_dir.mkdir(parents=True, exist_ok=True)
-        
-        messages_file = self._get_messages_file(session_id)
-        jsonl_file = self._get_messages_jsonl_file(session_id)
+        with self._session_messages_lock(session_id):
+            session_dir = self._get_session_dir(session_id)
+            session_dir.mkdir(parents=True, exist_ok=True)
 
-        # 加载现有消息。2025-03-20：json 不存在但 jsonl 存在时从 jsonl 加载，避免丢失历史
-        messages = []
-        if messages_file.exists():
-            try:
-                with open(messages_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    for m in data.get("messages", []):
-                        if not isinstance(m, dict):
-                            continue
-                        try:
-                            messages.append(Message.from_dict(m))
-                        except Exception:
-                            continue
-            except (json.JSONDecodeError, OSError):
-                pass
-        elif jsonl_file.exists():
-            messages = self._read_messages_jsonl(jsonl_file)
+            messages_file = self._get_messages_file(session_id)
+            jsonl_file = self._get_messages_jsonl_file(session_id)
 
-        # 幂等检查
-        idempotency_key = (message.metadata or {}).get("idempotency_key")
-        if idempotency_key:
-            for m in messages:
-                if (m.metadata or {}).get("idempotency_key") == idempotency_key:
-                    return True  # 已存在，跳过
-        
-        # 添加新消息
-        if not message.message_id:
-            message.message_id = str(uuid.uuid4())
-        messages.append(message)
-        
-        # 保存消息
-        with open(messages_file, 'w', encoding='utf-8') as f:
-            json.dump({
-                "messages": [m.to_dict() for m in messages]
-            }, f, ensure_ascii=False, indent=2)
-        
-        # 如果会话不存在，尝试从文件恢复（避免覆盖已有 metadata）
-        if session_id not in self.sessions:
-            from backend.core.context.models import Session
-            session = None
-            if self.sessions_file.exists():
+            # 加载现有消息。2025-03-20：json 不存在但 jsonl 存在时从 jsonl 加载，避免丢失历史
+            messages = []
+            if messages_file.exists():
                 try:
-                    with open(self.sessions_file, 'r', encoding='utf-8') as f:
+                    with open(messages_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                        for s in data.get("sessions", []):
-                            if isinstance(s, dict) and s.get("session_id") == session_id:
-                                try:
-                                    session = Session.from_dict(s)
-                                    break
-                                except Exception:
-                                    pass
+                        for m in data.get("messages", []):
+                            if not isinstance(m, dict):
+                                continue
+                            try:
+                                messages.append(Message.from_dict(m))
+                            except Exception:
+                                continue
                 except (json.JSONDecodeError, OSError):
                     pass
-            if session is None:
-                session = Session(session_id=session_id, metadata={})
-            self.sessions[session_id] = session
-            self._save_sessions()
-        else:
-            # 更新会话时间
-            self.sessions[session_id].updated_at = datetime.now()
-            self._save_sessions()
-        
-        return True
+            elif jsonl_file.exists():
+                messages = self._read_messages_jsonl(jsonl_file)
+
+            # 幂等检查
+            idempotency_key = (message.metadata or {}).get("idempotency_key")
+            if idempotency_key:
+                for m in messages:
+                    if (m.metadata or {}).get("idempotency_key") == idempotency_key:
+                        return True  # 已存在，跳过
+
+            # 添加新消息
+            if not message.message_id:
+                message.message_id = str(uuid.uuid4())
+            messages.append(message)
+
+            # 保存消息
+            with open(messages_file, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "messages": [m.to_dict() for m in messages]
+                }, f, ensure_ascii=False, indent=2)
+
+            # 如果会话不存在，尝试从文件恢复（避免覆盖已有 metadata）
+            if session_id not in self.sessions:
+                from backend.core.context.models import Session
+                session = None
+                if self.sessions_file.exists():
+                    try:
+                        with open(self.sessions_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            for s in data.get("sessions", []):
+                                if isinstance(s, dict) and s.get("session_id") == session_id:
+                                    try:
+                                        session = Session.from_dict(s)
+                                        break
+                                    except Exception:
+                                        pass
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                if session is None:
+                    session = Session(session_id=session_id, metadata={})
+                self.sessions[session_id] = session
+                self._save_sessions()
+            else:
+                # 更新会话时间
+                self.sessions[session_id].updated_at = datetime.now()
+                self._save_sessions()
+
+            return True
     
     def get_messages(
         self,
@@ -240,115 +263,214 @@ class FileStorageBackend(StorageBackend):
         offset: int = 0
     ) -> List[Message]:
         """获取消息列表。优先 json，无则回退到 jsonl（2025-03-20：兼容仅 jsonl 的历史会话）。"""
-        messages_file = self._get_messages_file(session_id)
-        jsonl_file = self._get_messages_jsonl_file(session_id)
+        with self._session_messages_lock(session_id):
+            messages_file = self._get_messages_file(session_id)
+            jsonl_file = self._get_messages_jsonl_file(session_id)
 
-        messages: List[Message] = []
-        needs_save = False
-        use_jsonl = False
+            messages: List[Message] = []
+            needs_save = False
+            use_jsonl = False
 
-        if messages_file.exists():
-            with open(messages_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            for m in data.get("messages", []):
-                if not isinstance(m, dict):
-                    continue
-                try:
-                    msg = Message.from_dict(m)
-                    if not msg.message_id:
+            # 本次在内存中新分配的 id（仅用于持久化失败时回滚，避免前端拿到磁盘里不存在的 id）
+            freshly_assigned: List[Message] = []
+
+            if messages_file.exists():
+                with open(messages_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for m in data.get("messages", []):
+                    if not isinstance(m, dict):
+                        continue
+                    try:
+                        msg = Message.from_dict(m)
+                        if not _normalize_message_id(msg.message_id):
+                            msg.message_id = str(uuid.uuid4())
+                            freshly_assigned.append(msg)
+                            needs_save = True
+                        messages.append(msg)
+                    except Exception:
+                        continue
+            elif jsonl_file.exists():
+                use_jsonl = True
+                messages = self._read_messages_jsonl(jsonl_file)
+                for msg in messages:
+                    if not _normalize_message_id(msg.message_id):
                         msg.message_id = str(uuid.uuid4())
+                        freshly_assigned.append(msg)
                         needs_save = True
-                    messages.append(msg)
-                except Exception:
-                    continue
-        elif jsonl_file.exists():
-            use_jsonl = True
-            messages = self._read_messages_jsonl(jsonl_file)
-            for msg in messages:
-                if not msg.message_id:
-                    msg.message_id = str(uuid.uuid4())
-                    needs_save = True
-        else:
-            return []
+            else:
+                return []
 
-        if needs_save and use_jsonl:
-            try:
-                with open(jsonl_file, 'w', encoding='utf-8') as f:
-                    for m in messages:
-                        f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
-            except (OSError, TypeError):
-                pass
-        elif needs_save:
-            try:
-                with open(messages_file, 'w', encoding='utf-8') as f:
-                    json.dump(
-                        {"messages": [m.to_dict() for m in messages]},
-                        f, ensure_ascii=False, indent=2
-                    )
-            except (OSError, TypeError):
-                pass
+            write_ok = True
+            if needs_save and use_jsonl:
+                try:
+                    with open(jsonl_file, 'w', encoding='utf-8') as f:
+                        for m in messages:
+                            f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
+                except (OSError, TypeError):
+                    write_ok = False
+            elif needs_save:
+                try:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump(
+                            {"messages": [m.to_dict() for m in messages]},
+                            f, ensure_ascii=False, indent=2
+                        )
+                except (OSError, TypeError):
+                    write_ok = False
 
-        if offset > 0:
-            messages = messages[offset:]
-        if limit:
-            messages = messages[:limit]
-        return messages
+            # 2026-03-13：若补全 message_id 后写盘失败，必须回滚内存中的 id，否则 GET 返回的 id 无法被 DELETE 命中
+            if needs_save and not write_ok:
+                for msg in freshly_assigned:
+                    msg.message_id = None
+
+            if offset > 0:
+                messages = messages[offset:]
+            if limit:
+                messages = messages[:limit]
+            return messages
     
     def delete_message(self, session_id: str, message_id: str) -> bool:
         """删除消息。message_id 比较时统一转为 str 并 strip。优先 json，无则回退 jsonl（2025-03-20：兼容仅 jsonl 的历史会话）。"""
-        messages_file = self._get_messages_file(session_id)
-        jsonl_file = self._get_messages_jsonl_file(session_id)
-
-        target_id = str(message_id).strip() if message_id else ""
+        target_id = _normalize_message_id(message_id)
         if not target_id:
             return False
 
-        if messages_file.exists():
-            with open(messages_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            messages = [Message.from_dict(m) for m in data.get("messages", [])]
-            use_jsonl = False
-        elif jsonl_file.exists():
-            messages = self._read_messages_jsonl(jsonl_file)
-            use_jsonl = True
-        else:
+        with self._session_messages_lock(session_id):
+            messages_file = self._get_messages_file(session_id)
+            jsonl_file = self._get_messages_jsonl_file(session_id)
+
+            if messages_file.exists():
+                with open(messages_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                messages = []
+                for m in data.get("messages", []):
+                    if not isinstance(m, dict):
+                        continue
+                    try:
+                        messages.append(Message.from_dict(m))
+                    except Exception:
+                        continue
+                use_jsonl = False
+            elif jsonl_file.exists():
+                messages = self._read_messages_jsonl(jsonl_file)
+                use_jsonl = True
+            else:
+                return False
+
+            original_count = len(messages)
+            messages = [m for m in messages if _normalize_message_id(m.message_id) != target_id]
+
+            if len(messages) < original_count:
+                if use_jsonl:
+                    with open(jsonl_file, 'w', encoding='utf-8') as f:
+                        for m in messages:
+                            f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
+                else:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump({"messages": [m.to_dict() for m in messages]}, f, ensure_ascii=False, indent=2)
+                return True
             return False
 
-        original_count = len(messages)
-        messages = [m for m in messages if (m.message_id or "").strip() != target_id]
+    def delete_messages(self, session_id: str, message_ids: List[str]) -> Dict[str, Any]:
+        """一次读盘、过滤、写回，避免 N 次 delete_message；与同会话 save/delete 共锁（2026-03-21，终端审查：竞态与性能）。"""
+        result: Dict[str, Any] = {"success": True, "deleted": [], "failed": []}
+        if not message_ids:
+            result["success"] = False
+            result["failed"] = [{"message_id": "", "error": "message_ids 为空"}]
+            return result
 
-        if len(messages) < original_count:
-            if use_jsonl:
-                with open(jsonl_file, 'w', encoding='utf-8') as f:
-                    for m in messages:
-                        f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
+        with self._session_messages_lock(session_id):
+            messages_file = self._get_messages_file(session_id)
+            jsonl_file = self._get_messages_jsonl_file(session_id)
+
+            if not messages_file.exists() and not jsonl_file.exists():
+                for raw in message_ids:
+                    rn = _normalize_message_id(raw)
+                    if rn:
+                        result["failed"].append({"message_id": raw, "error": "会话无消息文件或会话目录不存在"})
+                    else:
+                        result["failed"].append({"message_id": raw, "error": "无效 message_id"})
+                if result["failed"]:
+                    result["success"] = False
+                return result
+
+            if messages_file.exists():
+                with open(messages_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                messages = []
+                for m in data.get("messages", []):
+                    if not isinstance(m, dict):
+                        continue
+                    try:
+                        messages.append(Message.from_dict(m))
+                    except Exception:
+                        continue
+                use_jsonl = False
             else:
-                with open(messages_file, 'w', encoding='utf-8') as f:
-                    json.dump({"messages": [m.to_dict() for m in messages]}, f, ensure_ascii=False, indent=2)
-            return True
-        return False
-    
+                messages = self._read_messages_jsonl(jsonl_file)
+                use_jsonl = True
+
+            want_norms = {_normalize_message_id(x) for x in message_ids if _normalize_message_id(x)}
+            removed_norms: set = set()
+            filtered: List[Message] = []
+            for m in messages:
+                nid = _normalize_message_id(m.message_id)
+                if nid in want_norms:
+                    removed_norms.add(nid)
+                else:
+                    filtered.append(m)
+
+            for raw in message_ids:
+                n = _normalize_message_id(raw)
+                if not n:
+                    result["failed"].append({"message_id": raw, "error": "无效 message_id"})
+                    continue
+                if n in removed_norms:
+                    result["deleted"].append(str(raw).strip())
+                else:
+                    result["failed"].append({"message_id": raw, "error": "消息不存在"})
+
+            if not result["deleted"] and result["failed"]:
+                result["success"] = False
+
+            if len(filtered) < len(messages):
+                if use_jsonl:
+                    with open(jsonl_file, 'w', encoding='utf-8') as f:
+                        for m in filtered:
+                            f.write(json.dumps({"message": m.to_dict()}, ensure_ascii=False) + "\n")
+                else:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump({"messages": [m.to_dict() for m in filtered]}, f, ensure_ascii=False, indent=2)
+
+            return result
+
     def clear_session(self, session_id: str) -> bool:
         """清除会话内容：删除该会话下所有消息与当前文章草稿（session_dir），会话记录保留。"""
-        session_dir = self._get_session_dir(session_id)
-        if session_dir.exists():
-            shutil.rmtree(session_dir)
-        if session_id in self.sessions:
-            self.sessions[session_id].updated_at = datetime.now()
-            self._save_sessions()
+        with self._session_messages_lock(session_id):
+            session_dir = self._get_session_dir(session_id)
+            if session_dir.exists():
+                shutil.rmtree(session_dir)
+            if session_id in self.sessions:
+                self.sessions[session_id].updated_at = datetime.now()
+                self._save_sessions()
         return True
 
     def delete_session(self, session_id: str) -> bool:
         """删除会话：移除会话目录并从会话列表中移除记录。"""
-        session_dir = self._get_session_dir(session_id)
-        dir_existed = session_dir.exists()
-        if dir_existed:
-            shutil.rmtree(session_dir)
-        if session_id in self.sessions:
-            del self.sessions[session_id]
-            self._save_sessions()
-            return True
-        return dir_existed
+        with self._session_messages_lock(session_id):
+            session_dir = self._get_session_dir(session_id)
+            dir_existed = session_dir.exists()
+            if dir_existed:
+                shutil.rmtree(session_dir)
+            if session_id in self.sessions:
+                del self.sessions[session_id]
+                self._save_sessions()
+                ok = True
+            else:
+                ok = dir_existed
+        # 须在释放会话消息锁之后再 pop，否则其它线程可能在仍持锁时拿到新 Lock 对象造成混乱
+        self._drop_session_messages_lock(session_id)
+        return ok
 
     def create_session(self, session: Session) -> bool:
         """创建会话"""

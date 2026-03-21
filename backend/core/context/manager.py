@@ -225,6 +225,20 @@ class ContextManager:
         """删除单条消息。前端删除后需同步到后端。"""
         return self.storage.delete_message(session_id, message_id)
 
+    def delete_messages(self, session_id: str, message_ids: List[str]) -> Dict:
+        """批量删除消息。返回包含 success, deleted, failed 的字典。"""
+        if hasattr(self.storage, "delete_messages"):
+            return self.storage.delete_messages(session_id, message_ids)
+        else:
+            # 兼容旧存储后端的实现
+            result = {"success": True, "deleted": [], "failed": []}
+            for mid in message_ids:
+                if self.storage.delete_message(session_id, mid):
+                    result["deleted"].append(mid)
+                else:
+                    result["failed"].append({"message_id": mid, "error": "消息不存在或删除失败"})
+            return result
+
     def truncate_after_message(self, session_id: str, message_id: str) -> bool:
         """删除指定消息之后的所有消息（用于「重新回答」时清除该回答及后续对话）。"""
         messages = self.storage.get_messages(session_id)
@@ -252,6 +266,24 @@ class ContextManager:
         if hasattr(self.storage, "delete_session"):
             return self.storage.delete_session(session_id)
         return self.storage.clear_session(session_id)
+
+    def delete_sessions(self, session_ids: List[str]) -> Dict:
+        """批量删除会话。返回包含 success, deleted, failed 的字典，并包括被删除会话的元数据类型信息用于前端清理参考块。"""
+        result = {"success": True, "deleted": [], "failed": [], "deleted_session_info": []}
+        for sid in session_ids:
+            session_before_delete = self.get_session(sid)  # 获取会话类型信息
+            if self.delete_session(sid):
+                result["deleted"].append(sid)
+                # 记录被删除会话的信息，用于前端清理对应IndexedDB参考块
+                if session_before_delete:
+                    session_type = (session_before_delete.metadata or {}).get("type", "general_chat")
+                    result["deleted_session_info"].append({
+                        "session_id": sid,
+                        "type": session_type
+                    })
+            else:
+                result["failed"].append({"session_id": sid, "error": "会话不存在或删除失败"})
+        return result
 
     def _get_article_storage(self):
         """懒加载文章版本存储（SQLite），用于当前文章 + 修改历史。"""

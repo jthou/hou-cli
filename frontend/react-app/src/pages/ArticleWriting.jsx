@@ -71,6 +71,9 @@ import WritingProfileForm from '../components/WritingProfileForm'
 import MessageRatingInline from '../components/MessageRatingInline'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
+import { useDeleteSessionMessage } from '../hooks/useDeleteSessionMessage'
+import { useBatchDeleteSessions } from '../hooks/useBatchDeleteSessions'
+import { useBatchDeleteMessages } from '../hooks/useBatchDeleteMessages'
 
 const WECHAT_MP_API = {
   uploadCover: (file) => {
@@ -153,6 +156,11 @@ export default function ArticleWriting() {
     else if (!selectedModel && selectableModels?.length) setSelectedModel(selectableModels[0]?.value || '')
   }, [defaultModel, selectedModel, selectableModels])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /** 2026-03-21：侧栏/对话区批量删除（设计见 docs/design/01-batch-delete-sessions-and-messages-design.md） */
+  const [sessionBulkMode, setSessionBulkMode] = useState(false)
+  const [bulkSessionIds, setBulkSessionIds] = useState([])
+  const [messageBulkMode, setMessageBulkMode] = useState(false)
+  const [bulkMessageIds, setBulkMessageIds] = useState([])
   /** 摘要按版本存储：{ [revisionId|'current']: summary } */
   const [summaryPerVersion, setSummaryPerVersion] = useState({})
   const {
@@ -199,7 +207,22 @@ export default function ArticleWriting() {
         toast?.error?.(e?.message || '加载会话列表失败')
       })
       .finally(() => setSessionsLoading(false))
-  }, [listSort])
+  }, [listSort, toast])
+
+  const executeBatchDeleteSessions = useBatchDeleteSessions({
+    sessionType: ARTICLE_SESSION_TYPE,
+    loadSessions,
+    selectedSessionId,
+    setSelectedSessionId,
+    setMessages,
+    storageKey: STORAGE_KEY_SELECTED_SESSION,
+    toast,
+  })
+  const executeBatchDeleteMessages = useBatchDeleteMessages({
+    selectedSessionId,
+    setMessages,
+    toast,
+  })
 
   const loadRevisions = useCallback(() => {
     if (!selectedSessionId) {
@@ -224,6 +247,11 @@ export default function ArticleWriting() {
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
+
+  useEffect(() => {
+    setBulkMessageIds([])
+    setMessageBulkMode(false)
+  }, [selectedSessionId])
 
   /** 从 AddReference 页跳回时聚焦指定会话并重新加载参考块（AddReference 刚写入，避免内存中的旧数据覆盖） */
   useEffect(() => {
@@ -384,6 +412,44 @@ export default function ArticleWriting() {
     abortControllerRef.current?.abort()
   }
 
+  /** 2026-03-13：与通用对话一致，单条删除走 DELETE /api/sessions/.../messages/... */
+  const handleDeleteMessage = useDeleteSessionMessage({ selectedSessionId, setMessages, toast })
+
+  const toggleBulkSession = (sid) => {
+    setBulkSessionIds((prev) =>
+      prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]
+    )
+  }
+
+  const handleBulkDeleteSessions = async () => {
+    if (bulkSessionIds.length === 0) return
+    const ok = await toast.confirm(
+      `确定删除选中的 ${bulkSessionIds.length} 个会话？删除后不可恢复。`
+    )
+    if (!ok) return
+    await executeBatchDeleteSessions(bulkSessionIds)
+    setBulkSessionIds([])
+    setSessionBulkMode(false)
+  }
+
+  const toggleBulkMessage = (mid) => {
+    if (!mid) return
+    setBulkMessageIds((prev) =>
+      prev.includes(mid) ? prev.filter((x) => x !== mid) : [...prev, mid]
+    )
+  }
+
+  const handleBulkDeleteMessages = async () => {
+    if (bulkMessageIds.length === 0) return
+    const ok = await toast.confirm(
+      `确定删除选中的 ${bulkMessageIds.length} 条消息？删除后不可恢复。`
+    )
+    if (!ok) return
+    await executeBatchDeleteMessages(bulkMessageIds)
+    setBulkMessageIds([])
+    setMessageBulkMode(false)
+  }
+
   const handleRegenerate = async (messageId) => {
     if (!selectedSessionId || !messageId || loading) return
     const idx = messages.findIndex((m) => m.message_id === messageId)
@@ -513,6 +579,41 @@ export default function ArticleWriting() {
       const decoder = new TextDecoder()
       let buffer = ''
       let fullContent = ''
+      /** 2026-03-13：同一条流里 done 可能在主循环与尾缓冲各出现一次，防重复追加；与 GeneralChat 一致 */
+      let streamTerminalHandled = false
+
+      const patchTitleIfFirst = () => {
+        if (!isFirstMessage || !text) return
+        fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: text.slice(0, 30).trim() || text.slice(0, 30) }),
+        })
+          .then((r) => r.json())
+          .then((d) => { if (d.success) loadSessions() })
+          .catch(() => {})
+      }
+
+      /** 后端可能尚未持久化，若条数少于乐观 UI 则延迟重试，避免 message_id 与磁盘不一致导致删除报「不存在」 */
+      const refreshMessagesAfterTurn = (isRetry = false) => {
+        fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (!d.success || !Array.isArray(d.messages)) return
+            const mapped = d.messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+              message_id: m.message_id,
+            }))
+            setMessages((prev) => {
+              if (mapped.length >= prev.length || isRetry) return mapped
+              if (!isRetry) setTimeout(() => refreshMessagesAfterTurn(true), 400)
+              return prev
+            })
+          })
+          .catch(() => {})
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -547,30 +648,18 @@ export default function ArticleWriting() {
                   setStreamingContent(fullContent)
                 }
               } else if (obj.status === 'done') {
+                if (streamTerminalHandled) {
+                  fullContent = ''
+                  continue
+                }
+                streamTerminalHandled = true
                 const finalContent = fullContent.trim() || '（助手未返回内容，可能仍在处理或匹配技能，请稍后重试或换一种说法。）'
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
                 streamingContentRef.current = ''
-                if (isFirstMessage && text) {
-                  fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title: text.slice(0, 30).trim() || text.slice(0, 30) }),
-                  })
-                    .then((r) => r.json())
-                    .then((d) => { if (d.success) loadSessions() })
-                    .catch(() => {})
-                }
-                // 时间：2025-03-15；理由：流式完成后获取 message_id 以支持打分；方法：拉取最新消息
-                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
-                  .then((r) => r.json())
-                  .then((d) => {
-                    if (d.success && Array.isArray(d.messages) && d.messages.length > 0) {
-                      setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
-                    }
-                  })
-                  .catch(() => {})
+                patchTitleIfFirst()
+                refreshMessagesAfterTurn()
                 fullContent = ''
               } else if (obj.status === 'error') {
                 const err = obj.error || '请求失败'
@@ -615,30 +704,17 @@ export default function ArticleWriting() {
           if (dataLines.length > 0) {
             const lastObj = (() => { try { return JSON.parse(dataLines[dataLines.length - 1].slice(6)) } catch { return null } })()
             if (lastObj?.status === 'done') {
-              const finalContent = fullContent.trim() || '（助手未返回内容，可能仍在处理或匹配技能，请稍后重试或换一种说法。）'
-              setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+              if (!streamTerminalHandled) {
+                streamTerminalHandled = true
+                const finalContent = fullContent.trim() || '（助手未返回内容，可能仍在处理或匹配技能，请稍后重试或换一种说法。）'
+                setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                patchTitleIfFirst()
+                refreshMessagesAfterTurn()
+              }
               setStreamingContent('')
               setStreamingToolCalls([])
               streamingContentRef.current = ''
               fullContent = ''
-              if (isFirstMessage && text) {
-                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ title: text.slice(0, 30).trim() || text.slice(0, 30) }),
-                })
-                  .then((r) => r.json())
-                  .then((d) => { if (d.success) loadSessions() })
-                  .catch(() => {})
-              }
-              fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
-                .then((r) => r.json())
-                .then((d) => {
-                  if (d.success && Array.isArray(d.messages) && d.messages.length > 0) {
-                    setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
-                  }
-                })
-                .catch(() => {})
             } else if (lastObj?.status === 'error') {
               const err = lastObj.error || '请求失败'
               toast?.error?.(err)
@@ -651,17 +727,11 @@ export default function ArticleWriting() {
         } catch (_) {}
         setStreamingContent('')
       }
-      if (fullContent.trim()) {
+      if (!streamTerminalHandled && fullContent.trim()) {
         const finalContent = fullContent.trim()
         setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
-        fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
-          .then((r) => r.json())
-          .then((d) => {
-            if (d.success && Array.isArray(d.messages) && d.messages.length > 0) {
-              setMessages(d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id })))
-            }
-          })
-          .catch(() => {})
+        patchTitleIfFirst()
+        refreshMessagesAfterTurn()
       }
       abortControllerRef.current = null
     } catch (err) {
@@ -735,7 +805,9 @@ export default function ArticleWriting() {
               fetch(`/api/chat/article?session_id=${encodeURIComponent(sessionId)}`).then((res) => res.json()),
             ])
             if (sessionRes.success && Array.isArray(sessionRes.messages)) {
-              setMessages(sessionRes.messages.map((m) => ({ role: m.role, content: m.content })))
+              setMessages(
+                sessionRes.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
+              )
             }
             if (articleRes.status === 'success' && articleRes.article != null) {
               setArticle(articleRes.article)
@@ -1368,7 +1440,7 @@ export default function ArticleWriting() {
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted">排序：</span>
+                  <span className="text-xs text-muted shrink-0">排序：</span>
                   <select
                     value={listSort}
                     onChange={(e) => setListSort(e.target.value)}
@@ -1377,20 +1449,45 @@ export default function ArticleWriting() {
                     <option value="updated_at">最近更新</option>
                     <option value="created_at">最近创建</option>
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSessionBulkMode((v) => !v)
+                      setBulkSessionIds([])
+                    }}
+                    className={`shrink-0 max-w-[5.5rem] leading-tight text-[11px] px-1.5 py-1.5 rounded-lg border ${
+                      sessionBulkMode
+                        ? 'border-accent text-accent bg-accent/10'
+                        : 'border-border text-muted hover:bg-white/5'
+                    }`}
+                  >
+                    {sessionBulkMode ? '退出多选会话' : '多选会话'}
+                  </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
                 {sessionsLoading ? (
                   <div className="p-4 text-center text-muted text-sm">加载中…</div>
                 ) : sessions.length === 0 ? (
                   <div className="p-4 text-muted text-sm">暂无写作助手会话，点击上方新建</div>
                 ) : (
-                  <ul className="p-2 space-y-1">
+                  <ul className="p-2 space-y-1 flex-1 min-h-0 overflow-y-auto">
                     {sessions.map((s) => (
                       <li key={s.session_id} className="group flex items-center gap-1 rounded-lg overflow-hidden">
+                        {sessionBulkMode && (
+                          <input
+                            type="checkbox"
+                            className="shrink-0 ml-1 rounded border-border"
+                            checked={bulkSessionIds.includes(s.session_id)}
+                            onChange={() => toggleBulkSession(s.session_id)}
+                            title="选中以批量删除"
+                          />
+                        )}
                         <button
                           type="button"
-                          onClick={() => setSelectedSessionId(s.session_id)}
+                          onClick={() => {
+                            if (!sessionBulkMode) setSelectedSessionId(s.session_id)
+                          }}
                           className={`flex-1 min-w-0 text-left px-3 py-2.5 rounded-lg text-sm truncate transition-colors ${
                             selectedSessionId === s.session_id
                               ? 'bg-accent/20 text-accent'
@@ -1400,6 +1497,7 @@ export default function ArticleWriting() {
                         >
                           {displayLabel(s)}
                         </button>
+                        {!sessionBulkMode && (
                         <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             type="button"
@@ -1433,9 +1531,37 @@ export default function ArticleWriting() {
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
                         </div>
+                        )}
                       </li>
                     ))}
                   </ul>
+                )}
+                {sessionBulkMode && sessions.length > 0 && (
+                  <div className="shrink-0 border-t border-border p-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted">已选 {bulkSessionIds.length}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBulkSessionIds(sessions.map((x) => x.session_id))}
+                      className="px-2 py-1 rounded border border-border text-muted hover:bg-white/5"
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkSessionIds([])}
+                      className="px-2 py-1 rounded border border-border text-muted hover:bg-white/5"
+                    >
+                      清空
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bulkSessionIds.length === 0}
+                      onClick={handleBulkDeleteSessions}
+                      className="px-2 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+                    >
+                      批量删除
+                    </button>
+                  </div>
                 )}
               </div>
             </>
@@ -1454,6 +1580,35 @@ export default function ArticleWriting() {
             </div>
           ) : (
             <>
+              <div className="shrink-0 px-4 py-2 border-b border-border flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessageBulkMode((v) => !v)
+                    setBulkMessageIds([])
+                  }}
+                  className={`px-2.5 py-1 text-xs rounded border ${
+                    messageBulkMode
+                      ? 'border-accent text-accent bg-accent/10'
+                      : 'border-border text-muted hover:bg-white/5'
+                  }`}
+                >
+                  {messageBulkMode ? '取消选择消息' : '选择消息'}
+                </button>
+                {messageBulkMode && (
+                  <>
+                    <span className="text-xs text-muted">已选 {bulkMessageIds.length}</span>
+                    <button
+                      type="button"
+                      disabled={loading || bulkMessageIds.length === 0}
+                      onClick={handleBulkDeleteMessages}
+                      className="px-2.5 py-1 text-xs rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+                    >
+                      删除选中消息
+                    </button>
+                  </>
+                )}
+              </div>
               <div ref={messagesScrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
                 {messages.length === 0 && (
                   <div className="text-muted text-sm rounded-lg bg-white/5 p-4 border border-border">
@@ -1474,9 +1629,18 @@ export default function ArticleWriting() {
 
                   return (
                   <div
-                    key={i}
-                    className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    key={m.message_id || i}
+                    className={`flex items-start gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
+                    {messageBulkMode && m.message_id && (
+                      <input
+                        type="checkbox"
+                        className="mt-3 shrink-0 rounded border-border"
+                        checked={bulkMessageIds.includes(m.message_id)}
+                        onChange={() => toggleBulkMessage(m.message_id)}
+                        title="选中以批量删除"
+                      />
+                    )}
                     <div className={`max-w-[85%] ${m.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}>
                       {m.role === 'assistant' && agentStatus && (
                         <div className="mb-1 text-xs text-muted">
@@ -1508,6 +1672,7 @@ export default function ArticleWriting() {
                           messageId={m.message_id}
                           onRegenerate={handleRegenerate}
                           onWriteToInput={handleWriteToInput}
+                          onDeleteMessage={handleDeleteMessage}
                           onAddToReference={(c) => {
                             handleAddReferenceBlockWithContent(c)
                             setReferencePanelOpen(true)
@@ -1574,6 +1739,16 @@ export default function ArticleWriting() {
                           >
                             添加到参考
                           </button>
+                          {m.message_id && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMessage(m.message_id)}
+                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
+                              title="删除此消息"
+                            >
+                              删除
+                            </button>
+                          )}
                           {m.message_id && selectedSessionId && (
                             <MessageRatingInline
                               sessionId={selectedSessionId}

@@ -172,6 +172,108 @@ async def delete_message(session_id: str, message_id: str):
         return {"success": False, "error": str(e)}
 
 
+class BatchDeleteMessagesRequest(BaseModel):
+    message_ids: list[str]
+
+
+class BatchDeleteSessionsRequest(BaseModel):
+    session_ids: list[str]
+    # 2026-03-21：与 list_sessions(type=…) 一致；article_writing 时允许 metadata 无 type（旧会话）
+    expected_type: Optional[str] = None
+
+
+def _session_metadata_type_matches_expected(session, expected_type: str) -> bool:
+    """批量删会话前校验类型。expected_type=article_writing 时与 GET list 过滤规则一致。"""
+    actual = (session.metadata or {}).get("type")
+    if expected_type == "article_writing":
+        return actual == "article_writing" or not actual
+    return actual == expected_type
+
+
+@router.post("/sessions/{session_id}/messages/batch-delete")
+async def batch_delete_messages(session_id: str, request: BatchDeleteMessagesRequest):
+    """批量删除会话中的消息（设计见 docs/design/01-batch-delete-sessions-and-messages-design.md）。"""
+    debug_log(
+        "收到批量删除消息请求",
+        data={"session_id": session_id, "message_ids": request.message_ids}
+    )
+    try:
+        message_ids = [mid.strip() for mid in request.message_ids if mid and mid.strip()]
+        if not message_ids:
+            return {"success": False, "error": "message_ids 不能为空"}
+        if len(message_ids) > 100:
+            return {"success": False, "error": "每次最多删除100条消息"}
+
+        orchestrator = get_orchestrator()
+        result = orchestrator.context_manager.delete_messages(session_id, message_ids)
+
+        debug_log(
+            "批量删除消息完成",
+            data={"session_id": session_id, "result": result}
+        )
+        return result
+    except Exception as e:
+        debug_log(
+            f"批量删除消息异常: {str(e)}",
+            level="error",
+            data={"session_id": session_id, "message_ids": request.message_ids}
+        )
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/sessions/batch-delete")
+async def batch_delete_sessions(request: BatchDeleteSessionsRequest):
+    """批量删除会话。可选 expected_type 防止跨助手误删（article_writing 兼容无 type 的旧会话）。"""
+    debug_log(
+        "收到批量删除会话请求",
+        data={"session_ids": request.session_ids, "expected_type": request.expected_type}
+    )
+    try:
+        session_ids = [sid.strip() for sid in request.session_ids if sid and sid.strip()]
+        if not session_ids:
+            return {"success": False, "error": "session_ids 不能为空"}
+        if len(session_ids) > 50:
+            return {"success": False, "error": "每次最多删除50个会话"}
+
+        orchestrator = get_orchestrator()
+
+        if request.expected_type:
+            exp = request.expected_type.strip()
+            for sid in session_ids:
+                session = orchestrator.context_manager.get_session(sid)
+                # 2026-03-21：expected_type 下必须能对每个 id 做类型判断；跳过「无索引会话」会留下与 list 不一致的删盘路径（终端审查）
+                if session is None:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"会话 {sid} 不存在或未在索引中，无法在 expected_type={exp!r} 下校验；请刷新列表后重试"
+                        ),
+                    }
+                if not _session_metadata_type_matches_expected(session, exp):
+                    actual = (session.metadata or {}).get("type")
+                    return {
+                        "success": False,
+                        "error": (
+                            f"会话 {sid} 类型为 {actual!r}，与期望的类型 {exp!r} 不符"
+                        ),
+                    }
+
+        result = orchestrator.context_manager.delete_sessions(session_ids)
+
+        debug_log(
+            "批量删除会话完成",
+            data={"result": result}
+        )
+        return result
+    except Exception as e:
+        debug_log(
+            f"批量删除会话异常: {str(e)}",
+            level="error",
+            data={"session_ids": request.session_ids}
+        )
+        return {"success": False, "error": str(e)}
+
+
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
     """清除会话的所有消息与当前文章草稿（含 current_article.md），会话本身保留。"""
