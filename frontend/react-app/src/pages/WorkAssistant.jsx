@@ -765,10 +765,6 @@ export default function WorkAssistant() {
                       onRegenerate={handleRegenerate}
                       onWriteToInput={setInput}
                       onDeleteMessage={handleDeleteMessage}
-                      onAddToReference={(c) => {
-                        handleAddReferenceBlockWithContent(c)
-                        setReferencePanelOpen(true)
-                      }}
                       loading={loading}
                     />
                   </>
@@ -796,17 +792,6 @@ export default function WorkAssistant() {
                         title="将回复内容写入输入框"
                       >
                         写回输入框
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleAddReferenceBlockWithContent(msg.content)
-                          setReferencePanelOpen(true)
-                        }}
-                        className="px-2 py-1 text-xs rounded border border-border text-muted hover:text-accent hover:bg-white/5"
-                        title="添加到参考信息"
-                      >
-                        添加到参考
                       </button>
                       {msg.message_id && (
                         <button

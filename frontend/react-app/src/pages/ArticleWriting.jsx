@@ -239,11 +239,6 @@ export default function ArticleWriting() {
       .finally(() => setRevisionsLoading(false))
   }, [selectedSessionId])
 
-  const handleAddToReference = (content) => {
-    if (!content || typeof content !== 'string' || !content.trim()) return
-    navigate('/add-reference', { state: { addToReference: content.trim() } })
-  }
-
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
@@ -1673,10 +1668,6 @@ export default function ArticleWriting() {
                           onRegenerate={handleRegenerate}
                           onWriteToInput={handleWriteToInput}
                           onDeleteMessage={handleDeleteMessage}
-                          onAddToReference={(c) => {
-                            handleAddReferenceBlockWithContent(c)
-                            setReferencePanelOpen(true)
-                          }}
                           loading={loading}
                         />
                       )}
@@ -1728,16 +1719,6 @@ export default function ArticleWriting() {
                             className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                           >
                             写回输入框
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleAddReferenceBlockWithContent(assistantContent)
-                              setReferencePanelOpen(true)
-                            }}
-                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
-                          >
-                            添加到参考
                           </button>
                           {m.message_id && (
                             <button
@@ -1830,16 +1811,6 @@ export default function ArticleWriting() {
                               className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
                             >
                               写回输入框
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleAddReferenceBlockWithContent(streamMarkdown)
-                                setReferencePanelOpen(true)
-                              }}
-                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10"
-                            >
-                              添加到参考
                             </button>
                           </>
                         )}
@@ -2127,7 +2098,6 @@ export default function ArticleWriting() {
                 content={previewContent}
                 onSendToArticle={handleWriteToInput}
                 sendToArticleLabel="写回输入框"
-                onAddToReference={handleAddToReference}
                 extra={
                   <button
                     type="button"
