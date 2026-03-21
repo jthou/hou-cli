@@ -201,7 +201,12 @@ class UnifiedOrchestrator:
         matched_skill = None
         if self.skill_registry is not None:
             matched_skill = await self.skill_matcher.match(task)
-        
+
+        # 时间：2026-03-21；理由：与 stream_process 一致，技能执行前须 set_model；方法：match 后 _select_model（同设计文档 §6）。
+        selected_model = await self._select_model(task, context=context)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
+
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
@@ -228,6 +233,7 @@ class UnifiedOrchestrator:
                 if skill_result.success:
                     logger.info(f"技能 {matched_skill.name} 执行成功")
                     result_text = self._format_skill_result(matched_skill, skill_result)
+                    self.llm_service.reset_model()
                     return result_text
                 else:
                     logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
@@ -241,10 +247,7 @@ class UnifiedOrchestrator:
     
     async def _intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> str:
         """使用LLM智能编排agents和tools"""
-        # 用户指定模型时优先使用
-        selected_model = await self._select_model(task, context=context)
-        if selected_model != self.llm_service.model:
-            self.llm_service.set_model(selected_model)
+        # 时间：2026-03-21；理由：避免与 process() 入口处的 _select_model 重复；方法：仅由 process() 在技能分支前统一 set_model 后调用本函数。
         # 获取会话ID
         session_id = context.get("session_id") if context else None
         if not session_id:
@@ -1962,7 +1965,27 @@ class UnifiedOrchestrator:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"orchestrator.py:stream_process:after_skill_match","message":"技能匹配完成","data":{"matched":matched_skill is not None,"skill_name":matched_skill.name if matched_skill else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
         except: pass
         # #endregion
-        
+
+        # 时间：2026-03-21；理由：技能内共用 context["llm_service"]，若在 _select_model 之前执行则一直用 LLMService 构造默认模型，与页选模型不一致；方法：在 match 之后、execute 之前调用 _select_model + set_model（设计：docs/design/01-article-writing-agent-and-model-config-design.md §6）。
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "开始模型选择",
+            "details": {},
+        }
+        yield StreamMessageBuilder.build_debug(debug_info)
+        selected_model = await self._select_model(task, context=context)
+        if selected_model != self.llm_service.model:
+            self.llm_service.set_model(selected_model)
+        self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
+        debug_info = {
+            "type": "debug",
+            "category": "orchestrator",
+            "message": "模型选择",
+            "details": {"selected_model": selected_model},
+        }
+        yield StreamMessageBuilder.build_debug(debug_info)
+
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             debug_info = {
@@ -2308,7 +2331,10 @@ class UnifiedOrchestrator:
                                     logger.info(f"对话评估完成，分数: {evaluation_result.get('overall_score', 'N/A')}/100")
                     except Exception as e:
                         logger.warning(f"对话评估失败: {str(e)}", exc_info=True)
-                
+
+                # 时间：2026-03-21；理由：与未命中技能时的主路径一致，避免默认模型被覆盖后泄漏到同进程其它请求；方法：技能分支正常结束前 reset_model（同本函数主路径 stream 结束处）。
+                self.llm_service.reset_model()
+
                 return  # 技能执行完成，直接返回
             except Exception as e:
                 logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
@@ -2372,29 +2398,9 @@ class UnifiedOrchestrator:
         }
         yield StreamMessageBuilder.build_debug(debug_info)
         self.debug.log_orchestrator_step("准备工具", {"tool_count": len(tools), "tools": tool_names})
-        
-        # 智能模型选择：使用 chat 模型分析任务，决定使用哪个模型
-        debug_info = {
-            "type": "debug",
-            "category": "orchestrator",
-            "message": "开始模型选择",
-            "details": {}
-        }
-        yield StreamMessageBuilder.build_debug(debug_info)
-        
-        selected_model = await self._select_model(task, context=context)
-        if selected_model != self.llm_service.model:
-            self.llm_service.set_model(selected_model)
-        # 总是显示模型选择信息（即使模型没有改变）
-        self.debug.log_orchestrator_step("模型选择", {"selected_model": selected_model})
-        debug_info = {
-            "type": "debug",
-            "category": "orchestrator",
-            "message": "模型选择",
-            "details": {"selected_model": selected_model}
-        }
-        yield StreamMessageBuilder.build_debug(debug_info)
-        
+
+        # 模型已在技能匹配之后统一选择（见上文「开始模型选择」）；此处不再重复 _select_model，避免双次复杂度判断与双份调试事件。
+
         # 如果有工具可用，先完成工具调用（非流式），然后流式返回最终结果
         if tools:
             try:

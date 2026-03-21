@@ -65,6 +65,11 @@
   - 前端多选交互、与 IndexedDB 参考块的可选联动
   - 存储层一次读写的批量删除建议与实施顺序
 
+- **[01-article-writing-agent-and-model-config-design.md](./01-article-writing-agent-and-model-config-design.md)** - 写作助手 Agent、大模型与可配置性设计
+  - `article_writing` 技能白名单、是否使用 `ArticleWritingAgent`、各路径 LLM 来源
+  - 为何「总结画像」常表现为 DeepSeek 默认线路（技能早于 `_select_model`）
+  - 可配置性现状、配置页信息架构建议、执行顺序与可选环境变量提案
+
 ### 02X - 通信和集成
 
 - **[02-ipc-and-packaging.md](./02-ipc-and-packaging.md)** - IPC 通信和打包方案

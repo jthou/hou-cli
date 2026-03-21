@@ -115,10 +115,14 @@ class WritingProfileSummarySkill(Skill):
                 },
             )
         except Exception as e:
-            self.report_progress(f"执行过程中发生错误: {str(e)}")
+            from backend.services.llm.user_facing_error import llm_error_message_for_user
+
+            friendly = llm_error_message_for_user(e)
+            detail = friendly if friendly else str(e)
+            self.report_progress(f"执行过程中发生错误: {detail}")
             return SkillResult(
                 success=False,
-                error=f"写作画像总结失败: {str(e)}",
+                error=f"写作画像总结失败: {detail}",
             )
 
 

@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 from openai import AsyncOpenAI, PermissionDeniedError, APIConnectionError
 import httpx
+from backend.services.llm.user_facing_error import (
+    insufficient_balance_user_message,
+    is_insufficient_balance_error,
+)
 from shared.debug_utils import DebugOutput
 from shared.load_env import load_env
 
@@ -568,6 +572,21 @@ class LLMService:
                     # 处理 OpenAI SDK 的 APITimeoutError 和其他超时异常
                     error_str = str(e)
                     error_type = type(e).__name__
+                    sc = getattr(e, "status_code", None)
+                    if sc is None and hasattr(e, "response"):
+                        sc = getattr(getattr(e, "response", None), "status_code", None)
+
+                    # 2026-03-21：402 余额不足 — 不重试；抛出带 provider/model 的 RuntimeError 便于用户定位哪条线路欠费
+                    if is_insufficient_balance_error(e):
+                        user_msg = insufficient_balance_user_message(self.provider, self.model)
+                        logger.error(
+                            "API 余额不足 (402) provider=%s model=%s: %s",
+                            self.provider,
+                            self.model,
+                            e,
+                            exc_info=True,
+                        )
+                        raise RuntimeError(user_msg) from e
 
                     # 检查是否是权限错误（403、PermissionDenied等）
                     if ("403" in error_str or
@@ -733,6 +752,10 @@ class LLMService:
                 except Exception:
                     pass
                 logger.error(f"流式响应处理错误: {e}")
+                if is_insufficient_balance_error(e):
+                    raise RuntimeError(
+                        insufficient_balance_user_message(self.provider, self.model)
+                    ) from e
                 raise
 
             # 如果有思考过程，输出完整思考过程
@@ -781,6 +804,16 @@ class LLMService:
             if e.response.status_code == 403:
                 logger.error(f"API 权限不足 (403): 模型可能未启用或权限不足: {e}", exc_info=True)
                 raise
+            if e.response.status_code == 402:
+                user_msg = insufficient_balance_user_message(self.provider, self.model)
+                logger.error(
+                    "API 余额不足 (402) provider=%s model=%s: %s",
+                    self.provider,
+                    self.model,
+                    e,
+                    exc_info=True,
+                )
+                raise RuntimeError(user_msg) from e
             # 429 错误（限流）：流式响应暂不支持重试，直接抛出
             if e.response.status_code == 429:
                 logger.error(f"API 限流 (429): {e}", exc_info=True)
