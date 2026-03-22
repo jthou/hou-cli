@@ -533,6 +533,19 @@ class TestImageGenerationHandler:
         assert "wan2.6-t2i" in values
         assert model_field.get("default") == "Qwen-Image-2.0"
 
+    def test_home_briefing_report_hidden_from_available_task_types(self):
+        """home_briefing_report 不在创建任务下拉中（hide_from_task_create_ui）"""
+        types = get_available_task_types()
+        assert all(t.get("type") != "home_briefing_report" for t in types)
+
+    def test_home_briefing_report_still_in_task_types_registry(self):
+        from backend.infrastructure.execution.task_handlers import TASK_TYPES, get_task_type_info
+
+        assert "home_briefing_report" in TASK_TYPES
+        info = get_task_type_info("home_briefing_report")
+        assert info is not None
+        assert info.get("name")
+
 
 class TestComicHandler:
     """漫画生成任务处理器"""

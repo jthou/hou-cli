@@ -23,6 +23,7 @@
 |------|------|
 | **语义** | 「编排」名实不符；用户期望的是 **按意图组织多能力完成任务**，不是 **抢答一个 Skill**。 |
 | **可靠性** | 关键词与写作类意图（如「总结」）重叠，易 **误匹配**；回退路径不可测试、难审计。 |
+| **general_chat**（2026-03-22 落地补丁） | `context_type=general_chat` 时默认 **仅**在存在 URL、本地媒体路径倾向或明确音视频关键词时才调用 `SkillRegistry.match`，否则直接走对话+工具；`GENERAL_CHAT_SKILL_PREMATCH=on` 可恢复旧行为。门控：`general_chat_skill_gate.py`；与 `process_dynamic` / `stream_process` 共用的预匹配与参数校验：`skill_prematch.py`（`disable_skill_prematch_for_assistants`、`resolve_skill_params_for_execution` 等）。CLI：`scripts/test_general_chat_stream.py`。 |
 | **一致性** | 匹配用 **独立 LLM 实例**，与用户所选模型、Orchestrator 共用 `llm_service` 可能不一致。 |
 | **可维护性** | 每增技能易加剧关键词森林；与 [01-multi-agent-design.md](./01-multi-agent-design.md) 中的 Coordinator / 任务分解 **脱节**。 |
 

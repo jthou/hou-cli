@@ -351,6 +351,38 @@ TASK_TYPES = {
             }
         }
     },
+    # 时间：2026-03-21；理由：首页简报 P0；方法：聚合天气/搜索任务事实包 + LLM 生成报告；hide 避免创建任务下拉里噪音
+    "home_briefing_report": {
+        "name": "首页简报生成",
+        "description": "根据近期已完成的天气查询与网页搜索任务结果，生成叙述型简报（供首页展示）。通常由首页「生成简报」触发，无需手动填参。",
+        "hide_from_task_create_ui": True,
+        "output_spec": {
+            "content": "简报 Markdown + 元数据 + 事实索引",
+            "format": "JSON：result.briefing 含 schema_version/meta/markdown/fact_refs/fact_pack",
+            "naming_rule": "无本地文件",
+            "default_path": "无",
+        },
+        "metadata_schema": {
+            "window_hours": {
+                "type": "number",
+                "required": False,
+                "description": "回溯多少小时内完成的任务（默认 168=7 天）",
+                "default": 168,
+            },
+            "max_facts": {
+                "type": "number",
+                "required": False,
+                "description": "事实条数上限（默认 40）",
+                "default": 40,
+            },
+            "model": {
+                "type": "string",
+                "required": False,
+                "description": "覆盖默认简报模型（可选，与 LLMService 模型名一致）",
+                "placeholder": "留空使用环境默认模型",
+            },
+        },
+    },
     "speech_to_text": {
         "name": "字幕提取",
         "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
@@ -1222,6 +1254,76 @@ async def process_web_search_compare_task(task_info: Dict[str, Any]) -> Dict[str
         "result": {
             "tavily": result_tavily,
             "duckduckgo": result_duckduckgo,
+        },
+    }
+
+
+async def process_home_briefing_report_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """首页简报：拉取近期天气/搜索任务 -> 事实包 -> LLM 生成 Markdown 报告。"""
+    metadata = task_info.get("metadata") or {}
+    worker = get_task_worker()
+
+    window_hours = metadata.get("window_hours", 168)
+    max_facts = metadata.get("max_facts", 40)
+    try:
+        window_hours = int(window_hours)
+    except (TypeError, ValueError):
+        window_hours = 168
+    try:
+        max_facts = int(max_facts)
+    except (TypeError, ValueError):
+        max_facts = 40
+    window_hours = max(1, min(window_hours, 24 * 30))
+    max_facts = max(1, min(max_facts, 80))
+    model_override = (metadata.get("model") or "").strip() or None
+
+    worker.update_task_progress(5, "正在汇总近期任务结果…")
+
+    from backend.infrastructure.storage.task_queue_db import get_task_queue_db, TaskStatus
+    from backend.services.home_briefing.fact_pack import SOURCE_TASK_TYPES, build_fact_pack_from_tasks
+    from backend.services.home_briefing.report_generate import generate_briefing_markdown
+
+    db = get_task_queue_db()
+    raw_tasks = db.list_tasks(
+        status=TaskStatus.COMPLETED,
+        limit=400,
+        offset=0,
+        include_deleted="exclude",
+        include_result=True,
+        task_types=list(SOURCE_TASK_TYPES),
+    )
+
+    worker.update_task_progress(35, "正在构建事实包…")
+    fact_pack, fp_ver = build_fact_pack_from_tasks(
+        raw_tasks,
+        window_hours=window_hours,
+        max_facts=max_facts,
+    )
+
+    worker.update_task_progress(55, "正在生成简报正文…")
+    markdown, meta, fact_refs = await generate_briefing_markdown(
+        fact_pack,
+        fp_ver,
+        model=model_override,
+    )
+
+    briefing = {
+        "schema_version": "1",
+        "meta": meta,
+        "markdown": markdown,
+        "fact_refs": fact_refs,
+        "fact_pack": fact_pack,
+    }
+    summary = meta.get("title") or "简报已生成"
+    if fact_pack.get("truncated"):
+        summary += "（事实已截断）"
+
+    worker.update_task_progress(100, "简报生成完成")
+    return {
+        "status": "success",
+        "summary": summary[:500],
+        "result": {
+            "briefing": briefing,
         },
     }
 
@@ -2468,6 +2570,7 @@ def register_default_handlers():
     worker.register_handler("weather_query", process_weather_query_task)
     worker.register_handler("web_search", process_web_search_task)
     worker.register_handler("web_search_compare", process_web_search_compare_task)
+    worker.register_handler("home_briefing_report", process_home_briefing_report_task)
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
@@ -2493,6 +2596,8 @@ def get_available_task_types() -> List[Dict[str, Any]]:
                 enum_list[0] = {"value": "", "label": f"默认（{default_model}）"}
                 schema["llm_model"] = dict(schema["llm_model"])
                 schema["llm_model"]["enum"] = enum_list
+        if info.get("hide_from_task_create_ui"):
+            continue
         result.append({
             "type": task_type,
             "name": info["name"],

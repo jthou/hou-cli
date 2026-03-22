@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 146
-- 前端 fetch 数: 134
+- 后端路由数: 148
+- 前端 fetch 数: 137
 
 ## 后端路由
 
@@ -17,6 +17,7 @@ GET /api/chat/article/metadata
 GET /api/chat/article/revisions
 GET /api/chat/mw-sources
 GET /api/heartbeat/status
+GET /api/home-briefing/latest
 GET /api/latex/render
 GET /api/mediawiki/base-url
 GET /api/mediawiki/diagnostic
@@ -113,6 +114,7 @@ POST /api/chat/rate-message
 POST /api/chat/stream
 POST /api/execution/approve
 POST /api/execution/reject
+POST /api/home-briefing/generate
 POST /api/mediawiki/pages/{title:path}
 POST /api/mediawiki/parse
 POST /api/mediawiki/reset-client
@@ -173,6 +175,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/chat/rate-message
 - GET /api/chat/stream
 - GET /api/heartbeat/status
+- GET /api/home-briefing/generate
+- GET /api/home-briefing/latest
 - GET /api/latex/render
 - GET /api/mediawiki/pages/
 - GET /api/mediawiki/random-read
@@ -261,6 +265,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/chat/article/upload-cover-to-wechat
 - POST /api/chat/rate-message
 - POST /api/chat/stream
+- POST /api/home-briefing/generate
 - POST /api/mediawiki/upload-image
 - POST /api/network/audit/run
 - POST /api/pdf/resolve

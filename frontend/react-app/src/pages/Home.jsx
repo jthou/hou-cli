@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import WeatherResultDisplay from '../components/WeatherResultDisplay'
 import DiskResultDisplay from '../components/DiskResultDisplay'
 import TaskResultDisplay from '../components/TaskResultDisplay'
+import MarkdownPreview from '../components/MarkdownPreview'
+import { useToast } from '../components/ToastModal'
+import { parseApiResponseJson } from '../utils/parseApiResponse'
 
 const FETCH_TIMEOUT_MS = 15000
 
@@ -145,6 +148,103 @@ function useLatestScheduledUrlToWiki() {
 }
 
 export default function Home() {
+  const toast = useToast()
+  const [briefing, setBriefing] = useState(null)
+  const [briefingShowDegraded, setBriefingShowDegraded] = useState(false)
+  const [briefingLastAttempt, setBriefingLastAttempt] = useState(null)
+  const [briefingPending, setBriefingPending] = useState(false)
+  const [briefingLoading, setBriefingLoading] = useState(true)
+  const [briefingError, setBriefingError] = useState(null)
+  const [briefingGenerating, setBriefingGenerating] = useState(false)
+  const pollRef = useRef(null)
+
+  const applyBriefingPayload = useCallback((data) => {
+    setBriefing(data?.briefing ?? null)
+    setBriefingShowDegraded(Boolean(data?.show_degraded_banner))
+    setBriefingLastAttempt(data?.last_attempt ?? null)
+    setBriefingPending(Boolean(data?.pending_in_queue))
+  }, [])
+
+  const loadBriefing = useCallback(async () => {
+    setBriefingLoading(true)
+    setBriefingError(null)
+    try {
+      const res = await fetch('/api/home-briefing/latest')
+      const data = await parseApiResponseJson(res)
+      applyBriefingPayload(data)
+    } catch (e) {
+      setBriefingError(e?.message || String(e))
+      setBriefing(null)
+      setBriefingShowDegraded(false)
+      setBriefingLastAttempt(null)
+      setBriefingPending(false)
+    } finally {
+      setBriefingLoading(false)
+    }
+  }, [applyBriefingPayload])
+
+  useEffect(() => {
+    loadBriefing()
+  }, [loadBriefing])
+
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+  }, [])
+
+  const handleGenerateBriefing = async () => {
+    if (briefingGenerating) return
+    setBriefingGenerating(true)
+    try {
+      const res = await fetch('/api/home-briefing/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const data = await parseApiResponseJson(res)
+      toast.info(data?.message || '已加入队列')
+      const taskId = data?.task_id
+      if (!taskId) {
+        setBriefingGenerating(false)
+        return
+      }
+      let n = 0
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = setInterval(async () => {
+        n += 1
+        try {
+          const tr = await fetch(`/api/task-queue/tasks/${encodeURIComponent(taskId)}`)
+          const td = await parseApiResponseJson(tr)
+          const st = td?.task?.status
+          if (st === 'completed') {
+            if (pollRef.current) clearInterval(pollRef.current)
+            pollRef.current = null
+            setBriefingGenerating(false)
+            await loadBriefing()
+            toast.info('简报已更新')
+            return
+          }
+          if (st === 'failed' || st === 'cancelled') {
+            if (pollRef.current) clearInterval(pollRef.current)
+            pollRef.current = null
+            setBriefingGenerating(false)
+            const err = td?.task?.error || td?.task?.message || '任务失败'
+            toast.error(err)
+            await loadBriefing()
+            return
+          }
+        } catch {
+          /* ignore */
+        }
+        if (n >= 90) {
+          if (pollRef.current) clearInterval(pollRef.current)
+          pollRef.current = null
+          setBriefingGenerating(false)
+          toast.warning('等待超时，请稍后在首页刷新或到任务中心查看')
+          await loadBriefing()
+        }
+      }, 2000)
+    } catch (e) {
+      toast.error(e?.message || '提交失败')
+      setBriefingGenerating(false)
+    }
+  }
+
   const { task: weatherTask, loading, error } = useLatestTask('weather_query')
   const { report: diskScanReport, loading: diskReportLoading, error: diskReportError } = useDiskScanReport()
   const { task: diskScanTask, loading: diskScanLoading, error: diskScanError } = useLatestTask('disk_scan')
@@ -161,6 +261,88 @@ export default function Home() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader title="首页" />
+      {/* 时间：2026-03-21；理由：P0 简报 + P1 任务轮询与失败降级横幅 */}
+      <div className="shrink-0 px-6 py-3 border-b border-border">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+          <h2 className="text-sm font-semibold text-white">简报与研判</h2>
+          <button
+            type="button"
+            onClick={handleGenerateBriefing}
+            disabled={briefingGenerating}
+            className="text-xs px-3 py-1.5 rounded-lg border border-accent/60 text-accent hover:bg-accent/10 disabled:opacity-50"
+          >
+            {briefingGenerating ? '生成中…' : '生成最新简报'}
+          </button>
+        </div>
+        {briefingLoading && <p className="text-xs text-muted">加载简报…</p>}
+        {briefingError && <p className="text-xs text-red-400">简报加载失败：{briefingError}</p>}
+        {!briefingLoading && !briefingError && briefingShowDegraded && briefing?.markdown && (
+          <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/95">
+            本期简报生成失败，以下为上一期内容。
+            {briefingLastAttempt?.display_error && (
+              <span className="block mt-1 text-amber-200/80">原因：{briefingLastAttempt.display_error}</span>
+            )}
+            <Link to="/tasks" className="ml-2 text-accent underline">任务中心</Link>
+          </div>
+        )}
+        {!briefingLoading && !briefingError && briefingPending && !briefingGenerating && (
+          <p className="text-xs text-cyan-400/90 mb-2">有简报任务正在排队或执行中，请稍候…</p>
+        )}
+        {!briefingLoading && !briefingError && !briefing && briefingLastAttempt?.status === 'failed' && (
+          <p className="text-xs text-red-400">
+            最近一次简报生成失败：{briefingLastAttempt.display_error || '未知错误'}
+          </p>
+        )}
+        {!briefingLoading && !briefingError && !briefing && !(briefingLastAttempt?.status === 'failed') && (
+          <p className="text-xs text-muted">
+            暂无已生成的简报。请先完成一些<strong>天气查询</strong>或<strong>网页搜索</strong>任务，再点击「生成最新简报」。
+          </p>
+        )}
+        {!briefingLoading && briefing?.meta && (
+          <p className="text-[11px] text-muted mb-2">
+            {briefing.meta.title || '简报'}
+            {briefing.meta.generated_at && (
+              <span className="ml-2">· 生成于 {briefing.meta.generated_at}</span>
+            )}
+            {briefing.meta.used_count != null && (
+              <span className="ml-2">· 依据 {briefing.meta.used_count} 条事实</span>
+            )}
+          </p>
+        )}
+        {!briefingLoading && briefing?.markdown && (
+          <div className="rounded-xl border border-cyan-500/20 bg-surface/50 p-4 max-h-[min(420px,50vh)] overflow-y-auto">
+            <div className="prose prose-invert prose-sm max-w-none text-muted">
+              <MarkdownPreview markdown={briefing.markdown} theme="dark" />
+            </div>
+          </div>
+        )}
+        {!briefingLoading && briefing?.fact_refs?.length > 0 && (
+          <details className="mt-2 text-xs text-muted">
+            <summary className="cursor-pointer text-cyan-300/80 hover:text-cyan-200">
+              事实索引（补充；正文已含主要来源链接）
+            </summary>
+            <ul className="mt-2 space-y-1 pl-4 list-disc">
+              {briefing.fact_refs.map((r) => (
+                <li key={r.id}>
+                  <span className="text-fg/90">{r.id}</span>
+                  {r.title && <span className="ml-1">{r.title}</span>}
+                  {r.url && (
+                    <a href={r.url} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent break-all">
+                      链接
+                    </a>
+                  )}
+                  {r.task_id && (
+                    <Link to="/tasks" className="ml-2 text-muted hover:text-accent">
+                      任务 {r.task_id.slice(0, 8)}…
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+
       <div className="shrink-0 px-6 py-2 flex flex-wrap gap-2">
         {quickLinks.map(({ to, icon, label }) => (
           <Link

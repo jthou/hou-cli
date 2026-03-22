@@ -77,6 +77,12 @@
   - 前端多选交互、与 IndexedDB 参考块的可选联动
   - 存储层一次读写的批量删除建议与实施顺序
 
+- **[01-home-briefing-report-agent-design.md](./01-home-briefing-report-agent-design.md)** - 首页简报/研判专用 Agent 设计
+  - 叙述型报告与分析（非任务流水账）；系统运维叙事归属审计/统计页
+  - 事实包（Fact Pack）→ 固定章节合同、版本化输出与可追溯依据
+  - **P0 已落地**：任务 `home_briefing_report`（隐藏创建 UI）、`GET/POST /api/home-briefing/*`、首页「简报与研判」区；定时与「失败保留上一期」等见文档分期
+  - **评审补强**：并发快照与单写者、抓取失败/敏感信息、失败降级与性能、进度与导出、运维指标与风险表（见文档 §5.4 起）
+
 - **[01-article-writing-agent-and-model-config-design.md](./01-article-writing-agent-and-model-config-design.md)** - 写作助手 Agent、大模型与可配置性设计
   - `article_writing` 技能白名单、§2.3 技能 → LLM/Agent 对照表、各路径 LLM 来源
   - 流式技能与 `_select_model` 顺序（§3.3）、配置页建议、§6 提案

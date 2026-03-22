@@ -5,14 +5,18 @@
 加载顺序：项目根 → 用户配置目录 → 当前目录。
 override：全部 True，后续文件覆盖前面的，确保用户凭据（config_dir）覆盖项目根空占位。
 """
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
 _CONFIG_DIR = Path.home() / ".config" / "hou-cli"
 
 
-def load_env(project_root: Path | None = None) -> None:
+# 时间：2026-03-22；理由：Python 3.9 不支持 PEP604 内联 Union；方法：用 Optional[Path] 保持与 3.10+ 行为一致
+def load_env(project_root: Optional[Path] = None) -> None:
     """
     加载 .env，统一逻辑。
 

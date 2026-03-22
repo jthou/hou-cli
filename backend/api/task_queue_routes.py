@@ -119,6 +119,9 @@ def _generate_task_name(task_type: str, metadata: Optional[Dict[str, Any]] = Non
         short = (t[:20] + "…" if len(t) > 20 else t) if t else "公众号草稿"
         return f"公众号草稿 《{short}》 {ts}"
 
+    if task_type == "home_briefing_report":
+        return f"首页简报生成 {ts}"
+
     type_names = {
         "weather_query": "天气查询",
         "disk_scan": "磁盘扫描",

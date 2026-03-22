@@ -1,5 +1,6 @@
 """统一智能编排器"""
 import os
+import re
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
@@ -67,6 +68,11 @@ from backend.core.agent.stream_agent_preamble import (
 from backend.core.context.hybrid_history import (
     messages_to_llm_turns,
     select_hybrid_chat_messages,
+)
+from backend.core.agent.skill_prematch import (
+    disable_skill_prematch_for_assistants,
+    general_chat_allows_skill_prematch,
+    resolve_skill_params_for_execution,
 )
 
 
@@ -239,14 +245,6 @@ class UnifiedOrchestrator:
         # 统一的技能匹配服务（使用嵌套类）
         self.skill_matcher = UnifiedOrchestrator.SkillMatcher(self.skill_registry)
 
-    @staticmethod
-    def _disable_skill_prematch_for_assistants(ctx_type: Optional[str]) -> bool:
-        # 时间：2026-03-13；理由：编排阶段 1，写作/工作助手关闭 skill 抢答（docs/design/01-orchestrator-intent-driven-refactor-design.md §6）；方法：DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS=true 且 context_type ∈ {article_writing, work_assistant}。
-        return (
-            os.getenv("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS", "false").lower() == "true"
-            and ctx_type in ("article_writing", "work_assistant")
-        )
-    
     async def _execute_agent(self, agent_name: str, task: str, params: Dict, session_id: str) -> str:
         """执行指定的agent"""
         # 这里可以根据agent名称动态调用相应的agent
@@ -1169,16 +1167,38 @@ class UnifiedOrchestrator:
             session_obj = self.context_manager.get_session(session_id_for_ctx)
             if session_obj and session_obj.metadata:
                 ctx_type_for_prematch = session_obj.metadata.get("type")
-        # 优先检查是否有匹配的技能
+        # 优先检查是否有匹配的技能（与 stream_process 分支一致，公共逻辑见 skill_prematch）
         matched_skill = None
-        if self.skill_registry is not None and not self._disable_skill_prematch_for_assistants(ctx_type_for_prematch):
+        if self.skill_registry is None:
+            pass
+        elif disable_skill_prematch_for_assistants(ctx_type_for_prematch):
+            pass
+        elif ctx_type_for_prematch == "general_chat" and not general_chat_allows_skill_prematch(task):
+            logger.info(
+                "general_chat：未满足技能预匹配条件，跳过 skill_registry.match（可设 GENERAL_CHAT_SKILL_PREMATCH=true 恢复全量）"
+            )
+        else:
             matched_skill = await self.skill_registry.match(task, context_type=ctx_type_for_prematch)
+        skill_params_prepared = None
+        if matched_skill:
+            _sk_name = matched_skill.name
+            resolved = resolve_skill_params_for_execution(
+                task, ctx_type_for_prematch, matched_skill, self._extract_skill_parameters
+            )
+            matched_skill = resolved.skill
+            skill_params_prepared = resolved.params
+            if resolved.reject_reason:
+                logger.info(
+                    "general_chat：技能 %s 参数校验未通过（%s），降级为对话",
+                    _sk_name,
+                    resolved.reject_reason,
+                )
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
             
-            # 提取技能参数
-            skill_params = self._extract_skill_parameters(task, matched_skill)
+            # 提取技能参数（已在上方校验）
+            skill_params = skill_params_prepared or self._extract_skill_parameters(task, matched_skill)
             
             # 执行技能
             try:
@@ -1860,7 +1880,9 @@ class UnifiedOrchestrator:
         # #endregion
         
         matched_skill = None
-        if self._disable_skill_prematch_for_assistants(ctx_type):
+        if self.skill_registry is None:
+            pass
+        elif disable_skill_prematch_for_assistants(ctx_type):
             logger.info(
                 "DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS：跳过 skill_registry.match（context_type=%s）",
                 ctx_type,
@@ -1872,7 +1894,18 @@ class UnifiedOrchestrator:
                 "details": {"context_type": ctx_type},
             }
             yield StreamMessageBuilder.build_debug(debug_info)
-        elif self.skill_registry is not None:
+        elif ctx_type == "general_chat" and not general_chat_allows_skill_prematch(task):
+            logger.info(
+                "general_chat：未满足技能预匹配条件，跳过 skill_registry.match（可设 GENERAL_CHAT_SKILL_PREMATCH=true 恢复全量）"
+            )
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "已跳过技能预匹配（general_chat 无 URL/路径/音视频意图）",
+                "details": {"context_type": ctx_type},
+            }
+            yield StreamMessageBuilder.build_debug(debug_info)
+        else:
             matched_skill = await self.skill_registry.match(task, context_type=ctx_type)
         
         # #region agent log
@@ -1894,7 +1927,7 @@ class UnifiedOrchestrator:
                         "step_id": "skill_prematch",
                         "matched": matched_skill is not None,
                         "skill": matched_skill.name if matched_skill else None,
-                        "skipped_by_flag": bool(self._disable_skill_prematch_for_assistants(ctx_type)),
+                        "skipped_by_flag": bool(disable_skill_prematch_for_assistants(ctx_type)),
                     },
                 }
             )
@@ -1934,6 +1967,28 @@ class UnifiedOrchestrator:
                 }
             )
 
+        skill_params_prepared = None
+        if matched_skill:
+            _sk_name = matched_skill.name
+            resolved = resolve_skill_params_for_execution(
+                task, ctx_type, matched_skill, self._extract_skill_parameters
+            )
+            matched_skill = resolved.skill
+            skill_params_prepared = resolved.params
+            if resolved.reject_reason:
+                logger.info(
+                    "general_chat：技能 %s 参数校验未通过（%s），降级为对话与工具",
+                    _sk_name,
+                    resolved.reject_reason,
+                )
+                dbg = {
+                    "type": "debug",
+                    "category": "orchestrator",
+                    "message": "general_chat 技能参数不足，改走对话与工具",
+                    "details": {"skill": _sk_name, "error": resolved.reject_reason},
+                }
+                yield StreamMessageBuilder.build_debug(dbg)
+
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             debug_info = {
@@ -1945,8 +2000,7 @@ class UnifiedOrchestrator:
             yield StreamMessageBuilder.build_debug(debug_info)
             self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
             
-            # 提取技能参数
-            skill_params = self._extract_skill_parameters(task, matched_skill)
+            skill_params = skill_params_prepared or self._extract_skill_parameters(task, matched_skill)
             
             # 执行技能
             try:
@@ -2393,7 +2447,7 @@ class UnifiedOrchestrator:
                 }
                 yield StreamMessageBuilder.build_debug(debug_info)
                 
-                _skip_pre = self._disable_skill_prematch_for_assistants(ctx_type)
+                _skip_pre = disable_skill_prematch_for_assistants(ctx_type)
                 for _pre in iter_stream_preamble_text(
                     preamble_mode,
                     branch="llm_tools",
@@ -2444,7 +2498,7 @@ class UnifiedOrchestrator:
             # 时间：2026-03-21；理由：写作助手等已 set_model(qwen3-max) 时 debug 仍写死 deepseek-chat 造成「两轮请求/下一问」误判；方法：与 _select_model 结果一致
             self.debug.log_llm_request(system_prompt, user_prompt, selected_model)
             full_response = ""
-            _skip_pre = self._disable_skill_prematch_for_assistants(ctx_type)
+            _skip_pre = disable_skill_prematch_for_assistants(ctx_type)
             for _pre in iter_stream_preamble_text(
                 preamble_mode,
                 branch="llm_plain",
