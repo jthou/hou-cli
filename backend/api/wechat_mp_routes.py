@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from PIL import Image
 
 from backend.services.wechat_mp_service import WeChatMPClient, WeChatMPClientError
+from backend.services.wechat_mp_service.cover_image_fit import fit_wechat_cover_image
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -161,25 +162,36 @@ async def get_draft_detail(media_id: str):
 
 @router.post("/wechat-mp/upload-cover")
 async def upload_cover(file: UploadFile = File(...)):
-    """上传封面图为永久素材，返回 media_id。支持 JPG/PNG；WebP 会自动转为 PNG。图片 ≤2MB。"""
+    """上传封面图为永久素材，返回 media_id。支持 JPG/PNG；WebP 会自动转为 PNG。微信限制 ≤2MB，超限将自动压缩。"""
+    # 时间：2026-03-13；理由：未捕获异常时 Starlette 可能返回纯文本 Internal Server Error，前端 res.json() 报错；方法：统一转 HTTPException JSON
     try:
-        content = await file.read()
+        try:
+            content = await file.read()
+        except Exception as e:
+            logger.exception("读取上传文件失败: %s", e)
+            raise HTTPException(status_code=500, detail="读取文件失败") from e
+        if not content:
+            raise HTTPException(status_code=400, detail="文件为空")
+        filename = file.filename or "cover.jpg"
+        content_type = getattr(file, "content_type", None) or ""
+        if _is_webp(content_type, filename):
+            content = _webp_to_png(content)
+            filename = "cover.png"
+        try:
+            content, filename = fit_wechat_cover_image(content, filename)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        try:
+            client = _get_client()
+            data = client.upload_image_permanent(content, filename=filename)
+            return {"success": True, "media_id": data.get("media_id"), "url": data.get("url")}
+        except WeChatMPClientError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("读取上传文件失败: %s", e)
-        raise HTTPException(status_code=500, detail="读取文件失败")
-    if not content:
-        raise HTTPException(status_code=400, detail="文件为空")
-    filename = file.filename or "cover.jpg"
-    content_type = getattr(file, "content_type", None) or ""
-    if _is_webp(content_type, filename):
-        content = _webp_to_png(content)
-        filename = "cover.png"
-    try:
-        client = _get_client()
-        data = client.upload_image_permanent(content, filename=filename)
-        return {"success": True, "media_id": data.get("media_id"), "url": data.get("url")}
-    except WeChatMPClientError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("upload_cover 未捕获异常: %s", e)
+        raise HTTPException(status_code=500, detail=str(e) or "封面上传处理失败") from e
 
 
 @router.post("/wechat-mp/upload-article-image")

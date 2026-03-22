@@ -38,7 +38,7 @@ from backend.core.agent.planning.execution_planner import ExecutionPlanner
 from backend.core.agent.planning.model_switcher import ModelSwitcher
 from backend.core.agent.planning.adaptive_strategy import AdaptiveStrategy, ExecutionMetrics
 from backend.core.agent.planning.autonomous_executor import AutonomousExecutor
-from backend.api.stream_sender import SSEFormatter, LongTaskMonitor, StreamMessageBuilder
+from backend.api.stream_sender import SSEFormatter, LongTaskMonitor, StreamMessageBuilder, resolve_orchestration_trace_verbosity
 from backend.core.agent.task_manager import task_manager
 from backend.core.agent.system_prompt_templates import (
     CHAT_SYSTEM_PROMPT,
@@ -53,7 +53,51 @@ from backend.core.agent.system_prompt_templates import (
 )
 from backend.core.agent.agent_tools_registry import get_tools_for_llm_by_agent, get_tool_names_for_agent
 from backend.core.agent.writing_profile import get_profile_block_for_prompt
+from backend.core.agent.article_writing_message_contract import (
+    build_article_draft_scope_prefix,
+    build_article_sectioning_hint_injection,
+    build_article_word_count_constraint_injection,
+    task_triggers_doc_coauthoring,
+)
 from backend.core.agent.work_config import get_config_block_for_prompt
+from backend.core.agent.stream_agent_preamble import (
+    iter_stream_preamble_text,
+    resolve_stream_agent_preamble_mode,
+)
+from backend.core.context.hybrid_history import (
+    messages_to_llm_turns,
+    select_hybrid_chat_messages,
+)
+
+
+def _select_chat_history_for_llm_stream(
+    context_manager: FullContextManager,
+    session_id: Optional[str],
+    task: str,
+    default_filtered: list,
+) -> tuple:
+    """
+    时间：2026-03-13；理由：work/general 全量历史噪声大；方法：混合最近条数 + 关键词检索旧消息；返回 (llm 消息 dict 列表, 可选 ctx_meta)。
+    """
+    if not session_id or os.getenv("ENABLE_HYBRID_CHAT_HISTORY", "true").lower() != "true":
+        return default_filtered, None
+    raw_msgs = context_manager.get_messages(session_id, compressed=False)
+    raw_f = [m for m in raw_msgs if m.role in (MessageRole.USER, MessageRole.ASSISTANT)]
+    if not raw_f:
+        return default_filtered, None
+    try:
+        recent_k = int(os.getenv("CHAT_HISTORY_RECENT_MESSAGES", "12"))
+        topk = int(os.getenv("CHAT_HISTORY_RETRIEVE_TOP_K", "8"))
+    except ValueError:
+        recent_k, topk = 12, 8
+    chosen, meta = select_hybrid_chat_messages(
+        raw_f,
+        task,
+        context_manager.retrieval,
+        recent_message_count=recent_k,
+        retrieve_top_k=topk,
+    )
+    return messages_to_llm_turns(chosen), meta
 
 
 class UnifiedOrchestrator:
@@ -194,116 +238,14 @@ class UnifiedOrchestrator:
         
         # 统一的技能匹配服务（使用嵌套类）
         self.skill_matcher = UnifiedOrchestrator.SkillMatcher(self.skill_registry)
-    
-    async def process(self, task: str, context: Optional[Dict] = None) -> str:
-        """智能处理任务，使用LLM决定如何协调agents和tools"""
-        # 优先检查是否有匹配的技能
-        matched_skill = None
-        if self.skill_registry is not None:
-            matched_skill = await self.skill_matcher.match(task)
 
-        # 时间：2026-03-21；理由：与 stream_process 一致，技能执行前须 set_model；方法：match 后 _select_model（同设计文档 §6）。
-        selected_model = await self._select_model(task, context=context)
-        if selected_model != self.llm_service.model:
-            self.llm_service.set_model(selected_model)
-
-        if matched_skill:
-            logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
-            self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
-            
-            # 提取技能参数
-            skill_params = self._extract_skill_parameters(task, matched_skill)
-            
-            # 执行技能
-            try:
-                # 设置上下文
-                session_id = context.get("session_id") if context else None
-                if not session_id:
-                    session_id = self.context_manager.create_session()
-                
-                skill_context = {
-                    'tool_registry': self.tool_registry,
-                    'llm_service': self.llm_service,
-                    'context_manager': self.context_manager,
-                    'session_id': session_id
-                }
-                
-                skill_result = await matched_skill.execute(skill_params, skill_context)
-                
-                if skill_result.success:
-                    logger.info(f"技能 {matched_skill.name} 执行成功")
-                    result_text = self._format_skill_result(matched_skill, skill_result)
-                    self.llm_service.reset_model()
-                    return result_text
-                else:
-                    logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
-                    # 技能执行失败，继续使用LLM处理
-            except Exception as e:
-                logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
-                # 技能执行异常，继续使用LLM处理
-        
-        # 如果没有匹配到技能或技能执行失败，使用LLM智能编排
-        return await self._intelligent_orchestration(task, context)
-    
-    async def _intelligent_orchestration(self, task: str, context: Optional[Dict] = None) -> str:
-        """使用LLM智能编排agents和tools"""
-        # 时间：2026-03-21；理由：避免与 process() 入口处的 _select_model 重复；方法：仅由 process() 在技能分支前统一 set_model 后调用本函数。
-        # 获取会话ID
-        session_id = context.get("session_id") if context else None
-        if not session_id:
-            session_id = self.context_manager.create_session()
-        
-        # 获取历史消息
-        history = self.context_manager.get_messages_for_llm(
-            session_id,
-            max_messages=None,
-            max_tokens=None
+    @staticmethod
+    def _disable_skill_prematch_for_assistants(ctx_type: Optional[str]) -> bool:
+        # 时间：2026-03-13；理由：编排阶段 1，写作/工作助手关闭 skill 抢答（docs/design/01-orchestrator-intent-driven-refactor-design.md §6）；方法：DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS=true 且 context_type ∈ {article_writing, work_assistant}。
+        return (
+            os.getenv("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS", "false").lower() == "true"
+            and ctx_type in ("article_writing", "work_assistant")
         )
-        
-        # 获取所有可用的agents和tools
-        available_agents = ["chat_agent", "code_agent", "filesystem_agent", "pdf_agent", "writing_blog_agent"]
-        available_tools = [tool.name for tool in self.tool_registry.get_all_tools()]
-        
-        # 构建智能编排的系统提示（引用唯一模版）
-        system_prompt = get_orchestrator_selector_prompt(available_agents, available_tools)
-        
-        # 构建用户提示
-        if history:
-            history_text = "\n".join([
-                f"{msg['role'].upper()}: {msg['content']}" 
-                for msg in history[-5:]  # 只取最近5条消息
-            ])
-            user_prompt = f"历史对话:\n{history_text}\n\n当前任务：{task}"
-        else:
-            user_prompt = f"任务：{task}"
-        
-        try:
-            # 使用LLM决定编排策略
-            orchestration_plan = await self.llm_service.chat(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt
-            )
-            
-            # 解析编排计划
-            import json
-            plan = json.loads(orchestration_plan)
-            
-            component_type = plan.get("selected_component")
-            component_name = plan.get("component_name")
-            action = plan.get("action")
-            params = plan.get("parameters", {})
-            
-            if component_type == "agent":
-                return await self._execute_agent(component_name, task, params, session_id)
-            elif component_type == "tool":
-                return await self._execute_tool(component_name, params, session_id)
-            else:
-                # 如果LLM没有给出明确的编排方案，使用默认处理
-                return await self._default_processing(task, session_id)
-        
-        except Exception as e:
-            logger.warning(f"智能编排失败，使用默认处理: {e}")
-            return await self._default_processing(task, session_id)
     
     async def _execute_agent(self, agent_name: str, task: str, params: Dict, session_id: str) -> str:
         """执行指定的agent"""
@@ -408,105 +350,7 @@ class UnifiedOrchestrator:
         
         return response
     
-    async def stream_process(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
-        """流式处理任务"""
-        # 发送调试信息：开始技能匹配
-        debug_info = {
-            "type": "debug",
-            "category": "orchestrator",
-            "message": "开始技能匹配",
-            "details": {"task": task[:50] + "..." if len(task) > 50 else task}
-        }
-        yield StreamMessageBuilder.build_debug(debug_info)
-
-        # 获取 context_type 用于技能过滤（时间：2025-03-15；理由：article_writing 仅匹配写作技能；方法：从 context 或 session 读取）
-        ctx_type = (context or {}).get("context_type")
-        session_id_for_ctx = (context or {}).get("session_id")
-        if not ctx_type and session_id_for_ctx:
-            session_obj = self.context_manager.get_session(session_id_for_ctx)
-            if session_obj and session_obj.metadata:
-                ctx_type = session_obj.metadata.get("type")
-
-        # 优先检查是否有匹配的技能
-        matched_skill = None
-        if self.skill_registry is not None:
-            matched_skill = await self.skill_matcher.match(task, context_type=ctx_type)
-        
-        if matched_skill:
-            logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
-            debug_info = {
-                "type": "debug",
-                "category": "orchestrator",
-                "message": "技能匹配",
-                "details": {"skill": matched_skill.name}
-            }
-            yield StreamMessageBuilder.build_debug(debug_info)
-            
-            # 提取技能参数
-            skill_params = self._extract_skill_parameters(task, matched_skill)
-            
-            # 执行技能
-            try:
-                # 设置上下文
-                session_id = context.get("session_id") if context else None
-                if not session_id:
-                    session_id = self.context_manager.create_session()
-                
-                # 创建进度回调
-                def progress_callback(message: str):
-                    progress_msg = {
-                        "type": "progress",
-                        "message": message,
-                        "skill": matched_skill.name
-                    }
-                    yield StreamMessageBuilder.build_progress(progress_msg)
-                
-                skill_context = {
-                    'tool_registry': self.tool_registry,
-                    'llm_service': self.llm_service,
-                    'context_manager': self.context_manager,
-                    'session_id': session_id,
-                    'progress_callback': progress_callback
-                }
-                
-                skill_result = await matched_skill.execute(skill_params, skill_context)
-                
-                if skill_result.success:
-                    logger.info(f"技能 {matched_skill.name} 执行成功")
-                    result_text = self._format_skill_result(matched_skill, skill_result)
-                    for char in result_text:
-                        yield char
-                    return  # 时间：2025-03-15；理由：技能成功时避免继续走 LLM 导致重复输出；方法：提前 return
-                else:
-                    logger.warning(f"技能 {matched_skill.name} 执行失败: {skill_result.error}")
-                    error_msg = f"技能执行失败: {skill_result.error}，将使用LLM处理\n\n"
-                    for char in error_msg:
-                        yield char
-            except Exception as e:
-                logger.error(f"技能 {matched_skill.name} 执行异常: {str(e)}", exc_info=True)
-                error_msg = f"技能执行异常: {str(e)}，将使用LLM处理\n\n"
-                for char in error_msg:
-                    yield char
-        
-        # 工作助手：直接使用 WORK_ASSISTANT_SYSTEM_PROMPT，跳过编排选择器
-        session_id = context.get("session_id") if context else None
-        if not ctx_type and session_id:
-            session_obj = self.context_manager.get_session(session_id)
-            if session_obj and session_obj.metadata:
-                ctx_type = session_obj.metadata.get("type")
-        if ctx_type == "work_assistant":
-            async for chunk in self._stream_work_assistant(task, context):
-                yield chunk
-            return
-        # 通用对话：应走 CHAT_SYSTEM_PROMPT 流程，避免编排选择器误选 get_weather 等工具
-        if ctx_type == "general_chat":
-            async for chunk in self._stream_general_chat_fallback(task, context):
-                yield chunk
-            return
-        # 其他场景：使用流式智能编排
-        async for chunk in self._stream_intelligent_orchestration(task, context):
-            yield chunk
-    
+    # 时间：2026-03-13；理由：原唯一调用方「旧版 stream_process」已移除（与现行第二个 stream_process 重复定义）；方法：保留本函数供后续若要将 work_assistant 从 _stream_intelligent_orchestration 拆出时复用；当前生产流式路径为第二个 stream_process → _stream_intelligent_orchestration 内 is_work_assistant 分支（不经过本函数）。
     async def _stream_work_assistant(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
         """工作助手专用：WORK_ASSISTANT_SYSTEM_PROMPT（软件架构师身份、管理学规范）"""
         regenerate_msg_id = (context or {}).get("regenerate_from_message_id")
@@ -1239,7 +1083,7 @@ class UnifiedOrchestrator:
                 return None
             except Exception as e:
                 logger.warning(f"技能匹配失败，回退到传统匹配: {e}")
-                return await self.skill_registry.match(task)
+                return await self.skill_registry.match(task, context_type=context_type)
 
     def _build_execution_feedback(self, execution_results: list) -> str:
         """构建执行结果反馈消息"""
@@ -1318,10 +1162,17 @@ class UnifiedOrchestrator:
         """
         self.debug.log_orchestrator_step("开始处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
         
+        # 时间：2026-03-13；理由：与流式路径一致，写作/工作助手在 flag 下跳过抢答；方法：先解析 context_type 再决定是否调用 skill_registry.match。
+        ctx_type_for_prematch = (context or {}).get("context_type")
+        session_id_for_ctx = (context or {}).get("session_id")
+        if not ctx_type_for_prematch and session_id_for_ctx:
+            session_obj = self.context_manager.get_session(session_id_for_ctx)
+            if session_obj and session_obj.metadata:
+                ctx_type_for_prematch = session_obj.metadata.get("type")
         # 优先检查是否有匹配的技能
         matched_skill = None
-        if self.skill_registry is not None:
-            matched_skill = await self.skill_registry.match(task)
+        if self.skill_registry is not None and not self._disable_skill_prematch_for_assistants(ctx_type_for_prematch):
+            matched_skill = await self.skill_registry.match(task, context_type=ctx_type_for_prematch)
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
             self.debug.log_orchestrator_step("技能匹配", {"skill": matched_skill.name})
@@ -1512,6 +1363,7 @@ class UnifiedOrchestrator:
             流式数据块（格式：特殊标记 + JSON 或纯文本）
             - 调试信息：`__DEBUG__:{"type":"debug","category":"...","message":"..."}`
             - 工具调用：`__TOOL__:{"type":"tool","name":"...","args":{...},"result":{...}}`
+            - 编排追踪（可选）：`__ORCH_TRACE__:{...}`（`context["orchestration_trace"]` 或 `ORCH_TRACE_VERBOSITY`，默认 off）
             - 内容：纯文本
         """
         import json
@@ -1584,6 +1436,11 @@ class UnifiedOrchestrator:
             }
             yield StreamMessageBuilder.build_debug(debug_info)
             self.debug.log_context_operation("创建新会话", session_id)
+        
+        import uuid as _uuid_orch
+        orch_plan_id = str(_uuid_orch.uuid4())
+        orch_verbosity = resolve_orchestration_trace_verbosity(context)
+        preamble_mode = resolve_stream_agent_preamble_mode(context)
         
         # 2. 压缩前记忆刷新（设计文档 9.4：每个压缩周期最多触发一次）
         raw_messages = self.context_manager.get_messages(session_id, compressed=False)
@@ -1751,10 +1608,36 @@ class UnifiedOrchestrator:
         is_general_chat = ctx_type == "general_chat"
         planning_context = ""  # 任务分解时可能追加，需预先定义
 
+        # 时间：2026-03-13；理由：阶段 0 编排 trace 协议；方法：context.orchestration_trace 或 ORCH_TRACE_VERBOSITY≠off 时下发 __ORCH_TRACE__（§2.4）。
+        if orch_verbosity != "off":
+            _orch_payload = {
+                "context_type": ctx_type,
+                "is_work_assistant": is_work_assistant,
+                "is_general_chat": is_general_chat,
+                "verbosity": orch_verbosity,
+            }
+            if orch_verbosity == "full":
+                _orch_payload["task_char_len"] = len(task or "")
+            yield StreamMessageBuilder.build_orchestration_trace(
+                {
+                    "v": 1,
+                    "audience": "user",
+                    "plan_id": orch_plan_id,
+                    "phase": "intent",
+                    "event": "started",
+                    "payload": _orch_payload,
+                }
+            )
+
         if is_work_assistant:
             # 工作助手：专用提示词 + 工作配置，无文章注入，不调用工具
             system_prompt = WORK_ASSISTANT_SYSTEM_PROMPT
             filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
+            filtered_history, _ctx_meta_hist = _select_chat_history_for_llm_stream(
+                self.context_manager, session_id, task, filtered_history
+            )
+            if _ctx_meta_hist:
+                yield StreamMessageBuilder.build_ctx_meta(_ctx_meta_hist)
             if filtered_history:
                 history_text = "\n".join([
                     f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
@@ -1786,6 +1669,11 @@ class UnifiedOrchestrator:
                 system_prompt = f"【身份】{persona}\n\n{system_prompt}"
                 self.debug.log_orchestrator_step("应用限定身份", {"persona_len": len(persona)})
             filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
+            filtered_history, _ctx_meta_hist = _select_chat_history_for_llm_stream(
+                self.context_manager, session_id, task, filtered_history
+            )
+            if _ctx_meta_hist:
+                yield StreamMessageBuilder.build_ctx_meta(_ctx_meta_hist)
             if filtered_history:
                 history_text = "\n".join([
                     f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
@@ -1801,12 +1689,10 @@ class UnifiedOrchestrator:
             # 检测是否启用文档协作写作流程（时间：2025-03-15；理由：落地 Anthropic doc-coauthoring；方法：session metadata 或用户关键词触发）
             session_obj = self.context_manager.get_session(session_id) if session_id else None
             session_meta = (session_obj.metadata or {}) if session_obj else {}
-            use_doc_coauthoring = (
-                session_meta.get("workflow") == "doc_coauthoring"
-                or any(
-                    kw in (task or "")
-                    for kw in ["协作写作", "结构化文档", "用文档流程", "写PRD", "写设计文档", "写决策文档", "写技术规格"]
-                )
+            # 时间：2026-03-21；理由：触发词单一来源；方法：article_writing_message_contract.task_triggers_doc_coauthoring
+            use_doc_coauthoring = task_triggers_doc_coauthoring(
+                task or "",
+                session_workflow=session_meta.get("workflow"),
             )
             if use_doc_coauthoring:
                 planning_context = DOC_COAUTHORING_WORKFLOW
@@ -1828,10 +1714,28 @@ class UnifiedOrchestrator:
             )
             # 参考信息仅来自前端参考块（task 中已含参考块 + 用户提问）
             user_prompt = task
+            # 时间：2026-03-13；理由：此前未把右侧草稿并入流式 user，局部改稿意见缺锚点；方法：与 article_writing_message_contract.build_article_draft_scope_prefix 对齐
+            _draft_prefix = build_article_draft_scope_prefix(
+                self.context_manager.get_current_article(session_id) if session_id else None
+            )
+            if _draft_prefix:
+                user_prompt = _draft_prefix + user_prompt
+                _ca_for_log = (self.context_manager.get_current_article(session_id) or "").strip()
+                self.debug.log_orchestrator_step("注入当前文章草稿", {"article_chars": len(_ca_for_log)})
             profile_block = get_profile_block_for_prompt()
             if profile_block:
                 user_prompt = profile_block + "\n\n" + user_prompt
                 self.debug.log_orchestrator_step("注入写作画像", {"length": len(profile_block)})
+            # 时间：2026-03-21；理由：用户明确「N字左右」时常偏短；方法：正则检出后追加【系统检出·用户字数要求】
+            _word_count_hint = build_article_word_count_constraint_injection(task or "")
+            if _word_count_hint:
+                user_prompt = user_prompt + "\n\n" + _word_count_hint
+                self.debug.log_orchestrator_step("注入字数约束提醒", {"length": len(_word_count_hint)})
+            # 时间：2026-03-13；理由：长文缺分节导致版式臃肿；方法：检出「新写全文」/千字级等后追加【系统检出·长文版式】（契约见 article_writing_message_contract）
+            _section_hint = build_article_sectioning_hint_injection(task or "")
+            if _section_hint:
+                user_prompt = user_prompt + "\n\n" + _section_hint
+                self.debug.log_orchestrator_step("注入长文分节版式提醒", {"length": len(_section_hint)})
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
 
         # 4.5. 任务分解（阶段2：如果启用）
@@ -1956,8 +1860,20 @@ class UnifiedOrchestrator:
         # #endregion
         
         matched_skill = None
-        if self.skill_registry is not None:
-            matched_skill = await self.skill_registry.match(task)
+        if self._disable_skill_prematch_for_assistants(ctx_type):
+            logger.info(
+                "DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS：跳过 skill_registry.match（context_type=%s）",
+                ctx_type,
+            )
+            debug_info = {
+                "type": "debug",
+                "category": "orchestrator",
+                "message": "已跳过技能预匹配（DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS）",
+                "details": {"context_type": ctx_type},
+            }
+            yield StreamMessageBuilder.build_debug(debug_info)
+        elif self.skill_registry is not None:
+            matched_skill = await self.skill_registry.match(task, context_type=ctx_type)
         
         # #region agent log
         try:
@@ -1965,6 +1881,23 @@ class UnifiedOrchestrator:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"orchestrator.py:stream_process:after_skill_match","message":"技能匹配完成","data":{"matched":matched_skill is not None,"skill_name":matched_skill.name if matched_skill else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
         except: pass
         # #endregion
+
+        if orch_verbosity != "off":
+            yield StreamMessageBuilder.build_orchestration_trace(
+                {
+                    "v": 1,
+                    "audience": "user",
+                    "plan_id": orch_plan_id,
+                    "phase": "step",
+                    "event": "completed",
+                    "payload": {
+                        "step_id": "skill_prematch",
+                        "matched": matched_skill is not None,
+                        "skill": matched_skill.name if matched_skill else None,
+                        "skipped_by_flag": bool(self._disable_skill_prematch_for_assistants(ctx_type)),
+                    },
+                }
+            )
 
         # 时间：2026-03-21；理由：技能内共用 context["llm_service"]，若在 _select_model 之前执行则一直用 LLMService 构造默认模型，与页选模型不一致；方法：在 match 之后、execute 之前调用 _select_model + set_model（设计：docs/design/01-article-writing-agent-and-model-config-design.md §6）。
         debug_info = {
@@ -1985,6 +1918,21 @@ class UnifiedOrchestrator:
             "details": {"selected_model": selected_model},
         }
         yield StreamMessageBuilder.build_debug(debug_info)
+
+        if orch_verbosity != "off":
+            yield StreamMessageBuilder.build_orchestration_trace(
+                {
+                    "v": 1,
+                    "audience": "user",
+                    "plan_id": orch_plan_id,
+                    "phase": "step",
+                    "event": "completed",
+                    "payload": {
+                        "step_id": "model_select",
+                        "selected_model": selected_model,
+                    },
+                }
+            )
 
         if matched_skill:
             logger.info(f"检测到匹配的技能: {matched_skill.name}，优先使用技能执行")
@@ -2191,6 +2139,19 @@ class UnifiedOrchestrator:
                     
                     # 格式化结果
                     result_text = self._format_skill_result(matched_skill, skill_result)
+                    # 时间：2026-03-21；理由：技能输出亦需身份标识；方法：STREAM_AGENT_PREAMBLE 非 off 时先 yield 开场白。
+                    for _pre in iter_stream_preamble_text(
+                        preamble_mode,
+                        branch="skill",
+                        ctx_type=ctx_type,
+                        is_work_assistant=is_work_assistant,
+                        is_general_chat=is_general_chat,
+                        matched_skill_name=matched_skill.name,
+                        selected_model=selected_model,
+                        skill_prematch_skipped=False,
+                        tools_count=0,
+                    ):
+                        yield _pre
                     # 流式输出结果
                     for char in result_text:
                         yield char
@@ -2366,6 +2327,25 @@ class UnifiedOrchestrator:
         }
         yield StreamMessageBuilder.build_debug(debug_info)
         
+        if orch_verbosity != "off":
+            yield StreamMessageBuilder.build_orchestration_trace(
+                {
+                    "v": 1,
+                    "audience": "user",
+                    "plan_id": orch_plan_id,
+                    "phase": "synthesis",
+                    "event": "started",
+                    "payload": {
+                        "path": "llm_stream_or_tools",
+                        "agent_for_tools": (
+                            "work_assistant"
+                            if is_work_assistant
+                            else ("general_chat" if is_general_chat else "article_writing")
+                        ),
+                    },
+                }
+            )
+        
         # 获取工具定义（工作助手/写文章不调用工具，通用对话用 chat 工具）
         if is_work_assistant:
             agent_for_tools = "work_assistant"
@@ -2413,6 +2393,19 @@ class UnifiedOrchestrator:
                 }
                 yield StreamMessageBuilder.build_debug(debug_info)
                 
+                _skip_pre = self._disable_skill_prematch_for_assistants(ctx_type)
+                for _pre in iter_stream_preamble_text(
+                    preamble_mode,
+                    branch="llm_tools",
+                    ctx_type=ctx_type,
+                    is_work_assistant=is_work_assistant,
+                    is_general_chat=is_general_chat,
+                    matched_skill_name=None,
+                    selected_model=selected_model,
+                    skill_prematch_skipped=_skip_pre,
+                    tools_count=len(tools),
+                ):
+                    yield _pre
                 # 使用工具调用获取完整响应（带调试信息）
                 full_response = ""
                 async for chunk in self._chat_with_tools_stream(
@@ -2438,7 +2431,8 @@ class UnifiedOrchestrator:
                     full_response = str(full_response)
                 
                 # full_response 已经在上面流式输出了
-                self.debug.log_llm_response(full_response, "deepseek-chat")
+                # 时间：2026-03-21；理由：审计/终端曾误显 deepseek-chat 与 llm_service 内二次 log 模型不一致；方法：使用 selected_model
+                self.debug.log_llm_response(full_response, selected_model)
             except Exception as e:
                 logger.error(f"流式处理工具调用失败: {str(e)}", exc_info=True)
                 error_msg = f"处理请求时出错：{str(e)}"
@@ -2447,8 +2441,22 @@ class UnifiedOrchestrator:
                 # 不重新抛出异常，让流式响应正常完成
         else:
             # 没有工具，直接流式调用 LLM
-            self.debug.log_llm_request(system_prompt, user_prompt, "deepseek-chat")
+            # 时间：2026-03-21；理由：写作助手等已 set_model(qwen3-max) 时 debug 仍写死 deepseek-chat 造成「两轮请求/下一问」误判；方法：与 _select_model 结果一致
+            self.debug.log_llm_request(system_prompt, user_prompt, selected_model)
             full_response = ""
+            _skip_pre = self._disable_skill_prematch_for_assistants(ctx_type)
+            for _pre in iter_stream_preamble_text(
+                preamble_mode,
+                branch="llm_plain",
+                ctx_type=ctx_type,
+                is_work_assistant=is_work_assistant,
+                is_general_chat=is_general_chat,
+                matched_skill_name=None,
+                selected_model=selected_model,
+                skill_prematch_skipped=_skip_pre,
+                tools_count=0,
+            ):
+                yield _pre
             audit_meta = {"session_id": session_id} if session_id else None
             async for chunk in self.llm_service.stream_chat(
                 system_prompt=system_prompt,
@@ -2458,7 +2466,7 @@ class UnifiedOrchestrator:
                 full_response += chunk
                 yield chunk
             
-            self.debug.log_llm_response(full_response, "deepseek-chat")
+            self.debug.log_llm_response(full_response, selected_model)
         
         # 重置为默认模型
         self.llm_service.reset_model()

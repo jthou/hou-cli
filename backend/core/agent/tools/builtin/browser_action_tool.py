@@ -3,6 +3,7 @@ import logging
 
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.services.llm.llm_service import LLMService
+from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
 
 
 logger = logging.getLogger(__name__)
@@ -154,7 +155,7 @@ class BrowserNavigateTool(BrowserActionTool):
         try:
             # 获取适配后的LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat'
+                model=browser_default_chat_model()
             )
             
             # 创建 agent 执行导航
@@ -264,7 +265,7 @@ class BrowserClickTool(BrowserActionTool):
         try:
             # 获取适配后的LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat'
+                model=browser_default_chat_model()
             )
             
             # 构建任务描述
@@ -377,7 +378,7 @@ class BrowserFillTool(BrowserActionTool):
         try:
             # 获取适配后的LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat'
+                model=browser_default_chat_model()
             )
             
             # 构建任务描述
@@ -478,7 +479,7 @@ class BrowserSearchTool(BrowserActionTool):
         try:
             # 获取适配后的LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat'
+                model=browser_default_chat_model()
             )
             
             # 构建任务描述
@@ -577,7 +578,7 @@ class BrowserExtractTool(BrowserActionTool):
         try:
             # 获取适配后的LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat'
+                model=browser_default_chat_model()
             )
             
             # 构建任务描述

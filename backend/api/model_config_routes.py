@@ -33,16 +33,16 @@ API_KEY_KEYS = {
 
 # 模型/配置类变量：可安全展示
 MODEL_CONFIG_KEYS = [
-    ("LLM_PROVIDER", "LLM 提供商", "deepseek"),
+    ("LLM_PROVIDER", "LLM 提供商", "bailian"),
     ("DEEPSEEK_MODEL", "DeepSeek 模型", "deepseek-chat"),
-    ("BAILIAN_MODEL", "百炼平台模型", "qwen-turbo"),
+    ("BAILIAN_MODEL", "百炼平台模型", "qwen3-max"),
     ("TURBOGATEWAY_MODEL", "TheTurbo.ai 网关模型", "gpt-5"),
-    ("CHAT_MODEL", "对话模型", "deepseek-chat"),
-    ("CODE_MODEL", "编码模型", "deepseek-coder"),
-    ("REASONING_MODEL", "推理模型", "deepseek-reasoner"),
+    ("CHAT_MODEL", "对话模型", "qwen3-max"),
+    ("CODE_MODEL", "编码模型", "qwen3-coder-plus-2025-09-23"),
+    ("REASONING_MODEL", "推理模型", "qwen3-max"),
     ("BROWSER_TOOL_VISION_MODEL", "Browser 视觉模型", "qwen-vl-max-2025-08-13"),
-    ("BROWSER_TOOL_REASONING_MODEL", "Browser 推理模型", "deepseek-reasoner"),
-    ("BROWSER_TOOL_CHAT_MODEL", "Browser 对话模型", "deepseek-chat"),
+    ("BROWSER_TOOL_REASONING_MODEL", "Browser 推理模型", "qwen3-max"),
+    ("BROWSER_TOOL_CHAT_MODEL", "Browser 对话模型", "qwen3-max"),
     ("LLM_TEMPERATURE", "LLM 温度", "0.7"),
     ("LLM_MAX_TOKENS", "LLM 最大 Token", "2000"),
     ("DISABLE_SMART_MODEL_SELECTION", "禁用智能模型选择", "false"),
@@ -62,27 +62,27 @@ def _mask_api_key(val: str) -> dict:
 
 def _get_default_llm_model() -> str:
     """获取 LLMService 默认模型（与 llm_service.py 逻辑一致）"""
-    provider = (os.getenv("LLM_PROVIDER") or "deepseek").strip().lower()
+    provider = (os.getenv("LLM_PROVIDER") or "bailian").strip().lower()
     if provider == "bailian":
-        return os.getenv("BAILIAN_MODEL", "qwen-turbo")
+        return os.getenv("BAILIAN_MODEL", "qwen3-max")
     if provider == "theturbogateway":
         return os.getenv("TURBOGATEWAY_MODEL", "gpt-5")
-    return os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    return os.getenv("DEEPSEEK_MODEL", "deepseek-chat")  # 仅 LLM_PROVIDER=deepseek 时
 
 
 def _resolve_agent_models() -> list:
     """解析每个 agent 实际使用的模型"""
     default_llm = _get_default_llm_model()
     key_to_model = {
-        "CHAT_MODEL": os.getenv("CHAT_MODEL", "deepseek-chat"),
-        "CODE_MODEL": os.getenv("CODE_MODEL", "deepseek-coder"),
-        "REASONING_MODEL": os.getenv("REASONING_MODEL", "deepseek-reasoner"),
+        "CHAT_MODEL": os.getenv("CHAT_MODEL", "qwen3-max"),
+        "CODE_MODEL": os.getenv("CODE_MODEL", "qwen3-coder-plus-2025-09-23"),
+        "REASONING_MODEL": os.getenv("REASONING_MODEL", "qwen3-max"),
         "DEEPSEEK_MODEL": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-        "BAILIAN_MODEL": os.getenv("BAILIAN_MODEL", "qwen-turbo"),
+        "BAILIAN_MODEL": os.getenv("BAILIAN_MODEL", "qwen3-max"),
         "TURBOGATEWAY_MODEL": os.getenv("TURBOGATEWAY_MODEL", "gpt-5"),
         "BROWSER_TOOL_VISION_MODEL": os.getenv("BROWSER_TOOL_VISION_MODEL", "qwen-vl-max-2025-08-13"),
-        "BROWSER_TOOL_REASONING_MODEL": os.getenv("BROWSER_TOOL_REASONING_MODEL", "deepseek-reasoner"),
-        "BROWSER_TOOL_CHAT_MODEL": os.getenv("BROWSER_TOOL_CHAT_MODEL", "deepseek-chat"),
+        "BROWSER_TOOL_REASONING_MODEL": os.getenv("BROWSER_TOOL_REASONING_MODEL", "qwen3-max"),
+        "BROWSER_TOOL_CHAT_MODEL": os.getenv("BROWSER_TOOL_CHAT_MODEL", "qwen3-max"),
     }
     out = []
     for agent_id, name, keys, desc in AGENT_MODEL_MAPPING:
@@ -132,9 +132,9 @@ async def get_model_config_audit():
 
     # 用户可选模型（模型选择下拉使用的配置）
     result["model_selection"] = [
-        {"key": "CHAT_MODEL", "label": "对话模型", "value": os.getenv("CHAT_MODEL", "deepseek-chat")},
-        {"key": "CODE_MODEL", "label": "编码模型", "value": os.getenv("CODE_MODEL", "deepseek-coder")},
-        {"key": "REASONING_MODEL", "label": "推理模型", "value": os.getenv("REASONING_MODEL", "deepseek-reasoner")},
+        {"key": "CHAT_MODEL", "label": "对话模型", "value": os.getenv("CHAT_MODEL", "qwen3-max")},
+        {"key": "CODE_MODEL", "label": "编码模型", "value": os.getenv("CODE_MODEL", "qwen3-coder-plus-2025-09-23")},
+        {"key": "REASONING_MODEL", "label": "推理模型", "value": os.getenv("REASONING_MODEL", "qwen3-max")},
     ]
 
     return result
@@ -246,9 +246,9 @@ async def get_selectable_models():
     """
     from backend.services.llm.model_registry import ModelRegistry
 
-    chat_model = os.getenv("CHAT_MODEL", "deepseek-chat")
-    code_model = os.getenv("CODE_MODEL", "deepseek-coder")
-    reasoning_model = os.getenv("REASONING_MODEL", "deepseek-reasoner")
+    chat_model = os.getenv("CHAT_MODEL", "qwen3-max")
+    code_model = os.getenv("CODE_MODEL", "qwen3-coder-plus-2025-09-23")
+    reasoning_model = os.getenv("REASONING_MODEL", "qwen3-max")
     configured_vals = {chat_model, code_model, reasoning_model} - {""}
 
     # 使用完整模型列表，确保配置的模型在列表中（若不在则追加）
@@ -268,7 +268,8 @@ async def get_selectable_models():
             if val not in seen:
                 by_provider[provider].append({"value": val, "label": val})
 
-    provider_order = ["deepseek", "bailian", "theturbogateway"]
+    # 时间：2026-03-21；理由：默认栈为百炼 Qwen；方法：下拉顺序百炼优先
+    provider_order = ["bailian", "deepseek", "theturbogateway"]
     providers = []
     for p in provider_order:
         if p in by_provider and by_provider[p]:

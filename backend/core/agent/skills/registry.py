@@ -1,12 +1,16 @@
 """技能注册表"""
+import json
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from pathlib import Path
 import yaml
 
 from backend.core.agent.skills.base import Skill
 
 logger = logging.getLogger(__name__)
+
+# 时间：2026-03-13；理由：编排阶段 0 可观测性（docs/design/01-orchestrator-intent-driven-refactor-design.md §6）；方法：固定前缀 + JSON 单行，便于日志采集与 grep。
+SKILL_MATCH_TRACE_PREFIX = "SKILL_MATCH_TRACE"
 
 
 class SkillRegistry:
@@ -72,17 +76,25 @@ class SkillRegistry:
     def get_config(self, name: str) -> Optional[dict]:
         """获取技能配置"""
         return self._skill_configs.get(name)
-    
-    async def match(self, user_input: str) -> Optional[Skill]:
+
+    def _skill_match_trace(self, payload: Dict[str, Any]) -> None:
+        line = json.dumps(payload, ensure_ascii=False)
+        logger.info("%s %s", SKILL_MATCH_TRACE_PREFIX, line)
+
+    async def match(self, user_input: str, context_type: Optional[str] = None) -> Optional[Skill]:
         """
         根据用户输入匹配技能
         
         Args:
             user_input: 用户输入文本
+            context_type: 会话/编排上下文类型（如 article_writing），用于结构化日志；不改变匹配逻辑。
         
         Returns:
             匹配的技能，如果没有匹配则返回 None
         """
+        preview = (user_input or "")[:120]
+        registered_count = len(self._skills)
+
         # 获取所有可用技能的信息
         available_skills = []
         for skill in self._skills.values():
@@ -96,6 +108,7 @@ class SkillRegistry:
         
         # 使用 LLM 直接进行技能匹配
         from backend.services.llm.llm_service import LLMService
+        llm_called = False
         try:
             llm_service = LLMService()
             
@@ -113,14 +126,16 @@ class SkillRegistry:
                 "请返回最适合的技能。"
             )
             
+            llm_called = True
             response = await llm_service.chat(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt
             )
             
             # 解析 LLM 的响应
-            import json
             import ast
+            selected_skill_name: Optional[str] = None
+            skip_llm_disambiguation = False
             try:
                 # 尝试解析标准JSON格式
                 llm_analysis = json.loads(response)
@@ -133,23 +148,70 @@ class SkillRegistry:
                 except (ValueError, SyntaxError):
                     # 如果两种解析都失败，回退到传统匹配
                     logger.warning("LLM 响应格式不符合预期，回退到传统匹配")
-                    selected_skill_name = None
+                    self._skill_match_trace({
+                        "context_type": context_type,
+                        "input_preview": preview,
+                        "registered_skill_count": registered_count,
+                        "llm_called": True,
+                        "llm_outcome": "parse_error",
+                        "keyword_fallback": True,
+                        "result_skill": None,
+                    })
+                    skip_llm_disambiguation = True
             
-            if selected_skill_name and selected_skill_name in self._skills:
-                skill = self._skills[selected_skill_name]
-                msg = f"'{user_input[:50]}' -> {selected_skill_name}"
-                log_msg = f"LLM 匹配技能: {msg}"
-                logger.info(log_msg)
-                return skill
-            elif selected_skill_name is None:
-                logger.info(f"LLM 判断无合适技能: '{user_input[:50]}'")
-                return None
-            else:
+            if not skip_llm_disambiguation:
+                if selected_skill_name and selected_skill_name in self._skills:
+                    skill = self._skills[selected_skill_name]
+                    msg = f"'{user_input[:50]}' -> {selected_skill_name}"
+                    log_msg = f"LLM 匹配技能: {msg}"
+                    logger.info(log_msg)
+                    self._skill_match_trace({
+                        "context_type": context_type,
+                        "input_preview": preview,
+                        "registered_skill_count": registered_count,
+                        "llm_called": True,
+                        "llm_outcome": "matched",
+                        "keyword_fallback": False,
+                        "result_skill": selected_skill_name,
+                    })
+                    return skill
+                if selected_skill_name is None:
+                    logger.info(f"LLM 判断无合适技能: '{user_input[:50]}'")
+                    self._skill_match_trace({
+                        "context_type": context_type,
+                        "input_preview": preview,
+                        "registered_skill_count": registered_count,
+                        "llm_called": True,
+                        "llm_outcome": "no_skill",
+                        "keyword_fallback": False,
+                        "result_skill": None,
+                    })
+                    return None
                 # 如果返回了技能名但不在技能列表中，也回退到传统匹配
                 logger.warning(f"LLM 返回了未知技能: {selected_skill_name}，回退到传统匹配")
+                self._skill_match_trace({
+                    "context_type": context_type,
+                    "input_preview": preview,
+                    "registered_skill_count": registered_count,
+                    "llm_called": True,
+                    "llm_outcome": "unknown_skill_name",
+                    "llm_rejected_name": selected_skill_name,
+                    "keyword_fallback": True,
+                    "result_skill": None,
+                })
                 
         except Exception as e:
             logger.warning(f"LLM 技能匹配失败，回退到传统匹配: {e}")
+            self._skill_match_trace({
+                "context_type": context_type,
+                "input_preview": preview,
+                "registered_skill_count": registered_count,
+                "llm_called": llm_called,
+                "llm_outcome": "exception",
+                "llm_error": str(e)[:200],
+                "keyword_fallback": True,
+                "result_skill": None,
+            })
         
         # 传统匹配逻辑作为备选方案
         user_input_lower = user_input.lower()
@@ -429,19 +491,38 @@ class SkillRegistry:
             
         # 如果没有匹配的技能，返回 None
         if not matched_skills:
+            self._skill_match_trace({
+                "context_type": context_type,
+                "input_preview": preview,
+                "registered_skill_count": registered_count,
+                "keyword_fallback": True,
+                "keyword_outcome": "no_match",
+                "result_skill": None,
+            })
             return None
             
         # 按分数降序排序，返回最高分的技能
         matched_skills.sort(key=lambda x: x[0], reverse=True)
         best_match = matched_skills[0][1]
+        top_score = matched_skills[0][0]
             
         logger.info(
             f"技能匹配: '{user_input[:50]}' -> {best_match.name} "
-            f"(分数: {matched_skills[0][0]})"
+            f"(分数: {top_score})"
         )
         if len(matched_skills) > 1:
             candidates = [(s.name, score) for score, s in matched_skills[1:3]]
             debug_msg = f"其他候选技能: {candidates}"
             logger.debug(debug_msg)
+
+        self._skill_match_trace({
+            "context_type": context_type,
+            "input_preview": preview,
+            "registered_skill_count": registered_count,
+            "keyword_fallback": True,
+            "keyword_outcome": "matched",
+            "result_skill": best_match.name,
+            "keyword_top_score": top_score,
+        })
             
         return best_match

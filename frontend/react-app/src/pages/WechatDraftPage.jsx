@@ -13,6 +13,8 @@ import WechatMaterialImagePicker from '../components/WechatMaterialImagePicker'
 import TaskListByTypePanel from '../components/TaskListByTypePanel'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { WECHAT_MP_DRAFT_TASK_TYPE, prepareMetadataForSubmitAsync, htmlToMd } from '../utils/mdToHtml'
+import { prepareWechatCoverFile } from '../utils/wechatCoverCompress'
+import { parseApiResponseJson } from '../utils/parseApiResponse'
 const WECHAT_MP_API = {
   drafts: (params = {}) => {
     const q = new URLSearchParams({
@@ -24,10 +26,12 @@ const WECHAT_MP_API = {
   },
   draftDetail: (mediaId) =>
     fetch(`/api/wechat-mp/drafts/detail?media_id=${encodeURIComponent(mediaId)}`).then((r) => r.json()),
-  uploadCover: (file) => {
+  uploadCover: async (file) => {
+    const f = await prepareWechatCoverFile(file)
     const form = new FormData()
-    form.append('file', file)
-    return fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form }).then((r) => r.json())
+    form.append('file', f)
+    const res = await fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form })
+    return parseApiResponseJson(res)
   },
 }
 
@@ -480,7 +484,7 @@ export default function WechatDraftPage() {
                     </p>
                   </div>
                 )}
-                <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG，WebP 自动转 PNG；≤2MB；也可直接填已有素材的 media_id{formModalMode === 'update' ? '，可重新上传替换' : ''}</p>
+                <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG/WebP；微信限 2MB，超出将自动压缩；也可直接填已有素材的 media_id{formModalMode === 'update' ? '，可重新上传替换' : ''}</p>
               </div>
               </div>
               <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border bg-surface">

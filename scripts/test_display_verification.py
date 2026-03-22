@@ -6,16 +6,16 @@
 2. 心跳机制是否正常工作
 3. 进度输出是否符合设计
 4. 前后端交互是否流畅
+5. 流式 content 分类与 Web（GeneralChat / WorkAssistant）一致：可见正文 vs __TOOL__ / __CTX_META__ / 其它控制帧
 """
 import sys
 import os
 import asyncio
-import httpx
 import json
-import re
 from pathlib import Path
-from collections import defaultdict
 from typing import List, Dict
+
+# 时间：2026-03-13；理由：允许在无 httpx 环境下做 py_compile / 自测分类断言；方法：httpx 延迟导入（各网络协程内 import）
 
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
@@ -27,18 +27,94 @@ load_env(project_root)
 BACKEND_PORT = os.getenv("BACKEND_PORT", "6080")
 BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}"
 
+# 时间：2026-03-13；理由：验证脚本统计须与 Web UI 可见 Markdown 一致；方法：对齐 frontend/react-app/src/utils/streamChunkFilters.js 与 ContextSelectionPanel.jsx parseContextMetaChunk
+_CTX_META_PREFIX = "__CTX_META__:"
+
+
+def parse_context_meta_chunk(raw: str):
+    """与 ContextSelectionPanel.parseContextMetaChunk 一致：仅识别 type=context_selection。"""
+    if raw is None or not isinstance(raw, str) or not raw.startswith(_CTX_META_PREFIX):
+        return None
+    try:
+        data = json.loads(raw[len(_CTX_META_PREFIX) :].strip())
+        return data if isinstance(data, dict) and data.get("type") == "context_selection" else None
+    except json.JSONDecodeError:
+        return None
+
+
+def is_orchestrator_control_chunk(raw: str) -> bool:
+    """与 streamChunkFilters.isOrchestratorControlChunk 一致（不含 __CTX_META__：由 parse_context_meta_chunk 单独处理）。"""
+    if raw is None or not isinstance(raw, str):
+        return True
+    return (
+        raw.startswith("__DEBUG__:")
+        or raw.startswith("__STATUS__:")
+        or raw.startswith("__ORCH_TRACE__:")
+        or raw.startswith("__TOOL__:")
+        or raw.startswith("__EVALUATION__:")
+    )
+
 
 class DisplayVerifier:
     """显示效果验证器"""
     
     def __init__(self):
         self.status_updates: List[Dict] = []
-        self.content_chunks: List[str] = []
+        # 用户可见正文片段（与 React 拼入 streamingContent 的规则一致）
+        self.visible_content_chunks: List[str] = []
+        self.context_meta_events: List[Dict] = []
         self.tool_calls: List[Dict] = []
         self.debug_messages: List[Dict] = []
         self.heartbeat_count = 0
         self.last_status_line = None
-        
+
+    def _extract_status_debug_embedded(self, content: str) -> None:
+        """从片段中提取 __STATUS__ / __DEBUG__（与旧脚本行为兼容，支持嵌套在较长正文中）。"""
+        if "__STATUS__:" in content:
+            try:
+                status_part = content.split("__STATUS__:", 1)[1]
+                status_part = status_part.strip().split("\n")[0]
+                status_data = json.loads(status_part)
+                self.status_updates.append(status_data)
+                self.heartbeat_count += 1
+            except (json.JSONDecodeError, ValueError, IndexError):
+                pass
+        if "__DEBUG__:" in content:
+            try:
+                debug_part = content.split("__DEBUG__:", 1)[1]
+                debug_part = debug_part.strip().split("\n")[0]
+                debug_data = json.loads(debug_part)
+                self.debug_messages.append(debug_data)
+            except (json.JSONDecodeError, ValueError, IndexError):
+                pass
+
+    def _ingest_streaming_content(self, content: str) -> None:
+        """
+        单帧 streaming content 的分类：对齐 GeneralChat / WorkAssistant 主循环。
+        顺序：TOOL → CTX_META → 其它控制帧丢弃 → 其余计入可见正文。
+        """
+        if not content:
+            return
+        self._extract_status_debug_embedded(content)
+
+        if content.startswith("__TOOL__:"):
+            try:
+                tool_part = content.split("__TOOL__:", 1)[1].strip().split("\n")[0]
+                self.tool_calls.append(json.loads(tool_part))
+            except (json.JSONDecodeError, ValueError, IndexError):
+                pass
+            return
+
+        meta = parse_context_meta_chunk(content)
+        if meta is not None:
+            self.context_meta_events.append(meta)
+            return
+
+        if is_orchestrator_control_chunk(content):
+            return
+
+        self.visible_content_chunks.append(content)
+
     def analyze_stream(self, lines: List[str]):
         """分析流式响应"""
         for line in lines:
@@ -50,68 +126,49 @@ class DisplayVerifier:
                 try:
                     data = json.loads(line[6:])
                     content = data.get("content", "")
-                    if content:
-                        self.content_chunks.append(content)
-                        
-                        # 在content中查找状态更新（可能嵌套在content中）
-                        if "__STATUS__:" in content:
-                            try:
-                                # 提取STATUS部分
-                                status_part = content.split("__STATUS__:")[1]
-                                # 可能包含换行符，需要清理
-                                status_part = status_part.strip().split("\n")[0]
-                                status_data = json.loads(status_part)
-                                self.status_updates.append(status_data)
-                                self.heartbeat_count += 1
-                            except:
-                                pass
-                        
-                        # 在content中查找工具调用
-                        if "__TOOL__:" in content:
-                            try:
-                                tool_part = content.split("__TOOL__:")[1]
-                                tool_part = tool_part.strip().split("\n")[0]
-                                tool_data = json.loads(tool_part)
-                                self.tool_calls.append(tool_data)
-                            except:
-                                pass
-                        
-                        # 在content中查找调试信息
-                        if "__DEBUG__:" in content:
-                            try:
-                                debug_part = content.split("__DEBUG__:")[1]
-                                debug_part = debug_part.strip().split("\n")[0]
-                                debug_data = json.loads(debug_part)
-                                self.debug_messages.append(debug_data)
-                            except:
-                                pass
-                except:
+                    status = data.get("status", "")
+                    # 与前端一致：仅对 streaming（或缺省 status 的增量帧）做正文分类；done/error 不拼可见正文
+                    if content and status not in ("done", "error"):
+                        self._ingest_streaming_content(content)
+                except json.JSONDecodeError:
                     pass
             
             # 直接解析状态更新（如果不是在data中）
             elif "__STATUS__:" in line:
                 try:
-                    status_data = json.loads(line.split("__STATUS__:")[1].strip())
+                    status_data = json.loads(line.split("__STATUS__:", 1)[1].strip())
                     self.status_updates.append(status_data)
                     self.heartbeat_count += 1
-                except:
+                except (json.JSONDecodeError, ValueError):
                     pass
             
             # 直接解析工具调用
             elif "__TOOL__:" in line:
                 try:
-                    tool_data = json.loads(line.split("__TOOL__:")[1].strip())
+                    tool_data = json.loads(line.split("__TOOL__:", 1)[1].strip())
                     self.tool_calls.append(tool_data)
-                except:
+                except (json.JSONDecodeError, ValueError):
                     pass
             
             # 直接解析调试信息
             elif "__DEBUG__:" in line:
                 try:
-                    debug_data = json.loads(line.split("__DEBUG__:")[1].strip())
+                    debug_data = json.loads(line.split("__DEBUG__:", 1)[1].strip())
                     self.debug_messages.append(debug_data)
-                except:
+                except (json.JSONDecodeError, ValueError):
                     pass
+            elif line.strip().startswith(_CTX_META_PREFIX):
+                try:
+                    meta = parse_context_meta_chunk(line.strip())
+                    if meta is not None:
+                        self.context_meta_events.append(meta)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+    @property
+    def content_chunks(self) -> List[str]:
+        """兼容旧字段名：等同 visible_content_chunks。"""
+        return self.visible_content_chunks
     
     def verify_status_line_updates(self) -> Dict[str, any]:
         """验证状态行更新是否符合设计"""
@@ -168,12 +225,23 @@ class DisplayVerifier:
         print(f"   状态更新次数: {len(self.status_updates)}")
         print(f"   心跳次数: {self.heartbeat_count}")
         print(f"   工具调用次数: {len(self.tool_calls)}")
-        print(f"   内容块数量: {len(self.content_chunks)}")
+        print(f"   上下文选用帧 (__CTX_META__): {len(self.context_meta_events)}")
+        print(f"   用户可见内容块（Markdown 等效）: {len(self.visible_content_chunks)}")
         print()
         
+        if self.context_meta_events:
+            print("上下文选用（与 ContextSelectionPanel 同源）")
+            print("-" * 80)
+            last = self.context_meta_events[-1]
+            used = last.get("used_count", "—")
+            total = last.get("total_in_session", "—")
+            strat = last.get("strategy", "—")
+            print(f"   最后一帧: 策略={strat}, 选用={used}, 会话总条数={total}")
+            print()
+
         # 状态更新详情
         if self.status_updates:
-            print("2. 状态更新详情")
+            print("状态更新详情")
             print("-" * 80)
             for i, status in enumerate(self.status_updates[:10], 1):  # 只显示前10个
                 message = status.get("message", "")
@@ -185,7 +253,7 @@ class DisplayVerifier:
             print()
         
         # 验证结果
-        print("3. 验证结果")
+        print("4. 验证结果")
         print("-" * 80)
         verification = self.verify_status_line_updates()
         
@@ -204,7 +272,7 @@ class DisplayVerifier:
         print()
         
         # 设计一致性检查
-        print("4. 设计一致性检查")
+        print("5. 设计一致性检查")
         print("-" * 80)
         
         # 检查1: 状态行应该在同一行更新
@@ -240,8 +308,35 @@ class DisplayVerifier:
         print()
 
 
+def _assert_stream_classification_matches_ui() -> None:
+    """时间：2026-03-13；理由：锁定脚本与前端分流一致；方法：构造单帧断言。"""
+    v = DisplayVerifier()
+    v._ingest_streaming_content(
+        _CTX_META_PREFIX
+        + json.dumps({"type": "context_selection", "items": [], "used_count": 0}, ensure_ascii=False)
+    )
+    assert len(v.context_meta_events) == 1 and len(v.visible_content_chunks) == 0, "CTX_META 不得进入可见正文"
+
+    v2 = DisplayVerifier()
+    v2._ingest_streaming_content("hello")
+    assert v2.visible_content_chunks == ["hello"], "纯文本应进入可见正文"
+
+    v3 = DisplayVerifier()
+    v3._ingest_streaming_content("__TOOL__:" + json.dumps({"name": "t"}, ensure_ascii=False))
+    assert len(v3.tool_calls) == 1 and len(v3.visible_content_chunks) == 0, "TOOL 不得进入可见正文"
+
+    v4 = DisplayVerifier()
+    v4._ingest_streaming_content("__STATUS__:" + json.dumps({"message": "m", "elapsed_time": 1.0}, ensure_ascii=False))
+    assert len(v4.status_updates) == 1 and len(v4.visible_content_chunks) == 0, "STATUS 不得进入可见正文"
+
+    bad = parse_context_meta_chunk(_CTX_META_PREFIX + '{"type":"other"}')
+    assert bad is None, "非 context_selection 应忽略"
+
+
 async def test_display_with_simple_task():
     """使用简单任务测试显示效果"""
+    import httpx
+
     print("=" * 80)
     print("测试1: 简单任务（验证基本功能）")
     print("=" * 80)
@@ -299,6 +394,8 @@ async def test_display_with_simple_task():
 
 async def test_display_with_video_task():
     """使用视频任务测试显示效果（长任务）"""
+    import httpx
+
     print()
     print("=" * 80)
     print("测试2: 视频下载任务（验证长任务和状态行更新）")
@@ -366,6 +463,8 @@ async def test_display_with_video_task():
 
 async def main():
     """主测试函数"""
+    import httpx
+
     print()
     print("前后端交互显示效果验证")
     print()
@@ -449,6 +548,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    _assert_stream_classification_matches_ui()
     # 设置环境变量
     os.environ.setdefault("BACKEND_PORT", "6080")
     os.environ.setdefault("ENABLE_AUTONOMOUS_EXECUTION", "true")

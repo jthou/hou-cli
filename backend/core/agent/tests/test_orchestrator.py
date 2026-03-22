@@ -7,7 +7,7 @@ from backend.core.context.models import MessageRole
 
 def _content_chunks(chunks):
     """从流式输出中提取纯内容块（排除 __DEBUG__、__TOOL__、__STATUS__、__EVALUATION__ 等）"""
-    skip_prefixes = ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")
+    skip_prefixes = ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__", "__ORCH_TRACE__")
     return [c for c in chunks if not any(c.startswith(p) for p in skip_prefixes)]
 
 

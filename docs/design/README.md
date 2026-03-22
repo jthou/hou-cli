@@ -31,6 +31,18 @@
   - Agent 编排器、协调器设计
   - 专门化 Agent 实现（Chat、PDF、Code、FileSystem、Research、Tool）
 
+- **[01-orchestrator-intent-driven-refactor-design.md](./01-orchestrator-intent-driven-refactor-design.md)** - 编排层重构：意图驱动任务编排
+  - 现状问题：`SkillRegistry.match` 抢答 + 关键词回退与「多 Agent 编排」名实不符
+  - 目标架构：Intent/Plan + 执行器 + 与 Coordinator/Skill/Tool 显式映射
+  - 方案 A/B/C：Tool-first、专用 Planner、按 `context_type` 混合；写作/工作助手跳过全局 prematch
+  - 分期迁移、feature flag；**含评审补强**：Plan v2、异步与 Saga、多模型、可观测性；**用户向编排 trace**（§2.4）；**§1.4 / §2.1.1 Mermaid**（现状 `stream_process`、目标架构）；附录对照表
+
+- **[01-stream-agent-identity-preamble.md](./01-stream-agent-identity-preamble.md)** - 流式首段身份与编排推理前缀
+  - 审计「请求/响应」与单次写作链路；`STREAM_AGENT_PREAMBLE`（off/identity/full）与 `__ORCH_TRACE__` 区别
+
+- **[01-article-writing-single-turn-message-contract.md](./01-article-writing-single-turn-message-contract.md)** - 写作/参考块单次 user 消息契约
+  - Python `article_writing_message_contract` 与 `referenceUtils.js` 同步规则；CLI 与 UI 一致
+
 - **[01-sop-workflow-design.md](./01-sop-workflow-design.md)** - SOP 流程编排设计
   - 标准操作流程定义和执行
   - 流程识别器、流程执行引擎、流程状态管理
@@ -66,9 +78,9 @@
   - 存储层一次读写的批量删除建议与实施顺序
 
 - **[01-article-writing-agent-and-model-config-design.md](./01-article-writing-agent-and-model-config-design.md)** - 写作助手 Agent、大模型与可配置性设计
-  - `article_writing` 技能白名单、是否使用 `ArticleWritingAgent`、各路径 LLM 来源
-  - 为何「总结画像」常表现为 DeepSeek 默认线路（技能早于 `_select_model`）
-  - 可配置性现状、配置页信息架构建议、执行顺序与可选环境变量提案
+  - `article_writing` 技能白名单、§2.3 技能 → LLM/Agent 对照表、各路径 LLM 来源
+  - 流式技能与 `_select_model` 顺序（§3.3）、配置页建议、§6 提案
+  - **§7** 会话沉淀闭环（含 §7.2.1 Mermaid）；**§2.5** 写作流式 / Agent 管线 / `writing_mode` 提案流程图
 
 ### 02X - 通信和集成
 

@@ -14,6 +14,7 @@ import WikiTitlePreviewHint from '../components/task/WikiTitlePreviewHint'
 import ScheduleConfigFields from '../components/task/ScheduleConfigFields'
 import { PIPELINE_TEMPLATES } from '../config/pipelineTemplates'
 import PageHeader from '../components/PageHeader'
+import { parseApiResponseJson } from '../utils/parseApiResponse'
 
 /**
  * 任务管理与展示机制
@@ -48,10 +49,11 @@ const WECHAT_MP_API = {
     return fetch(`/api/wechat-mp/drafts?${q}`).then(r => r.json())
   },
   draftDetail: (mediaId) => fetch(`/api/wechat-mp/drafts/detail?media_id=${encodeURIComponent(mediaId)}`).then(r => r.json()),
-  uploadCover: (file) => {
+  uploadCover: async (file) => {
     const form = new FormData()
     form.append('file', file)
-    return fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form }).then(r => r.json())
+    const res = await fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form })
+    return parseApiResponseJson(res)
   },
 }
 

@@ -1,30 +1,30 @@
 {
-  "total_files": 1251,
-  "total_lines": 375012,
+  "total_files": 1313,
+  "total_lines": 382253,
   "by_language": {
     "other": {
-      "files": 26,
-      "lines": 71906
+      "files": 27,
+      "lines": 72030
     },
     "python": {
-      "files": 599,
-      "lines": 103857
+      "files": 616,
+      "lines": 105884
     },
     "markdown": {
-      "files": 428,
-      "lines": 154667
+      "files": 465,
+      "lines": 159235
     },
     "shell": {
       "files": 34,
       "lines": 2143
     },
     "javascript": {
-      "files": 40,
-      "lines": 5931
+      "files": 46,
+      "lines": 6172
     },
     "json": {
       "files": 11,
-      "lines": 12083
+      "lines": 12102
     },
     "html": {
       "files": 2,
@@ -35,8 +35,8 @@
       "lines": 577
     },
     "jsx": {
-      "files": 100,
-      "lines": 20890
+      "files": 101,
+      "lines": 21152
     },
     "yaml": {
       "files": 7,
@@ -46,23 +46,23 @@
   "by_directory": {
     ".": {
       "files": 12,
-      "lines": 10228
+      "lines": 10240
     },
     "extension": {
       "files": 6,
       "lines": 1167
     },
     "frontend": {
-      "files": 168,
-      "lines": 43104
+      "files": 175,
+      "lines": 43608
     },
     "plans": {
-      "files": 45,
-      "lines": 55801
+      "files": 78,
+      "lines": 59407
     },
     "config": {
       "files": 3,
-      "lines": 54
+      "lines": 52
     },
     "patches": {
       "files": 3,
@@ -73,16 +73,16 @@
       "lines": 8074
     },
     "backend": {
-      "files": 499,
-      "lines": 143277
+      "files": 515,
+      "lines": 144903
     },
     "shared": {
       "files": 11,
       "lines": 1023
     },
     "docs": {
-      "files": 334,
-      "lines": 101594
+      "files": 338,
+      "lines": 102577
     },
     "comic": {
       "files": 1,
@@ -97,13 +97,13 @@
       "lines": 138
     },
     "scripts": {
-      "files": 77,
-      "lines": 8821
+      "files": 79,
+      "lines": 9333
     },
     "archived": {
       "files": 21,
       "lines": 1341
     }
   },
-  "generated_at": "2026-03-21T04:21:57.372072Z"
+  "generated_at": "2026-03-21T15:04:19.002690Z"
 }

@@ -9,13 +9,15 @@ import MarkdownPreview from '../components/MarkdownPreview'
 import { useToast } from '../components/ToastModal'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
-import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
+import { buildArticleWritingMessageForModel, extractUserQuestionForDisplay } from '../utils/referenceUtils'
+import { isOrchestratorControlChunk } from '../utils/streamChunkFilters'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import UserMessageActionButtons from '../components/UserMessageActionButtons'
 import { useDeleteSessionMessage } from '../hooks/useDeleteSessionMessage'
 import { useBatchDeleteSessions } from '../hooks/useBatchDeleteSessions'
 import { useBatchDeleteMessages } from '../hooks/useBatchDeleteMessages'
+import ContextSelectionPanel, { parseContextMetaChunk } from '../components/ContextSelectionPanel'
 
 const SESSION_TYPE = 'work_assistant'
 const STORAGE_KEY = 'work_assistant_selected_session'
@@ -40,6 +42,7 @@ export default function WorkAssistant() {
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
+  const [contextSelectionMeta, setContextSelectionMeta] = useState(null)
   const [selectedModel, setSelectedModel] = useState('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
@@ -262,6 +265,8 @@ export default function WorkAssistant() {
     setLoading(true)
     setStreamingContent('')
     setStreamingToolCalls([])
+    // 时间：2026-03-13；理由：新一轮流式前清空上轮「选用上下文」；方法与 GeneralChat handleRegenerate 一致
+    setContextSelectionMeta(null)
     const ac = new AbortController()
     abortControllerRef.current = ac
     try {
@@ -285,6 +290,8 @@ export default function WorkAssistant() {
       const decoder = new TextDecoder()
       let buffer = ''
       let fullContent = ''
+      // 时间：2026-03-13；理由：再生与首答共用编排帧，需解析 __TOOL__ / __CTX_META__ 且避免重复 done；方法：与 handleSubmit 对齐 streamTerminalHandled
+      let streamTerminalHandled = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -298,12 +305,35 @@ export default function WorkAssistant() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:') && !raw.startsWith('__TOOL__:')) {
-                  fullContent += raw
-                  streamingContentRef.current = fullContent
-                  setStreamingContent(fullContent)
+                if (raw.startsWith('__TOOL__:')) {
+                  try {
+                    const toolData = JSON.parse(raw.slice(9).trim())
+                    if (toolData?.name) {
+                      setStreamingToolCalls((prev) => [...prev, {
+                        name: toolData.name,
+                        args: toolData.args || {},
+                        success: toolData.success,
+                        result: toolData.result,
+                        error: toolData.error,
+                      }])
+                    }
+                  } catch (_) {}
+                } else {
+                  const ctxMeta = parseContextMetaChunk(raw)
+                  if (ctxMeta) {
+                    setContextSelectionMeta(ctxMeta)
+                  } else if (!isOrchestratorControlChunk(raw)) {
+                    fullContent += raw
+                    streamingContentRef.current = fullContent
+                    setStreamingContent(fullContent)
+                  }
                 }
               } else if (obj.status === 'done') {
+                if (streamTerminalHandled) {
+                  fullContent = ''
+                  continue
+                }
+                streamTerminalHandled = true
                 fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
                   .then((r) => r.json())
                   .then((d) => {
@@ -313,10 +343,14 @@ export default function WorkAssistant() {
                   })
                   .catch(() => {})
                 setStreamingContent('')
+                setStreamingToolCalls([])
                 streamingContentRef.current = ''
+                fullContent = ''
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setStreamingToolCalls([])
+                streamingContentRef.current = ''
               }
             } catch (_) {}
           }
@@ -327,7 +361,37 @@ export default function WorkAssistant() {
           const dataLines = buffer.split('\n').filter((l) => l.startsWith('data: '))
           for (const dataLine of dataLines) {
             const obj = JSON.parse(dataLine.slice(6))
-            if (obj.status === 'done') {
+            if (obj.status === 'streaming' && obj.content != null) {
+              const raw = String(obj.content)
+              if (raw.startsWith('__TOOL__:')) {
+                try {
+                  const toolData = JSON.parse(raw.slice(9).trim())
+                  if (toolData?.name) {
+                    setStreamingToolCalls((prev) => [...prev, {
+                      name: toolData.name,
+                      args: toolData.args || {},
+                      success: toolData.success,
+                      result: toolData.result,
+                      error: toolData.error,
+                    }])
+                  }
+                } catch (_) {}
+              } else {
+                const ctxMeta = parseContextMetaChunk(raw)
+                if (ctxMeta) {
+                  setContextSelectionMeta(ctxMeta)
+                } else if (!isOrchestratorControlChunk(raw)) {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
+                }
+              }
+            } else if (obj.status === 'done') {
+              if (streamTerminalHandled) {
+                fullContent = ''
+                continue
+              }
+              streamTerminalHandled = true
               fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
                 .then((r) => r.json())
                 .then((d) => {
@@ -336,6 +400,15 @@ export default function WorkAssistant() {
                   }
                 })
                 .catch(() => {})
+              setStreamingContent('')
+              setStreamingToolCalls([])
+              streamingContentRef.current = ''
+              fullContent = ''
+            } else if (obj.status === 'error') {
+              setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
+              setStreamingContent('')
+              setStreamingToolCalls([])
+              streamingContentRef.current = ''
             }
           }
         } catch (_) {}
@@ -354,13 +427,14 @@ export default function WorkAssistant() {
     const text = (input || '').trim()
     if (!text) return
 
-    const referenceContext = formatReferenceContext(referenceBlocks)
-    const messageForModel = referenceContext ? `${referenceContext}【用户本次提问】\n${text}` : text
+    const messageForModel = buildArticleWritingMessageForModel(referenceBlocks, text)
 
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
     setStreamingToolCalls([])
+    // 时间：2026-03-13；理由：新提问清空上轮上下文选用展示；方法：与 GeneralChat handleSubmit 一致
+    setContextSelectionMeta(null)
     setLoading(true) // 先设 loading，再创建会话，避免 useEffect 覆盖消息
 
     let sessionId = selectedSessionId
@@ -402,6 +476,8 @@ export default function WorkAssistant() {
       const decoder = new TextDecoder()
       let buffer = ''
       let fullContent = ''
+      // 时间：2026-03-13；理由：与 GeneralChat 一致，避免多段 done 触发重复 fetch/乐观追加；方法：streamTerminalHandled
+      let streamTerminalHandled = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -415,9 +491,7 @@ export default function WorkAssistant() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (raw.startsWith('__DEBUG__:') || raw.startsWith('__STATUS__:')) {
-                  // 忽略
-                } else if (raw.startsWith('__TOOL__:')) {
+                if (raw.startsWith('__TOOL__:')) {
                   try {
                     const toolData = JSON.parse(raw.slice(9).trim())
                     if (toolData?.name) {
@@ -431,11 +505,21 @@ export default function WorkAssistant() {
                     }
                   } catch (_) {}
                 } else {
-                  fullContent += raw
-                  streamingContentRef.current = fullContent
-                  setStreamingContent(fullContent)
+                  const ctxMeta = parseContextMetaChunk(raw)
+                  if (ctxMeta) {
+                    setContextSelectionMeta(ctxMeta)
+                  } else if (!isOrchestratorControlChunk(raw)) {
+                    fullContent += raw
+                    streamingContentRef.current = fullContent
+                    setStreamingContent(fullContent)
+                  }
                 }
               } else if (obj.status === 'done') {
+                if (streamTerminalHandled) {
+                  fullContent = ''
+                  continue
+                }
+                streamTerminalHandled = true
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setStreamingContent('')
                 setStreamingToolCalls([])
@@ -492,12 +576,22 @@ export default function WorkAssistant() {
                     }])
                   }
                 } catch (_) {}
-              } else if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:')) {
-                fullContent += raw
-                streamingContentRef.current = fullContent
-                setStreamingContent(fullContent)
+              } else {
+                const ctxMeta = parseContextMetaChunk(raw)
+                if (ctxMeta) {
+                  setContextSelectionMeta(ctxMeta)
+                } else if (!isOrchestratorControlChunk(raw)) {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
+                }
               }
             } else if (obj.status === 'done') {
+              if (streamTerminalHandled) {
+                fullContent = ''
+                continue
+              }
+              streamTerminalHandled = true
               const finalContent = fullContent.trim() || '（助手未返回内容）'
               if (isFirstMessage && text) {
                 fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
@@ -836,6 +930,12 @@ export default function WorkAssistant() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {/* 时间：2026-03-13；理由：与 GeneralChat 一致展示本轮注入模型的历史选用说明；方法：编排 __CTX_META__ → parseContextMetaChunk */}
+          {contextSelectionMeta && (
+            <div className="flex justify-start w-full">
+              <ContextSelectionPanel meta={contextSelectionMeta} />
             </div>
           )}
           {streamingContent && (

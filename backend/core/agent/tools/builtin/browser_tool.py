@@ -161,20 +161,30 @@ class BrowserTool(Tool):
         # 2. 检查 LLM API 配置
         try:
             from backend.services.llm.llm_service import LLMService
+            from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
+
             llm_service = LLMService()
-            
-            # 检查默认模型配置
-            default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-            api_key = os.getenv("DEEPSEEK_API_KEY")
-            
-            if not api_key:
-                return False, "DEEPSEEK_API_KEY 未设置"
+            default_model = browser_default_chat_model()
+            # 时间：2026-03-21；理由：默认百炼 Qwen；方法：按解析后的提供商检查 Key
+            from backend.services.llm.model_registry import ModelRegistry
+            prov, _ = ModelRegistry.parse_model_name(default_model)
+            if prov == "bailian":
+                if not (os.getenv("BAILIAN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")):
+                    return False, "BAILIAN_API_KEY（或 DASHSCOPE_API_KEY）未设置"
+            elif prov == "theturbogateway":
+                if not os.getenv("TURBOGATEWAY_API_KEY"):
+                    return False, "TURBOGATEWAY_API_KEY 未设置"
+            else:
+                if not os.getenv("DEEPSEEK_API_KEY"):
+                    return False, "DEEPSEEK_API_KEY 未设置"
             
             # 3. 检查已知的 API 兼容性问题
             # browser-use 库使用的 response_format 参数不被 DeepSeek API 支持
             # 但现在我们有了适配层，所以不再需要完全禁用 DeepSeek
             base_url = os.getenv("DEEPSEEK_BASE_URL", "")
-            is_deepseek = "deepseek" in default_model.lower() or "deepseek" in base_url.lower()
+            is_deepseek = prov == "deepseek" or (
+                "deepseek" in default_model.lower() or "deepseek" in base_url.lower()
+            )
             
             # 不再完全禁用 DeepSeek，因为我们有适配层
             # 如果是 DeepSeek，我们会使用适配层来绕过 response_format 限制
@@ -279,16 +289,19 @@ class BrowserTool(Tool):
                 logger.info(f"视觉模型已创建: {vision_model}")
                 return browser_llm
             except Exception as e:
-                logger.warning(f"无法创建视觉模型，回退到 DeepSeek: {e}")
-                # 回退到 DeepSeek
-                default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+                logger.warning(f"无法创建视觉模型，回退到默认对话模型: {e}")
+                from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
+
+                fallback = browser_default_chat_model()
                 return self.llm_service.get_browser_use_llm_with_adaptation(
-                    model=default_model,
-                    disable_response_schema=True  # 防止 response_format 相关错误
+                    model=fallback,
+                    disable_response_schema=True,
                 )
         
         # 使用默认模型（如果没有任务特定的智能选择需求）
-        default_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
+
+        default_model = browser_default_chat_model()
         logger.info(f"使用默认模型: {default_model}")
         return self.llm_service.get_browser_use_llm_with_adaptation(
             model=default_model,

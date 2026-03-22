@@ -58,10 +58,12 @@ function ArticleSummaryTab({ summary, onSummaryChange, onGenerateSummary, onSumm
   )
 }
 import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../utils/mdToHtml'
+import { parseApiResponseJson } from '../utils/parseApiResponse'
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
-import { formatReferenceContext, extractUserQuestionForDisplay } from '../utils/referenceUtils'
+import { buildArticleWritingMessageForModel, extractUserQuestionForDisplay } from '../utils/referenceUtils'
+import { isOrchestratorControlChunk } from '../utils/streamChunkFilters'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import { useWritingSuggestions } from '../hooks/useWritingSuggestions'
@@ -76,10 +78,11 @@ import { useBatchDeleteSessions } from '../hooks/useBatchDeleteSessions'
 import { useBatchDeleteMessages } from '../hooks/useBatchDeleteMessages'
 
 const WECHAT_MP_API = {
-  uploadCover: (file) => {
+  uploadCover: async (file) => {
     const form = new FormData()
     form.append('file', file)
-    return fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form }).then((r) => r.json())
+    const res = await fetch('/api/wechat-mp/upload-cover', { method: 'POST', body: form })
+    return parseApiResponseJson(res)
   },
 }
 
@@ -478,6 +481,8 @@ export default function ArticleWriting() {
       const decoder = new TextDecoder()
       let buffer = ''
       let fullContent = ''
+      // 时间：2026-03-13；理由：与 handleSubmit 一致，防止多段 done / __EVALUATION__ 拼进正文；方法：streamTerminalHandled + isOrchestratorControlChunk
+      let streamTerminalHandled = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -491,12 +496,17 @@ export default function ArticleWriting() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:') && !raw.startsWith('__TOOL__:')) {
+                if (!isOrchestratorControlChunk(raw)) {
                   fullContent += raw
                   streamingContentRef.current = fullContent
                   setStreamingContent(fullContent)
                 }
               } else if (obj.status === 'done') {
+                if (streamTerminalHandled) {
+                  fullContent = ''
+                  continue
+                }
+                streamTerminalHandled = true
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
@@ -526,6 +536,48 @@ export default function ArticleWriting() {
           }
         }
       }
+      if (buffer.trim()) {
+        try {
+          const dataLines = buffer.split('\n').filter((l) => l.startsWith('data: '))
+          for (const dataLine of dataLines) {
+            const obj = JSON.parse(dataLine.slice(6))
+            if (obj.status === 'streaming' && obj.content != null) {
+              const raw = String(obj.content)
+              if (!isOrchestratorControlChunk(raw)) {
+                fullContent += raw
+                streamingContentRef.current = fullContent
+                setStreamingContent(fullContent)
+              }
+            } else if (obj.status === 'done') {
+              if (!streamTerminalHandled) {
+                streamTerminalHandled = true
+                const finalContent = fullContent.trim() || '（助手未返回内容）'
+                setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
+                setStreamingContent('')
+                setStreamingToolCalls([])
+                streamingContentRef.current = ''
+                fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
+                  .then((r) => r.json())
+                  .then((d) => {
+                    if (d.success && Array.isArray(d.messages)) {
+                      setMessages((prev) => {
+                        const apiCount = d.messages.length
+                        if (apiCount >= prev.length) {
+                          return d.messages.map((m) => ({ role: m.role, content: m.content, message_id: m.message_id }))
+                        }
+                        return prev
+                      })
+                    }
+                  })
+                  .catch(() => {})
+              }
+              fullContent = ''
+            }
+          }
+        } catch (_) {}
+        setStreamingContent('')
+        streamingContentRef.current = ''
+      }
     } catch (err) {
       if (err?.name === 'AbortError') return
       setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err?.message || '请求失败'}` }])
@@ -541,8 +593,7 @@ export default function ArticleWriting() {
     const text = (overrideMessage ?? (input || '').trim()).trim()
     if (!text) return
 
-    const referenceContext = formatReferenceContext(referenceBlocks)
-    const messageForModel = referenceContext ? `${referenceContext}【用户本次提问】\n${text}` : text
+    const messageForModel = buildArticleWritingMessageForModel(referenceBlocks, text)
 
     if (!overrideMessage) setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
@@ -622,9 +673,7 @@ export default function ArticleWriting() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (raw.startsWith('__DEBUG__:') || raw.startsWith('__STATUS__:')) {
-                  // 忽略
-                } else if (raw.startsWith('__TOOL__:')) {
+                if (raw.startsWith('__TOOL__:')) {
                   try {
                     const toolData = JSON.parse(raw.slice(9).trim())
                     if (toolData?.name) {
@@ -637,7 +686,7 @@ export default function ArticleWriting() {
                       }])
                     }
                   } catch (_) {}
-                } else {
+                } else if (!isOrchestratorControlChunk(raw)) {
                   fullContent += raw
                   streamingContentRef.current = fullContent
                   setStreamingContent(fullContent)
@@ -689,7 +738,7 @@ export default function ArticleWriting() {
                     }])
                   }
                 } catch (_) {}
-              } else if (!raw.startsWith('__DEBUG__:') && !raw.startsWith('__STATUS__:')) {
+              } else if (!isOrchestratorControlChunk(raw)) {
                 fullContent += raw
                 streamingContentRef.current = fullContent
                 setStreamingContent(fullContent)
@@ -1879,26 +1928,7 @@ export default function ArticleWriting() {
                   loading={modelsLoading}
                 />
               </div>
-              {/* 写作技能快捷按钮（时间：2025-03-15；理由：在 UI 中体现 4 个写作技能，便于一键触发；方法：点击即发送预设文案） */}
-              <div className="shrink-0 flex flex-wrap gap-1.5 px-4 py-2 border-t border-border/60 bg-surface/30">
-                <span className="text-xs text-muted self-center mr-1">快捷：</span>
-                {[
-                  { label: '生成大纲', msg: '帮我生成大纲' },
-                  { label: '撰写正文', msg: '根据大纲撰写正文' },
-                  { label: '风格润色', msg: '按照写作画像润色全文' },
-                  { label: '总结画像', msg: '帮我总结这些文章的写作画像' },
-                ].map(({ label, msg }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    disabled={loading || !selectedSessionId}
-                    onClick={() => handleSubmit({ preventDefault: () => {} }, msg)}
-                    className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/10 hover:text-fg disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {/* 时间：2026-03-13；理由：预设短句无法绑定参考块/右侧草稿，易空上下文；方法：移除快捷区，写作意图由 system 提示词「【常见写作意图判定】」+ 用户自拟指令承担 */}
               <div id="article-writing-chat-input">
                 <ChatInput
                   value={input}

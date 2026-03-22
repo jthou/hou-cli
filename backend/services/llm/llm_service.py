@@ -33,7 +33,7 @@ def get_model_registry():
 
 
 class LLMService:
-    """LLM 服务 - 支持多提供商（DeepSeek、百炼平台、TheTurbo.ai 网关等）"""
+    """LLM 服务 - 支持多提供商（百炼/Qwen 默认、DeepSeek、TheTurbo.ai 网关等）"""
     
     # 支持的提供商
     PROVIDER_DEEPSEEK = "deepseek"
@@ -72,11 +72,12 @@ class LLMService:
         else:
             # 如果没有提供模型，确定默认提供商和模型
             if provider is None:
-                provider = os.getenv("LLM_PROVIDER", self.PROVIDER_DEEPSEEK).lower()
+                # 时间：2026-03-21；理由：默认全栈 Qwen（百炼）；方法：LLM_PROVIDER 默认 bailian
+                provider = os.getenv("LLM_PROVIDER", self.PROVIDER_BAILIAN).lower()
             
             # 设置默认模型（根据提供商）
             if provider == self.PROVIDER_BAILIAN:
-                self.model = os.getenv("BAILIAN_MODEL", "qwen-turbo")
+                self.model = os.getenv("BAILIAN_MODEL", "qwen3-max")
             elif provider == self.PROVIDER_TURBOGATEWAY:
                 self.model = os.getenv("TURBOGATEWAY_MODEL", "gpt-5")
             else:

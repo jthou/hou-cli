@@ -1,10 +1,33 @@
 """流式数据格式化模块 - 负责将数据格式化为 SSE (Server-Sent Events) 格式"""
 import json
 import asyncio
-from typing import AsyncIterator, Optional, Callable, Any
+import os
+from typing import AsyncIterator, Optional, Callable, Any, Dict, Literal
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_orchestration_trace_verbosity(context: Optional[Dict[str, Any]]) -> Literal["off", "summary", "full"]:
+    # 时间：2026-03-13；理由：编排可观测性默认关，避免扰动 UX；方法：context 优先于 ORCH_TRACE_VERBOSITY 环境变量（见 docs/design/01-orchestrator-intent-driven-refactor-design.md §2.4.1）。
+    ctx = context or {}
+    raw = ctx.get("orchestration_trace")
+    if raw is None:
+        raw = ctx.get("trace_verbosity")
+    if isinstance(raw, str):
+        r = raw.lower().strip()
+        if r in ("off", "none", "false", "0", ""):
+            return "off"
+        if r == "full":
+            return "full"
+        if r in ("summary", "on", "true", "1"):
+            return "summary"
+    env = (os.getenv("ORCH_TRACE_VERBOSITY") or "off").lower().strip()
+    if env == "full":
+        return "full"
+    if env in ("summary", "on", "true", "1"):
+        return "summary"
+    return "off"
 
 
 class StreamMessageBuilder:
@@ -34,6 +57,16 @@ class StreamMessageBuilder:
     def build_status(status_data: dict) -> str:
         """构建状态更新消息"""
         return f"__STATUS__:{json.dumps(status_data, ensure_ascii=False)}\n"
+
+    @staticmethod
+    def build_orchestration_trace(envelope: dict) -> str:
+        """编排追踪帧（用户向，与 __DEBUG__ 区分）。信封字段见 docs/design/01-orchestrator-intent-driven-refactor-design.md §2.4.2。"""
+        return f"__ORCH_TRACE__:{json.dumps(envelope, ensure_ascii=False)}\n"
+
+    @staticmethod
+    def build_ctx_meta(meta: dict) -> str:
+        # 时间：2026-03-13；理由：前端展示「本次选中的历史上下文」，非模型 CoT；方法与 __TOOL__ 并列由前端单独解析
+        return f"__CTX_META__:{json.dumps(meta, ensure_ascii=False)}\n"
 
 
 class SSEFormatter:

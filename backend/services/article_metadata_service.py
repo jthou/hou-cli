@@ -152,11 +152,19 @@ async def upload_cover_to_wechat(image_data: str) -> Dict[str, Any]:
         else:
             img_bytes = base64.b64decode(raw)
 
-        if not img_bytes or len(img_bytes) > 2 * 1024 * 1024:
-            return {"thumb_media_id": "", "error": "图片无效或超过 2MB"}
+        if not img_bytes:
+            return {"thumb_media_id": "", "error": "图片无效或为空"}
+
+        # 时间：2026-03-13；理由：URL/base64 大图与上传接口一致；方法：fit_wechat_cover_image
+        try:
+            from backend.services.wechat_mp_service.cover_image_fit import fit_wechat_cover_image
+
+            img_bytes, cover_name = fit_wechat_cover_image(img_bytes, "cover.png")
+        except ValueError as e:
+            return {"thumb_media_id": "", "error": str(e) or "封面图无法压缩到微信限制内"}
 
         client = WeChatMPClient()
-        data = client.upload_image_permanent(img_bytes, filename="cover.png")
+        data = client.upload_image_permanent(img_bytes, filename=cover_name)
         media_id = data.get("media_id") or ""
         if not media_id:
             return {"thumb_media_id": "", "error": "上传失败，未返回 media_id"}
@@ -197,11 +205,15 @@ async def generate_cover_image_from_content(content: str) -> Dict[str, Any]:
                 return {"thumb_media_id": "", "prompt": prompt, "error": err}
 
             img_bytes = Path(output_file).read_bytes()
-            if len(img_bytes) > 2 * 1024 * 1024:
-                return {"thumb_media_id": "", "prompt": prompt, "error": "封面图超过 2MB，公众号仅支持 ≤2MB"}
+            try:
+                from backend.services.wechat_mp_service.cover_image_fit import fit_wechat_cover_image
+
+                img_bytes, cover_name = fit_wechat_cover_image(img_bytes, "cover.png")
+            except ValueError as e:
+                return {"thumb_media_id": "", "prompt": prompt, "error": str(e) or "封面图无法压缩到微信限制内"}
 
             client = WeChatMPClient()
-            data = client.upload_image_permanent(img_bytes, filename="cover.png")
+            data = client.upload_image_permanent(img_bytes, filename=cover_name)
             media_id = data.get("media_id") or ""
             if not media_id:
                 return {"thumb_media_id": "", "prompt": prompt, "error": "上传到公众号失败，未返回 media_id"}

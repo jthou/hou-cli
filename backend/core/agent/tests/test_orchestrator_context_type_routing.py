@@ -1,90 +1,116 @@
-"""Orchestrator context_type 路由测试：验证 work_assistant/general_chat/code_assistant 正确分发"""
+"""Orchestrator stream_process：按 context_type 选用系统提示（与现行单一流式实现一致）
+
+时间：2026-03-13；理由：原测试引用已不存在的 *Agent 属性；方法：patch skill_registry.match + llm_service.stream_chat 断言 system_prompt。
+"""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch
+
 from backend.core.agent.orchestrator import Orchestrator
 
 
-async def _fake_stream_ok(token: str):
-    """返回产出单个 token 的 async generator（stream_process 需返回 async generator）"""
-    yield token
+def _content_text(chunks):
+    skip = ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__", "__ORCH_TRACE__")
+    return "".join(c for c in chunks if not any(c.startswith(p) for p in skip))
 
 
 class TestContextTypeRouting:
-    """验证 stream_process 根据 context_type 正确路由到对应 Agent"""
-
     @pytest.fixture
     def orchestrator(self):
         return Orchestrator()
 
     @pytest.mark.asyncio
-    async def test_code_assistant_routes_to_agent(self, orchestrator):
-        """context_type=code_assistant 应路由到 code_assistant_agent"""
+    async def test_work_assistant_uses_work_assistant_system_prompt(self, orchestrator):
+        async def fake_stream(*args, **kwargs):
+            sp = kwargs.get("system_prompt") or ""
+            assert "软件架构师的工作助手" in sp
+            yield "ok"
+
         with patch.object(
-            orchestrator.code_assistant_agent,
-            "stream_process",
-            new=MagicMock(return_value=_fake_stream_ok("code_assistant_ok")),
-        ) as mock_stream:
-            chunks = []
-            async for c in orchestrator.stream_process(
-                "写一段 print(1) 执行看看",
-                context={"context_type": "code_assistant"},
+            orchestrator.skill_registry,
+            "match",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with patch.object(
+                orchestrator.llm_service,
+                "stream_chat",
+                side_effect=fake_stream,
             ):
-                chunks.append(c)
-            mock_stream.assert_called_once()
-            # stream_process(task, context, delegate=self) -> args=(task, context), kwargs={delegate: ...}
-            call_args = mock_stream.call_args
-            context = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("context", {})
-            assert (context or {}).get("context_type") == "code_assistant"
-            content = "".join(c for c in chunks if not any(c.startswith(p) for p in ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")))
-            assert "code_assistant_ok" in content
+                chunks = []
+                async for c in orchestrator.stream_process(
+                    "整理待办",
+                    context={"context_type": "work_assistant", "session_id": "sess_route_ws"},
+                ):
+                    chunks.append(c)
+                assert "ok" in _content_text(chunks)
 
     @pytest.mark.asyncio
-    async def test_work_assistant_routes_to_agent(self, orchestrator):
-        """context_type=work_assistant 应路由到 work_assistant_agent"""
+    async def test_general_chat_uses_chat_system_prompt(self, orchestrator):
+        # general_chat 默认带工具列表时走 _chat_with_tools_stream，不经 llm_service.stream_chat
+        def _tools_stream_impl(*args, **kwargs):
+            sp = kwargs.get("system_prompt") or ""
+            assert "你是一个智能助手" in sp
+
+            async def _gen():
+                yield "ok"
+
+            return _gen()
+
         with patch.object(
-            orchestrator.work_assistant_agent,
-            "stream_process",
-            new=MagicMock(return_value=_fake_stream_ok("work_assistant_ok")),
-        ) as mock_stream:
-            chunks = []
-            async for c in orchestrator.stream_process(
-                "帮我整理待办",
-                context={"context_type": "work_assistant"},
+            orchestrator.skill_registry,
+            "match",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with patch.object(
+                orchestrator,
+                "_chat_with_tools_stream",
+                side_effect=_tools_stream_impl,
             ):
-                chunks.append(c)
-            mock_stream.assert_called_once()
-            content = "".join(c for c in chunks if not any(c.startswith(p) for p in ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")))
-            assert "work_assistant_ok" in content
+                chunks = []
+                async for c in orchestrator.stream_process(
+                    "你好",
+                    context={"context_type": "general_chat", "session_id": "sess_route_gc"},
+                ):
+                    chunks.append(c)
+                assert "ok" in _content_text(chunks)
 
     @pytest.mark.asyncio
-    async def test_general_chat_routes_to_agent(self, orchestrator):
-        """context_type=general_chat 应路由到 general_chat_agent"""
+    async def test_code_assistant_falls_into_article_writing_branch(self, orchestrator):
+        """Orchestrator 无 code_assistant 专用分支：未识别的 context_type 走写文章提示词分支（与实现一致）。"""
+
+        async def fake_stream(*args, **kwargs):
+            sp = kwargs.get("system_prompt") or ""
+            assert "写作助手" in sp
+            yield "ok"
+
         with patch.object(
-            orchestrator.general_chat_agent,
-            "stream_process",
-            new=MagicMock(return_value=_fake_stream_ok("general_chat_ok")),
-        ) as mock_stream:
-            chunks = []
-            async for c in orchestrator.stream_process(
-                "今天天气怎么样",
-                context={"context_type": "general_chat"},
+            orchestrator.skill_registry,
+            "match",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with patch.object(
+                orchestrator.llm_service,
+                "stream_chat",
+                side_effect=fake_stream,
             ):
-                chunks.append(c)
-            mock_stream.assert_called_once()
-            content = "".join(c for c in chunks if not any(c.startswith(p) for p in ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")))
-            assert "general_chat_ok" in content
+                chunks = []
+                async for c in orchestrator.stream_process(
+                    "写一段 print(1)",
+                    context={"context_type": "code_assistant", "session_id": "sess_route_ca"},
+                ):
+                    chunks.append(c)
+                assert "ok" in _content_text(chunks)
 
     @pytest.mark.asyncio
-    async def test_no_context_type_uses_main_flow(self, orchestrator):
-        """无 context_type 时走主流程（技能匹配/写作等），调用 stream_chat"""
-        with patch.object(orchestrator.llm_service, "stream_chat") as mock_stream:
+    async def test_no_context_type_uses_main_flow_stream_chat(self, orchestrator):
+        with patch.object(orchestrator.skill_registry, "match", new_callable=AsyncMock, return_value=None):
             async def fake_stream(*args, **kwargs):
                 yield "main_flow"
 
-            mock_stream.return_value = fake_stream()
-            chunks = []
-            async for c in orchestrator.stream_process("测试任务"):
-                chunks.append(c)
-            content = "".join(c for c in chunks if not any(c.startswith(p) for p in ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")))
-            assert "main_flow" in content
-            mock_stream.assert_called()
+            with patch.object(orchestrator.llm_service, "stream_chat", return_value=fake_stream()):
+                chunks = []
+                async for c in orchestrator.stream_process("测试任务"):
+                    chunks.append(c)
+                assert "main_flow" in _content_text(chunks)

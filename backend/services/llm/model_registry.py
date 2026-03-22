@@ -397,9 +397,9 @@ class ModelRegistry:
         if model_lower in cls.DEEPSEEK_MODELS:
             return "deepseek"
         
-        # 默认返回 deepseek（向后兼容）
-        logger.warning(f"无法识别模型 {model_name} 的提供商，默认使用 deepseek")
-        return "deepseek"
+        # 时间：2026-03-21；理由：默认栈为百炼 Qwen；方法：未知模型名时走 bailian（须为有效 dashscope 模型名）
+        logger.warning(f"无法识别模型 {model_name} 的提供商，默认使用 bailian")
+        return "bailian"
     
     @classmethod
     def detect_turbogateway_service(cls, model_name: str) -> Optional[str]:

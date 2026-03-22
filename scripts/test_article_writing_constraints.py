@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.core.agent.prompts import WRITING_CONSTRAINT_VIOLATION_PATTERNS
+from backend.core.agent.article_writing_message_contract import build_message_for_model
 
 # ---------------------------------------------------------------------------
 # 测试用例：项目密级三分法
@@ -35,17 +36,6 @@ REWRITE_INSTRUCTION = "按照我这个思路改写。别瞎发挥。"
 
 # 可选的强化约束（ARTICLE_WRITING_STRICT=1 时使用）
 REWRITE_INSTRUCTION_STRICT = "按照我这个思路改写。每类只写一段，总字数 500 字以内，不要加总结小节。别瞎发挥。"
-
-# 参考信息（本用例无参考）
-REFERENCE_INFO = "（无）"
-
-# 任务模板：写作助手接收的格式
-TASK_TEMPLATE = """【参考信息】
-{reference_info}
-
-【用户提问】
-{user_question}
-"""
 
 # ---------------------------------------------------------------------------
 # 断言条件：期望输出满足的检查项
@@ -65,7 +55,17 @@ MAX_OUTPUT_LENGTH = None
 
 
 def _extract_content(chunks):
-    skip = ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")
+    # 时间：2026-03-13；理由：与 Web 流式过滤（streamChunkFilters + __CTX_META__）对齐，避免把控制帧当正文断言；方法：扩展 skip 前缀
+    skip = (
+        "__DEBUG__",
+        "__TOOL__",
+        "__STATUS__",
+        "__PROGRESS__",
+        "__EVALUATION__",
+        "__ORCH_TRACE__",
+        "__CTX_META__",
+        "__CONFIRM__",
+    )
     return "".join(c for c in chunks if not any(c.startswith(p) for p in skip))
 
 
@@ -86,10 +86,8 @@ async def run_test() -> tuple[bool, str, str]:
     o = Orchestrator()
     content_chunks = []
 
-    task = TASK_TEMPLATE.format(
-        reference_info=REFERENCE_INFO,
-        user_question=user_question,
-    )
+    # 与 UI 无参考块时一致：message 仅为用户侧拼接后的提问
+    task = build_message_for_model([], user_question)
 
     context = {"context_type": "article_writing", "model": model}
 
@@ -97,7 +95,16 @@ async def run_test() -> tuple[bool, str, str]:
         async for chunk in o.stream_process(task, context=context):
             if not any(
                 chunk.startswith(p)
-                for p in ("__DEBUG__", "__TOOL__", "__STATUS__", "__PROGRESS__", "__EVALUATION__")
+                for p in (
+                    "__DEBUG__",
+                    "__TOOL__",
+                    "__STATUS__",
+                    "__PROGRESS__",
+                    "__EVALUATION__",
+                    "__ORCH_TRACE__",
+                    "__CTX_META__",
+                    "__CONFIRM__",
+                )
             ):
                 content_chunks.append(chunk)
 

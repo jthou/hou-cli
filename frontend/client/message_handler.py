@@ -111,7 +111,7 @@ class MessageHandler:
         
         # 先检查是否有特殊标记（可能在行中间）
         # 处理可能在同一行中包含多个消息的情况
-        special_markers = ["__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:", "__PROGRESS__:"]
+        special_markers = ["__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:", "__PROGRESS__:", "__ORCH_TRACE__:"]
         
         # 按行分割处理
         while "\n" in buffer:
@@ -211,7 +211,8 @@ class MessageHandler:
                 "__CONFIRM__:": "confirm",
                 "__EVALUATION__:": "evaluation",
                 "__STATUS__:": "status",
-                "__PROGRESS__:": "progress"
+                "__PROGRESS__:": "progress",
+                "__ORCH_TRACE__:": "orch_trace",
             }
             
             msg_type = marker_map.get(marker)

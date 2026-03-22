@@ -3,6 +3,7 @@ import logging
 
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.services.llm.llm_service import LLMService
+from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
 from browser_use import Agent
 
 
@@ -32,7 +33,7 @@ class DeepSeekBrowserAdapter:
         try:
             # 获取适配后的 LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat',
+                model=browser_default_chat_model(),
                 disable_response_schema=True
             )
             
@@ -85,7 +86,7 @@ class DeepSeekBrowserAdapter:
         try:
             # 获取适配后的 LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat',
+                model=browser_default_chat_model(),
                 disable_response_schema=True
             )
             

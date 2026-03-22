@@ -775,7 +775,7 @@ class StreamRenderer:
                                 live.update(full_content)
                         
                         # 如果 buffer 中还有内容但没有换行符，也更新显示
-                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:", "__PROGRESS__:")):
+                        if buffer and not buffer.startswith(("__DEBUG__:", "__TOOL__:", "__CONFIRM__:", "__EVALUATION__:", "__STATUS__:", "__PROGRESS__:", "__ORCH_TRACE__:")):
                             display_content = full_content + buffer
                             if status_display:
                                 display_content = f"{display_content}\n{status_display}"

@@ -11,6 +11,7 @@ import WechatOutboundIpHint from '../WechatOutboundIpHint'
 import WechatMaterialImagePicker from '../WechatMaterialImagePicker'
 import { useToast } from '../ToastModal'
 import { formatWechatMpError } from '../../utils/wechatMpError'
+import { prepareWechatCoverFile } from '../../utils/wechatCoverCompress'
 import { mdToHtmlForWechat } from '../../utils/mdToHtml'
 
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
@@ -277,7 +278,8 @@ export default function TaskParamsForm({
               if (!file) return
               setCoverUploading(true)
               try {
-                const data = await onCoverUpload(file)
+                const toSend = await prepareWechatCoverFile(file)
+                const data = await onCoverUpload(toSend)
                 if (data?.success && data?.media_id) {
                   setMetadata(m => ({ ...m, thumb_media_id: data.media_id }))
                   toast.info('封面上传成功')
@@ -347,7 +349,7 @@ export default function TaskParamsForm({
               </div>
             </div>
           )}
-          <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG，WebP 将自动转为 PNG；≤2MB；也可直接填已有素材的 media_id</p>
+          <p className="mt-1 text-xs text-amber-400/90">支持 JPG/PNG/WebP；微信封面限 2MB，超出将自动压缩后再传；也可直接填已有素材的 media_id</p>
         </div>
       )}
 

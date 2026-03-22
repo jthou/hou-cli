@@ -211,6 +211,30 @@ set DEEPSEEK_API_KEY=your_api_key_here
 
 ---
 
+#### `DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS`
+
+- **类型**: 布尔字符串（`true` / `false`）
+- **默认值**: `false`（未设置同 false）
+- **说明（2026-03-13）**: 为 `true` 时，`article_writing` 与 `work_assistant` 场景下 **不** 执行 `skill_registry.match` 抢答，走主对话/工具路径。设计见 `docs/design/01-orchestrator-intent-driven-refactor-design.md` §6 阶段 1。
+
+---
+
+#### `ORCH_TRACE_VERBOSITY`
+
+- **类型**: 字符串 `off` | `summary` | `full`（也接受 `on`/`true`/`1` 映射为 `summary`）
+- **默认值**: `off`
+- **说明（2026-03-13）**: 控制主 `stream_process` 是否向 SSE 写入 `__ORCH_TRACE__` 帧。请求体 `context.orchestration_trace` 或 `trace_verbosity` **优先于**本变量。设计见 `01-orchestrator-intent-driven-refactor-design.md` §2.4。
+
+---
+
+#### `ARTICLE_WRITING_REPLAY_MODEL`
+
+- **类型**: 字符串（模型名，与 `Orchestrator` 的 `context["model"]` 一致）
+- **默认值**: 脚本内默认 `qwen3-max`（未设置环境变量时）
+- **说明（2026-03-21）**: 仅用于 `scripts/replay_article_writing_cli.py` 本地复现写作助手流式路径时指定模型；不影响线上 API。
+
+---
+
 ## 相关文件
 
 - `.env.example` - 配置模板文件
@@ -221,5 +245,5 @@ set DEEPSEEK_API_KEY=your_api_key_here
 
 ---
 
-**最后更新**: 2025-12-31
+**最后更新**: 2026-03-21
 

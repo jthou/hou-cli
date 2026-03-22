@@ -110,13 +110,17 @@ class BrowserIntelligence:
                 "BROWSER_TOOL_VISION_MODEL", "qwen-vl-max-2025-08-13"
             )
         elif analysis["is_complex_task"]:
+            from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_reasoning_model
+
             analysis["recommended_model"] = os.getenv(
-                "BROWSER_TOOL_REASONING_MODEL", "deepseek-reasoner"
-            )
+                "BROWSER_TOOL_REASONING_MODEL", ""
+            ).strip() or browser_default_reasoning_model()
         else:
+            from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
+
             analysis["recommended_model"] = os.getenv(
-                "BROWSER_TOOL_CHAT_MODEL", "deepseek-chat"
-            )
+                "BROWSER_TOOL_CHAT_MODEL", ""
+            ).strip() or browser_default_chat_model()
         
         # 确保置信度不超过1.0
         analysis["confidence"] = min(1.0, analysis["confidence"])

@@ -1,11 +1,21 @@
 /**
  * 参考块相关工具函数，供 ArticleWriting、WorkAssistant、AddReference 等复用
+ *
+ * 契约：发往模型的 user 消息拼装规则须与
+ * backend/core/agent/article_writing_message_contract.py 保持一致（改一侧必改另一侧）。
  */
+
+/** 与 Python article_writing_message_contract.USER_QUESTION_MARKER 同步 */
+export const ARTICLE_WRITING_USER_QUESTION_MARKER = '【用户本次提问】'
+
+/** 与 Python article_writing_message_contract.REFERENCE_INTRO 同步 */
+export const ARTICLE_WRITING_REFERENCE_INTRO =
+  '以下是用户提供的参考资料，请在回答时充分利用，并根据用户的最新指令进行综合判断：\n\n'
 
 /** 从用户消息中提取「用户本次提问」部分用于展示，避免参考块长文导致排版混乱 */
 export function extractUserQuestionForDisplay(content) {
   if (!content || typeof content !== 'string') return content || ''
-  const marker = '【用户本次提问】'
+  const marker = ARTICLE_WRITING_USER_QUESTION_MARKER
   const idx = content.indexOf(marker)
   if (idx >= 0) {
     const after = content.slice(idx + marker.length).trimStart()
@@ -38,11 +48,24 @@ export function formatReferenceContext(blocks) {
     .map((b) => ({ ...b, content: (b.content || '').trim() }))
     .filter((b) => b.content)
   if (trimmed.length === 0) return ''
-  return `以下是用户提供的参考资料，请在回答时充分利用，并根据用户的最新指令进行综合判断：\n\n${trimmed
+  return `${ARTICLE_WRITING_REFERENCE_INTRO}${trimmed
     .map((b, idx) => {
       const title = (b.title || '').trim()
       const header = title ? `【参考${idx + 1}：${title}】` : `【参考${idx + 1}】`
       return `${header}\n${b.content}`
     })
     .join('\n\n')}\n\n---\n\n`
+}
+
+/**
+ * 单次发往模型的完整 user 消息（与 ArticleWriting / WorkAssistant / GeneralChat 原逻辑一致）
+ * @param {Array<{id?: string, title?: string, content?: string}>} referenceBlocks
+ * @param {string} text
+ * @returns {string}
+ */
+export function buildArticleWritingMessageForModel(referenceBlocks, text) {
+  const referenceContext = formatReferenceContext(referenceBlocks)
+  const t = (text || '').trim()
+  if (!referenceContext) return t
+  return `${referenceContext}${ARTICLE_WRITING_USER_QUESTION_MARKER}\n${t}`
 }

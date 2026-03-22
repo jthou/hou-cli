@@ -156,7 +156,7 @@ class ModelConfigManager:
         Returns:
             对话模型名称
         """
-        return os.getenv("CHAT_MODEL", "deepseek-chat")
+        return os.getenv("CHAT_MODEL", "qwen3-max")
     
     def get_code_model(self) -> str:
         """
@@ -174,7 +174,7 @@ class ModelConfigManager:
         Returns:
             推理模型名称
         """
-        return os.getenv("REASONING_MODEL", "deepseek-reasoner")
+        return os.getenv("REASONING_MODEL", "qwen3-max")
     
     def get_model_config_by_type(self, model_type: str) -> ModelConfig:
         """

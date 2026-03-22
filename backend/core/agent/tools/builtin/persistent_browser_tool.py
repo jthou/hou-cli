@@ -6,6 +6,7 @@ from queue import Queue
 
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.services.llm.llm_service import LLMService
+from backend.core.agent.tools.builtin.browser_llm_defaults import browser_default_chat_model
 
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ class PersistentBrowserTool(Tool):
         try:
             # 获取适配后的LLM
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat',
+                model=browser_default_chat_model(),
                 disable_response_schema=True
             )
             
@@ -151,7 +152,7 @@ class PersistentBrowserTool(Tool):
             
             # 使用LLM和agent来导航
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat',
+                model=browser_default_chat_model(),
                 disable_response_schema=True
             )
             
@@ -194,7 +195,7 @@ class PersistentBrowserTool(Tool):
             
             # 使用LLM和agent来控制视频
             llm = self.llm_service.get_browser_use_llm_with_adaptation(
-                model='deepseek-chat',
+                model=browser_default_chat_model(),
                 disable_response_schema=True
             )
 
