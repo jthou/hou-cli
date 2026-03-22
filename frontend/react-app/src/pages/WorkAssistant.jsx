@@ -10,14 +10,15 @@ import { useToast } from '../components/ToastModal'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
 import { buildArticleWritingMessageForModel, extractUserQuestionForDisplay } from '../utils/referenceUtils'
-import { isOrchestratorControlChunk } from '../utils/streamChunkFilters'
+import { shouldAppendStreamingPlainText } from '../utils/streamSseContent'
+import { stripAgentStatusPrefix } from '../utils/streamUi'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import UserMessageActionButtons from '../components/UserMessageActionButtons'
 import { useDeleteSessionMessage } from '../hooks/useDeleteSessionMessage'
 import { useBatchDeleteSessions } from '../hooks/useBatchDeleteSessions'
 import { useBatchDeleteMessages } from '../hooks/useBatchDeleteMessages'
-import ContextSelectionPanel, { parseContextMetaChunk } from '../components/ContextSelectionPanel'
+import ContextSelectionPanel from '../components/ContextSelectionPanel'
 
 const SESSION_TYPE = 'work_assistant'
 const STORAGE_KEY = 'work_assistant_selected_session'
@@ -305,28 +306,25 @@ export default function WorkAssistant() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (raw.startsWith('__TOOL__:')) {
-                  try {
-                    const toolData = JSON.parse(raw.slice(9).trim())
-                    if (toolData?.name) {
-                      setStreamingToolCalls((prev) => [...prev, {
-                        name: toolData.name,
-                        args: toolData.args || {},
-                        success: toolData.success,
-                        result: toolData.result,
-                        error: toolData.error,
-                      }])
-                    }
-                  } catch (_) {}
-                } else {
-                  const ctxMeta = parseContextMetaChunk(raw)
-                  if (ctxMeta) {
-                    setContextSelectionMeta(ctxMeta)
-                  } else if (!isOrchestratorControlChunk(raw)) {
-                    fullContent += raw
-                    streamingContentRef.current = fullContent
-                    setStreamingContent(fullContent)
-                  }
+                if (
+                  shouldAppendStreamingPlainText(raw, {
+                    onToolCall: (toolData) => {
+                      if (toolData?.name) {
+                        setStreamingToolCalls((prev) => [...prev, {
+                          name: toolData.name,
+                          args: toolData.args || {},
+                          success: toolData.success,
+                          result: toolData.result,
+                          error: toolData.error,
+                        }])
+                      }
+                    },
+                    onContextMeta: (m) => setContextSelectionMeta(m),
+                  })
+                ) {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
                 }
               } else if (obj.status === 'done') {
                 if (streamTerminalHandled) {
@@ -334,6 +332,7 @@ export default function WorkAssistant() {
                   continue
                 }
                 streamTerminalHandled = true
+                setContextSelectionMeta(null)
                 fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
                   .then((r) => r.json())
                   .then((d) => {
@@ -350,6 +349,7 @@ export default function WorkAssistant() {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
               }
             } catch (_) {}
@@ -363,28 +363,25 @@ export default function WorkAssistant() {
             const obj = JSON.parse(dataLine.slice(6))
             if (obj.status === 'streaming' && obj.content != null) {
               const raw = String(obj.content)
-              if (raw.startsWith('__TOOL__:')) {
-                try {
-                  const toolData = JSON.parse(raw.slice(9).trim())
-                  if (toolData?.name) {
-                    setStreamingToolCalls((prev) => [...prev, {
-                      name: toolData.name,
-                      args: toolData.args || {},
-                      success: toolData.success,
-                      result: toolData.result,
-                      error: toolData.error,
-                    }])
-                  }
-                } catch (_) {}
-              } else {
-                const ctxMeta = parseContextMetaChunk(raw)
-                if (ctxMeta) {
-                  setContextSelectionMeta(ctxMeta)
-                } else if (!isOrchestratorControlChunk(raw)) {
-                  fullContent += raw
-                  streamingContentRef.current = fullContent
-                  setStreamingContent(fullContent)
-                }
+              if (
+                shouldAppendStreamingPlainText(raw, {
+                  onToolCall: (toolData) => {
+                    if (toolData?.name) {
+                      setStreamingToolCalls((prev) => [...prev, {
+                        name: toolData.name,
+                        args: toolData.args || {},
+                        success: toolData.success,
+                        result: toolData.result,
+                        error: toolData.error,
+                      }])
+                    }
+                  },
+                  onContextMeta: (m) => setContextSelectionMeta(m),
+                })
+              ) {
+                fullContent += raw
+                streamingContentRef.current = fullContent
+                setStreamingContent(fullContent)
               }
             } else if (obj.status === 'done') {
               if (streamTerminalHandled) {
@@ -392,6 +389,7 @@ export default function WorkAssistant() {
                 continue
               }
               streamTerminalHandled = true
+              setContextSelectionMeta(null)
               fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
                 .then((r) => r.json())
                 .then((d) => {
@@ -408,6 +406,7 @@ export default function WorkAssistant() {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
               setStreamingContent('')
               setStreamingToolCalls([])
+              setContextSelectionMeta(null)
               streamingContentRef.current = ''
             }
           }
@@ -491,28 +490,25 @@ export default function WorkAssistant() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (raw.startsWith('__TOOL__:')) {
-                  try {
-                    const toolData = JSON.parse(raw.slice(9).trim())
-                    if (toolData?.name) {
-                      setStreamingToolCalls((prev) => [...prev, {
-                        name: toolData.name,
-                        args: toolData.args || {},
-                        success: toolData.success,
-                        result: toolData.result,
-                        error: toolData.error,
-                      }])
-                    }
-                  } catch (_) {}
-                } else {
-                  const ctxMeta = parseContextMetaChunk(raw)
-                  if (ctxMeta) {
-                    setContextSelectionMeta(ctxMeta)
-                  } else if (!isOrchestratorControlChunk(raw)) {
-                    fullContent += raw
-                    streamingContentRef.current = fullContent
-                    setStreamingContent(fullContent)
-                  }
+                if (
+                  shouldAppendStreamingPlainText(raw, {
+                    onToolCall: (toolData) => {
+                      if (toolData?.name) {
+                        setStreamingToolCalls((prev) => [...prev, {
+                          name: toolData.name,
+                          args: toolData.args || {},
+                          success: toolData.success,
+                          result: toolData.result,
+                          error: toolData.error,
+                        }])
+                      }
+                    },
+                    onContextMeta: (m) => setContextSelectionMeta(m),
+                  })
+                ) {
+                  fullContent += raw
+                  streamingContentRef.current = fullContent
+                  setStreamingContent(fullContent)
                 }
               } else if (obj.status === 'done') {
                 if (streamTerminalHandled) {
@@ -523,6 +519,7 @@ export default function WorkAssistant() {
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
                 if (isFirstMessage && text) {
                   fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
@@ -549,6 +546,7 @@ export default function WorkAssistant() {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
                 fullContent = ''
               }
@@ -563,28 +561,25 @@ export default function WorkAssistant() {
             const obj = JSON.parse(dataLine.slice(6))
             if (obj.status === 'streaming' && obj.content != null) {
               const raw = String(obj.content)
-              if (raw.startsWith('__TOOL__:')) {
-                try {
-                  const toolData = JSON.parse(raw.slice(9).trim())
-                  if (toolData?.name) {
-                    setStreamingToolCalls((prev) => [...prev, {
-                      name: toolData.name,
-                      args: toolData.args || {},
-                      success: toolData.success,
-                      result: toolData.result,
-                      error: toolData.error,
-                    }])
-                  }
-                } catch (_) {}
-              } else {
-                const ctxMeta = parseContextMetaChunk(raw)
-                if (ctxMeta) {
-                  setContextSelectionMeta(ctxMeta)
-                } else if (!isOrchestratorControlChunk(raw)) {
-                  fullContent += raw
-                  streamingContentRef.current = fullContent
-                  setStreamingContent(fullContent)
-                }
+              if (
+                shouldAppendStreamingPlainText(raw, {
+                  onToolCall: (toolData) => {
+                    if (toolData?.name) {
+                      setStreamingToolCalls((prev) => [...prev, {
+                        name: toolData.name,
+                        args: toolData.args || {},
+                        success: toolData.success,
+                        result: toolData.result,
+                        error: toolData.error,
+                      }])
+                    }
+                  },
+                  onContextMeta: (m) => setContextSelectionMeta(m),
+                })
+              ) {
+                fullContent += raw
+                streamingContentRef.current = fullContent
+                setStreamingContent(fullContent)
               }
             } else if (obj.status === 'done') {
               if (streamTerminalHandled) {
@@ -604,6 +599,7 @@ export default function WorkAssistant() {
                   .catch(() => {})
               }
               setStreamingToolCalls([])
+              setContextSelectionMeta(null)
               fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
                 .then((r) => r.json())
                 .then((d) => {
@@ -618,10 +614,12 @@ export default function WorkAssistant() {
             } else if (obj.status === 'error') {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
               setStreamingToolCalls([])
+              setContextSelectionMeta(null)
               fullContent = ''
             }
           }
           setStreamingContent('')
+          setContextSelectionMeta(null)
           streamingContentRef.current = ''
         } catch (_) {}
       }
@@ -829,7 +827,13 @@ export default function WorkAssistant() {
                 输入消息开始对话，可在下方选择模型。
               </div>
             )}
-          {messages.map((msg, i) => (
+          {messages.map((msg, i) => {
+            // 时间：2026-03-13；理由：与 GeneralChat / ArticleWriting 一致；方法：共用 stripAgentStatusPrefix
+            const { status: agentStatus, content: assistantDisplay } =
+              msg.role === 'assistant'
+                ? stripAgentStatusPrefix(msg.content)
+                : { status: null, content: msg.content }
+            return (
             <div
               key={msg.message_id || i}
               className={`flex items-start gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -864,8 +868,11 @@ export default function WorkAssistant() {
                   </>
                 ) : (
                   <>
+                    {agentStatus && (
+                      <p className="text-xs text-muted mb-1.5">{agentStatus}</p>
+                    )}
                     <div className="prose prose-invert prose-sm max-w-none">
-                      <MarkdownPreview markdown={msg.content} theme="dark" />
+                      <MarkdownPreview markdown={assistantDisplay || ''} theme="dark" />
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {i > 0 && messages[i - 1]?.role === 'user' && messages[i - 1]?.message_id && (
@@ -902,7 +909,8 @@ export default function WorkAssistant() {
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
           {streamingToolCalls.length > 0 && (
             <div className="flex justify-start w-full max-w-[85%]">
               <div className="space-y-1.5 w-full">
@@ -932,21 +940,27 @@ export default function WorkAssistant() {
               </div>
             </div>
           )}
-          {/* 时间：2026-03-13；理由：与 GeneralChat 一致展示本轮注入模型的历史选用说明；方法：编排 __CTX_META__ → parseContextMetaChunk */}
+          {/* 时间：2026-03-13；理由：与 GeneralChat 一致；方法：shouldAppendStreamingPlainText 解析 __CTX_META__ */}
           {contextSelectionMeta && (
             <div className="flex justify-start w-full">
               <ContextSelectionPanel meta={contextSelectionMeta} />
             </div>
           )}
-          {streamingContent && (
-            <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-lg px-4 py-2.5 bg-white/5">
-                <div className="prose prose-invert prose-sm max-w-none">
-                  <MarkdownPreview markdown={streamingContent} theme="dark" />
+          {streamingContent && (() => {
+            const { status: streamAgentStatus, content: streamMd } = stripAgentStatusPrefix(streamingContent)
+            return (
+              <div className="flex justify-start">
+                <div className="max-w-[85%] rounded-lg px-4 py-2.5 bg-white/5">
+                  {streamAgentStatus && (
+                    <p className="text-xs text-muted mb-1.5">{streamAgentStatus}</p>
+                  )}
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <MarkdownPreview markdown={streamMd || ''} theme="dark" />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
             <div ref={messagesEndRef} />
           </div>
           <div className="border-t border-border px-4 py-2">

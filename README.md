@@ -136,6 +136,14 @@ mypy .
 pytest
 ```
 
+写作助手流式 `__CTX_META__` 相关单测（需虚拟环境，优先项目根 `.venv`）：
+
+```bash
+make test-stream-ctx
+```
+
+更多调试脚本索引见 **[scripts/README.md](./scripts/README.md)**。
+
 ## 许可证
 
 MIT License

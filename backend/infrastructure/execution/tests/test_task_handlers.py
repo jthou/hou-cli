@@ -20,6 +20,7 @@ from backend.infrastructure.execution.task_handlers import (
     process_speech_to_text_task,
     process_image_generation_task,
     process_comic_task,
+    process_wechat_mp_draft_task,
     validate_task_creation,
     get_available_task_types,
     get_linkable_upstream_types,
@@ -415,6 +416,59 @@ class TestValidateTaskCreation:
         ok, err = validate_task_creation("comic", {"source": "hello world"})
         assert ok is True
         assert err is None
+
+    def test_validate_wechat_mp_draft_title_and_thumb_optional(self):
+        """微信草稿：标题、封面可留空（同步到草稿箱，任务侧占位标题）"""
+        ok, err = validate_task_creation(
+            "wechat_mp_draft",
+            {
+                "operation": "add",
+                "title": "",
+                "content": "<p>正文</p>",
+                "thumb_media_id": "",
+            },
+        )
+        assert ok is True
+        assert err is None
+
+
+class TestWechatMpDraftHandler:
+    """公众号草稿任务：占位标题、可选封面"""
+
+    @pytest.mark.asyncio
+    async def test_process_wechat_mp_draft_empty_title_uses_placeholder(self):
+        """标题留空时调用微信 API 使用「未命名草稿」；封面可缺省。"""
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+
+            async def fake_to_thread(fn, *a, **k):
+                return fn()
+
+            with patch(
+                "backend.infrastructure.execution.task_handlers.asyncio.to_thread",
+                side_effect=fake_to_thread,
+            ):
+                with patch(
+                    "backend.services.wechat_mp_service.WeChatMPClient"
+                ) as MC:
+                    inst = MagicMock()
+                    inst.add_draft = MagicMock(return_value={"media_id": "mid"})
+                    MC.return_value = inst
+                    out = await process_wechat_mp_draft_task(
+                        {
+                            "task_id": "t-wechat",
+                            "metadata": {
+                                "operation": "add",
+                                "title": "   ",
+                                "content": "<p>正文</p>",
+                            },
+                        }
+                    )
+                    assert out["status"] == "success"
+                    inst.add_draft.assert_called_once()
+                    kw = inst.add_draft.call_args[1]
+                    assert kw["title"] == "未命名草稿"
+                    assert kw.get("thumb_media_id") is None
 
 
 class TestImageGenerationHandler:

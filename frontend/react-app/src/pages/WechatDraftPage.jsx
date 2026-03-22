@@ -164,10 +164,7 @@ export default function WechatDraftPage() {
         }
       }
     }
-    if (formMetadata.operation === 'add' && !(formMetadata.thumb_media_id || '').trim()) {
-      toast.warning('新建草稿请先上传封面图')
-      return
-    }
+    // 时间：2026-03-13；理由：与写作助手一致，同步到草稿箱可先占位、在微信后台补封面；方法：不再前端拦截空 thumb（若微信接口仍报错，任务失败后再补图）。
     setFormSubmitting(true)
     try {
       const metadataToSend = await prepareMetadataForSubmitAsync(WECHAT_MP_DRAFT_TASK_TYPE, formMetadata)

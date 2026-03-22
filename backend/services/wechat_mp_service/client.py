@@ -242,9 +242,8 @@ class WeChatMPClient:
         thumb_media_id: Optional[str] = None,
         content_source_url: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """新增单篇图文草稿。thumb_media_id 为封面图素材 id（图文消息必填，需先通过上传接口获取）。"""
-        if not (thumb_media_id or "").strip():
-            raise WeChatMPClientError("新增草稿需要封面图，请先通过「上传图文消息内的图片」接口获取 thumb_media_id")
+        """新增单篇图文草稿。thumb_media_id 为封面图素材 id（可选；若微信接口仍要求封面，调用会失败，可在草稿箱内补图后重试）。"""
+        # 时间：2026-03-13；理由：写作助手同步到草稿箱允许先占位、后补封面；方法：不再在客户端前置拦截空 thumb。
         article = self._build_news_article(
             title=title,
             content=content,

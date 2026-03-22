@@ -1,4 +1,4 @@
-.PHONY: stop test restart start start-backend build-web test-task-weather test-mediawiki migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
+.PHONY: stop test test-stream-ctx restart start start-backend build-web test-task-weather test-mediawiki migrate pre-check install-deps create-venv clean audit disk-scan disk-scan-user help
 
 # 默认目标：在项目根执行 make 时显示可用命令
 # 前端说明：源码在 frontend/react-app，构建产物在 frontend/web/dist。
@@ -12,6 +12,7 @@ help:
 	@echo "  make restart          - 停止并重新启动后端（不重建前端，快速）"
 	@echo "  make build-web        - 仅构建前端到 frontend/web/dist"
 	@echo "  make test             - 运行全部测试"
+	@echo "  make test-stream-ctx  - 仅跑写作 __CTX_META__ 相关单测（优先 .venv，其次 venv）"
 	@echo "  make pre-check        - 验证第三方依赖（ffmpeg、yt-dlp、you-get、whisper，Python 包见 requirements.txt）"
 	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install + npm install）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
@@ -97,6 +98,20 @@ test:
 test-task-weather:
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)
 	@bash -c "source $(VENV_ACTIVATE) && pytest backend/core/agent/tools/tests/test_weather_tool_integration.py::TestWeatherToolLiveEnv backend/infrastructure/execution/tests/test_task_handlers.py::TestWeatherQueryLiveEnv -v --tb=short"
+
+# 时间：2026-03-13；理由：全量 pytest 慢且系统 Python 缺 httpx 时编排测试无法收集；方法：优先 $(PROJECT_ROOT)/.venv（uv），否则 venv
+.PHONY: test-stream-ctx
+test-stream-ctx:
+	@if [ -x "$(PROJECT_ROOT)/.venv/bin/python" ]; then \
+		"$(PROJECT_ROOT)/.venv/bin/python" -m pytest \
+			backend/core/context/tests/test_article_writing_context_meta.py \
+			backend/core/agent/tests/test_orchestrator_context_type_routing.py \
+			-q --tb=short; \
+	elif [ -f "$(VENV_ACTIVATE)" ]; then \
+		bash -c "source $(VENV_ACTIVATE) && pytest backend/core/context/tests/test_article_writing_context_meta.py backend/core/agent/tests/test_orchestrator_context_type_routing.py -q --tb=short"; \
+	else \
+		echo "错误: 未找到 .venv 或 venv，请先创建虚拟环境（make create-venv 或 uv venv）"; exit 1; \
+	fi
 
 migrate:
 	@test -f "$(VENV_ACTIVATE)" || (echo "请先创建虚拟环境: python3 -m venv venv"; exit 1)

@@ -860,7 +860,7 @@ TASK_TYPES = {
             "thumb_media_id": {
                 "type": "string",
                 "required": False,
-                "description": "封面图素材 media_id（新增草稿时必填，需先通过上传图文消息内图片接口获取）",
+                "description": "封面图素材 media_id（选填；同步到草稿箱后可在微信后台再上传封面）",
                 "placeholder": "永久素材 media_id"
             },
             "digest": {
@@ -876,8 +876,8 @@ TASK_TYPES = {
             },
             "title": {
                 "type": "string",
-                "required": True,
-                "description": "标题（微信 API 限制 32 字，超限由接口报错）",
+                "required": False,
+                "description": "标题（微信 API 限制 32 字；留空则任务侧使用「未命名草稿」占位，可在微信后台再改）",
                 "placeholder": "文章标题"
             },
             "content": {
@@ -1696,8 +1696,8 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
         operation = "add"
 
     title = (metadata.get("title") or "").strip()
-    if not title:
-        return _err("MISSING_TITLE", "缺少标题", "title 参数是必需的")
+    # 时间：2026-03-13；理由：同步到草稿箱允许标题留空，后续在微信后台修改；方法：微信 API 不接受空标题，此处占位。
+    api_title = title if title else "未命名草稿"
 
     content = metadata.get("content")
     content = (content.strip() if isinstance(content, str) else str(content or "").strip()) if content is not None else ""
@@ -1713,9 +1713,6 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
     if operation == "update" and not media_id:
         return _err("MISSING_MEDIA_ID", "更新草稿需要选择草稿", "请在表单中从当前草稿列表选择要更新的草稿")
 
-    if operation == "add" and not thumb_media_id:
-        return _err("MISSING_THUMB", "新增草稿需要封面图", "请先通过上传图文消息内图片接口获取 thumb_media_id 并填写")
-
     worker.update_task_progress(10, "正在写入公众号草稿...")
 
     def _run_draft():
@@ -1723,7 +1720,7 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
         client = WeChatMPClient()
         if operation == "add":
             result = client.add_draft(
-                title=title,
+                title=api_title,
                 content=content,
                 author=author,
                 digest=digest,
@@ -1736,7 +1733,7 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
             client.update_draft(
                 media_id=media_id,
                 index=0,
-                title=title,
+                title=api_title,
                 content=content,
                 author=author,
                 digest=digest,
@@ -1754,7 +1751,7 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
         return _err("WECHAT_MP_DRAFT_FAILED", "公众号草稿失败", err_msg, details=traceback.format_exc())
 
     worker.update_task_progress(100, "草稿已保存")
-    summary = f"已{'新增' if operation == 'add' else '更新'}草稿：{title[:20]}{'…' if len(title) > 20 else ''}"
+    summary = f"已{'新增' if operation == 'add' else '更新'}草稿：{api_title[:20]}{'…' if len(api_title) > 20 else ''}"
     return {"status": "success", "summary": summary, "data": data}
 
 

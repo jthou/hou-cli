@@ -58,12 +58,15 @@ function ArticleSummaryTab({ summary, onSummaryChange, onGenerateSummary, onSumm
   )
 }
 import { prepareMetadataForSubmitAsync, WECHAT_MP_DRAFT_TASK_TYPE } from '../utils/mdToHtml'
+import { extractFirstMarkdownAtxTitle } from '../utils/markdownTitle'
 import { parseApiResponseJson } from '../utils/parseApiResponse'
 import { formatWechatMpError } from '../utils/wechatMpError'
 import TaskParamsForm from '../components/task/TaskParamsForm'
 import { getDefaultMetadata } from '../components/task/taskFormUtils'
 import { buildArticleWritingMessageForModel, extractUserQuestionForDisplay } from '../utils/referenceUtils'
-import { isOrchestratorControlChunk } from '../utils/streamChunkFilters'
+import ContextSelectionPanel from '../components/ContextSelectionPanel'
+import { shouldAppendStreamingPlainText } from '../utils/streamSseContent'
+import { stripAgentStatusPrefix } from '../utils/streamUi'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import { useWritingSuggestions } from '../hooks/useWritingSuggestions'
@@ -132,6 +135,8 @@ export default function ArticleWriting() {
   const [streamingContent, setStreamingContent] = useState('')
   /** 流式过程中收到的工具调用（调用了什么、结果如何） */
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
+  /** 时间：2026-03-13；理由：与 GeneralChat 一致，有 __CTX_META__ 时展示「本次上下文」；方法：shouldAppendStreamingPlainText 侧写 */
+  const [contextSelectionMeta, setContextSelectionMeta] = useState(null)
   /** 局部插入弹窗 */
   const [patchDialogOpen, setPatchDialogOpen] = useState(false)
   const [patchAnchor, setPatchAnchor] = useState('')
@@ -457,6 +462,7 @@ export default function ArticleWriting() {
     setLoading(true)
     setStreamingContent('')
     setStreamingToolCalls([])
+    setContextSelectionMeta(null)
     const ac = new AbortController()
     abortControllerRef.current = ac
     try {
@@ -481,7 +487,7 @@ export default function ArticleWriting() {
       const decoder = new TextDecoder()
       let buffer = ''
       let fullContent = ''
-      // 时间：2026-03-13；理由：与 handleSubmit 一致，防止多段 done / __EVALUATION__ 拼进正文；方法：streamTerminalHandled + isOrchestratorControlChunk
+      // 时间：2026-03-13；理由：与 handleSubmit / GeneralChat 一致；方法：streamTerminalHandled + shouldAppendStreamingPlainText（含 __CTX_META__）
       let streamTerminalHandled = false
       while (true) {
         const { done, value } = await reader.read()
@@ -496,7 +502,22 @@ export default function ArticleWriting() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (!isOrchestratorControlChunk(raw)) {
+                if (
+                  shouldAppendStreamingPlainText(raw, {
+                    onToolCall: (toolData) => {
+                      if (toolData?.name) {
+                        setStreamingToolCalls((prev) => [...prev, {
+                          name: toolData.name,
+                          args: toolData.args || {},
+                          success: toolData.success,
+                          result: toolData.result,
+                          error: toolData.error,
+                        }])
+                      }
+                    },
+                    onContextMeta: (m) => setContextSelectionMeta(m),
+                  })
+                ) {
                   fullContent += raw
                   streamingContentRef.current = fullContent
                   setStreamingContent(fullContent)
@@ -511,6 +532,7 @@ export default function ArticleWriting() {
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
                 fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
                   .then((r) => r.json())
@@ -530,6 +552,7 @@ export default function ArticleWriting() {
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setContextSelectionMeta(null)
                 fullContent = ''
               }
             } catch (_) {}
@@ -543,7 +566,22 @@ export default function ArticleWriting() {
             const obj = JSON.parse(dataLine.slice(6))
             if (obj.status === 'streaming' && obj.content != null) {
               const raw = String(obj.content)
-              if (!isOrchestratorControlChunk(raw)) {
+              if (
+                shouldAppendStreamingPlainText(raw, {
+                  onToolCall: (toolData) => {
+                    if (toolData?.name) {
+                      setStreamingToolCalls((prev) => [...prev, {
+                        name: toolData.name,
+                        args: toolData.args || {},
+                        success: toolData.success,
+                        result: toolData.result,
+                        error: toolData.error,
+                      }])
+                    }
+                  },
+                  onContextMeta: (m) => setContextSelectionMeta(m),
+                })
+              ) {
                 fullContent += raw
                 streamingContentRef.current = fullContent
                 setStreamingContent(fullContent)
@@ -555,6 +593,7 @@ export default function ArticleWriting() {
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
                 fetch(`/api/sessions/${encodeURIComponent(selectedSessionId)}`)
                   .then((r) => r.json())
@@ -576,6 +615,7 @@ export default function ArticleWriting() {
           }
         } catch (_) {}
         setStreamingContent('')
+        setContextSelectionMeta(null)
         streamingContentRef.current = ''
       }
     } catch (err) {
@@ -599,6 +639,7 @@ export default function ArticleWriting() {
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
     setStreamingToolCalls([])
+    setContextSelectionMeta(null)
     setLoading(true)
     const ac = new AbortController()
     abortControllerRef.current = ac
@@ -673,20 +714,22 @@ export default function ArticleWriting() {
               const obj = JSON.parse(dataLine.slice(6))
               if (obj.status === 'streaming' && obj.content != null) {
                 const raw = String(obj.content)
-                if (raw.startsWith('__TOOL__:')) {
-                  try {
-                    const toolData = JSON.parse(raw.slice(9).trim())
-                    if (toolData?.name) {
-                      setStreamingToolCalls((prev) => [...prev, {
-                        name: toolData.name,
-                        args: toolData.args || {},
-                        success: toolData.success,
-                        result: toolData.result,
-                        error: toolData.error,
-                      }])
-                    }
-                  } catch (_) {}
-                } else if (!isOrchestratorControlChunk(raw)) {
+                if (
+                  shouldAppendStreamingPlainText(raw, {
+                    onToolCall: (toolData) => {
+                      if (toolData?.name) {
+                        setStreamingToolCalls((prev) => [...prev, {
+                          name: toolData.name,
+                          args: toolData.args || {},
+                          success: toolData.success,
+                          result: toolData.result,
+                          error: toolData.error,
+                        }])
+                      }
+                    },
+                    onContextMeta: (m) => setContextSelectionMeta(m),
+                  })
+                ) {
                   fullContent += raw
                   streamingContentRef.current = fullContent
                   setStreamingContent(fullContent)
@@ -701,6 +744,7 @@ export default function ArticleWriting() {
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
                 patchTitleIfFirst()
                 refreshMessagesAfterTurn()
@@ -711,6 +755,7 @@ export default function ArticleWriting() {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
                 setStreamingContent('')
                 setStreamingToolCalls([])
+                setContextSelectionMeta(null)
                 streamingContentRef.current = ''
                 fullContent = ''
               }
@@ -725,20 +770,22 @@ export default function ArticleWriting() {
             const obj = JSON.parse(dataLine.slice(6))
             if (obj.status === 'streaming' && obj.content != null) {
               const raw = String(obj.content)
-              if (raw.startsWith('__TOOL__:')) {
-                try {
-                  const toolData = JSON.parse(raw.slice(9).trim())
-                  if (toolData?.name) {
-                    setStreamingToolCalls((prev) => [...prev, {
-                      name: toolData.name,
-                      args: toolData.args || {},
-                      success: toolData.success,
-                      result: toolData.result,
-                      error: toolData.error,
-                    }])
-                  }
-                } catch (_) {}
-              } else if (!isOrchestratorControlChunk(raw)) {
+              if (
+                shouldAppendStreamingPlainText(raw, {
+                  onToolCall: (toolData) => {
+                    if (toolData?.name) {
+                      setStreamingToolCalls((prev) => [...prev, {
+                        name: toolData.name,
+                        args: toolData.args || {},
+                        success: toolData.success,
+                        result: toolData.result,
+                        error: toolData.error,
+                      }])
+                    }
+                  },
+                  onContextMeta: (m) => setContextSelectionMeta(m),
+                })
+              ) {
                 fullContent += raw
                 streamingContentRef.current = fullContent
                 setStreamingContent(fullContent)
@@ -757,6 +804,7 @@ export default function ArticleWriting() {
               }
               setStreamingContent('')
               setStreamingToolCalls([])
+              setContextSelectionMeta(null)
               streamingContentRef.current = ''
               fullContent = ''
             } else if (lastObj?.status === 'error') {
@@ -765,11 +813,13 @@ export default function ArticleWriting() {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
               setStreamingContent('')
               setStreamingToolCalls([])
+              setContextSelectionMeta(null)
               streamingContentRef.current = ''
             }
           }
         } catch (_) {}
         setStreamingContent('')
+        setContextSelectionMeta(null)
       }
       if (!streamTerminalHandled && fullContent.trim()) {
         const finalContent = fullContent.trim()
@@ -785,6 +835,7 @@ export default function ArticleWriting() {
         setMessages((prev) => [...prev, { role: 'assistant', content: stoppedContent ? `[已停止]\n\n${stoppedContent}` : '[已停止]' }])
         setStreamingContent('')
         setStreamingToolCalls([])
+        setContextSelectionMeta(null)
         streamingContentRef.current = ''
         return
       }
@@ -795,6 +846,7 @@ export default function ArticleWriting() {
       toast?.error?.(msg) || console.error(err)
       setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${msg}` }])
       setStreamingContent('')
+      setContextSelectionMeta(null)
     } finally {
       setLoading(false)
     }
@@ -1040,7 +1092,7 @@ export default function ArticleWriting() {
       }
       if (!res.ok) {
         toast?.error?.(d?.error || `请求失败: HTTP ${res.status}`)
-      } else if (d.status === 'success' && d.metadata) {
+        } else if (d.status === 'success' && d.metadata) {
         const m = d.metadata
         setWechatOutputMetadata((prev) => ({
           ...prev,
@@ -1052,7 +1104,7 @@ export default function ArticleWriting() {
         if (m.metadata_error) {
           toast?.error?.(m.metadata_error)
         } else {
-          const msg = { title: '标题已生成', digest: '摘要已生成', author: '作者已生成' }[field]
+          const msg = { title: '标题已重新生成', digest: '摘要已生成', author: '作者已生成' }[field]
           toast?.info?.(msg)
         }
       } else {
@@ -1141,13 +1193,9 @@ export default function ArticleWriting() {
 
   const submitWechatOutputTask = async (e) => {
     e?.preventDefault?.()
-    const title = (wechatOutputMetadata?.title || '').trim()
-    if (!title) {
-      toast?.warning?.('请输入标题')
-      return
-    }
-    if (!(wechatOutputMetadata?.thumb_media_id || '').trim()) {
-      toast?.warning?.('请上传封面或填写 thumb_media_id')
+    // 时间：2026-03-13；理由：同步到草稿箱非正式发布，标题/封面等可留空后于微信后台补全；方法：仅校验正文非空（由后端与任务队列兜底）。
+    if (!(wechatOutputMetadata?.content || '').toString().trim()) {
+      toast?.warning?.('当前无正文可同步')
       return
     }
     setWechatOutputSubmitting(true)
@@ -1214,16 +1262,6 @@ export default function ArticleWriting() {
   const handleWriteToInput = (content) => {
     if (!content) return
     setInput(typeof content === 'string' ? content : '')
-  }
-
-  /** 从助手回复中剥离「执行 xxx 代理... 」前缀，状态单独展示，正文不进入 Markdown */
-  const stripAgentStatusPrefix = (text) => {
-    if (!text || typeof text !== 'string') return { status: null, content: text || '' }
-    const m = text.match(/^执行\s+\S+\s+代理\.\.\.\s*/)
-    if (m) {
-      return { status: m[0].trim(), content: text.slice(m[0].length).trimStart() }
-    }
-    return { status: null, content: text }
   }
 
   /** 从助手回复中解析 ```patch ... ``` 代码块，用于「应用此 patch」 */
@@ -1310,11 +1348,21 @@ export default function ArticleWriting() {
         const defaults = getDefaultMetadata(schema)
         const { operation: _o, ...restDefaults } = defaults
         const meta = metaRes.metadata
+        const headingTitle = extractFirstMarkdownAtxTitle(previewContent, 32)
+        const sel = sessions.find((s) => s.session_id === selectedSessionId)
+        const sessionTit = (sel?.title || sel?.metadata?.title || '').trim()
+        const fromMeta = (meta?.title || '').trim()
+        const preferredTitle =
+          headingTitle ||
+          (sessionTit && sessionTit !== '新会话' ? sessionTit.slice(0, 32) : '') ||
+          fromMeta ||
+          (restDefaults.title || '').toString().trim() ||
+          ''
         setWechatOutputMetadata({
           ...restDefaults,
           operation: 'add',
           content: previewContent,
-          title: meta?.title || restDefaults.title || '',
+          title: preferredTitle,
           digest: meta?.digest || restDefaults.digest || '',
           author: meta?.author || restDefaults.author || '老猴',
           thumb_media_id: meta?.thumb_media_id || restDefaults.thumb_media_id || '',
@@ -1324,11 +1372,23 @@ export default function ArticleWriting() {
         setWechatOutputSchema({})
         setWechatOutputMetadata({ operation: 'add', content: previewContent })
       })
-  }, [outputDialog, previewContent, selectedSessionId])
+  }, [outputDialog, previewContent, selectedSessionId, sessions])
 
   /** 写作助手场景固定为「新增草稿」，不展示「操作类型」；更新草稿需在任务管理里选定已有草稿（media_id） */
   const wechatOutputSchemaForForm = useMemo(() => {
     const { operation: _o, ...rest } = wechatOutputSchema
+    const ts = rest.title
+    if (ts && typeof ts === 'object') {
+      return {
+        ...rest,
+        title: {
+          ...ts,
+          required: false,
+          description:
+            '标题（选填；正文首行 # 标题或会话名将优先预填；留空则草稿箱内为「未命名草稿」）',
+        },
+      }
+    }
     return rest
   }, [wechatOutputSchema])
 
@@ -1426,7 +1486,7 @@ export default function ArticleWriting() {
     <div className="flex flex-col h-full min-h-0">
       <PageHeader
         title="写作助手"
-        subtitle="左侧为写作助手会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可点击生成标题、摘要、作者、封面建议。"
+        subtitle="左侧为写作助手会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可预填正文标题、按需点击标题建议/摘要建议/封面流程。"
         actions={
           <Link
             to="/settings/writing-profile"
@@ -1822,6 +1882,11 @@ export default function ArticleWriting() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+                      {contextSelectionMeta && (
+                        <div className="mb-2 w-full">
+                          <ContextSelectionPanel meta={contextSelectionMeta} />
                         </div>
                       )}
                       {streamStatus && (
@@ -2380,7 +2445,7 @@ export default function ArticleWriting() {
             </div>
             <form onSubmit={submitWechatOutputTask} className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
-                <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。创建任务后由任务队列执行，可在任务管理中审计。请填写标题与封面。</p>
+                <p className="text-xs text-muted">将当前文章作为正文新建一篇公众号草稿（Markdown 提交时转为公众号 HTML）。创建任务后由任务队列执行，可在任务管理中审计。标题优先用正文首行 # 标题或会话名；标题建议、摘要、封面均可选，草稿箱内可再改。</p>
                 <TaskParamsForm
                   taskType="wechat_mp_draft"
                   schema={wechatOutputSchemaForForm}
@@ -2394,6 +2459,7 @@ export default function ArticleWriting() {
                         type="button"
                         disabled={!!wechatGeneratingField}
                         onClick={() => handleGenerateWechatField('title')}
+                        title="根据正文重新生成标题（会覆盖当前输入框）"
                         className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
                       >
                         {wechatGeneratingField === 'title' ? '生成中…' : '标题建议'}
@@ -2492,7 +2558,7 @@ export default function ArticleWriting() {
                 <button type="button" onClick={() => setOutputDialog(null)} className="flex-1 px-4 py-2 border border-border rounded-lg text-muted hover:text-fg">取消</button>
                 <button
                   type="submit"
-                  disabled={wechatOutputSubmitting || !(wechatOutputMetadata?.title || '').trim() || !(wechatOutputMetadata?.thumb_media_id || '').trim()}
+                  disabled={wechatOutputSubmitting || !(wechatOutputMetadata?.content || '').toString().trim()}
                   className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg disabled:opacity-50"
                 >
                   {wechatOutputSubmitting ? '提交中…' : '创建任务'}

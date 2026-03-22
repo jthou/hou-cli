@@ -12,6 +12,7 @@ export function isOrchestratorControlChunk(raw) {
     raw.startsWith('__STATUS__:') ||
     raw.startsWith('__ORCH_TRACE__:') ||
     raw.startsWith('__TOOL__:') ||
+    raw.startsWith('__CTX_META__:') ||
     raw.startsWith('__EVALUATION__:')
   )
 }

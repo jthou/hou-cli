@@ -1757,6 +1757,45 @@ class UnifiedOrchestrator:
                 user_prompt = user_prompt + "\n\n" + _section_hint
                 self.debug.log_orchestrator_step("注入长文分节版式提醒", {"length": len(_section_hint)})
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
+            # 时间：2026-03-13；理由：P2 写作页「本次上下文」需可解释素材清单（非 chat 历史）；方法：ENABLE_ARTICLE_WRITING_CTX_META + yield __CTX_META__
+            if os.getenv("ENABLE_ARTICLE_WRITING_CTX_META", "true").lower() == "true":
+                try:
+                    from backend.core.context.article_writing_context_meta import (
+                        build_article_writing_stream_ctx_meta,
+                        task_contains_reference_blocks,
+                    )
+
+                    _aw_schat = 0
+                    if session_id:
+                        _aw_mraw = self.context_manager.get_messages(session_id, compressed=False)
+                        _aw_schat = sum(
+                            1
+                            for m in _aw_mraw
+                            if m.role in (MessageRole.USER, MessageRole.ASSISTANT)
+                        )
+                    _aw_article = (
+                        (self.context_manager.get_current_article(session_id) or "").strip()
+                        if session_id
+                        else ""
+                    )
+                    _aw_profile = profile_block if profile_block else ""
+                    _aw_meta = build_article_writing_stream_ctx_meta(
+                        session_chat_turn_count=_aw_schat,
+                        raw_task=task or "",
+                        has_draft_injection=bool(_draft_prefix),
+                        draft_char_count=len(_aw_article),
+                        draft_text_preview=_aw_article[:400],
+                        has_reference_blocks=task_contains_reference_blocks(task or ""),
+                        has_profile_injection=bool(_aw_profile.strip()),
+                        profile_preview=_aw_profile[:400],
+                        has_word_count_hint=bool(_word_count_hint),
+                        has_section_hint=bool(_section_hint),
+                    )
+                    yield StreamMessageBuilder.build_ctx_meta(_aw_meta)
+                except Exception as _aw_e:
+                    logger.warning(
+                        "article_writing __CTX_META__ 构建/下发失败: %s", _aw_e, exc_info=True
+                    )
 
         # 4.5. 任务分解（阶段2：如果启用）
         execution_plan = None
@@ -2495,6 +2534,49 @@ class UnifiedOrchestrator:
                 # 不重新抛出异常，让流式响应正常完成
         else:
             # 没有工具，直接流式调用 LLM
+            # 时间：2026-03-13；理由：将意图解读与写作主模型同轮串联，减少「用户要改开篇却改全文」等语义漂移；方法：ENABLE_WRITING_INTENT_INJECTION=true 时对原始 task 调用 explain_writing_instruction_intent，再追加 format 块到 user_prompt（失败仅 warning，不阻断主流程）
+            if ctx_type == "article_writing" and os.getenv(
+                "ENABLE_WRITING_INTENT_INJECTION", "false"
+            ).lower() == "true":
+                try:
+                    from backend.core.agent.intent_interpreter import (
+                        explain_writing_instruction_intent,
+                        format_intent_for_writing_prompt,
+                    )
+
+                    inj_model = (os.getenv("INTENT_INTERPRETER_MODEL") or "").strip() or None
+                    if not inj_model:
+                        inj_model = selected_model
+                    _wi_intent = await explain_writing_instruction_intent(
+                        task or "", model=inj_model
+                    )
+                    _wi_block = format_intent_for_writing_prompt(_wi_intent)
+                    user_prompt = f"{(user_prompt or '').rstrip()}\n\n{_wi_block}"
+                    self.debug.log_orchestrator_step(
+                        "注入写作意图解读",
+                        {
+                            "revision_scope": _wi_intent.revision_scope,
+                            "block_len": len(_wi_block),
+                        },
+                    )
+                    if orch_verbosity != "off":
+                        yield StreamMessageBuilder.build_orchestration_trace(
+                            {
+                                "v": 1,
+                                "audience": "user",
+                                "plan_id": orch_plan_id,
+                                "phase": "synthesis",
+                                "event": "writing_intent_injected",
+                                "payload": {
+                                    "revision_scope": _wi_intent.revision_scope,
+                                    "intent_summary": (_wi_intent.intent_summary or "")[:200],
+                                },
+                            }
+                        )
+                except Exception as _wi_e:
+                    logger.warning(
+                        "写作意图解读失败，跳过注入: %s", _wi_e, exc_info=True
+                    )
             # 时间：2026-03-21；理由：写作助手等已 set_model(qwen3-max) 时 debug 仍写死 deepseek-chat 造成「两轮请求/下一问」误判；方法：与 _select_model 结果一致
             self.debug.log_llm_request(system_prompt, user_prompt, selected_model)
             full_response = ""

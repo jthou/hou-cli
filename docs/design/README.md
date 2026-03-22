@@ -43,6 +43,12 @@
 - **[01-article-writing-single-turn-message-contract.md](./01-article-writing-single-turn-message-contract.md)** - 写作/参考块单次 user 消息契约
   - Python `article_writing_message_contract` 与 `referenceUtils.js` 同步规则；CLI 与 UI 一致
 
+- **[01-intent-interpreter-for-writing-and-tests.md](./01-intent-interpreter-for-writing-and-tests.md)** - 写作修订意图解读与语义验收
+  - `intent_interpreter.py`：解读用户指令 / 裁判输出是否落实意图；`test_article_writing_opening_rewrite.py` 的 `--assert-mode intent`
+
+- **[01-writing-vs-general-chat-stream-ui-design.md](./01-writing-vs-general-chat-stream-ui-design.md)** - 写作助手与通用对话中间区（流式 / 参考 / `__CTX_META__`）设计
+  - 分层与协议统一；P0～P2：`streamSseContent` / `streamUi`、`article_writing` 的 `__CTX_META__`（`article_writing_context_meta.py`）；`make test-stream-ctx`；调试脚本 `--check-ctx-meta`
+
 - **[01-sop-workflow-design.md](./01-sop-workflow-design.md)** - SOP 流程编排设计
   - 标准操作流程定义和执行
   - 流程识别器、流程执行引擎、流程状态管理

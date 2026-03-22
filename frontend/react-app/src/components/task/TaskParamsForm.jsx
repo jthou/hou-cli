@@ -116,13 +116,16 @@ export default function TaskParamsForm({
       .finally(() => setDraftsLoading(false))
   }, [isWechatUpdate])
 
-  const customFieldRender = (fieldKey, { value, onChange, label }) => {
+  const customFieldRender = (fieldKey, { value, onChange, label, required: fieldRequired }) => {
     if (fieldKey === 'title' && isWechatDraft) {
       const text = (metadata?.title ?? value ?? '').toString()
       return (
         <div>
           <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
-            <label className={labelCls + ' mb-0'}>{label || '标题'} *</label>
+            <label className={labelCls + ' mb-0'}>
+              {label || '标题'}
+              {fieldRequired ? ' *' : '（选填，留空则草稿箱内显示为「未命名草稿」）'}
+            </label>
             <div className="flex items-center gap-2">
               {fieldActions?.title}
               <CopyBtn text={text} label="标题" toast={toast} />
@@ -266,7 +269,7 @@ export default function TaskParamsForm({
 
       {isWechatDraft && typeof onCoverUpload === 'function' && (
         <div>
-          <label className={labelCls}>封面</label>
+          <label className={labelCls}>封面（选填，同步到草稿箱后可在微信后台再补）</label>
           {coverBeforeContent}
           <input
             type="file"

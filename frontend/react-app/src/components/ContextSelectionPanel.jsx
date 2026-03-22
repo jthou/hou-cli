@@ -5,22 +5,18 @@
  */
 import { useState } from 'react'
 
-const PREFIX = '__CTX_META__:'
-
-/** @param {string} raw */
-export function parseContextMetaChunk(raw) {
-  if (raw == null || typeof raw !== 'string' || !raw.startsWith(PREFIX)) return null
-  try {
-    const data = JSON.parse(raw.slice(PREFIX.length).trim())
-    return data?.type === 'context_selection' ? data : null
-  } catch {
-    return null
-  }
-}
+/** 时间：2026-03-13；理由：解析逻辑与 utils 共用；方法：从 streamContextMeta 再导出，兼容旧 import 路径 */
+export { parseContextMetaChunk } from '../utils/streamContextMeta'
 
 const sourceLabel = (s) => {
   if (s === 'recent_tail') return '最近保留'
   if (s === 'keyword_hit') return '关键词命中'
+  // 时间：2026-03-13；理由：article_writing __CTX_META__ 素材轨；方法：与 backend article_writing_context_meta source 对齐
+  if (s === 'injected_draft') return '草稿锚点'
+  if (s === 'injected_reference') return '参考块'
+  if (s === 'injected_profile') return '写作画像'
+  if (s === 'injected_constraints') return '系统检出'
+  if (s === 'user_turn') return '本轮指令'
   return s || '—'
 }
 
@@ -29,7 +25,12 @@ export default function ContextSelectionPanel({ meta }) {
   const [open, setOpen] = useState(true)
   if (!meta || meta.type !== 'context_selection') return null
 
-  const strat = meta.strategy === 'hybrid' ? '混合（最近 + 检索）' : '全部历史'
+  const strat =
+    meta.strategy === 'hybrid'
+      ? '混合（最近 + 检索）'
+      : meta.strategy === 'article_writing'
+        ? '写作助手（会话聊天未注入）'
+        : '全部历史'
   const items = Array.isArray(meta.items) ? meta.items : []
 
   // 时间：2026-03-22；理由：标题行原 text-cyan-200/90 在深色底上对比不足；方法：主文案用 text-fg、次要信息用 text-muted/95，展开/收起重在可读
@@ -52,7 +53,9 @@ export default function ContextSelectionPanel({ meta }) {
         <div className="mt-2 space-y-1.5 border-t border-border pt-2">
           {meta.query_preview && (
             <p className="text-[11px] text-fg/85 leading-relaxed">
-              <span className="font-medium text-fg/90">检索依据（摘要）：</span>
+              <span className="font-medium text-fg/90">
+                {meta.strategy === 'article_writing' ? '用户指令（摘要）：' : '检索依据（摘要）：'}
+              </span>
               <span className="text-muted">{meta.query_preview}</span>
             </p>
           )}
@@ -63,7 +66,7 @@ export default function ContextSelectionPanel({ meta }) {
                 className="flex flex-wrap gap-x-2 gap-y-0.5 rounded bg-black/20 px-2 py-1"
               >
                 <span className="shrink-0 font-medium text-fg/90">
-                  {it.role === 'user' ? '用户' : '助手'}
+                  {it.display_role || (it.role === 'user' ? '用户' : '助手')}
                 </span>
                 <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                   {sourceLabel(it.source)}
@@ -73,7 +76,9 @@ export default function ContextSelectionPanel({ meta }) {
             ))}
           </ul>
           <p className="text-[10px] text-muted leading-snug">
-            说明：以上为系统选入模型上下文的聊天记录摘要，用于核对「带了哪些历史」；不是模型的推理过程。若需完整思维链，须模型与 API 支持且另行合规开启。
+            {meta.strategy === 'article_writing' && meta.article_writing_note
+              ? meta.article_writing_note
+              : '说明：以上为系统选入模型上下文的聊天记录摘要，用于核对「带了哪些历史」；不是模型的推理过程。若需完整思维链，须模型与 API 支持且另行合规开启。'}
           </p>
         </div>
       )}
