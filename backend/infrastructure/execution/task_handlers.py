@@ -548,9 +548,9 @@ TASK_TYPES = {
                 "description": "操作类型",
                 "default": "edit",
                 "enum": [
-                    {"value": "edit", "label": "编辑（不存在则创建，存在则覆盖）"},
-                    {"value": "create", "label": "创建（仅当页面不存在时，存在则失败）"},
-                    {"value": "append", "label": "追加（在现有内容末尾追加，不存在则创建）"}
+                    {"value": "edit", "label": "更新（整页覆盖；页面不存在则创建）"},
+                    {"value": "create", "label": "新建（仅当页面不存在；已存在则失败）"},
+                    {"value": "append", "label": "追加（在文末追加；不存在则创建）"}
                 ]
             },
         }

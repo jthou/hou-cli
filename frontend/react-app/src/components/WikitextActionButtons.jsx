@@ -2,8 +2,15 @@
  * Wikitext 操作按钮：复制 Wikitext、写入 MediaWiki、添加到参考、发送到写作助手
  * 供 WikitextEditorPreview 使用，直接操作 Wikitext，写入 MediaWiki 时无需转换
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { wikiToMd } from '../utils/wikiMdConvert'
+import {
+  getClipboardImageFile,
+  insertSnippetAtTextareaCursor,
+  snippetForWikitext,
+  uploadMediaWikiImageFile,
+} from '../utils/mediawikiPasteImage'
+import { operationFromMwDialogMode } from '../utils/mediawikiWriteOperation'
 import { useToast } from './ToastModal'
 
 /**
@@ -21,9 +28,43 @@ export default function WikitextActionButtons({
   const [mwDialogOpen, setMwDialogOpen] = useState(false)
   const [mwTitle, setMwTitle] = useState('')
   const [mwSummary, setMwSummary] = useState('')
-  const [mwMode, setMwMode] = useState('create')
+  const [mwMode, setMwMode] = useState('edit')
   const [mwSubmitting, setMwSubmitting] = useState(false)
   const [mwWikitextState, setMwWikitextState] = useState('')
+  const mwWikiTaRef = useRef(null)
+  const [mwPasteUploading, setMwPasteUploading] = useState(false)
+
+  const handleMwWikiPasteImage = async (e) => {
+    const file = getClipboardImageFile(e)
+    if (!file || mwPasteUploading) return
+    e.preventDefault()
+    const ta = e.target
+    const start = ta.selectionStart ?? 0
+    const end = ta.selectionEnd ?? start
+    setMwPasteUploading(true)
+    try {
+      const { filename } = await uploadMediaWikiImageFile(file)
+      const snippet = snippetForWikitext(filename)
+      let caret = 0
+      setMwWikitextState((prev) => {
+        const r = insertSnippetAtTextareaCursor(prev, start, end, snippet)
+        caret = r.caret
+        return r.nextValue
+      })
+      setTimeout(() => {
+        const el = mwWikiTaRef.current
+        if (el) {
+          el.focus()
+          el.setSelectionRange(caret, caret)
+        }
+      }, 0)
+      toast?.info?.(`已上传 ${filename} 并插入引用`)
+    } catch (err) {
+      toast?.error?.(err?.message || '图片上传失败')
+    } finally {
+      setMwPasteUploading(false)
+    }
+  }
 
   const handleCopy = () => {
     const toCopy = (wikiText || '').trim()
@@ -62,7 +103,7 @@ export default function WikitextActionButtons({
     setMwWikitextState((wikiText || '').trim())
     setMwTitle('')
     setMwSummary('')
-    setMwMode('create')
+    setMwMode('edit')
     setMwDialogOpen(true)
   }
 
@@ -90,7 +131,7 @@ export default function WikitextActionButtons({
             title,
             content: toPublish,
             summary: (mwSummary || '').trim() || undefined,
-            operation: mwMode === 'append' ? 'append' : 'edit',
+            operation: operationFromMwDialogMode(mwMode),
           },
         }),
       })
@@ -100,7 +141,7 @@ export default function WikitextActionButtons({
         setMwDialogOpen(false)
         setMwTitle('')
         setMwSummary('')
-        setMwMode('create')
+        setMwMode('edit')
       } else {
         toast?.error?.(data.detail || data.message || '创建任务失败')
       }
@@ -179,7 +220,10 @@ export default function WikitextActionButtons({
             <div className="shrink-0 flex justify-between items-center px-6 py-4 border-b border-border">
               <div>
                 <h3 className="text-lg font-semibold text-white">写入 MediaWiki</h3>
-                <p className="text-xs text-muted mt-0.5">直接使用 Wikitext，无需转换。创建任务后由任务队列执行。</p>
+                <p className="text-xs text-muted mt-0.5">
+                  直接使用 Wikitext，无需转换。创建任务后由任务队列执行。可粘贴截图自动上传并插入 [[File:…]]
+                  {mwPasteUploading ? '（上传中…）' : ''}。
+                </p>
               </div>
               <button type="button" onClick={() => setMwDialogOpen(false)} className="text-muted hover:text-fg text-2xl leading-none">×</button>
             </div>
@@ -195,13 +239,17 @@ export default function WikitextActionButtons({
                     className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="mwMode" checked={mwMode === 'create'} onChange={() => setMwMode('create')} className="text-accent" />
+                    <input type="radio" name="mwModeWiki" checked={mwMode === 'create'} onChange={() => setMwMode('create')} className="text-accent" />
                     <span className="text-sm text-white">新建</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="mwMode" checked={mwMode === 'append'} onChange={() => setMwMode('append')} className="text-accent" />
+                    <input type="radio" name="mwModeWiki" checked={mwMode === 'edit'} onChange={() => setMwMode('edit')} className="text-accent" />
+                    <span className="text-sm text-white">更新</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="mwModeWiki" checked={mwMode === 'append'} onChange={() => setMwMode('append')} className="text-accent" />
                     <span className="text-sm text-white">追加</span>
                   </label>
                 </div>
@@ -219,10 +267,13 @@ export default function WikitextActionButtons({
               <div className="flex-1 min-h-0 flex flex-col min-h-[360px]">
                 <span className="text-xs text-muted mb-1 block shrink-0">Wikitext（直接写入，无需转换）</span>
                 <textarea
+                  ref={mwWikiTaRef}
                   value={mwWikitextState}
                   onChange={(e) => setMwWikitextState(e.target.value)}
-                  className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed"
-                  placeholder="Wikitext 内容"
+                  onPaste={handleMwWikiPasteImage}
+                  disabled={mwPasteUploading}
+                  className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed disabled:opacity-60"
+                  placeholder="Wikitext 内容（可粘贴截图）"
                 />
               </div>
             </div>
@@ -234,7 +285,13 @@ export default function WikitextActionButtons({
                 disabled={mwSubmitting || !mwTitle.trim()}
                 className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50"
               >
-                {mwSubmitting ? '创建中…' : mwMode === 'append' ? '创建追加任务' : '创建任务'}
+                {mwSubmitting
+                  ? '提交中…'
+                  : mwMode === 'append'
+                    ? '创建追加任务'
+                    : mwMode === 'create'
+                      ? '创建新建任务'
+                      : '创建更新任务'}
               </button>
             </div>
           </div>

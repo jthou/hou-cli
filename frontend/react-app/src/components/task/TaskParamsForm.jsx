@@ -264,6 +264,7 @@ export default function TaskParamsForm({
           fileUploadFields={fileUploadFields}
           customFieldRender={customFieldRender}
           fieldsToHide={fieldsToHide ?? (taskType === 'url_to_wiki' && !metadata?.translate ? ['language'] : [])}
+          enableMediaWikiPasteImage={taskType === 'mediawiki_write'}
         />
       )}
 

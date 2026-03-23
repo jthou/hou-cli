@@ -22,6 +22,8 @@ export default function MediaWikiReader() {
   const [selectedPage, setSelectedPage] = useState(null)
   const [editedWikitext, setEditedWikitext] = useState(null)
   const [linkNavigateLoading, setLinkNavigateLoading] = useState(false)
+  /** 时间：2026-03-13；理由：在 Wiki 阅读页直接起稿；方法：本地占位 selectedPage.isNewDraft，不调用 API 直至用户写入 MediaWiki。 */
+  const [wikiBaseUrl, setWikiBaseUrl] = useState('')
   const [summaryPerPage, setSummaryPerPage] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY_SUMMARIES)
@@ -35,6 +37,13 @@ export default function MediaWikiReader() {
     onPaste: (text) => setTermsInput(text),
     toast,
   })
+
+  useEffect(() => {
+    fetch('/api/mediawiki/base-url')
+      .then((r) => r.json())
+      .then((d) => setWikiBaseUrl((d && d.base_url) || ''))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     try {
@@ -150,6 +159,19 @@ export default function MediaWikiReader() {
     }
   }, [summaryPerPage])
 
+  const handleNewPage = useCallback(() => {
+    const base = (wikiBaseUrl || '').replace(/\/$/, '')
+    setSelectedPage({
+      title: '新页面（未保存）',
+      content: '',
+      url: base || undefined,
+      categories: [],
+      isNewDraft: true,
+    })
+    setEditedWikitext(null)
+    toast?.info?.('已打开空白页，编辑后点击「写入 MediaWiki」，在弹窗中填写正式标题并选择新建')
+  }, [toast, wikiBaseUrl])
+
   const handleWikiLinkClick = useCallback(
     async (pageTitle) => {
       if (!pageTitle?.trim()) return
@@ -192,7 +214,7 @@ export default function MediaWikiReader() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Wiki阅读"
-        subtitle="按多个关键词从 MediaWiki 中抓取现有页面，适合基于已有知识库做查阅，不会抓取外部网页。"
+        subtitle="按关键词抓取现有页面做查阅；也可「新建页面」起稿，通过「写入 MediaWiki」在 Wiki 上创建。"
       />
 
       <div className="flex-1 overflow-hidden flex min-h-0">
@@ -277,6 +299,13 @@ export default function MediaWikiReader() {
                 >
                   {loading ? '抓取中…' : '抓取'}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleNewPage}
+                  className="mt-4 px-3 py-2 text-sm rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5"
+                >
+                  新建页面
+                </button>
               </div>
 
               {error && (
@@ -331,8 +360,15 @@ export default function MediaWikiReader() {
 
         <div className="min-w-0 flex-[0.618] overflow-y-auto bg-white/[0.02] p-6 flex flex-col min-h-0">
           {!selectedPage && (
-            <div className="h-full flex items-center justify-center text-sm text-muted">
-              在左上输入关键词抓取后，点击左下页面列表中的条目，即可在此预览。
+            <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted px-4 text-center">
+              <p>在左上抓取后点击列表条目即可预览；或点击左侧「新建页面」在此起稿。</p>
+              <button
+                type="button"
+                onClick={handleNewPage}
+                className="px-4 py-2 rounded-lg border border-border text-accent hover:bg-white/5"
+              >
+                新建页面
+              </button>
             </div>
           )}
           {selectedPage && (
@@ -341,14 +377,16 @@ export default function MediaWikiReader() {
                 <h2 className="text-lg font-medium text-white truncate">
                   {selectedPage.title || selectedPage.url}
                 </h2>
-                <a
-                  href={selectedPage.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-muted hover:text-accent shrink-0"
-                >
-                  在新标签页打开
-                </a>
+                {selectedPage.url && (
+                  <a
+                    href={selectedPage.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-muted hover:text-accent shrink-0"
+                  >
+                    {selectedPage.isNewDraft ? '打开 Wiki 站点' : '在新标签页打开'}
+                  </a>
+                )}
               </div>
               <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white flex flex-col relative">
                 {linkNavigateLoading && (

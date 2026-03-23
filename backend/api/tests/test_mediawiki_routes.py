@@ -246,3 +246,24 @@ class TestMediaWikiRoutes:
             assert data["success"] is True
             assert data["status"]["total_pages"] == 100
 
+    def test_upload_image_file_hashes_name_and_calls_upload(self, client):
+        """粘贴上传：multipart 文件 → 内容哈希文件名 → upload_file。"""
+        png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+        with patch("backend.api.mediawiki_routes.get_mediawiki_client") as mock_get:
+            mock_c = MagicMock()
+            mock_c.upload_file = MagicMock(return_value=True)
+            mock_get.return_value = mock_c
+            response = client.post(
+                "/api/mediawiki/upload-image-file",
+                files=[("file", ("clip.png", png_header, "image/png"))],
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["filename"].startswith("img_")
+        assert data["filename"].endswith(".png")
+        assert "[[File:" in data["wikitext"]
+        mock_c.upload_file.assert_called_once()
+        call_args = mock_c.upload_file.call_args[0]
+        assert call_args[0] == data["filename"]
+

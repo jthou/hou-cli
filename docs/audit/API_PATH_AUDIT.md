@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 148
-- 前端 fetch 数: 137
+- 后端路由数: 149
+- 前端 fetch 数: 140
 
 ## 后端路由
 
@@ -120,6 +120,7 @@ POST /api/mediawiki/parse
 POST /api/mediawiki/reset-client
 POST /api/mediawiki/sync
 POST /api/mediawiki/upload-image
+POST /api/mediawiki/upload-image-file
 POST /api/network/audit/run
 POST /api/pdf/resolve
 POST /api/pdf/upload-from-extension
@@ -178,12 +179,14 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/home-briefing/generate
 - GET /api/home-briefing/latest
 - GET /api/latex/render
+- GET /api/mediawiki/base-url
 - GET /api/mediawiki/pages/
 - GET /api/mediawiki/random-read
 - GET /api/mediawiki/recent-read
 - GET /api/mediawiki/search
 - GET /api/mediawiki/search-read
 - GET /api/mediawiki/upload-image
+- GET /api/mediawiki/upload-image-file
 - GET /api/models/selectable
 - GET /api/network/audit/env
 - GET /api/network/audit/history
@@ -267,6 +270,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/chat/stream
 - POST /api/home-briefing/generate
 - POST /api/mediawiki/upload-image
+- POST /api/mediawiki/upload-image-file
 - POST /api/network/audit/run
 - POST /api/pdf/resolve
 - POST /api/pdf/upload-from-extension
@@ -303,7 +307,6 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/chat/article/merge
 - /api/execution/approve
 - /api/execution/reject
-- /api/mediawiki/base-url
 - /api/mediawiki/diagnostic
 - /api/mediawiki/pages/{id}
 - /api/mediawiki/parse

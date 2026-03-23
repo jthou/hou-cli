@@ -4,6 +4,12 @@
  */
 import { useRef, useState } from 'react'
 import { useToast } from '../ToastModal'
+import {
+  getClipboardImageFile,
+  insertSnippetAtTextareaCursor,
+  snippetForWikitext,
+  uploadMediaWikiImageFile,
+} from '../../utils/mediawikiPasteImage'
 
 const inputCls = 'w-full px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-[#64748b] focus:border-accent focus:outline-none'
 const labelCls = 'block text-sm text-muted mb-1'
@@ -75,9 +81,38 @@ export default function TaskMetadataFormFields({
   fileUploadFields = null, // { [fieldKey]: accept }，优先于 isInputFileTask
   customFieldRender = null, // (fieldKey, { value, onChange, spec, required, label }) => ReactNode | null
   fieldsToHide = null, // string[] 不渲染的字段（如从上游任务绑定时隐藏 input_file）
+  /** mediawiki_write：正文(content) 支持粘贴截图上传并插入 [[File:…]] */
+  enableMediaWikiPasteImage = false,
 }) {
   const toast = useToast()
   const fileInputRefs = useRef({})
+  const [pasteUploadingField, setPasteUploadingField] = useState(null)
+
+  const handleMediaWikiPasteImage = async (e, fieldKey) => {
+    const file = getClipboardImageFile(e)
+    if (!file || pasteUploadingField) return
+    e.preventDefault()
+    const ta = e.target
+    const start = ta.selectionStart ?? 0
+    const end = ta.selectionEnd ?? start
+    const prev = (metadata[fieldKey] ?? '').toString()
+    setPasteUploadingField(fieldKey)
+    try {
+      const { filename } = await uploadMediaWikiImageFile(file)
+      const snippet = snippetForWikitext(filename)
+      const r = insertSnippetAtTextareaCursor(prev, start, end, snippet)
+      setMetadata((m) => ({ ...m, [fieldKey]: r.nextValue }))
+      setTimeout(() => {
+        ta.focus()
+        ta.setSelectionRange(r.caret, r.caret)
+      }, 0)
+      toast?.info?.(`已上传 ${filename} 并插入引用`)
+    } catch (err) {
+      toast?.error?.(err?.message || '图片上传失败')
+    } finally {
+      setPasteUploadingField(null)
+    }
+  }
 
   const getFileAccept = (fieldKey) => {
     if (fileUploadFields && fieldKey in fileUploadFields) return fileUploadFields[fieldKey]
@@ -184,9 +219,19 @@ export default function TaskMetadataFormFields({
                   id={`${fieldIdPrefix}-${fieldKey}`}
                   value={value}
                   onChange={e => setMetadata(m => ({ ...m, [fieldKey]: e.target.value }))}
-                  placeholder={spec.placeholder || ''}
+                  onPaste={
+                    enableMediaWikiPasteImage && fieldKey === 'content'
+                      ? (ev) => handleMediaWikiPasteImage(ev, fieldKey)
+                      : undefined
+                  }
+                  disabled={pasteUploadingField === fieldKey}
+                  placeholder={
+                    enableMediaWikiPasteImage && fieldKey === 'content'
+                      ? (spec.placeholder || '') + '（可粘贴截图上传）'
+                      : spec.placeholder || ''
+                  }
                   rows={8}
-                  className={`${inputCls} flex-1 resize-y min-h-[120px]`}
+                  className={`${inputCls} flex-1 resize-y min-h-[120px] ${pasteUploadingField === fieldKey ? 'opacity-60' : ''}`}
                   required={required}
                 />
               ) : (

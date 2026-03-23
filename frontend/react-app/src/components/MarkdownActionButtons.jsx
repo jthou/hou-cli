@@ -3,8 +3,16 @@
  * 供 MarkdownEditorPreview、ArticleWriting 等复用
  * 写入 MediaWiki 与同步到公众号草稿均通过任务队列，可在任务管理中审计。
  */
-import { useState } from 'react'
-import { mdToWikiWithImages } from '../utils/wikiMdConvert'
+import { useRef, useState } from 'react'
+import { mdToWikiWithImages, wikiToMd } from '../utils/wikiMdConvert'
+import {
+  getClipboardImageFile,
+  insertSnippetAtTextareaCursor,
+  snippetForMdWiki,
+  snippetForWikitext,
+  uploadMediaWikiImageFile,
+} from '../utils/mediawikiPasteImage'
+import { operationFromMwDialogMode } from '../utils/mediawikiWriteOperation'
 import { useToast } from './ToastModal'
 
 /**
@@ -34,10 +42,69 @@ export default function MarkdownActionButtons({
   const [mwDialogOpen, setMwDialogOpen] = useState(false)
   const [mwTitle, setMwTitle] = useState('')
   const [mwSummary, setMwSummary] = useState('')
-  const [mwMode, setMwMode] = useState('create') // 'create' | 'append'
+  /** 新建 | 更新(覆盖) | 追加 —— 对应 metadata.operation：create | edit | append */
+  const [mwMode, setMwMode] = useState('edit')
   const [mwSubmitting, setMwSubmitting] = useState(false)
   const [mwMdState, setMwMdState] = useState('')
   const [mwWikitextState, setMwWikitextState] = useState('')
+  const mwMdTextareaRef = useRef(null)
+  const mwWikiTextareaRef = useRef(null)
+  const [mwPasteUploading, setMwPasteUploading] = useState(false)
+
+  const handleMwPasteImage = async (e, mode) => {
+    const file = getClipboardImageFile(e)
+    if (!file || mwPasteUploading) return
+    e.preventDefault()
+    const ta = e.target
+    const start = ta.selectionStart ?? 0
+    const end = ta.selectionEnd ?? start
+    setMwPasteUploading(true)
+    try {
+      const { filename } = await uploadMediaWikiImageFile(file)
+      const snippet = mode === 'wikitext' ? snippetForWikitext(filename) : snippetForMdWiki(filename)
+      if (mode === 'markdown') {
+        let nextMd = ''
+        let caret = 0
+        setMwMdState((prev) => {
+          const r = insertSnippetAtTextareaCursor(prev, start, end, snippet)
+          nextMd = r.nextValue
+          caret = r.caret
+          return r.nextValue
+        })
+        setMwWikitextState(mdToWikiWithImages(nextMd).wikitext)
+        setTimeout(() => {
+          const el = mwMdTextareaRef.current
+          if (el) {
+            el.focus()
+            el.setSelectionRange(caret, caret)
+          }
+        }, 0)
+        toast?.info?.(`已上传 ${filename} 并插入 Markdown 引用`)
+      } else {
+        let nextWiki = ''
+        let caret = 0
+        setMwWikitextState((prev) => {
+          const r = insertSnippetAtTextareaCursor(prev, start, end, snippet)
+          nextWiki = r.nextValue
+          caret = r.caret
+          return r.nextValue
+        })
+        setMwMdState(wikiToMd(nextWiki))
+        setTimeout(() => {
+          const el = mwWikiTextareaRef.current
+          if (el) {
+            el.focus()
+            el.setSelectionRange(caret, caret)
+          }
+        }, 0)
+        toast?.info?.(`已上传 ${filename} 并插入 Wikitext 引用`)
+      }
+    } catch (err) {
+      toast?.error?.(err?.message || '图片上传失败')
+    } finally {
+      setMwPasteUploading(false)
+    }
+  }
 
   const handleCopy = () => {
     const toCopy = (content || '').trim()
@@ -95,7 +162,7 @@ export default function MarkdownActionButtons({
     setMwWikitextState(wikitext)
     setMwTitle('')
     setMwSummary('')
-    setMwMode('create')
+    setMwMode('edit')
     setMwDialogOpen(true)
   }
 
@@ -123,7 +190,7 @@ export default function MarkdownActionButtons({
         title,
         content: toPublish,
         summary: (mwSummary || '').trim() || undefined,
-        operation: mwMode === 'append' ? 'append' : 'edit',
+        operation: operationFromMwDialogMode(mwMode),
       }
       if (images?.length) metadata.images = images
       const res = await fetch('/api/task-queue/tasks', {
@@ -142,7 +209,7 @@ export default function MarkdownActionButtons({
         setMwDialogOpen(false)
         setMwTitle('')
         setMwSummary('')
-        setMwMode('create')
+        setMwMode('edit')
       } else {
         toast?.error?.(data.detail || data.message || '创建任务失败')
       }
@@ -207,7 +274,10 @@ export default function MarkdownActionButtons({
             <div className="shrink-0 flex justify-between items-center px-6 py-4 border-b border-border">
               <div>
                 <h3 className="text-lg font-semibold text-white">写入 MediaWiki</h3>
-                <p className="text-xs text-muted mt-0.5">创建任务后由任务队列执行，可在任务管理中审计</p>
+                <p className="text-xs text-muted mt-0.5">
+                  创建任务后由任务队列执行，可在任务管理中审计。可在编辑框内直接粘贴截图：自动哈希命名上传并在光标处插入引用
+                  {mwPasteUploading ? '（上传中…）' : ''}。
+                </p>
               </div>
               <button type="button" onClick={() => setMwDialogOpen(false)} className="text-muted hover:text-fg text-2xl leading-none">×</button>
             </div>
@@ -223,13 +293,17 @@ export default function MarkdownActionButtons({
                     className="w-full rounded-lg bg-white/5 border border-border px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="mwMode" checked={mwMode === 'create'} onChange={() => setMwMode('create')} className="text-accent" />
+                    <input type="radio" name="mwModeMd" checked={mwMode === 'create'} onChange={() => setMwMode('create')} className="text-accent" />
                     <span className="text-sm text-white">新建</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="mwMode" checked={mwMode === 'append'} onChange={() => setMwMode('append')} className="text-accent" />
+                    <input type="radio" name="mwModeMd" checked={mwMode === 'edit'} onChange={() => setMwMode('edit')} className="text-accent" />
+                    <span className="text-sm text-white">更新</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="mwModeMd" checked={mwMode === 'append'} onChange={() => setMwMode('append')} className="text-accent" />
                     <span className="text-sm text-white">追加</span>
                   </label>
                 </div>
@@ -248,19 +322,25 @@ export default function MarkdownActionButtons({
                 <div className="flex flex-col min-h-[320px] overflow-hidden">
                   <span className="text-xs text-muted mb-1 block shrink-0">Markdown（可编辑，修改后右侧会同步）</span>
                   <textarea
+                    ref={mwMdTextareaRef}
                     value={mwMdState}
                     onChange={(e) => handleMdChange(e.target.value)}
-                    className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] font-mono resize-y"
-                    placeholder="Markdown 内容"
+                    onPaste={(e) => handleMwPasteImage(e, 'markdown')}
+                    disabled={mwPasteUploading}
+                    className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-3 text-sm text-[#e2e8f0] font-mono resize-y disabled:opacity-60"
+                    placeholder="Markdown 内容（可粘贴截图）"
                   />
                 </div>
                 <div className="flex flex-col min-h-[320px] overflow-hidden">
                   <span className="text-xs text-muted mb-1 block shrink-0">MediaWiki 格式（Wikitext，可编辑）</span>
                   <textarea
+                    ref={mwWikiTextareaRef}
                     value={mwWikitextState}
                     onChange={(e) => setMwWikitextState(e.target.value)}
-                    className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed"
-                    placeholder="Wikitext 内容"
+                    onPaste={(e) => handleMwPasteImage(e, 'wikitext')}
+                    disabled={mwPasteUploading}
+                    className="flex-1 min-h-[320px] w-full rounded-lg bg-[#1e293b] border border-border px-4 py-4 text-sm text-[#e2e8f0] placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-mono leading-relaxed disabled:opacity-60"
+                    placeholder="Wikitext 内容（可粘贴截图）"
                   />
                 </div>
               </div>
@@ -273,7 +353,13 @@ export default function MarkdownActionButtons({
                 disabled={mwSubmitting || !mwTitle.trim()}
                 className="flex-1 px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50"
               >
-                {mwSubmitting ? '创建中…' : mwMode === 'append' ? '创建追加任务' : '创建任务'}
+                {mwSubmitting
+                  ? '提交中…'
+                  : mwMode === 'append'
+                    ? '创建追加任务'
+                    : mwMode === 'create'
+                      ? '创建新建任务'
+                      : '创建更新任务'}
               </button>
             </div>
           </div>

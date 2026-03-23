@@ -1,4 +1,5 @@
 """MediaWiki 相关路由"""
+import hashlib
 import os
 import re
 import random
@@ -7,7 +8,7 @@ from typing import Optional
 from urllib.parse import urljoin, urlparse, unquote
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.services.mediawiki_client_service import (
@@ -253,6 +254,86 @@ async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
     except Exception as e:
         debug_log(f"MediaWiki upload-image failed: {str(e)}", level="error")
         raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+
+
+_ALLOWED_IMG_EXT = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp"})
+
+
+def _ext_from_upload(filename: str, content_type: Optional[str]) -> str:
+    """从原始文件名或 Content-Type 得到小写扩展名（含点）。"""
+    name = (filename or "").strip()
+    if "." in name:
+        ext = "." + name.rsplit(".", 1)[-1].lower()
+        if ext == ".jpeg":
+            ext = ".jpg"
+        if ext in _ALLOWED_IMG_EXT:
+            return ext
+    ct = (content_type or "").split(";")[0].strip().lower()
+    return {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }.get(ct, ".png")
+
+
+def _hashed_upload_basename(content: bytes, ext: str) -> str:
+    """内容 SHA256 前 16 位 + 扩展名，降低与 Wiki 上已有文件重名概率。"""
+    h = hashlib.sha256(content).hexdigest()[:16]
+    e = ext if ext in _ALLOWED_IMG_EXT else ".png"
+    return f"img_{h}{e}"
+
+
+@router.post("/mediawiki/upload-image-file")
+async def upload_image_file_to_mediawiki(file: UploadFile = File(...)):
+    """
+    剪贴板/本地图片 multipart 上传至 MediaWiki。
+    时间：2026-03-13；理由：编辑框粘贴图片需直传 Wiki；方法：内容哈希命名 img_<sha256[:16]>.<ext>，临时文件 upload_file。
+    """
+    try:
+        content = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"读取文件失败: {e}") from e
+
+    if not content:
+        raise HTTPException(status_code=400, detail="文件为空")
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片超过 50MB 限制")
+
+    ext = _ext_from_upload(file.filename or "", file.content_type)
+    basename = _hashed_upload_basename(content, ext)
+    filename = re.sub(r"[^\w.\-]", "_", basename)
+    if not filename.lower().endswith(tuple(_ALLOWED_IMG_EXT)):
+        filename = _hashed_upload_basename(content, ".png")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as f:
+            f.write(content)
+            tmp_path = f.name
+        mw_client = get_mediawiki_client()
+        try:
+            mw_client.upload_file(filename, tmp_path, description="", ignore_warnings=True)
+        except Exception as up_err:
+            err_str = str(up_err).lower()
+            if "fileexists-no-change" in err_str or "exact duplicate" in err_str:
+                pass
+            else:
+                raise
+        wikitext = f"[[File:{filename}]]"
+        return {"success": True, "filename": filename, "wikitext": wikitext}
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"MediaWiki upload-image-file failed: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}") from e
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 # 延迟创建服务实例
