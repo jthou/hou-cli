@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import BackendStatus from './BackendStatus'
 
 // 分组：智能工具、阅读工具、任务工具、文档、协作、设置、开发
+// 时间：2026-03-13；理由：任务中心需紧邻首页便于进入；方法：/tasks 单独插在首页下，不从 navItems 渲染。
 const navItems = [
   { path: '/general-chat', icon: '💬', label: '通用对话', group: 'smart_tools' },
   { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
@@ -14,7 +15,6 @@ const navItems = [
   { path: '/weread-reader', icon: '📱', label: '微信读书', group: 'read' },
   { path: '/pdf-reader', icon: '📘', label: 'PDF阅读', group: 'read' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'task_tools' },
-  { path: '/tasks', icon: '📋', label: '任务中心', group: 'task_tools' },
   { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'task_tools' },
   { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'task_tools' },
   { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'task_tools' },
@@ -95,6 +95,19 @@ export default function Sidebar({ open, onToggle }) {
             >
               <span>🏠</span>
               <span>首页</span>
+            </NavLink>
+          </li>
+          <li>
+            <NavLink
+              to="/tasks"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-white/5 hover:text-fg'
+                }`
+              }
+            >
+              <span>📋</span>
+              <span>任务中心</span>
             </NavLink>
           </li>
           {itemsByGroup.map(({ id, meta, items }) => (
