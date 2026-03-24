@@ -4,7 +4,7 @@ import os
 import re
 import random
 import tempfile
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urljoin, urlparse, unquote
 
 import httpx
@@ -186,6 +186,40 @@ async def parse_mediawiki_wikitext(request: MediaWikiParseRequest):
         raise HTTPException(status_code=500, detail=f"Parse failed: {str(e)}")
 
 
+def _try_read_web_reader_inline_static(url: str) -> Optional[Tuple[bytes, str]]:
+    """
+    网页阅读配图落在本机 data 目录；upload-image 若用 httpx 拉取自己的公网地址，经 nginx 常 502。
+    时间：2026-03-24；方法：识别 /api/web-reader/inline-static/{uuid}.ext 后直读文件（与 web_reader_routes 同目录与校验）。
+    """
+    try:
+        path = (urlparse(url).path or "").rstrip("/")
+        prefix = "/api/web-reader/inline-static"
+        if not path.startswith(prefix + "/"):
+            return None
+        fname = path[len(prefix) + 1 :].lstrip("/")
+        if not fname or "/" in fname or "\\" in fname:
+            return None
+        from backend.api.web_reader_routes import _INLINE_IMG_DIR, _SAFE_INLINE_NAME
+
+        if not _SAFE_INLINE_NAME.match(fname):
+            return None
+        fp = _INLINE_IMG_DIR / fname
+        if not fp.is_file():
+            return None
+        data = fp.read_bytes()
+        ext = fname.rsplit(".", 1)[-1].lower()
+        ct = {
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "gif": "image/gif",
+            "webp": "image/webp",
+        }.get(ext, "application/octet-stream")
+        return (data, ct)
+    except OSError:
+        return None
+
+
 def _filename_from_url(url: str, content_type: str = "") -> str:
     """从 URL 或 Content-Type 提取安全文件名。时间：2025-03-13；理由：网页图片上传需可预测扩展名；方法：优先 path，回退 mimetype。"""
     parsed = urlparse(url)
@@ -217,11 +251,15 @@ async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
         raise HTTPException(status_code=400, detail="image_url 必须为 http(s) URL")
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content = resp.content
-            content_type = resp.headers.get("content-type", "")
+        local = _try_read_web_reader_inline_static(url)
+        if local:
+            content, content_type = local
+        else:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                content = resp.content
+                content_type = resp.headers.get("content-type", "")
 
         if not content or len(content) > 50 * 1024 * 1024:  # 50MB
             raise HTTPException(status_code=400, detail="图片为空或超过 50MB 限制")

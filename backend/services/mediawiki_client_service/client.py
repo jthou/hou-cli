@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 class MediaWikiClientError(Exception):
     """MediaWiki 客户端错误"""
-    pass
+
+    def __init__(self, message, *, no_retry=False):
+        super().__init__(message)
+        self.no_retry = bool(no_retry)
 
 
 class MediaWikiClientService:
@@ -152,6 +155,8 @@ class MediaWikiClientService:
             try:
                 return func()
             except (APIError, ConnectionError, TimeoutError, MediaWikiClientError) as e:
+                if isinstance(e, MediaWikiClientError) and getattr(e, "no_retry", False):
+                    raise
                 err_str = str(e).lower()
                 if "readapidenied" in err_str and (self.bot_name or self.username) and attempt < max_retries - 1:
                     logger.warning("readapidenied，重连后重试…")
@@ -371,7 +376,25 @@ class MediaWikiClientService:
             except FileNotFoundError:
                 raise MediaWikiClientError(f"File not found: {file_path}")
             except APIError as e:
-                raise MediaWikiClientError(f"API error: {str(e)}")
+                err = str(e)
+                if "valid json" in err.lower() or "json response" in err.lower():
+                    probe = f"{self.url.rstrip('/')}/api.php?action=query&meta=siteinfo&format=json"
+                    raise MediaWikiClientError(
+                        f"{err} — 多为 MEDIAWIKI_URL 路径不对、PHP/Wiki 报错输出 HTML、或反代返回 502/登录页。"
+                        f" 请在浏览器打开「{probe}」应看到 JSON；若此处正常仅上传失败，查 PHP/nginx 日志与 $wgUploadDirectory 权限。",
+                        no_retry=True,
+                    ) from e
+                raise MediaWikiClientError(f"API error: {err}") from e
+            except Exception as e:
+                err = str(e)
+                if "valid json" in err.lower() or "json response" in err.lower():
+                    probe = f"{self.url.rstrip('/')}/api.php?action=query&meta=siteinfo&format=json"
+                    raise MediaWikiClientError(
+                        f"{err} — 多为 MEDIAWIKI_URL 路径不对、PHP/Wiki 报错输出 HTML、或反代返回 502。"
+                        f" 请在浏览器打开「{probe}」应看到 JSON。",
+                        no_retry=True,
+                    ) from e
+                raise
         
         return self._retry_on_error(_upload)
     

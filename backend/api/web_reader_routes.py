@@ -1,14 +1,33 @@
-"""网页阅读 OCR 接口：截图 + Qwen-VL 提取文字"""
-import os
+"""网页阅读 OCR 接口：截图 + Qwen-VL 提取文字；正文配图经扩展拉取后落盘供 Markdown 引用"""
+import base64
 import logging
-from typing import Optional
+import os
+import re
+import uuid
+from pathlib import Path
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+from shared.platform_utils import get_app_data_dir
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/web-reader", tags=["web-reader"])
+
+# 时间：2026-03-14；理由：微信等站配图防盗链，扩展拉取后落盘；方法：UUID 文件名 + 仅匹配安全路径
+_INLINE_IMG_DIR: Path = get_app_data_dir() / "web_reader_inline_images"
+_INLINE_IMG_DIR.mkdir(parents=True, exist_ok=True)
+_DATA_URL_INLINE_RE = re.compile(
+    r"^data:image/(jpeg|jpg|png|gif|webp);base64,([\s\S]+)$",
+    re.IGNORECASE,
+)
+_SAFE_INLINE_NAME = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|gif|webp)$",
+    re.IGNORECASE,
+)
 
 OCR_PROMPT = """请识别图片中的所有文字，按原文顺序逐行输出。如果是书籍或文章页面，请完整提取正文内容，保留段落结构。
 
@@ -41,6 +60,17 @@ class SummarizeResponse(BaseModel):
     success: bool
     summary: Optional[str] = None
     error: Optional[str] = None
+
+
+class InlineImageItem(BaseModel):
+    """扩展拉取后的单张图：原始 URL + data URL"""
+
+    original_url: str
+    data_url: str
+
+
+class MaterializeInlineImagesRequest(BaseModel):
+    images: List[InlineImageItem]
 
 
 SUMMARY_PROMPT = """请对以下文本生成**结构化、分层摘要**，尽可能覆盖原文所有重要内容。
@@ -143,3 +173,61 @@ async def summarize_content(req: SummarizeRequest):
     except Exception as e:
         logger.exception("摘要生成失败")
         return SummarizeResponse(success=False, error=str(e))
+
+
+@router.post("/materialize-inline-images")
+async def materialize_inline_images(req: MaterializeInlineImagesRequest):
+    """
+    将扩展传来的 data URL 图片写入本地，返回 original_url -> /api/web-reader/inline-static/{uuid}.ext
+    供 Markdown 使用本站可访问地址（避免微信 CDN 跨域/防盗链）。
+    """
+    mapping: dict = {}
+    max_bytes = 6 * 1024 * 1024
+    max_items = 50
+    sub_to_ext = {
+        "jpeg": ".jpg",
+        "jpg": ".jpg",
+        "png": ".png",
+        "gif": ".gif",
+        "webp": ".webp",
+    }
+    for item in req.images[:max_items]:
+        ou = (item.original_url or "").strip()
+        if not ou.startswith(("http://", "https://")):
+            continue
+        raw_du = (item.data_url or "").strip().replace("\n", "").replace("\r", "")
+        m = _DATA_URL_INLINE_RE.match(raw_du)
+        if not m:
+            continue
+        sub = m.group(1).lower()
+        b64 = m.group(2).strip()
+        ext = sub_to_ext.get(sub)
+        if not ext:
+            continue
+        try:
+            raw = base64.b64decode(b64, validate=True)
+        except Exception:
+            continue
+        if not raw or len(raw) > max_bytes:
+            continue
+        fid = str(uuid.uuid4())
+        fname = f"{fid}{ext}"
+        path = _INLINE_IMG_DIR / fname
+        try:
+            path.write_bytes(raw)
+        except OSError as e:
+            logger.warning("inline image write failed: %s", e)
+            continue
+        mapping[ou] = f"/api/web-reader/inline-static/{fname}"
+
+    return {"success": True, "mapping": mapping}
+
+
+@router.get("/inline-static/{filename}")
+async def serve_inline_image(filename: str):
+    if not _SAFE_INLINE_NAME.match(filename):
+        raise HTTPException(status_code=404, detail="Not found")
+    path = _INLINE_IMG_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path)

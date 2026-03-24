@@ -23,6 +23,14 @@ Chrome 扩展，配合 Hou CLI 使用：
 3. 输入要读取的 URL，点击「读取网页」
 4. 扩展会在后台打开隐藏标签页、**自动展开所有「See more」「展开更多」等折叠内容**、提取正文、关闭标签页，并将内容返回展示
 
+#### 微信公众号配图（防盗链 / 跨域）
+
+- **时间/背景**：`mp.weixin.qq.com` 正文内图片常依赖 Referer/Cookie，在 Markdown 预览或外链场景下无法直接加载。
+- **方法**：在「网页阅读」抓取 **微信公众号文章 URL** 时，前端会请求扩展**附带拉取正文配图**（扩展内 `fetch` + 微信 Referer/Cookie）；图片以 data URL 回传后，由后端 `POST /api/web-reader/materialize-inline-images` 写入应用数据目录，Markdown 中替换为本站 ` /api/web-reader/inline-static/{uuid}.ext`。
+- **占位图**：正文里常见 `src="data:image/svg+xml,..."` 懒加载占位，真图在 `data-src`；扩展在 `extractContent` 内会把此类 `src` 改写成绝对 `https://mmbiz.qpic.cn/...`，预览与 Markdown 替换才能对齐。
+- **懒加载后**：浏览器常把 `src` 换成带 `tp=webp&wx_lazy=1` 等与 `data-src` 不同的 URL；拉图时用 **已加载的 `https` `src` 优先**，否则 `inlineImageMap` 键与 HTML 里 `src` 对不上。前端替换时同时匹配 `&` 与 `&amp;`（序列化差异）。
+- **要求**：须在浏览器中已登录可打开该文的微信网页；扩展需有对应站点权限（默认 manifest 已含 `mp.weixin.qq.com`）。
+
 ### 视频下载（YouTube/Bilibili 需登录时）
 
 用法与网页阅读类似：网页阅读用扩展抓取页面内容，视频下载用扩展导出 cookies。

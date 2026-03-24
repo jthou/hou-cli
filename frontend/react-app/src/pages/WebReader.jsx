@@ -18,6 +18,28 @@ const REQUEST_ID_PREFIX = 'web-reader-'
 const STORAGE_KEY_LAST_LEGACY = 'hou-cli-web-reader-last' // 迁移用
 const SAVE_DEBOUNCE_MS = 600
 
+/** 微信等：innerHTML 属性里 & 常序列化为 &amp;，需与扩展传来的 URL 逐字替换都对上 */
+function applyInlineImageUrlReplacements(html, mappingEntries, origin) {
+  let out = html || ''
+  const sorted = [...mappingEntries].sort((a, b) => (b[0] || '').length - (a[0] || '').length)
+  for (const [orig, apiPath] of sorted) {
+    if (!orig || !apiPath) continue
+    const full = `${origin}${apiPath}`
+    const variants = []
+    const push = (s) => {
+      if (s && !variants.includes(s)) variants.push(s)
+    }
+    push(orig)
+    if (orig.includes('&') && !orig.includes('&amp;')) push(orig.replace(/&/g, '&amp;'))
+    if (orig.includes('&amp;')) push(orig.replace(/&amp;/g, '&'))
+    for (const v of variants) {
+      const esc = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      out = out.replace(new RegExp(esc, 'g'), full)
+    }
+  }
+  return out
+}
+
 export default function WebReader() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -129,8 +151,10 @@ export default function WebReader() {
     setData(null)
     setLoading(true)
     const requestId = REQUEST_ID_PREFIX + Date.now()
+    // 时间：2026-03-14；理由：微信公众号 CDN 防盗链；方法：扩展 SW fetch + 后端落盘，Markdown 引用本站 URL
+    const inlineImages = /mp\.weixin\.qq\.com/.test(u)
     window.postMessage(
-      { type: 'HOU_CLI_FETCH', url: u, requestId, apiBase: window.location.origin },
+      { type: 'HOU_CLI_FETCH', url: u, requestId, apiBase: window.location.origin, inlineImages },
       '*'
     )
     timeoutRef.current = setTimeout(() => {
@@ -161,10 +185,29 @@ export default function WebReader() {
           navigate('/weread-reader', { state: { prefillUrl: d?.url || urlInput, fetchData: d } })
           return
         }
-        const augmented = d
-          ? { ...d, markdown: d.html ? htmlToMd(d.html) : (d.content || '') }
-          : null
-        setData(augmented)
+        ;(async () => {
+          let html = d?.html
+          const map = d?.inlineImageMap
+          if (html && map && typeof map === 'object' && Object.keys(map).length) {
+            try {
+              const res = await fetch(`${window.location.origin}/api/web-reader/materialize-inline-images`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  images: Object.entries(map).map(([original_url, data_url]) => ({ original_url, data_url })),
+                }),
+              })
+              const jd = await res.json()
+              if (jd.success && jd.mapping && Object.keys(jd.mapping).length) {
+                html = applyInlineImageUrlReplacements(html, Object.entries(jd.mapping), window.location.origin)
+              }
+            } catch (_) {}
+          }
+          const augmented = d
+            ? { ...d, html: html || d.html || '', markdown: html ? htmlToMd(html) : (d.html ? htmlToMd(d.html) : (d.content || '')) }
+            : null
+          setData(augmented)
+        })()
         setError(null)
       } else {
         setError(e.data.error || '抓取失败')
@@ -255,7 +298,7 @@ export default function WebReader() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="网页阅读"
-        subtitle="通过浏览器扩展抓取网页正文（DOM 提取），可写入 MediaWiki。微信读书请使用「微信读书」页面。"
+        subtitle="通过浏览器扩展抓取网页正文（DOM）。微信公众号 mp.weixin.qq.com 会经扩展拉取配图并保存到本机数据目录，Markdown 中引用本站 /api/web-reader/inline-static/ 地址。微信读书请用「微信读书」页。"
       />
 
       <div className="flex-1 overflow-hidden flex">

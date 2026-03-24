@@ -113,7 +113,26 @@ function expandAllHiddenContent() {
 
 function extractContent() {
   const href = window.location.href || ''
+  const isWeixinMp = /mp\.weixin\.qq\.com/.test(href)
   const isFeishu = /feishu\.cn|feishubase\.com/.test(href)
+  // 时间：2026-03-14；理由：executeScript 只注入本函数，外层 helper 不可用；方法：微信 svg 占位 src 从 data-src 写回真 URL
+  const rewriteWeixinLazyImgSrc = (root) => {
+    if (!root || !root.querySelectorAll) return
+    root.querySelectorAll('img').forEach((img) => {
+      const src = (img.getAttribute('src') || '').trim()
+      if (!src.startsWith('data:image/')) return
+      const raw =
+        (img.getAttribute('data-src') || '').trim() ||
+        (img.getAttribute('data-original') || '').trim() ||
+        (img.getAttribute('data-lazy-src') || '').trim() ||
+        (img.getAttribute('data-url') || '').trim()
+      if (!raw || raw.startsWith('data:')) return
+      try {
+        const abs = raw.startsWith('//') ? window.location.protocol + raw : new URL(raw, location.href).href
+        if (/^https?:\/\//i.test(abs)) img.setAttribute('src', abs)
+      } catch (_) {}
+    })
+  }
   const amazon = typeof window.__HOU_AMAZON !== 'undefined' ? window.__HOU_AMAZON : null
   const isAmazon = amazon?.isAmazonProductPage?.(href) ?? /amazon\.(com|co\.\w{2}|cn|co\.jp)\/(dp|gp\/product)/.test(href)
   const isWikipedia = /\.wikipedia\.org\//.test(href) || /\.wikimedia\.org\//.test(href)
@@ -149,21 +168,28 @@ function extractContent() {
       } catch (_) {}
     }
   } else {
-    // 博客/普通站：选正文最长的容器，避免误取「Related News」等侧栏
-    let bestLen = minLen - 1
-    const seen = new WeakSet()
-    for (const s of selectors) {
-      try {
-        document.querySelectorAll(s).forEach((c) => {
-          if (seen.has(c)) return
-          const len = (c.innerText || c.textContent || '').trim().length
-          if (len > bestLen) {
-            bestLen = len
-            el = c
-          }
-          seen.add(c)
-        })
-      } catch (_) {}
+    // 微信公众号：优先 #js_content，避免误取长侧栏容器导致 img 仍为 svg 占位
+    if (isWeixinMp) {
+      const js = document.querySelector('#js_content')
+      if (js && (js.innerText || js.textContent || '').trim().length >= 50) el = js
+    }
+    if (!el) {
+      // 博客/普通站：选正文最长的容器，避免误取「Related News」等侧栏
+      let bestLen = minLen - 1
+      const seen = new WeakSet()
+      for (const s of selectors) {
+        try {
+          document.querySelectorAll(s).forEach((c) => {
+            if (seen.has(c)) return
+            const len = (c.innerText || c.textContent || '').trim().length
+            if (len > bestLen) {
+              bestLen = len
+              el = c
+            }
+            seen.add(c)
+          })
+        } catch (_) {}
+      }
     }
   }
   el = el || document.body
@@ -187,6 +213,7 @@ function extractContent() {
   document.querySelectorAll('style').forEach((s) => { if (s.textContent) inlineStyles.push(s.textContent) })
   const temp = document.createElement('div')
   temp.innerHTML = el.innerHTML
+  if (isWeixinMp) rewriteWeixinLazyImgSrc(temp)
   temp.querySelectorAll('script, iframe, object, embed').forEach((n) => n.remove())
   temp.querySelectorAll('[onclick], [onload], [onerror]').forEach((n) => {
     n.removeAttribute('onclick'); n.removeAttribute('onload'); n.removeAttribute('onerror')
@@ -199,6 +226,10 @@ function extractContent() {
     doc.querySelectorAll('[onclick], [onload], [onerror]').forEach((n) => {
       n.removeAttribute('onclick'); n.removeAttribute('onload'); n.removeAttribute('onerror')
     })
+    if (isWeixinMp) {
+      const jsRoot = doc.querySelector('#js_content')
+      if (jsRoot) rewriteWeixinLazyImgSrc(jsRoot)
+    }
     fullPageHtml = doc.outerHTML.slice(0, 3000000)
   } catch (_) {}
   return {
@@ -211,6 +242,96 @@ function extractContent() {
     inlineStyles,
     url: window.location.href,
   }
+}
+
+/**
+ * 页面内执行：收集正文区域 img 的绝对 URL（微信优先 #js_content）。
+ * 时间：2026-03-14；理由：微信 CDN 跨域；方法：已懒加载时优先 src（含 tp=webp 等与 innerHTML 一致），否则 data-src
+ */
+function collectArticleImageUrlsForInlining() {
+  const href = window.location.href || ''
+  const roots = []
+  if (/mp\.weixin\.qq\.com/.test(href)) {
+    const js = document.querySelector('#js_content')
+    if (js) roots.push(js)
+  }
+  if (!roots.length) {
+    const el =
+      document.querySelector('article') ||
+      document.querySelector('main') ||
+      document.querySelector('[role="main"]') ||
+      document.querySelector('#content') ||
+      document.body
+    if (el) roots.push(el)
+  }
+  const seen = new Set()
+  const urls = []
+  for (const root of roots) {
+    try {
+      root.querySelectorAll('img').forEach((img) => {
+        const srcAttr = (img.getAttribute('src') || '').trim()
+        let raw = ''
+        if (/^https?:\/\//i.test(srcAttr) && !srcAttr.toLowerCase().startsWith('data:')) {
+          raw = srcAttr
+        } else {
+          raw =
+            (img.getAttribute('data-src') || '').trim() ||
+            (img.getAttribute('data-original') || '').trim() ||
+            srcAttr ||
+            ''
+        }
+        if (!raw || String(raw).startsWith('data:')) {
+          const cs = img.currentSrc || ''
+          if (cs && !String(cs).startsWith('data:') && /^https?:\/\//i.test(cs)) raw = cs
+        }
+        if (!raw || String(raw).startsWith('data:')) return
+        try {
+          const abs = new URL(raw, location.href).href
+          if (seen.has(abs)) return
+          seen.add(abs)
+          if (/\.svg(\?|$)/i.test(abs)) return
+          urls.push(abs)
+        } catch (_) {}
+      })
+    } catch (_) {}
+  }
+  return urls
+}
+
+/** Service Worker：用扩展权限拉取图片（带 Referer/Cookie），转 data URL */
+async function fetchImagesViaExtension(absUrls, pageUrl) {
+  const referer = /mp\.weixin\.qq\.com/.test(pageUrl || '') ? 'https://mp.weixin.qq.com/' : pageUrl || ''
+  const ua =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+  const out = {}
+  const maxN = 40
+  const maxBytes = 8 * 1024 * 1024
+  const slice = (absUrls || []).slice(0, maxN)
+  for (const u of slice) {
+    if (!u || u.startsWith('data:')) continue
+    try {
+      const cookieList = await chrome.cookies.getAll({ url: u })
+      const cookieStr = cookieList.map((c) => `${c.name}=${c.value}`).join('; ')
+      const headers = { Referer: referer, 'User-Agent': ua }
+      if (cookieStr) headers.Cookie = cookieStr
+      const r = await fetch(u, { headers })
+      if (!r.ok) continue
+      const blob = await r.blob()
+      if (!blob || blob.size > maxBytes) continue
+      const ct = (blob.type && blob.type.startsWith('image/')) ? blob.type : 'image/jpeg'
+      const buf = await blob.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      const chunkSize = 8192
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length))
+        binary += String.fromCharCode.apply(null, chunk)
+      }
+      const b64 = btoa(binary)
+      out[u] = `data:${ct};base64,${b64}`
+    } catch (_) {}
+  }
+  return out
 }
 
 const MAX_SCREENSHOTS = 30
@@ -445,6 +566,21 @@ async function runDomExtraction(tabId, url, createdByUs, needLoad, opts = {}) {
     data = results?.[0]?.result
   }
 
+  // 时间：2026-03-14；理由：微信等站图片禁止外链；方法：关 tab 前在 SW 内 fetch + Cookie/Referer，返回 inlineImageMap
+  if (opts.inlineImages && data && data.html) {
+    try {
+      const [imgRes] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: collectArticleImageUrlsForInlining,
+      })
+      const urls = imgRes?.result || []
+      if (urls.length) {
+        const map = await fetchImagesViaExtension(urls, url)
+        if (map && Object.keys(map).length) data.inlineImageMap = map
+      }
+    } catch (_) {}
+  }
+
   // Amazon：对指定位置截图（主图、价格、产品详情等）
   if (data && isAmazon) {
     const screenshots = await runAmazonScreenshots(tabId)
@@ -505,7 +641,7 @@ async function runAmazonScreenshots(tabId) {
 
 /** 主流程：获取或创建 tab，执行提取 */
 async function doFetch(url, opts) {
-  const { postMessage, requestId, apiBase } = opts
+  const { postMessage, requestId, apiBase, inlineImages } = opts
   const isWeread = /weread\.qq\.com/.test(url)
   const isFeishu = /feishu\.cn|feishubase\.com/.test(url)
   let tabId = null
@@ -561,7 +697,7 @@ async function doFetch(url, opts) {
       if (navigated) await new Promise((r) => setTimeout(r, 3000))
       data = await fetchWereadScreenshot(url, createdByUs, tabId)
     } else {
-      const domOpts = isFeishu ? { useScrollExtract: true } : {}
+      const domOpts = isFeishu ? { useScrollExtract: true, inlineImages } : { inlineImages }
       data = await runDomExtraction(tabId, url, createdByUs, needLoad, domOpts)
     }
 
@@ -683,7 +819,8 @@ chrome.runtime.onConnect.addListener((port) => {
     }, OVERALL_TIMEOUT_MS)
 
     const apiBase = msg.apiBase || ''
-    doFetch(url, { postMessage, requestId, apiBase }).catch(() => {
+    const inlineImages = !!msg.inlineImages
+    doFetch(url, { postMessage, requestId, apiBase, inlineImages }).catch(() => {
       postMessage({ type: 'HOU_CLI_FETCH_RESULT', requestId, success: false, error: '提取失败' })
     })
   })
@@ -727,7 +864,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }, OVERALL_TIMEOUT_MS)
 
   const apiBase = msg.apiBase || ''
-  doFetch(url, { postMessage, requestId, apiBase }).catch(() => {
+  const inlineImages = !!msg.inlineImages
+  doFetch(url, { postMessage, requestId, apiBase, inlineImages }).catch(() => {
     postMessage({ success: false, error: '提取失败' })
   })
 
