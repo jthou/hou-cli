@@ -8,3 +8,5 @@ def test_chat_prompt_requires_search_before_financial_claims():
     assert "时效与事实检索" in CHAT_SYSTEM_PROMPT
     assert "google_search" in CHAT_SYSTEM_PROMPT
     assert "禁止" in CHAT_SYSTEM_PROMPT and "训练记忆" in CHAT_SYSTEM_PROMPT
+    assert "多源信息与引用展示" in CHAT_SYSTEM_PROMPT
+    assert "参考资料" in CHAT_SYSTEM_PROMPT

@@ -8,8 +8,11 @@ export default function ModelSelector({
   providers,
   models = [],
   loading = false,
+  /** 时间：2026-03-13；理由：深度思考开启时禁用自选模型；方法与 loading 合并 */
+  disabled = false,
   className = '',
 }) {
+  const selectDisabled = loading || disabled
   const selectedProvider =
     providers.find((p) => p.models?.some((m) => m.value === value))?.id ?? providers[0]?.id ?? ''
   const selectedProviderObj = providers.find((p) => p.id === selectedProvider)
@@ -40,7 +43,7 @@ export default function ModelSelector({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className={selectClass}
-          disabled={loading}
+          disabled={selectDisabled}
         >
           {flatModels.map((m) => (
             <option key={m.value} value={m.value}>
@@ -59,7 +62,7 @@ export default function ModelSelector({
         value={selectedProvider}
         onChange={handleProviderChange}
         className={selectClass}
-        disabled={loading}
+        disabled={selectDisabled}
       >
         {providers.map((p) => (
           <option key={p.id} value={p.id}>
@@ -72,7 +75,7 @@ export default function ModelSelector({
           value={value}
           onChange={handleModelChange}
           className={selectClass}
-          disabled={loading}
+          disabled={selectDisabled}
         >
           {modelsForProvider.map((m) => (
             <option key={m.value} value={m.value}>

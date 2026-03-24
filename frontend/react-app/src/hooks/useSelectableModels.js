@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react'
  *   providers: Array<{id: string, label: string, models: Array<{value: string, label: string}>}>,
  *   vision_providers: Array<{id: string, label: string, models: Array<{value: string, label: string}>}>,
  *   vision_default: string,
+ *   reasoningModel: string,
  *   loading: boolean
  * }}
  */
@@ -18,6 +19,7 @@ export function useSelectableModels(options = {}) {
   const [providers, setProviders] = useState([])
   const [vision_providers, setVisionProviders] = useState([])
   const [vision_default, setVisionDefault] = useState('')
+  const [reasoningModel, setReasoningModel] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export function useSelectableModels(options = {}) {
           const vp = d.vision_providers
           if (vp?.providers) setVisionProviders(vp.providers)
           if (vp?.default) setVisionDefault(vp.default)
+          if (typeof d.reasoning_model === 'string') setReasoningModel(d.reasoning_model)
         }
       })
       .catch(() => {
@@ -44,6 +47,7 @@ export function useSelectableModels(options = {}) {
           setProviders([])
           setVisionProviders([])
           setVisionDefault('')
+          setReasoningModel('')
         }
       })
       .finally(() => {
@@ -52,5 +56,13 @@ export function useSelectableModels(options = {}) {
     return () => { cancelled = true }
   }, [])
 
-  return { models, defaultModel, providers, vision_providers, vision_default, loading }
+  return {
+    models,
+    defaultModel,
+    providers,
+    vision_providers,
+    vision_default,
+    reasoningModel,
+    loading,
+  }
 }

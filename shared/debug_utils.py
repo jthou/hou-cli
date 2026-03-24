@@ -2,7 +2,9 @@
 import os
 import json
 import logging
-from typing import Optional, Any, Dict
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Optional, Any, Dict, Iterator, TextIO
 from rich.console import Console
 from rich.panel import Panel
 from shared.config import Config
@@ -10,6 +12,27 @@ from shared.config import Config
 config = Config()
 console = Console()
 logger = logging.getLogger(__name__)
+
+# shared/ 的父目录即仓库根（用于 .cursor/debug.log，替代硬编码机器路径）
+_REPO_ROOT_FOR_CURSOR_LOG = Path(__file__).resolve().parent.parent
+
+
+@contextmanager
+def cursor_agent_debug_log_append() -> Iterator[TextIO]:
+    """
+    以追加方式打开仓库根下 .cursor/debug.log（供编排 NDJSON 调试）。
+
+    时间：2026-03-23；理由：硬编码 /home/robo/justin/hou-cli 在 macOS 等环境必现 Errno 2；
+    方法：Path(__file__).parent.parent / .cursor / debug.log，自动 mkdir；可用 CURSOR_AGENT_DEBUG_LOG 覆盖为绝对路径。
+    """
+    override = (os.getenv("CURSOR_AGENT_DEBUG_LOG") or "").strip()
+    p = Path(override) if override else _REPO_ROOT_FOR_CURSOR_LOG / ".cursor" / "debug.log"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    f = open(p, "a", encoding="utf-8")
+    try:
+        yield f
+    finally:
+        f.close()
 
 
 def get_debug_log_path() -> Optional[str]:

@@ -32,7 +32,22 @@ def temp_db():
 
 class TestTaskQueueDB:
     """任务队列数据库测试类"""
-    
+
+    def test_tasks_fts_uses_fts5_module(self, temp_db):
+        """时间：2026-03-13；理由：缺 USING fts5 时迁移报 near \"(\": syntax error；方法：校验 sqlite_master.sql"""
+        conn = sqlite3.connect(str(temp_db.db_path))
+        try:
+            has_fts = conn.execute("SELECT sqlite_compileoption_used('ENABLE_FTS5')").fetchone()[0] == 1
+            if not has_fts:
+                pytest.skip("SQLite 未启用 FTS5")
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks_fts'"
+            ).fetchone()
+            assert row is not None, "tasks_fts 应已由 _migrate_tasks_fts 创建"
+            assert "USING fts5" in (row[0] or ""), row[0]
+        finally:
+            conn.close()
+
     def test_create_task(self, temp_db):
         """测试创建任务"""
         task_id = temp_db.create_task(

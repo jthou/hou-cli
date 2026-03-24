@@ -6,6 +6,20 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# 时间：2026-03-13；理由：与 env.example 一致，避免未配置或空串时误用历史示例中的 Kimi；方法：模块级常量 + _env_model_nonempty
+DEFAULT_CHAT_MODEL = "qwen3-max"
+DEFAULT_CODE_MODEL = "deepseek-coder"
+DEFAULT_REASONING_MODEL = "qwen3-max"
+
+
+def _env_model_nonempty(env_key: str, default: str) -> str:
+    """环境变量中的模型名：未设置或仅空白时返回 default（os.getenv 的 default 无法区分「未设置」与「空串」）。"""
+    raw = os.getenv(env_key)
+    if raw is None:
+        return default
+    stripped = raw.strip()
+    return stripped if stripped else default
+
 
 @dataclass
 class ModelConfig:
@@ -156,7 +170,7 @@ class ModelConfigManager:
         Returns:
             对话模型名称
         """
-        return os.getenv("CHAT_MODEL", "qwen3-max")
+        return _env_model_nonempty("CHAT_MODEL", DEFAULT_CHAT_MODEL)
     
     def get_code_model(self) -> str:
         """
@@ -165,7 +179,7 @@ class ModelConfigManager:
         Returns:
             编码模型名称
         """
-        return os.getenv("CODE_MODEL", "deepseek-coder")
+        return _env_model_nonempty("CODE_MODEL", DEFAULT_CODE_MODEL)
     
     def get_reasoning_model(self) -> str:
         """
@@ -174,7 +188,7 @@ class ModelConfigManager:
         Returns:
             推理模型名称
         """
-        return os.getenv("REASONING_MODEL", "qwen3-max")
+        return _env_model_nonempty("REASONING_MODEL", DEFAULT_REASONING_MODEL)
     
     def get_model_config_by_type(self, model_type: str) -> ModelConfig:
         """

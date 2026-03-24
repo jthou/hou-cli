@@ -36,7 +36,27 @@ class ChatRequest(BaseModel):
     current_article: Optional[str] = None  # 写文章时右侧草稿，会注入对话上下文并持久化
     context_type: Optional[str] = None  # 建新会话时的类型，如 article_writing；无 session_id 时生效
     model: Optional[str] = None  # 用户指定模型：chat/code/reasoning 或具体模型名；不传则智能选择
+    # 时间：2026-03-13；理由：通用对话「深度思考」开关；方法：True 时强制 context.model=reasoning（等同 REASONING_MODEL），优先于下方 model 字段
+    deep_thinking: bool = False
     regenerate_from_message_id: Optional[str] = None  # 重新回答：指定用户消息 ID，删除其后内容并重新生成
+
+
+def _build_chat_context(request: ChatRequest) -> dict:
+    """从请求构造编排器 context（session、类型、模型覆盖、再生）。"""
+    context: dict = {}
+    if request.session_id:
+        context["session_id"] = request.session_id
+    if request.context_type:
+        context["context_type"] = request.context_type
+    if request.deep_thinking:
+        context["model"] = "reasoning"
+        # 时间：2026-03-14；理由：编排器内工具元数据/model_switcher 需识别深度思考；方法与 model 并行传递
+        context["deep_thinking"] = True
+    elif request.model and request.model.strip():
+        context["model"] = request.model.strip()
+    if request.regenerate_from_message_id:
+        context["regenerate_from_message_id"] = request.regenerate_from_message_id
+    return context
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
@@ -51,13 +71,7 @@ async def chat(request: ChatRequest):
             }
         )
         orchestrator = get_orchestrator()
-        context = {}
-        if request.session_id:
-            context["session_id"] = request.session_id
-        if request.context_type:
-            context["context_type"] = request.context_type
-        if request.model and request.model.strip():
-            context["model"] = request.model.strip()
+        context = _build_chat_context(request)
         # 写文章：保存右侧草稿，供本次及后续轮次注入上下文
         if request.session_id and request.current_article is not None:
             orchestrator.context_manager.set_current_article(
@@ -110,22 +124,15 @@ async def chat_stream(request: ChatRequest):
         "chat_stream路由被调用",
         data={
             "message_preview": request.message[:50] if request.message else None,
-            "session_id": request.session_id
+            "session_id": request.session_id,
+            "deep_thinking": request.deep_thinking,
         }
     )
     
     async def generate():
         try:
             orchestrator = get_orchestrator()
-            context = {}
-            if request.session_id:
-                context["session_id"] = request.session_id
-            if request.context_type:
-                context["context_type"] = request.context_type
-            if request.model and request.model.strip():
-                context["model"] = request.model.strip()
-            if request.regenerate_from_message_id:
-                context["regenerate_from_message_id"] = request.regenerate_from_message_id
+            context = _build_chat_context(request)
             # 写文章：保存右侧草稿供流式分支注入上下文（与 POST /chat 一致）
             if request.session_id and request.current_article is not None:
                 orchestrator.context_manager.set_current_article(

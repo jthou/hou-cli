@@ -235,3 +235,80 @@ class TestChatRoutes:
             assert "![生成的图片]" in content_str
             assert img_b64 in content_str
 
+    def test_chat_stream_deep_thinking_sets_reasoning_model(self, client):
+        """深度思考：context.model 为 reasoning（编排器解析为 REASONING_MODEL）"""
+
+        async def mock_stream(task, context=None):
+            assert context.get("model") == "reasoning"
+            yield "ok"
+
+        with patch("backend.api.chat_routes.get_orchestrator") as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.stream_process = mock_stream
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post(
+                "/api/chat/stream",
+                json={"message": "综合检索并给结论", "deep_thinking": True},
+            )
+            assert response.status_code == 200
+            content = b""
+            for chunk in response.iter_bytes():
+                content += chunk
+            assert b"ok" in content
+
+    def test_chat_stream_deep_thinking_overrides_explicit_model(self, client):
+        """深度思考优先于请求体中的 model 字段"""
+
+        async def mock_stream(task, context=None):
+            assert context.get("model") == "reasoning"
+            yield "x"
+
+        with patch("backend.api.chat_routes.get_orchestrator") as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.stream_process = mock_stream
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post(
+                "/api/chat/stream",
+                json={
+                    "message": "你好",
+                    "model": "qwen3-max",
+                    "deep_thinking": True,
+                },
+            )
+            assert response.status_code == 200
+            for chunk in response.iter_bytes():
+                pass
+
+    def test_chat_endpoint_deep_thinking(self, client):
+        with patch("backend.api.chat_routes.get_orchestrator") as mock_get_orch:
+            mock_orch = MagicMock()
+            mock_orch.process = AsyncMock(return_value="r")
+            mock_get_orch.return_value = mock_orch
+
+            response = client.post(
+                "/api/chat",
+                json={"message": "你好", "deep_thinking": True},
+            )
+            assert response.status_code == 200
+            assert mock_orch.process.call_args[1]["context"]["model"] == "reasoning"
+
+    def test_chat_context_deep_thinking_sets_flag(self):
+        """深度思考：context 含 deep_thinking，供编排器跳过工具切模型"""
+        from backend.api.chat_routes import _build_chat_context, ChatRequest
+
+        ctx = _build_chat_context(ChatRequest(message="hi", deep_thinking=True))
+        assert ctx.get("model") == "reasoning"
+        assert ctx.get("deep_thinking") is True
+
+    def test_selectable_models_includes_reasoning_model(self, client):
+        """GET /api/models/selectable 含 reasoning_model，供深度思考展示"""
+        response = client.get("/api/models/selectable")
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("success") is True
+        assert "reasoning_model" in data
+        assert isinstance(data["reasoning_model"], str)
+        assert len(data["reasoning_model"].strip()) > 0
+

@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, Callable
 from backend.core.agent.skills.base import Skill, SkillResult
 from backend.core.agent.tools.registry import ToolRegistry
 from backend.services.llm.llm_service import LLMService
+from backend.services.llm.model_config import get_model_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +120,12 @@ class SkillExecutor:
 """
         
         try:
+            # 时间：2026-03-13；理由：与编排器 REASONING_MODEL 默认一致（Qwen）；方法：用 get_reasoning_model 替代硬编码 Kimi
+            _rm = get_model_config_manager().get_reasoning_model()
             response = await self.llm_service.chat(
                 system_prompt="你是一个表达式求值专家。请根据上下文求值表达式，返回 JSON 格式的结果。确保结果类型正确（布尔值、数字、字符串等）。",
                 user_prompt=prompt,
-                model='bailian-kimi-k2-thinking'
+                model=_rm,
             )
             
             # 解析响应
@@ -1481,7 +1484,7 @@ class SkillExecutor:
         
         # 4. 调用 LLM 生成代码
         # 优先从 inputs 中获取（标准格式），如果没有则从 step 中获取（向后兼容）
-        model = inputs.get('model') or step.get('model', 'bailian-kimi-k2-thinking')
+        model = inputs.get('model') or step.get('model') or get_model_config_manager().get_reasoning_model()
         logger.info(f"🎯 选择代码生成模型: {model}")
 
         # 先设置模型，然后调用 chat

@@ -1,7 +1,7 @@
 /**
  * 通用对话 - 可调用全部工具，支持会话持久化、参考块（与工作助手、写作助手设计一致）
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import ChatInput from '../components/ChatInput'
@@ -22,6 +22,8 @@ import ContextSelectionPanel from '../components/ContextSelectionPanel'
 
 const DEFAULT_SESSION_TYPE = 'general_chat'
 const DEFAULT_STORAGE_KEY = 'general_chat_selected_session'
+/** 时间：2026-03-13；理由：深度思考开关跨刷新记忆；方法：sessionStorage */
+const DEEP_THINKING_STORAGE_KEY = 'general_chat_deep_thinking'
 
 export default function GeneralChat({
   title = '通用对话',
@@ -33,7 +35,13 @@ export default function GeneralChat({
   const location = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
-  const { providers, models: selectableModels, defaultModel, loading: modelsLoading } = useSelectableModels()
+  const {
+    providers,
+    models: selectableModels,
+    defaultModel,
+    loading: modelsLoading,
+    reasoningModel,
+  } = useSelectableModels()
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState(() => {
@@ -52,6 +60,13 @@ export default function GeneralChat({
   /** 时间：2026-03-13；理由：展示混合历史注入；方法：解析 __CTX_META__，与编排 hybrid_history 对齐 */
   const [contextSelectionMeta, setContextSelectionMeta] = useState(null)
   const [selectedModel, setSelectedModel] = useState('')
+  const [deepThinking, setDeepThinking] = useState(() => {
+    try {
+      return sessionStorage.getItem(DEEP_THINKING_STORAGE_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [referencePanelOpen, setReferencePanelOpen] = useState(false)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
@@ -79,6 +94,22 @@ export default function GeneralChat({
     setReferencePanelOpen(true)
     handleAddReferenceBlock()
   }
+
+  const setDeepThinkingPersist = useCallback((next) => {
+    setDeepThinking(next)
+    try {
+      sessionStorage.setItem(DEEP_THINKING_STORAGE_KEY, next ? '1' : '0')
+    } catch (_) {}
+  }, [])
+
+  /** 时间：2026-03-13；理由：深度思考禁选下拉时需展示后端解析的 REASONING_MODEL；方法：/api/models/selectable.reasoning_model + 下拉列表 label */
+  const reasoningModelDisplay = useMemo(() => {
+    if (modelsLoading && !reasoningModel) return '加载中…'
+    if (!reasoningModel) return '（未配置 REASONING_MODEL）'
+    const hit = selectableModels.find((m) => m.value === reasoningModel)
+    if (hit?.label && hit.label !== reasoningModel) return `${hit.label}（${reasoningModel}）`
+    return reasoningModel
+  }, [reasoningModel, selectableModels, modelsLoading])
 
   const handleSaveSettings = async () => {
     if (!selectedSessionId || settingsSaving) return
@@ -359,7 +390,8 @@ export default function GeneralChat({
           session_id: selectedSessionId,
           context_type: 'general_chat',
           regenerate_from_message_id: messageId,
-          ...(selectedModel ? { model: selectedModel } : {}),
+          deep_thinking: deepThinking,
+          ...(selectedModel && !deepThinking ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
       })
@@ -546,7 +578,8 @@ export default function GeneralChat({
           message: messageForModel,
           session_id: sessionId,
           context_type: 'general_chat',
-          ...(selectedModel ? { model: selectedModel } : {}),
+          deep_thinking: deepThinking,
+          ...(selectedModel && !deepThinking ? { model: selectedModel } : {}),
         }),
         signal: ac.signal,
       })
@@ -909,7 +942,7 @@ export default function GeneralChat({
             )}
             {!detailLoading && messages.length === 0 && !streamingContent && (
               <div className="text-center py-12 text-muted text-sm">
-                输入消息开始对话，可调用搜索、浏览器、下载等工具。可在下方选择模型。
+                输入消息开始对话，可调用搜索、浏览器、下载等工具。复杂综合任务可勾选「深度思考」（使用 REASONING_MODEL）。
               </div>
             )}
           {messages.map((msg, i) => {
@@ -1128,14 +1161,35 @@ export default function GeneralChat({
               </div>
             )}
           </div>
-          <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">
-            <ModelSelector
-              value={selectedModel}
-              onChange={setSelectedModel}
-              providers={providers}
-              models={selectableModels}
-              loading={modelsLoading}
-            />
+          <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 py-2 border-t border-border bg-surface/50">
+            <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer shrink-0" title="开启后本轮强制使用环境变量中的推理模型（REASONING_MODEL），适合多工具、多来源综合任务">
+              <input
+                type="checkbox"
+                checked={deepThinking}
+                onChange={(e) => setDeepThinkingPersist(e.target.checked)}
+                className="rounded border-border"
+              />
+              <span>深度思考</span>
+            </label>
+            {deepThinking ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs min-h-[2.25rem]">
+                <span className="text-muted shrink-0">当前模型</span>
+                <span
+                  className="text-fg font-medium truncate max-w-[min(100%,28rem)]"
+                  title={reasoningModel || 'REASONING_MODEL'}
+                >
+                  {reasoningModelDisplay}
+                </span>
+              </div>
+            ) : (
+              <ModelSelector
+                value={selectedModel}
+                onChange={setSelectedModel}
+                providers={providers}
+                models={selectableModels}
+                loading={modelsLoading}
+              />
+            )}
             {loading && (
               <button
                 type="button"

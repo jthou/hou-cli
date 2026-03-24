@@ -2,6 +2,8 @@
 import os
 from fastapi import APIRouter
 
+from backend.services.llm.model_config import get_model_config_manager
+
 router = APIRouter()
 
 # Agent/组件 -> 模型映射（与 orchestrator、browser_tool 等实际使用一致）
@@ -73,10 +75,12 @@ def _get_default_llm_model() -> str:
 def _resolve_agent_models() -> list:
     """解析每个 agent 实际使用的模型"""
     default_llm = _get_default_llm_model()
+    _m = get_model_config_manager()
+    # 时间：2026-03-13；理由：与 ModelConfigManager 一致（含 REASONING_MODEL 空串→qwen3-max）；方法：统一走 get_*_model
     key_to_model = {
-        "CHAT_MODEL": os.getenv("CHAT_MODEL", "qwen3-max"),
-        "CODE_MODEL": os.getenv("CODE_MODEL", "qwen3-coder-plus-2025-09-23"),
-        "REASONING_MODEL": os.getenv("REASONING_MODEL", "qwen3-max"),
+        "CHAT_MODEL": _m.get_chat_model(),
+        "CODE_MODEL": _m.get_code_model(),
+        "REASONING_MODEL": _m.get_reasoning_model(),
         "DEEPSEEK_MODEL": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "BAILIAN_MODEL": os.getenv("BAILIAN_MODEL", "qwen3-max"),
         "TURBOGATEWAY_MODEL": os.getenv("TURBOGATEWAY_MODEL", "gpt-5"),
@@ -131,10 +135,11 @@ async def get_model_config_audit():
     result["agent_model_mapping"] = _resolve_agent_models()
 
     # 用户可选模型（模型选择下拉使用的配置）
+    _sel = get_model_config_manager()
     result["model_selection"] = [
-        {"key": "CHAT_MODEL", "label": "对话模型", "value": os.getenv("CHAT_MODEL", "qwen3-max")},
-        {"key": "CODE_MODEL", "label": "编码模型", "value": os.getenv("CODE_MODEL", "qwen3-coder-plus-2025-09-23")},
-        {"key": "REASONING_MODEL", "label": "推理模型", "value": os.getenv("REASONING_MODEL", "qwen3-max")},
+        {"key": "CHAT_MODEL", "label": "对话模型", "value": _sel.get_chat_model()},
+        {"key": "CODE_MODEL", "label": "编码模型", "value": _sel.get_code_model()},
+        {"key": "REASONING_MODEL", "label": "推理模型", "value": _sel.get_reasoning_model()},
     ]
 
     return result
@@ -246,9 +251,10 @@ async def get_selectable_models():
     """
     from backend.services.llm.model_registry import ModelRegistry
 
-    chat_model = os.getenv("CHAT_MODEL", "qwen3-max")
-    code_model = os.getenv("CODE_MODEL", "qwen3-coder-plus-2025-09-23")
-    reasoning_model = os.getenv("REASONING_MODEL", "qwen3-max")
+    _m = get_model_config_manager()
+    chat_model = _m.get_chat_model()
+    code_model = _m.get_code_model()
+    reasoning_model = _m.get_reasoning_model()
     configured_vals = {chat_model, code_model, reasoning_model} - {""}
 
     # 使用完整模型列表，确保配置的模型在列表中（若不在则追加）
@@ -294,6 +300,8 @@ async def get_selectable_models():
         "vision_providers": vision_providers,
         "default_model": chat_model,
         "article_writing_default_model": "qwen3-max",  # 写作助手固定默认
+        # 时间：2026-03-13；理由：通用对话「深度思考」禁选下拉时需展示实际 REASONING_MODEL；方法与 get_reasoning_model() 一致
+        "reasoning_model": reasoning_model,
     }
 
 

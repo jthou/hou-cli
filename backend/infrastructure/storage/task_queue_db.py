@@ -2,7 +2,7 @@
 import sqlite3
 import json
 import uuid
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Set
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from enum import Enum
@@ -185,12 +185,114 @@ class TaskQueueDB:
             if "last_error" not in sched_cols:
                 cursor.execute("ALTER TABLE scheduled_tasks ADD COLUMN last_error TEXT")
             conn.commit()
+
+            # FTS5：已完成任务全文索引（general_chat 上下文检索）
+            self._migrate_tasks_fts(conn)
         except Exception as e:
             debug_log(f"初始化任务队列数据库失败: {e}", level="error")
             conn.rollback()
             raise
         finally:
             conn.close()
+
+    def _migrate_tasks_fts(self, conn: sqlite3.Connection) -> None:
+        """
+        创建 tasks_fts（FTS5）及同步触发器；必要时全量回填。
+
+        时间：2026-03-14；理由：用户要求 SQLite FTS5 检索已完成任务；方法：unicode61 分词 +
+        body=名称+类型+消息；INSERT/UPDATE/DELETE 触发器维护；启动时计数不一致则 rebuild。
+        时间：2026-03-23；理由：macOS 等环境 SQLite 未编译 JSON1 时 json_extract 在触发器中报 near "(": syntax error；
+        方法：不在 SQL 中解析 result JSON（summary 仍可由 list_tasks/关键词路径命中）。
+        明确兜底：未编译 ENABLE_FTS5 时跳过（search_completed_tasks_fts 返回空，由上层回退关键词排序）。
+        """
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT sqlite_compileoption_used('ENABLE_FTS5')")
+            if cursor.fetchone()[0] != 1:
+                debug_log("SQLite 未启用 FTS5，跳过 tasks_fts 迁移", level="warning")
+                return
+
+            # 时间：2026-03-13；理由：无 USING fts5 时 SQLite 报 near "(": syntax error；方法：标准 fts5 建表语法
+            cursor.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+                    task_id UNINDEXED,
+                    body,
+                    tokenize = 'unicode61'
+                )
+                """
+            )
+
+            for name in ("trg_tasks_fts_ai", "trg_tasks_fts_au", "trg_tasks_fts_ad"):
+                cursor.execute(f"DROP TRIGGER IF EXISTS {name}")
+
+            # 仅拼接文本列：避免 json_extract（需 JSON1）；无 JSON1 的 libsqlite 会整段触发器解析失败
+            _fts_body_sql = (
+                "trim("
+                "COALESCE(NEW.task_name, '') || ' ' || COALESCE(NEW.task_type, '') || ' ' || "
+                "COALESCE(NEW.message, '')"
+                ")"
+            )
+            cursor.execute(
+                f"""
+                CREATE TRIGGER trg_tasks_fts_ai AFTER INSERT ON tasks BEGIN
+                  INSERT INTO tasks_fts(task_id, body) VALUES (
+                    NEW.task_id,
+                    {_fts_body_sql}
+                  );
+                END
+                """
+            )
+            cursor.execute(
+                f"""
+                CREATE TRIGGER trg_tasks_fts_au AFTER UPDATE ON tasks BEGIN
+                  DELETE FROM tasks_fts WHERE task_id = NEW.task_id;
+                  INSERT INTO tasks_fts(task_id, body) VALUES (
+                    NEW.task_id,
+                    {_fts_body_sql}
+                  );
+                END
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TRIGGER trg_tasks_fts_ad AFTER DELETE ON tasks BEGIN
+                  DELETE FROM tasks_fts WHERE task_id = OLD.task_id;
+                END
+                """
+            )
+
+            cursor.execute("SELECT COUNT(*) FROM tasks_fts")
+            n_fts = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            n_tasks = cursor.fetchone()[0]
+            if n_fts == 0 and n_tasks > 0:
+                self._rebuild_tasks_fts(cursor)
+            elif n_fts != n_tasks:
+                self._rebuild_tasks_fts(cursor)
+
+            cursor.execute("SELECT COUNT(*) FROM tasks_fts")
+            n_fts_final = cursor.fetchone()[0]
+            conn.commit()
+            debug_log(f"tasks_fts 就绪: fts={n_fts_final}, tasks={n_tasks}")
+        except Exception as e:
+            debug_log(f"tasks_fts 迁移失败（将回退关键词检索）: {e}", level="warning")
+            conn.rollback()
+
+    def _rebuild_tasks_fts(self, cursor: sqlite3.Cursor) -> None:
+        """全量重建 FTS 行（与触发器 body 表达式一致）。"""
+        cursor.execute("DELETE FROM tasks_fts")
+        cursor.execute(
+            """
+            INSERT INTO tasks_fts(task_id, body)
+            SELECT task_id,
+              trim(
+                COALESCE(task_name, '') || ' ' || COALESCE(task_type, '') || ' ' ||
+                COALESCE(message, '')
+              )
+            FROM tasks
+            """
+        )
     
     def _get_conn(self):
         """获取数据库连接"""
@@ -1016,6 +1118,102 @@ class TaskQueueDB:
             return []
         finally:
             conn.close()
+
+    def search_completed_tasks_fts(
+        self,
+        query: str,
+        *,
+        limit: int = 15,
+    ) -> List[Dict[str, Any]]:
+        """
+        对已 completed 且未软删除的任务做 FTS5 检索，按 bm25(f) 排序。
+
+        时间：2026-03-14；理由：general_chat 按问题检索已完成任务；方法：fts5_match + MATCH + bm25；
+        无 tasks_fts 或语法错误时返回 []，由调用方回退关键词排序。
+        """
+        from backend.infrastructure.storage.fts5_match import build_fts5_match_query
+
+        mq = build_fts5_match_query(query)
+        if not mq:
+            return []
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    SELECT t.task_id
+                    FROM tasks_fts
+                    INNER JOIN tasks AS t ON t.task_id = tasks_fts.task_id
+                    WHERE tasks_fts MATCH ?
+                      AND t.status = ?
+                      AND (t.deleted_at IS NULL)
+                    ORDER BY bm25(tasks_fts)
+                    LIMIT ?
+                    """,
+                    (mq, TaskStatus.COMPLETED.value, limit),
+                )
+                ids = [r[0] for r in cur.fetchall()]
+            except sqlite3.OperationalError as e:
+                if "no such table" in str(e).lower():
+                    return []
+                debug_log(f"tasks_fts 查询失败: {e}", level="warning")
+                return []
+        finally:
+            conn.close()
+
+        if not ids:
+            return []
+        out: List[Dict[str, Any]] = []
+        for tid in ids:
+            t = self.get_task(tid)
+            if not t:
+                continue
+            rs = ""
+            if t.get("status") == TaskStatus.COMPLETED.value and t.get("result"):
+                rj = t.get("result")
+                if isinstance(rj, dict):
+                    rs = rj.get("summary") or ""
+            out.append(
+                {
+                    "task_id": t["task_id"],
+                    "task_type": t["task_type"],
+                    "task_name": t["task_name"],
+                    "status": t["status"],
+                    "priority": t["priority"],
+                    "worker_id": t.get("worker_id"),
+                    "created_at": t.get("created_at"),
+                    "started_at": t.get("started_at"),
+                    "completed_at": t.get("completed_at"),
+                    "duration": t.get("duration"),
+                    "progress": t.get("progress"),
+                    "message": t.get("message"),
+                    "error": t.get("error"),
+                    "retry_count": t.get("retry_count"),
+                    "result_summary": rs or None,
+                }
+            )
+        return out
+
+    def list_completed_tasks_excluding_ids(
+        self,
+        exclude_ids: Optional[Set[str]],
+        *,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        最近完成的 tasks，排除指定 task_id（用于 FTS 命中不足时按时间补位）。
+
+        时间：2026-03-14；理由：与 FTS 结果合并去重；方法：拉一批 completed 再过滤（规模可控）。
+        """
+        if limit <= 0:
+            return []
+        ex = set(exclude_ids or [])
+        if not ex:
+            return self.list_tasks(status=TaskStatus.COMPLETED, limit=limit, offset=0)
+        batch = self.list_tasks(status=TaskStatus.COMPLETED, limit=min(200, limit * 5), offset=0)
+        out = [t for t in batch if t.get("task_id") not in ex]
+        return out[:limit]
 
     def count_tasks(
         self,

@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 149
+- 后端路由数: 151
 - 前端 fetch 数: 140
 
 ## 后端路由
@@ -86,6 +86,7 @@ GET /api/tests/statistics
 GET /api/tests/status
 GET /api/tools/list
 GET /api/version
+GET /api/web-reader/inline-static/{filename}
 GET /api/wechat-mp/cover-image
 GET /api/wechat-mp/drafts
 GET /api/wechat-mp/drafts/detail
@@ -145,6 +146,7 @@ POST /api/task-queue/tasks/{task_id}/soft-delete
 POST /api/task-queue/upload-input-file
 POST /api/tasks/{task_id}/cancel
 POST /api/tests/run
+POST /api/web-reader/materialize-inline-images
 POST /api/web-reader/ocr
 POST /api/web-reader/summarize
 POST /api/wechat-mp/upload-article-image
@@ -359,6 +361,8 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/tests/run
 - /api/tests/statistics
 - /api/tests/status
+- /api/web-reader/inline-static/{id}
+- /api/web-reader/materialize-inline-images
 - /api/web-reader/ocr
 - /api/wechat-mp/cover-image
 - /api/wikipedia/base-url

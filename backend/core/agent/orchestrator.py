@@ -31,7 +31,7 @@ from backend.core.agent.evaluator import ConversationEvaluator
 from backend.core.agent.skills.registry import SkillRegistry
 from backend.core.agent.skills.executor import SkillExecutor
 from backend.core.agent.skills.base import SkillResult
-from shared.debug_utils import DebugOutput
+from shared.debug_utils import DebugOutput, cursor_agent_debug_log_append
 from backend.core.agent.planning.manager import PlanningManager
 from backend.core.agent.planning.complexity import TaskComplexityAnalyzer
 from backend.core.agent.planning.task_decomposer import TaskDecomposer
@@ -69,6 +69,7 @@ from backend.core.context.hybrid_history import (
     messages_to_llm_turns,
     select_hybrid_chat_messages,
 )
+from backend.core.agent.completed_tasks_prompt import build_completed_tasks_reference_block
 from backend.core.agent.skill_prematch import (
     disable_skill_prematch_for_assistants,
     general_chat_allows_skill_prematch,
@@ -104,6 +105,20 @@ def _select_chat_history_for_llm_stream(
         retrieve_top_k=topk,
     )
     return messages_to_llm_turns(chosen), meta
+
+
+def _skip_tool_recommended_model_switch(context: Optional[Dict]) -> bool:
+    """
+    时间：2026-03-14；理由：深度思考须全程保持 REASONING_MODEL，工具（如 google_search）仅采集数据；方法：为 True 时跳过按工具元数据的切模型
+    用户显式指定 model（含 reasoning 别名）时亦跳过，与既有逻辑一致。
+    """
+    if not context:
+        return False
+    if context.get("deep_thinking"):
+        return True
+    if (context.get("model") or "").strip():
+        return True
+    return False
 
 
 class UnifiedOrchestrator:
@@ -1391,7 +1406,7 @@ class UnifiedOrchestrator:
         
         # #region agent log
         try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:entry","message":"stream_process被调用","data":{"task_length":len(task) if task else 0,"has_context":context is not None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                 f.flush()
         except Exception as log_err:
@@ -1408,7 +1423,7 @@ class UnifiedOrchestrator:
         
         # #region agent log
         try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:before_first_yield","message":"准备yield第一个消息","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                 f.flush()
         except Exception as log_err:
@@ -1419,7 +1434,7 @@ class UnifiedOrchestrator:
         
         # #region agent log
         try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:before_yield_first_msg","message":"准备yield第一个消息内容","data":{"msg_preview":first_msg[:50] if first_msg else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                 f.flush()
         except Exception as log_err:
@@ -1430,7 +1445,7 @@ class UnifiedOrchestrator:
         
         # #region agent log
         try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"orchestrator.py:stream_process:after_first_yield","message":"第一个消息已yield","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                 f.flush()
         except Exception as log_err:
@@ -1505,7 +1520,7 @@ class UnifiedOrchestrator:
             
             # #region agent log
             try:
-                with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                with cursor_agent_debug_log_append() as f:
                     f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:before_complexity_check","message":"准备进行复杂度分析","data":{"use_llm":self.complexity_analyzer.use_llm},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
             except: pass
             # #endregion
@@ -1515,28 +1530,28 @@ class UnifiedOrchestrator:
                 if self.complexity_analyzer.use_llm:
                     # #region agent log
                     try:
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        with cursor_agent_debug_log_append() as f:
                             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:before_is_complex_async","message":"准备调用is_complex_task_async","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                     except: pass
                     # #endregion
                     is_complex = await self.complexity_analyzer.is_complex_task_async(task, history)
                     # #region agent log
                     try:
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        with cursor_agent_debug_log_append() as f:
                             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:after_is_complex_async","message":"is_complex_task_async完成","data":{"is_complex":is_complex},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                     except: pass
                     # #endregion
                 else:
                     # #region agent log
                     try:
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        with cursor_agent_debug_log_append() as f:
                             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:before_is_complex","message":"准备调用is_complex_task","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                     except: pass
                     # #endregion
                     is_complex = self.complexity_analyzer.is_complex_task(task, history)
                     # #region agent log
                     try:
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        with cursor_agent_debug_log_append() as f:
                             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"orchestrator.py:stream_process:after_is_complex","message":"is_complex_task完成","data":{"is_complex":is_complex},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                     except: pass
                     # #endregion
@@ -1694,13 +1709,27 @@ class UnifiedOrchestrator:
             )
             if _ctx_meta_hist:
                 yield StreamMessageBuilder.build_ctx_meta(_ctx_meta_hist)
+            # 时间：2026-03-13；理由：与历史、网搜并列供模型引用；方法：build_completed_tasks_reference_block（见该模块）
+            completed_block = build_completed_tasks_reference_block(current_user_query=task)
+            parts_gc: list = []
             if filtered_history:
                 history_text = "\n".join([
                     f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
                     for msg in filtered_history
                 ])
-                user_prompt = f"以下是历史对话记录：\n{history_text}\n\n当前用户问题：{task}"
-                self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history)})
+                parts_gc.append(f"以下是历史对话记录：\n{history_text}")
+            if completed_block:
+                parts_gc.append(completed_block.rstrip())
+            if parts_gc:
+                user_prompt = "\n\n".join(parts_gc) + f"\n\n当前用户问题：{task}"
+                self.debug.log_orchestrator_step(
+                    "构建用户提示",
+                    {
+                        "has_history": bool(filtered_history),
+                        "history_count": len(filtered_history),
+                        "has_completed_tasks_block": bool(completed_block),
+                    },
+                )
             else:
                 user_prompt = task
                 self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
@@ -1913,7 +1942,7 @@ class UnifiedOrchestrator:
         # 6. 优先尝试匹配技能（集成任务管理和规划更新）
         # #region agent log
         try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"orchestrator.py:stream_process:before_skill_match","message":"准备进行技能匹配","data":{},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
         except: pass
         # #endregion
@@ -1949,7 +1978,7 @@ class UnifiedOrchestrator:
         
         # #region agent log
         try:
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"orchestrator.py:stream_process:after_skill_match","message":"技能匹配完成","data":{"matched":matched_skill is not None,"skill_name":matched_skill.name if matched_skill else None},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
         except: pass
         # #endregion
@@ -2844,7 +2873,7 @@ class UnifiedOrchestrator:
         try:
             import json
             import time
-            with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            with cursor_agent_debug_log_append() as f:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:after_file_search","message":"使用file_search_tool查找文件后","data":{"local_files":local_files,"local_files_count":len(local_files),"skill_name":skill.name},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                 f.flush()
         except: pass
@@ -2859,7 +2888,7 @@ class UnifiedOrchestrator:
                 try:
                     import json
                     import time
-                    with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    with cursor_agent_debug_log_append() as f:
                         f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:single_file","message":"单个文件，设置video_path","data":{"video_path":local_files[0]},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                         f.flush()
                 except: pass
@@ -2874,7 +2903,7 @@ class UnifiedOrchestrator:
                     try:
                         import json
                         import time
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        with cursor_agent_debug_log_append() as f:
                             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:multiple_files","message":"多个文件，设置video_paths","data":{"video_paths":local_files},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                             f.flush()
                     except: pass
@@ -2887,7 +2916,7 @@ class UnifiedOrchestrator:
                     try:
                         import json
                         import time
-                        with open('/home/robo/justin/hou-cli/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        with cursor_agent_debug_log_append() as f:
                             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"orchestrator.py:_extract_skill_parameters:multiple_files_first_only","message":"多个文件但只使用第一个","data":{"video_path":local_files[0],"total_files":len(local_files)},"timestamp":int(time.time()*1000)}, ensure_ascii=False) + '\n')
                             f.flush()
                     except: pass
@@ -3226,8 +3255,8 @@ class UnifiedOrchestrator:
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
                     
                     # ===== 根据工具类型选择模型（新增） =====
-                    # 用户指定 model 时跳过工具推荐切换，保持用户选择
-                    if not (context and context.get("model")):
+                    # 深度思考 / 用户指定 model 时跳过工具推荐切换（google_search 等不应打断推理进程）
+                    if not _skip_tool_recommended_model_switch(context):
                         from backend.core.agent.tools.metadata import tool_metadata_registry
                         from backend.services.llm.model_config import get_model_config_manager
                         
@@ -3482,7 +3511,12 @@ class UnifiedOrchestrator:
                             tool_failure_count += 1
                         
                         # ===== 动态模型切换：根据执行结果分析是否需要切换模型（阶段2） =====
-                        if self.model_switcher and hasattr(self, 'complexity_analyzer') and self.complexity_analyzer:
+                        if (
+                            self.model_switcher
+                            and hasattr(self, 'complexity_analyzer')
+                            and self.complexity_analyzer
+                            and not (context and context.get("deep_thinking"))
+                        ):
                             try:
                                 # 分析执行结果
                                 task_complexity = None
@@ -3868,8 +3902,8 @@ class UnifiedOrchestrator:
                     self.debug.log_orchestrator_step("检测到工具调用", {"count": len(response.tool_calls)})
                     
                     # ===== 根据工具类型选择模型（新增） =====
-                    # 用户指定 model 时跳过工具推荐切换，保持用户选择
-                    if not (context and context.get("model")):
+                    # 深度思考 / 用户指定 model 时跳过工具推荐切换
+                    if not _skip_tool_recommended_model_switch(context):
                         from backend.core.agent.tools.metadata import tool_metadata_registry
                         from backend.services.llm.model_config import get_model_config_manager
                         
