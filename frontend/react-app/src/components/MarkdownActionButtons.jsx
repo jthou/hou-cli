@@ -11,6 +11,8 @@ import {
   snippetForMdWiki,
   snippetForWikitext,
   uploadMediaWikiImageFile,
+  batchUploadMarkdownImagesToMediaWiki,
+  markdownHasUploadableImageUrls,
 } from '../utils/mediawikiPasteImage'
 import { operationFromMwDialogMode } from '../utils/mediawikiWriteOperation'
 import { useToast } from './ToastModal'
@@ -26,6 +28,7 @@ import { useToast } from './ToastModal'
  * @param {React.ReactNode} [props.extra] - 额外按钮（如「同步到公众号草稿」）
  * @param {string} [props.className] - 容器类名
  * @param {string} [props.sourceUrl] - 原文链接（如微信读书 URL），写入 MediaWiki 时自动追加到文末
+ * @param {(nextMarkdown: string) => void} [props.onContentReplace] - 若提供，显示「一键上传全部插图」：上传后写回正文（将 ![](url) 转为 [[File:…]]，与单张预览上传一致）
  */
 export default function MarkdownActionButtons({
   content = '',
@@ -37,6 +40,7 @@ export default function MarkdownActionButtons({
   extra,
   className = '',
   sourceUrl = '',
+  onContentReplace,
 }) {
   const toast = useToast()
   const [mwDialogOpen, setMwDialogOpen] = useState(false)
@@ -50,6 +54,38 @@ export default function MarkdownActionButtons({
   const mwMdTextareaRef = useRef(null)
   const mwWikiTextareaRef = useRef(null)
   const [mwPasteUploading, setMwPasteUploading] = useState(false)
+  const [bulkWikiImgBusy, setBulkWikiImgBusy] = useState(false)
+  const [bulkWikiImgProgress, setBulkWikiImgProgress] = useState(null)
+
+  const handleBulkUploadPreviewImages = async () => {
+    if (!onContentReplace || bulkWikiImgBusy) return
+    const md = content || ''
+    if (!markdownHasUploadableImageUrls(md)) {
+      toast?.warning?.('正文中没有可上传的网络/本站图片链接（![](https://…）或 ![]( /api/…））')
+      return
+    }
+    setBulkWikiImgBusy(true)
+    setBulkWikiImgProgress(null)
+    try {
+      const { markdown: next, ok, fail, total } = await batchUploadMarkdownImagesToMediaWiki(md, {
+        onProgress: (cur, tot) => setBulkWikiImgProgress({ cur, tot }),
+      })
+      onContentReplace(next)
+      if (fail.length === 0) {
+        toast?.success?.(`已全部上传并替换为 Wiki 插图（共 ${ok} 张）`)
+      } else {
+        toast?.warning?.(
+          `已上传 ${ok}/${total} 张；${fail.length} 张失败（可查看控制台）。失败 URL 仍保留为 Markdown 图片语法。`
+        )
+        console.warn('[batchUploadMarkdownImagesToMediaWiki]', fail)
+      }
+    } catch (e) {
+      toast?.error?.(e?.message || '批量上传失败')
+    } finally {
+      setBulkWikiImgBusy(false)
+      setBulkWikiImgProgress(null)
+    }
+  }
 
   const handleMwPasteImage = async (e, mode) => {
     const file = getClipboardImageFile(e)
@@ -245,6 +281,21 @@ export default function MarkdownActionButtons({
             className="px-4 py-2 rounded-lg bg-accent text-white hover:opacity-90 text-sm"
           >
             写入 MediaWiki
+          </button>
+        )}
+        {showMediaWiki && onContentReplace && (
+          <button
+            type="button"
+            onClick={handleBulkUploadPreviewImages}
+            disabled={bulkWikiImgBusy || !markdownHasUploadableImageUrls(content)}
+            title="将正文中所有网络/本站图片链接上传至 MediaWiki，并把 ![](url) 替换为 [[File:…]]（与预览里逐张上传一致）；再打开「写入 MediaWiki」时 wikitext 会随正文更新"
+            className="px-4 py-2 rounded-lg border border-border text-muted hover:text-fg hover:bg-white/5 text-sm disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {bulkWikiImgBusy && bulkWikiImgProgress
+              ? `上传插图中 ${bulkWikiImgProgress.cur}/${bulkWikiImgProgress.tot}…`
+              : bulkWikiImgBusy
+                ? '上传插图中…'
+                : '一键上传全部插图到 Wiki'}
           </button>
         )}
         {onAddToReference && (

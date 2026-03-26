@@ -19,21 +19,21 @@ describe('mdToHtmlCore', () => {
 
   it('普通段落转 p 标签', () => {
     const html = mdToHtmlCore('hello world')
-    expect(html).toContain('<p>')
+    expect(html).toMatch(/<p\s[^>]*data-md-line/)
     expect(html).toContain('hello world')
     expect(html).toContain('</p>')
   })
 
   it('标题正确解析', () => {
-    expect(mdToHtmlCore('# 一级')).toContain('<h1>')
-    expect(mdToHtmlCore('## 二级')).toContain('<h2>')
-    expect(mdToHtmlCore('### 三级')).toContain('<h3>')
-    expect(mdToHtmlCore('#### 四级')).toContain('<h4>')
+    expect(mdToHtmlCore('# 一级')).toMatch(/<h1\s[^>]*data-md-line/)
+    expect(mdToHtmlCore('## 二级')).toMatch(/<h2\s[^>]*data-md-line/)
+    expect(mdToHtmlCore('### 三级')).toMatch(/<h3\s[^>]*data-md-line/)
+    expect(mdToHtmlCore('#### 四级')).toMatch(/<h4\s[^>]*data-md-line/)
   })
 
   it('1. 开头解析为有序列表而非标题', () => {
     const html = mdToHtmlCore('1. 从"桌面软件"到"云端能力模块"')
-    expect(html).toContain('<ol>')
+    expect(html).toMatch(/<ol\s[^>]*data-md-line/)
     expect(html).toContain('<li>')
     expect(html).not.toContain('<h1>')
     expect(html).not.toContain('<h2>')
@@ -41,7 +41,7 @@ describe('mdToHtmlCore', () => {
 
   it('## 1. 开头解析为标题', () => {
     const html = mdToHtmlCore('## 1. 从"桌面软件"到"云端能力模块"')
-    expect(html).toContain('<h2>')
+    expect(html).toMatch(/<h2\s[^>]*data-md-line/)
     expect(html).toContain('</h2>')
     // marked 会将 " 转义为 &quot;，检查关键内容即可
     expect(html).toMatch(/1\.\s*从.*桌面软件.*到.*云端能力模块/)
@@ -49,7 +49,7 @@ describe('mdToHtmlCore', () => {
 
   it('无序列表', () => {
     const html = mdToHtmlCore('- 项目一\n- 项目二')
-    expect(html).toContain('<ul>')
+    expect(html).toMatch(/<ul\s[^>]*data-md-line/)
     expect(html).toContain('<li>')
     expect(html).toContain('项目一')
     expect(html).toContain('项目二')
@@ -75,7 +75,29 @@ describe('mdToHtmlCore', () => {
 
   it('引用块', () => {
     const html = mdToHtmlCore('> 引用内容')
-    expect(html).toContain('<blockquote>')
+    expect(html).toMatch(/<blockquote\s[^>]*data-md-line/)
+  })
+
+  it('块级 $$ 矩阵经 KaTeX 渲染（多行公式不被 marked 打断）', () => {
+    const md = `$$\n\\begin{bmatrix}1 & 2 \\\\\n3 & 4\\end{bmatrix}\n$$`
+    const html = mdToHtmlCore(md)
+    expect(html).toContain('katex')
+    expect(html).toContain('1')
+    expect(html).toContain('4')
+    expect(html).not.toContain('$$')
+  })
+
+  it('行内 $ 公式经 KaTeX 渲染', () => {
+    const html = mdToHtmlCore('令 $x^2+y^2=1$ 成立。')
+    expect(html).toContain('katex')
+    expect(html).not.toMatch(/\$x\^2/)
+  })
+
+  it('代码块内 $ 不被当作公式', () => {
+    const md = '变量 `$x$` 在代码中。'
+    const html = mdToHtmlCore(md)
+    expect(html).toContain('<code>')
+    expect(html).toContain('$x$')
   })
 })
 
@@ -140,9 +162,9 @@ describe('mdToHtmlCore 与 removeEmptyListItems 集成', () => {
 - 列表二
 `
     const html = mdToHtmlCore(md)
-    expect(html).toContain('<h1>')
+    expect(html).toMatch(/<h1\s[^>]*data-md-line/)
     expect(html).toContain('主标题')
-    expect(html).toContain('<h2>')
+    expect(html).toMatch(/<h2\s[^>]*data-md-line/)
     expect(html).toContain('二级标题')
     expect(html).toContain('列表一')
     expect(html).toContain('列表二')

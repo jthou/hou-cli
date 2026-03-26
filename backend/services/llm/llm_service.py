@@ -5,7 +5,7 @@ import logging
 import time
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
-from openai import AsyncOpenAI, PermissionDeniedError, APIConnectionError
+from openai import AsyncOpenAI, PermissionDeniedError, APIConnectionError, APITimeoutError
 import httpx
 from backend.services.llm.user_facing_error import (
     insufficient_balance_user_message,
@@ -231,7 +231,19 @@ class LLMService:
         self._current_config = config
         
         logger.info(f"客户端已初始化，provider: {self.provider}, model: {self.model}, base_url: {config['base_url']}")
-    
+
+    def _api_network_hint(self) -> str:
+        """连接/超时类日志用，避免百炼等线路误提示 api.deepseek.com。"""
+        try:
+            base = (self._current_config or {}).get("base_url") or "（未知）"
+        except Exception:
+            base = "（未知）"
+        prov = getattr(self, "provider", None) or "（未知）"
+        tail = ""
+        if "deepseek.com" in str(base).lower():
+            tail = " 若走 DeepSeek 官方，请确认可访问该域名。"
+        return f"当前线路 provider={prov}，base_url={base}。{tail}".strip()
+
     def set_model(self, model: str, provider: Optional[str] = None):
         """
         动态设置使用的模型（支持 "平台-模型" 格式）
@@ -395,16 +407,11 @@ class LLMService:
         except Exception as e:
             logger.debug("LLM 审计写入请求记录失败: %s", e)
 
-        # 调试输出：请求信息
-        # 为了满足调试需求，记录完整的请求信息
-        logger.debug(f"LLM Request Details - Model: {self.model}")
-        if system_prompt:
-            logger.debug(f"LLM System Prompt: {system_prompt}")
-        logger.debug(f"LLM User Prompt: {user_prompt}")
-        self.debug.log_llm_request(system_prompt or "", user_prompt or "", self.model)
-        
         # 规范化 messages：content 为数组时，每个块需含 type 字段（2025-03-14：修复 missing field type）
         messages = self._normalize_messages_for_api(messages)
+
+        # 调试输出：与真实 API messages 一致（仅传 messages 时 system_prompt/user_prompt 为空，旧 log 会误显示空）
+        self.debug.log_llm_request_from_messages(messages, self.model)
         
         # 构建请求参数（不人为截断，使用模型上限）
         request_params = {
@@ -541,10 +548,30 @@ class LLMService:
                     # OpenAI SDK 的权限错误（403）：不重试
                     logger.error(f"API 权限不足 (PermissionDeniedError): 模型可能未启用或权限不足: {e}", exc_info=True)
                     raise
+                except APITimeoutError as e:
+                    # APITimeoutError 是 APIConnectionError 子类，须先捕获，否则会误用「仅 DeepSeek」提示
+                    last_error = e
+                    read_t = os.getenv("LLM_READ_TIMEOUT", "60")
+                    hint = (
+                        f"LLM 读取超时（httpx read，环境 LLM_READ_TIMEOUT={read_t}s）。"
+                        f"长文本或慢响应可调大 LLM_READ_TIMEOUT。{self._api_network_hint()}"
+                    )
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        logger.warning(
+                            f"请求超时，等待 {delay:.1f} 秒后重试 "
+                            f"(尝试 {attempt + 1}/{max_retries}): {e}。{hint}",
+                            exc_info=True,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"请求超时，重试次数耗尽: {e}。{hint}", exc_info=True)
+                        raise
                 except APIConnectionError as e:
                     # 连接失败：网络/代理/防火墙问题，可重试
                     last_error = e
-                    hint = "请检查：1) 网络连接；2) 代理/VPN 设置；3) 防火墙是否拦截 api.deepseek.com"
+                    hint = f"请检查网络、代理/VPN、防火墙。{self._api_network_hint()}"
                     if attempt < max_retries - 1:
                         delay = min(base_delay * (2 ** attempt), max_delay)
                         logger.warning(
@@ -837,8 +864,28 @@ class LLMService:
                 pass
             logger.error(f"网络错误: {e}", exc_info=True)
             raise
+        except APITimeoutError as e:
+            read_t = os.getenv("LLM_READ_TIMEOUT", "60")
+            hint = (
+                f"LLM 读取超时（httpx read，LLM_READ_TIMEOUT={read_t}s）。"
+                f"可调大 LLM_READ_TIMEOUT 或 stream_chat 的 timeout 参数。{self._api_network_hint()}"
+            )
+            cause = getattr(e, "__cause__", None)
+            cause_str = f" 底层原因: {type(cause).__name__}: {cause}" if cause else ""
+            try:
+                from backend.services.llm.llm_audit import append_audit
+                append_audit(
+                    "response_error",
+                    self.model,
+                    {"error": str(e), "error_type": "APITimeoutError", "hint": hint, "cause": str(cause) if cause else None},
+                    meta=dict(audit_meta or {}, audit_id=audit_id),
+                )
+            except Exception:
+                pass
+            logger.error(f"API 请求超时: {e}{cause_str}。{hint}", exc_info=True)
+            raise
         except APIConnectionError as e:
-            hint = "请检查：1) 网络连接；2) 代理/VPN 设置；3) 防火墙是否拦截 api.deepseek.com；4) 若在中国大陆，确认可访问 DeepSeek API"
+            hint = f"请检查网络、代理/VPN、防火墙。{self._api_network_hint()}"
             cause = getattr(e, "__cause__", None)
             cause_str = f" 底层原因: {type(cause).__name__}: {cause}" if cause else ""
             try:

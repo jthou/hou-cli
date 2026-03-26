@@ -7,6 +7,7 @@
 import { useEffect, useRef } from 'react'
 import { parseWikiPageTitleFromUrl } from '../config/mediawiki'
 import renderMathInElement from 'katex/contrib/auto-render'
+import { mountInlineFigureZoom, unmountInlineFigureZoom } from '../utils/inlineFigureZoom.js'
 import 'katex/dist/katex.min.css'
 import './WechatDraftPreview.css'
 
@@ -28,6 +29,8 @@ const KATEX_OPTIONS = {
 }
 
 const KATEX_DEBOUNCE_MS = 280
+/** 内联缩放开启时：单击打开弹层延迟，留出双击复位缩放的时间窗（略大于系统双击间隔） */
+const IMG_CLICK_OPEN_DELAY_MS = 400
 
 /**
  * 从 Special:FilePath URL 解析出文件名。时间：2025-03-14；理由：Markdown 预览点击图片需区分已上传/未上传。
@@ -46,29 +49,100 @@ function parseWikiFileNameFromFilePathUrl(src) {
  * @param {(pageTitle: string) => void} [props.onWikiLinkClick] - 点击本站 Wiki 链接时回调，传入页面标题；不传则按默认行为（新标签打开）
  * @param {string} [props.wikiBaseUrl] - Wiki 基础 URL，用于判断是否本站链接
  * @param {(e: Event, data: { src: string, srcRaw?: string, width: number, height: number, isWikiFile: boolean, wikiFileName?: string }) => void} [props.onImgClick] - 点击图片时回调；isWikiFile 表示已是 [[File:xxx]]
+ * @param {boolean} [props.wideFigures=false] - 插图突破正文栏宽度，尽量占满预览区（与 MarkdownEditorPreview 的 p-3 对齐）
+ * @param {boolean} [props.inlineFigureZoom=false] - 预览内插图滚轮缩放、放大后拖拽；点击图片仍可走 onImgClick 弹层
  */
-export default function WechatDraftPreview({ html = '', className = '', theme = 'light', onWikiLinkClick, wikiBaseUrl, onImgClick }) {
+export default function WechatDraftPreview({
+  html = '',
+  className = '',
+  theme = 'light',
+  onWikiLinkClick,
+  wikiBaseUrl,
+  onImgClick,
+  wideFigures = false,
+  inlineFigureZoom = false,
+}) {
   const containerRef = useRef(null)
   const lastRenderedRef = useRef('')
+  const zoomCleanupRef = useRef(null)
+  const imgClickOpenTimerRef = useRef(null)
+  const imgClickCountInWindowRef = useRef(0)
   const trimmed = typeof html === 'string' ? html.trim() : ''
   const isDark = theme === 'dark'
   const rootStyle = isDark ? DARK_ROOT_STYLE : LIGHT_ROOT_STYLE
   const themeClass = isDark ? ' wechat-draft-preview--dark' : ''
+  const wideClass = wideFigures ? ' wechat-draft-preview--figures-wide' : ''
 
   useEffect(() => {
+    const clearZoom = () => {
+      if (zoomCleanupRef.current) {
+        zoomCleanupRef.current()
+        zoomCleanupRef.current = null
+      }
+    }
+
     if (!trimmed) {
       lastRenderedRef.current = ''
+      clearZoom()
       return
     }
     if (!containerRef.current) return
-    if (lastRenderedRef.current === trimmed) return
-    const t = setTimeout(() => {
+
+    const run = () => {
       if (!containerRef.current) return
+      clearZoom()
+      unmountInlineFigureZoom(containerRef.current)
       renderMathInElement(containerRef.current, KATEX_OPTIONS)
       lastRenderedRef.current = trimmed
-    }, KATEX_DEBOUNCE_MS)
-    return () => clearTimeout(t)
-  }, [trimmed])
+      if (inlineFigureZoom) {
+        zoomCleanupRef.current = mountInlineFigureZoom(containerRef.current)
+      }
+    }
+
+    if (lastRenderedRef.current === trimmed) {
+      clearZoom()
+      if (containerRef.current) {
+        unmountInlineFigureZoom(containerRef.current)
+        if (inlineFigureZoom) {
+          zoomCleanupRef.current = mountInlineFigureZoom(containerRef.current)
+        }
+      }
+      return () => {
+        clearZoom()
+      }
+    }
+
+    const t = setTimeout(run, KATEX_DEBOUNCE_MS)
+    return () => {
+      clearTimeout(t)
+      clearZoom()
+    }
+  }, [trimmed, inlineFigureZoom])
+
+  useEffect(() => {
+    return () => {
+      if (imgClickOpenTimerRef.current) {
+        clearTimeout(imgClickOpenTimerRef.current)
+        imgClickOpenTimerRef.current = null
+      }
+      imgClickCountInWindowRef.current = 0
+    }
+  }, [])
+
+  const cancelDelayedImgOpen = () => {
+    if (imgClickOpenTimerRef.current) {
+      clearTimeout(imgClickOpenTimerRef.current)
+      imgClickOpenTimerRef.current = null
+    }
+    imgClickCountInWindowRef.current = 0
+  }
+
+  const handleImgDoubleClickCapture = (e) => {
+    if (!inlineFigureZoom || !onImgClick) return
+    const img = e.target?.closest?.('img')
+    if (!img?.src) return
+    cancelDelayedImgOpen()
+  }
 
   const handleClick = (e) => {
     const img = e.target?.closest?.('img')
@@ -79,9 +153,32 @@ export default function WechatDraftPreview({ html = '', className = '', theme = 
       const isWikiFile = !!wikiFileName
       const w = img.offsetWidth || img.naturalWidth || 0
       const h = img.offsetHeight || img.naturalHeight || 0
+      const payload = {
+        src,
+        srcRaw,
+        width: w,
+        height: h,
+        isWikiFile,
+        wikiFileName: wikiFileName || undefined,
+      }
       e.preventDefault()
       e.stopPropagation()
-      onImgClick(e, { src, srcRaw, width: w, height: h, isWikiFile, wikiFileName: wikiFileName || undefined })
+      if (inlineFigureZoom) {
+        if (imgClickOpenTimerRef.current) {
+          clearTimeout(imgClickOpenTimerRef.current)
+          imgClickOpenTimerRef.current = null
+        }
+        imgClickCountInWindowRef.current += 1
+        imgClickOpenTimerRef.current = window.setTimeout(() => {
+          imgClickOpenTimerRef.current = null
+          if (imgClickCountInWindowRef.current === 1) {
+            onImgClick(e, payload)
+          }
+          imgClickCountInWindowRef.current = 0
+        }, IMG_CLICK_OPEN_DELAY_MS)
+        return
+      }
+      onImgClick(e, payload)
       return
     }
     if (!onWikiLinkClick) return
@@ -97,7 +194,7 @@ export default function WechatDraftPreview({ html = '', className = '', theme = 
   if (!trimmed) {
     return (
       <div
-        className={`wechat-draft-preview wechat-draft-preview--empty${themeClass} ${className}`.trim()}
+        className={`wechat-draft-preview wechat-draft-preview--empty${themeClass}${wideClass} ${className}`.trim()}
         style={rootStyle}
       >
         <span className="wechat-draft-preview__placeholder">暂无正文</span>
@@ -107,10 +204,11 @@ export default function WechatDraftPreview({ html = '', className = '', theme = 
   return (
     <div
       ref={containerRef}
-      className={`wechat-draft-preview${themeClass} ${onImgClick ? ' wechat-draft-preview--img-clickable' : ''} ${className}`.trim()}
+      className={`wechat-draft-preview${themeClass}${wideClass} ${onImgClick ? ' wechat-draft-preview--img-clickable' : ''} ${className}`.trim()}
       style={rootStyle}
       dangerouslySetInnerHTML={{ __html: trimmed }}
       onClick={onWikiLinkClick || onImgClick ? handleClick : undefined}
+      onDoubleClickCapture={inlineFigureZoom && onImgClick ? handleImgDoubleClickCapture : undefined}
     />
   )
 }

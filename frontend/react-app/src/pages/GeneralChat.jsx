@@ -251,7 +251,9 @@ export default function GeneralChat({
       })
       .catch((e) => toast?.error?.(e?.message || '加载历史失败'))
       .finally(() => setDetailLoading(false))
-  }, [selectedSessionId])
+    // 须包含 loading：流式发送中若切换了会话，先前会因 loading 直接 return 且不再触发；与 WorkAssistant 一致
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- toast 引用不稳定，不必作为依赖
+  }, [selectedSessionId, loading])
 
   useEffect(() => {
     setBulkMessageIds([])

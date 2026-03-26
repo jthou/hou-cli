@@ -1,30 +1,30 @@
 {
-  "total_files": 1408,
-  "total_lines": 391659,
+  "total_files": 1420,
+  "total_lines": 395822,
   "by_language": {
     "other": {
       "files": 28,
-      "lines": 72083
+      "lines": 72089
     },
     "python": {
-      "files": 645,
-      "lines": 109422
+      "files": 646,
+      "lines": 109743
     },
     "markdown": {
-      "files": 519,
-      "lines": 163899
+      "files": 521,
+      "lines": 164128
     },
     "shell": {
       "files": 34,
       "lines": 2143
     },
     "javascript": {
-      "files": 56,
-      "lines": 6620
+      "files": 64,
+      "lines": 8401
     },
     "json": {
       "files": 11,
-      "lines": 12138
+      "lines": 12150
     },
     "html": {
       "files": 2,
@@ -32,11 +32,11 @@
     },
     "css": {
       "files": 4,
-      "lines": 577
+      "lines": 686
     },
     "jsx": {
-      "files": 102,
-      "lines": 21819
+      "files": 103,
+      "lines": 23524
     },
     "yaml": {
       "files": 7,
@@ -46,19 +46,19 @@
   "by_directory": {
     ".": {
       "files": 12,
-      "lines": 10282
+      "lines": 10288
     },
     "extension": {
       "files": 6,
-      "lines": 1314
+      "lines": 1923
     },
     "frontend": {
-      "files": 186,
-      "lines": 44584
+      "files": 195,
+      "lines": 47576
     },
     "plans": {
       "files": 126,
-      "lines": 63473
+      "lines": 63483
     },
     "config": {
       "files": 3,
@@ -74,15 +74,15 @@
     },
     "backend": {
       "files": 540,
-      "lines": 147940
+      "lines": 148057
     },
     "shared": {
       "files": 11,
-      "lines": 1050
+      "lines": 1091
     },
     "docs": {
       "files": 343,
-      "lines": 103184
+      "lines": 103196
     },
     "comic": {
       "files": 1,
@@ -97,13 +97,13 @@
       "lines": 138
     },
     "scripts": {
-      "files": 84,
-      "lines": 9791
+      "files": 87,
+      "lines": 10167
     },
     "archived": {
       "files": 21,
       "lines": 1341
     }
   },
-  "generated_at": "2026-03-24T02:55:17.215006Z"
+  "generated_at": "2026-03-26T15:27:28.889719Z"
 }

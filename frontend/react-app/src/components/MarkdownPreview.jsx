@@ -12,8 +12,26 @@ import { mdToHtml } from '../utils/mdToHtml'
  * @param {string} [props.className] - 容器额外类名
  * @param {'light'|'dark'} [props.theme='light'] - 预览主题，dark 时跟随应用主题
  * @param {Function} [props.onImgClick] - 点击图片时回调，透传给 WechatDraftPreview
+ * @param {boolean} [props.wideFigures=false] - 插图横向拉满预览区内边距（适合微信读书等窄栏转来的大图/示意图）
+ * @param {boolean} [props.inlineFigureZoom=false] - 预览内插图滚轮缩放与拖拽（不替代点击图片弹层）
  */
-export default function MarkdownPreview({ markdown = '', className = '', theme = 'light', onImgClick }) {
+export default function MarkdownPreview({
+  markdown = '',
+  className = '',
+  theme = 'light',
+  onImgClick,
+  wideFigures = false,
+  inlineFigureZoom = false,
+}) {
   const html = useMemo(() => mdToHtml(markdown || ''), [markdown])
-  return <WechatDraftPreview html={html} className={className} theme={theme} onImgClick={onImgClick} />
+  return (
+    <WechatDraftPreview
+      html={html}
+      className={className}
+      theme={theme}
+      onImgClick={onImgClick}
+      wideFigures={wideFigures}
+      inlineFigureZoom={inlineFigureZoom}
+    />
+  )
 }

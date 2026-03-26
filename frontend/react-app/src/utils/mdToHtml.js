@@ -84,6 +84,9 @@ const WECHAT_INLINE_STYLES = {
   a: 'color:#0969da;text-decoration:none;',
   hr: 'border:0;border-top:1px solid #d0d7de;margin:8px 0 16px 0;',
   img: 'max-width:100%;height:auto;border:1px solid #d0d7de;border-radius:6px;',
+  table: 'border-collapse:collapse;margin:0 auto 16px;max-width:100%;width:max-content;',
+  th: 'border:1px solid #d0d7de;padding:8px 12px;color:#24292f;vertical-align:top;font-weight:600;background-color:#f6f8fa;',
+  td: 'border:1px solid #d0d7de;padding:8px 12px;color:#24292f;vertical-align:top;',
 }
 
 /** 无 DOM 时用正则给开标签注入 style（兜底，确保一定提交内联样式） */
@@ -107,6 +110,9 @@ function addWechatInlineStylesFallback(html) {
     ['<i>', '<i style="' + WECHAT_INLINE_STYLES.em + '">'],
     ['<hr>', '<hr style="' + WECHAT_INLINE_STYLES.hr + '">'],
     ['<hr/>', '<hr style="' + WECHAT_INLINE_STYLES.hr + '" />'],
+    ['<table>', '<table style="' + WECHAT_INLINE_STYLES.table + '">'],
+    ['<th>', '<th style="' + WECHAT_INLINE_STYLES.th + '">'],
+    ['<td>', '<td style="' + WECHAT_INLINE_STYLES.td + '">'],
   ]
   tagStyleList.forEach(([open, replacement]) => {
     out = out.split(open).join(replacement)
@@ -135,7 +141,7 @@ function addWechatInlineStyles(html) {
     try {
       const parser = new DOMParser()
       const doc = parser.parseFromString(html, 'text/html')
-      const selectors = ['p', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'ol', 'li', 'code', 'pre', 'strong', 'b', 'em', 'i', 'a', 'hr', 'img']
+      const selectors = ['p', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'ol', 'li', 'code', 'pre', 'strong', 'b', 'em', 'i', 'a', 'hr', 'img', 'table', 'th', 'td']
       selectors.forEach((tag) => {
         const style = WECHAT_INLINE_STYLES[tag]
         if (!style) return
@@ -168,6 +174,9 @@ const WECHAT_THEME_CSS = `
   #wechat-content em, #wechat-content i { font-style: italic; color: #57606a; }
   #wechat-content a { color: #0969da; text-decoration: none; }
   #wechat-content hr { border: 0; border-top: 1px solid #d0d7de; margin: 24px 0; }
+  #wechat-content table { border-collapse: collapse; margin: 0 auto 16px; max-width: 100%; width: max-content; }
+  #wechat-content th, #wechat-content td { border: 1px solid #d0d7de; padding: 8px 12px; color: #24292f; vertical-align: top; }
+  #wechat-content th { font-weight: 600; background-color: #f6f8fa; }
   #wechat-content img { max-width: 100%; height: auto; border: 1px solid #d0d7de; border-radius: 6px; }
 `
 

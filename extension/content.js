@@ -114,7 +114,7 @@ window.addEventListener('message', (event) => {
     return
   }
   if (event.data?.type !== 'HOU_CLI_FETCH' || !event.data?.url) return
-  const { url, requestId, apiBase, inlineImages } = event.data
+  const { url, requestId, apiBase, inlineImages, wereadImagesOnly } = event.data
 
   const forward = (res) => {
     window.postMessage(
@@ -146,12 +146,20 @@ window.addEventListener('message', (event) => {
       requestId,
       apiBase: apiBase || window.location.origin,
       inlineImages: !!inlineImages,
+      wereadImagesOnly: !!wereadImagesOnly,
     })
   } else {
     // Port 失败时回退到 sendMessage：至少能触发跳转，长任务回调可能超时
     try {
       chrome.runtime.sendMessage(
-        { action: 'fetch', url, requestId, apiBase: apiBase || window.location.origin, inlineImages: !!inlineImages },
+        {
+          action: 'fetch',
+          url,
+          requestId,
+          apiBase: apiBase || window.location.origin,
+          inlineImages: !!inlineImages,
+          wereadImagesOnly: !!wereadImagesOnly,
+        },
         (response) => {
           try {
             if (chrome.runtime?.lastError) {

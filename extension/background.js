@@ -193,7 +193,7 @@ function extractContent() {
     }
   }
   el = el || document.body
-  let content = (el.innerText || el.textContent || '').trim().slice(0, 500000)
+  let content = (el.innerText || el.textContent || '').trim()
   const path = window.location.pathname || '/'
   const dir = path.endsWith('/') ? path : path.replace(/\/[^/]*$/, '/') || '/'
   const base = window.location.origin + dir
@@ -218,7 +218,7 @@ function extractContent() {
   temp.querySelectorAll('[onclick], [onload], [onerror]').forEach((n) => {
     n.removeAttribute('onclick'); n.removeAttribute('onload'); n.removeAttribute('onerror')
   })
-  let html = temp.innerHTML.slice(0, 2000000)
+  let html = temp.innerHTML
   let fullPageHtml = ''
   try {
     const doc = document.documentElement.cloneNode(true)
@@ -230,7 +230,7 @@ function extractContent() {
       const jsRoot = doc.querySelector('#js_content')
       if (jsRoot) rewriteWeixinLazyImgSrc(jsRoot)
     }
-    fullPageHtml = doc.outerHTML.slice(0, 3000000)
+    fullPageHtml = doc.outerHTML
   } catch (_) {}
   return {
     title: document.title || '',
@@ -298,27 +298,101 @@ function collectArticleImageUrlsForInlining() {
   return urls
 }
 
-/** Service Worker：用扩展权限拉取图片（带 Referer/Cookie），转 data URL */
+/** 与防盗链站点对话时 Referer 需为站点根；插图在 res.weread.qq.com 时仍用微信读书主站 Referer */
+function refererForImageFetch(pageUrl, imageUrl) {
+  const iu = (imageUrl || '').trim()
+  if (/res\.weread\.qq\.com/i.test(iu)) return 'https://weread.qq.com/'
+  if (/\.myqcloud\.com/i.test(iu) && /weread|qqread|wrepub/i.test(iu)) return 'https://weread.qq.com/'
+  const u = pageUrl || ''
+  if (/mp\.weixin\.qq\.com/i.test(u)) return 'https://mp.weixin.qq.com/'
+  if (/weread\.qq\.com/i.test(u)) return 'https://weread.qq.com/'
+  return u
+}
+
+function originBaseForCookieLookup(urlStr) {
+  try {
+    const u = new URL(String(urlStr || '').trim())
+    return `${u.protocol}//${u.host}/`
+  } catch (_) {
+    return ''
+  }
+}
+
+/**
+ * 合并多来源 Cookie（微信读书插图常在 res.* / CDN，会话 Cookie 在 weread.qq.com，仅按图片域 getAll 会缺登录态）
+ */
+async function mergedCookieHeaderForFetch(imageUrl, pageUrl) {
+  const bases = []
+  const imgBase = originBaseForCookieLookup(imageUrl)
+  if (imgBase) bases.push(imgBase)
+  const pageBase = originBaseForCookieLookup(pageUrl || '')
+  if (pageBase && pageBase !== imgBase) bases.push(pageBase)
+  const iu = (imageUrl || '').trim()
+  const pu = (pageUrl || '').trim()
+  const wereadish =
+    /weread\.qq\.com/i.test(iu) ||
+    /weread\.qq\.com/i.test(pu) ||
+    /res\.weread\.qq\.com/i.test(iu) ||
+    (/\.myqcloud\.com/i.test(iu) && /weread|qqread|wrepub/i.test(iu))
+  const wereadRoot = 'https://weread.qq.com/'
+  if (wereadish && !bases.includes(wereadRoot)) bases.push(wereadRoot)
+
+  const byName = new Map()
+  for (const base of bases) {
+    try {
+      const list = await chrome.cookies.getAll({ url: base })
+      for (const c of list) {
+        byName.set(c.name, c.value)
+      }
+    } catch (_) {}
+  }
+  return [...byName.entries()].map(([n, v]) => `${n}=${v}`).join('; ')
+}
+
+function shortUrlForFetchError(absUrl) {
+  try {
+    const u = new URL(absUrl)
+    const path = u.pathname + u.search
+    const tail = path.length > 52 ? `${path.slice(0, 49)}…` : path
+    return `${u.hostname}${tail}`
+  } catch (_) {
+    return String(absUrl || '').slice(0, 64)
+  }
+}
+
+/**
+ * Service Worker：用扩展权限拉取图片（带 Referer/Cookie），转 data URL。
+ * @returns {{ map: Record<string,string>, errors: string[] }} errors 为简短诊断（最多十余条）
+ */
 async function fetchImagesViaExtension(absUrls, pageUrl) {
-  const referer = /mp\.weixin\.qq\.com/.test(pageUrl || '') ? 'https://mp.weixin.qq.com/' : pageUrl || ''
   const ua =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   const out = {}
-  const maxN = 40
-  const maxBytes = 8 * 1024 * 1024
-  const slice = (absUrls || []).slice(0, maxN)
-  for (const u of slice) {
+  const errors = []
+  const maxErr = 12
+  /** 单图体积上限：防止异常响应用尽内存；正常书籍插图远低于此 */
+  const maxBytesPerImage = 40 * 1024 * 1024
+  for (const u of absUrls || []) {
     if (!u || u.startsWith('data:')) continue
     try {
-      const cookieList = await chrome.cookies.getAll({ url: u })
-      const cookieStr = cookieList.map((c) => `${c.name}=${c.value}`).join('; ')
-      const headers = { Referer: referer, 'User-Agent': ua }
+      const cookieStr = await mergedCookieHeaderForFetch(u, pageUrl)
+      const headers = {
+        Referer: refererForImageFetch(pageUrl, u),
+        'User-Agent': ua,
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      }
       if (cookieStr) headers.Cookie = cookieStr
-      const r = await fetch(u, { headers })
-      if (!r.ok) continue
+      const r = await fetch(u, { headers, redirect: 'follow' })
+      if (!r.ok) {
+        if (errors.length < maxErr) errors.push(`${shortUrlForFetchError(u)} → HTTP ${r.status}`)
+        continue
+      }
       const blob = await r.blob()
-      if (!blob || blob.size > maxBytes) continue
-      const ct = (blob.type && blob.type.startsWith('image/')) ? blob.type : 'image/jpeg'
+      if (!blob || blob.size > maxBytesPerImage) {
+        if (errors.length < maxErr) errors.push(`${shortUrlForFetchError(u)} → 空响应或超过体积上限`)
+        continue
+      }
+      const ct = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg'
       const buf = await blob.arrayBuffer()
       const bytes = new Uint8Array(buf)
       let binary = ''
@@ -329,13 +403,16 @@ async function fetchImagesViaExtension(absUrls, pageUrl) {
       }
       const b64 = btoa(binary)
       out[u] = `data:${ct};base64,${b64}`
-    } catch (_) {}
+    } catch (e) {
+      if (errors.length < maxErr) errors.push(`${shortUrlForFetchError(u)} → ${e?.message || '请求失败'}`)
+    }
   }
-  return out
+  return { map: out, errors }
 }
 
-const MAX_SCREENSHOTS = 30
 const SCROLL_PAUSE_MS = 600
+/** 微信读书：沿章节滚动触发懒加载后再采 URL（步数不设上限，靠到底部/滚动停滞退出） */
+const WEREAD_IMAGE_PRELOAD_PAUSE_MS = 360
 
 /** 在页面内执行：滚动到指定位置，返回当前滚动信息 */
 function scrollToPosition(offsetY) {
@@ -404,7 +481,7 @@ async function extractContentWithScrollFeishu() {
   }
 
   scrollEl.scrollTop = 0
-  const content = lines.join('\n').slice(0, 500000)
+  const content = lines.join('\n')
   const path = window.location.pathname || '/'
   const dir = path.endsWith('/') ? path : path.replace(/\/[^/]*$/, '/') || '/'
   const base = window.location.origin + dir
@@ -447,16 +524,458 @@ function scrollToPositionWeread(offsetY) {
   }
 }
 
-/** 微信读书：长页面分屏截图，OCR 由前端分批完成 */
-async function fetchWereadScreenshot(url, createdByUs, tabId) {
+/**
+ * 微信读书页面内执行：阅读器容器内正文 HTML / 纯文本 + 插图 URL（扩展内 fetch 拉图，与公众号同源）
+ * 时间：2026-03-24；理由：先图后文 + web/reader 图常在根外或 background-image；方法：全页 img 过滤、根内 bg 扫描、章节容器补集
+ */
+function extractWereadReaderBundle() {
+  function isWereadBookImageUrl(abs) {
+    const u = String(abs || '').toLowerCase()
+    if (!/^https?:\/\//.test(u)) return false
+    if (/\.svg(\?|$)/i.test(u)) return false
+    if (/avatar|emoji|favicon|wx\.qlogo|qpic\.cn\/mmbiz|headimg|\/misc\//.test(u)) return false
+    if (u.includes('wrepub')) return true
+    if (u.includes('i.weread.qq.com')) return true
+    if (u.includes('res.weread.qq.com')) return true
+    try {
+      const host = new URL(u).hostname
+      if (host === 'weread.qq.com' || host.endsWith('.weread.qq.com')) return true
+    } catch (_) {}
+    if (/\.myqcloud\.com/i.test(u) && /weread|wrepub|qqread/i.test(u)) return true
+    return false
+  }
+  function pushAbsoluteImageUrl(abs, seen, imageUrls) {
+    if (!abs || seen.has(abs)) return
+    if (!isWereadBookImageUrl(abs)) return
+    seen.add(abs)
+    imageUrls.push(abs)
+  }
+  function tryPushBgImageFromEl(el, seen, imageUrls) {
+    let bg = ''
+    try {
+      bg = window.getComputedStyle(el).backgroundImage || ''
+    } catch (_) {}
+    if (!bg || bg === 'none') return
+    const re = /url\(["']?([^)"']+)["']?\)/gi
+    let m
+    while ((m = re.exec(bg)) !== null) {
+      const raw = (m[1] || '').trim()
+      if (!raw || raw.startsWith('data:')) continue
+      try {
+        pushAbsoluteImageUrl(new URL(raw, location.href).href, seen, imageUrls)
+      } catch (_) {}
+    }
+  }
+  function findReaderRoot() {
+    const bookImg = document.querySelector('img.wr_readerImage_opacity, img[class*="wr_readerImage"]')
+    if (bookImg) {
+      const byShell =
+        bookImg.closest('[class*="readerChapter"], [class*="reader_chapter"], [class*="chapter_content"], [class*="wr_reader"]') ||
+        bookImg.closest('[class*="wr_"]')
+      if (byShell && (byShell.innerText || '').trim().length > 40) return byShell
+      let p = bookImg.parentElement
+      for (let d = 0; d < 24 && p; d++) {
+        const t = (p.innerText || '').trim().length
+        if (t > 180) return p
+        p = p.parentElement
+      }
+      return bookImg.closest('main, [id*="app"], body') || document.body
+    }
+    let el = document.scrollingElement || document.documentElement
+    try {
+      const sel = '[class*="reader"], [class*="chapter"], [class*="content"], [class*="book"], [id*="reader"], main'
+      const list = document.querySelectorAll(sel)
+      let maxSh = el.scrollHeight || 0
+      for (let i = 0; i < Math.min(list.length, 30); i++) {
+        const c = list[i]
+        if (!c || !c.scrollHeight) continue
+        const s = window.getComputedStyle(c)
+        const oy = s.overflowY || s.overflow
+        if ((oy === 'auto' || oy === 'scroll') && c.scrollHeight > c.clientHeight + 100 && c.scrollHeight > maxSh) {
+          el = c
+          maxSh = c.scrollHeight
+        }
+      }
+    } catch (_) {}
+    return el
+  }
+  function pushImgUrl(img, seen, imageUrls) {
+    const srcAttr = (img.getAttribute('src') || '').trim()
+    let raw = ''
+    if (/^https?:\/\//i.test(srcAttr) && !srcAttr.toLowerCase().startsWith('data:')) {
+      raw = srcAttr
+    } else {
+      raw =
+        (img.getAttribute('data-src') || '').trim() ||
+        (img.getAttribute('data-original') || '').trim() ||
+        srcAttr ||
+        ''
+    }
+    if (!raw || String(raw).startsWith('data:')) {
+      const cs = img.currentSrc || ''
+      if (cs && !String(cs).startsWith('data:') && /^https?:\/\//i.test(cs)) raw = cs
+    }
+    if (!raw || String(raw).startsWith('data:')) return
+    try {
+      const abs = new URL(raw, location.href).href
+      if (seen.has(abs)) return
+      seen.add(abs)
+      if (/\.svg(\?|$)/i.test(abs)) return
+      imageUrls.push(abs)
+    } catch (_) {}
+    const ss = (img.getAttribute('srcset') || '').trim()
+    if (ss) {
+      ss.split(',').forEach((part) => {
+        const piece = (part || '').trim().split(/\s+/)[0]
+        if (!piece || piece.startsWith('data:')) return
+        try {
+          const abs = new URL(piece, location.href).href
+          if (seen.has(abs) || /\.svg(\?|$)/i.test(abs)) return
+          seen.add(abs)
+          imageUrls.push(abs)
+        } catch (_) {}
+      })
+    }
+  }
+  const root = findReaderRoot()
+  const title = (document.title || '').trim() || '微信读书'
+  const content = (root.innerText || root.textContent || '').trim().slice(0, 500000)
+  const temp = document.createElement('div')
+  temp.innerHTML = root.innerHTML || ''
+  temp.querySelectorAll('script, iframe, object, embed').forEach((n) => n.remove())
+  temp.querySelectorAll('[onclick], [onload], [onerror]').forEach((n) => {
+    n.removeAttribute('onclick'); n.removeAttribute('onload'); n.removeAttribute('onerror')
+  })
+  const html = temp.innerHTML.slice(0, 2000000)
+  const seen = new Set()
+  const imageUrls = []
+  temp.querySelectorAll('img').forEach((img) => pushImgUrl(img, seen, imageUrls))
+  try {
+    document
+      .querySelectorAll(
+        'img.wr_readerImage_opacity, img[class*="wr_readerImage"], img[src*="res.weread.qq.com/wrepub/"], img[data-src*="res.weread.qq.com/wrepub/"]'
+      )
+      .forEach((img) => pushImgUrl(img, seen, imageUrls))
+  } catch (_) {}
+  try {
+    document.querySelectorAll('img').forEach((img) => {
+      const raw =
+        (img.getAttribute('data-src') || '').trim() ||
+        (img.getAttribute('src') || '').trim() ||
+        (img.currentSrc || '').trim()
+      if (!raw || String(raw).startsWith('data:')) return
+      try {
+        pushAbsoluteImageUrl(new URL(raw, location.href).href, seen, imageUrls)
+      } catch (_) {}
+    })
+  } catch (_) {}
+  try {
+    const nodes = root && root.querySelectorAll ? root.querySelectorAll('*') : []
+    for (let i = 0; i < nodes.length; i++) {
+      tryPushBgImageFromEl(nodes[i], seen, imageUrls)
+    }
+  } catch (_) {}
+  try {
+    document.querySelectorAll('body *').forEach((el) => {
+      tryPushBgImageFromEl(el, seen, imageUrls)
+    })
+  } catch (_) {}
+  try {
+    document
+      .querySelectorAll(
+        '[class*="readerChapter"], [class*="reader_chapter"], [class*="chapter_content"], [class*="wr_reader"]'
+      )
+      .forEach((container) => {
+        container.querySelectorAll?.('img').forEach((img) => pushImgUrl(img, seen, imageUrls))
+      })
+  } catch (_) {}
+  return { title, content, html, imageUrls }
+}
+
+/**
+ * 仅收集当前 DOM 内插图 URL（与 extract 规则一致），供沿章节滚动时多次快照合并，避免懒加载只露出首屏。
+ */
+function snapshotWereadImageUrls() {
+  function isWereadBookImageUrl(abs) {
+    const u = String(abs || '').toLowerCase()
+    if (!/^https?:\/\//.test(u)) return false
+    if (/\.svg(\?|$)/i.test(u)) return false
+    if (/avatar|emoji|favicon|wx\.qlogo|qpic\.cn\/mmbiz|headimg|\/misc\//.test(u)) return false
+    if (u.includes('wrepub')) return true
+    if (u.includes('i.weread.qq.com')) return true
+    if (u.includes('res.weread.qq.com')) return true
+    try {
+      const host = new URL(u).hostname
+      if (host === 'weread.qq.com' || host.endsWith('.weread.qq.com')) return true
+    } catch (_) {}
+    if (/\.myqcloud\.com/i.test(u) && /weread|wrepub|qqread/i.test(u)) return true
+    return false
+  }
+  function pushAbsoluteImageUrl(abs, seen, imageUrls) {
+    if (!abs || seen.has(abs)) return
+    if (!isWereadBookImageUrl(abs)) return
+    seen.add(abs)
+    imageUrls.push(abs)
+  }
+  function tryPushBgImageFromEl(el, seen, imageUrls) {
+    let bg = ''
+    try {
+      bg = window.getComputedStyle(el).backgroundImage || ''
+    } catch (_) {}
+    if (!bg || bg === 'none') return
+    const re = /url\(["']?([^)"']+)["']?\)/gi
+    let m
+    while ((m = re.exec(bg)) !== null) {
+      const raw = (m[1] || '').trim()
+      if (!raw || raw.startsWith('data:')) continue
+      try {
+        pushAbsoluteImageUrl(new URL(raw, location.href).href, seen, imageUrls)
+      } catch (_) {}
+    }
+  }
+  function pushImgUrl(img, seen, imageUrls) {
+    const srcAttr = (img.getAttribute('src') || '').trim()
+    let raw = ''
+    if (/^https?:\/\//i.test(srcAttr) && !srcAttr.toLowerCase().startsWith('data:')) {
+      raw = srcAttr
+    } else {
+      raw =
+        (img.getAttribute('data-src') || '').trim() ||
+        (img.getAttribute('data-original') || '').trim() ||
+        srcAttr ||
+        ''
+    }
+    if (!raw || String(raw).startsWith('data:')) {
+      const cs = img.currentSrc || ''
+      if (cs && !String(cs).startsWith('data:') && /^https?:\/\//i.test(cs)) raw = cs
+    }
+    if (!raw || String(raw).startsWith('data:')) return
+    try {
+      const abs = new URL(raw, location.href).href
+      if (seen.has(abs)) return
+      seen.add(abs)
+      if (/\.svg(\?|$)/i.test(abs)) return
+      imageUrls.push(abs)
+    } catch (_) {}
+    const ss = (img.getAttribute('srcset') || '').trim()
+    if (ss) {
+      ss.split(',').forEach((part) => {
+        const piece = (part || '').trim().split(/\s+/)[0]
+        if (!piece || piece.startsWith('data:')) return
+        try {
+          const abs = new URL(piece, location.href).href
+          if (seen.has(abs) || /\.svg(\?|$)/i.test(abs)) return
+          seen.add(abs)
+          imageUrls.push(abs)
+        } catch (_) {}
+      })
+    }
+  }
+  const seen = new Set()
+  const imageUrls = []
+  try {
+    document.querySelectorAll('img').forEach((img) => pushImgUrl(img, seen, imageUrls))
+  } catch (_) {}
+  try {
+    document
+      .querySelectorAll(
+        'img.wr_readerImage_opacity, img[class*="wr_readerImage"], img[src*="res.weread.qq.com/wrepub/"], img[data-src*="res.weread.qq.com/wrepub/"]'
+      )
+      .forEach((img) => pushImgUrl(img, seen, imageUrls))
+  } catch (_) {}
+  try {
+    document.querySelectorAll('img').forEach((img) => {
+      const raw =
+        (img.getAttribute('data-src') || '').trim() ||
+        (img.getAttribute('src') || '').trim() ||
+        (img.currentSrc || '').trim()
+      if (!raw || String(raw).startsWith('data:')) return
+      try {
+        pushAbsoluteImageUrl(new URL(raw, location.href).href, seen, imageUrls)
+      } catch (_) {}
+    })
+  } catch (_) {}
+  try {
+    document.querySelectorAll('body *').forEach((el) => {
+      tryPushBgImageFromEl(el, seen, imageUrls)
+    })
+  } catch (_) {}
+  try {
+    document
+      .querySelectorAll(
+        '[class*="readerChapter"], [class*="reader_chapter"], [class*="chapter_content"], [class*="wr_reader"]'
+      )
+      .forEach((container) => {
+        container.querySelectorAll?.('img').forEach((img) => pushImgUrl(img, seen, imageUrls))
+      })
+  } catch (_) {}
+  return imageUrls
+}
+
+/**
+ * 微信读书：滚动预载插图 URL → 回顶 extract → 扩展内 fetch 拉图（与截图无关的共用段）
+ * @returns {{ bundle: object, inlineImageMap?: object }}
+ */
+async function fetchWereadReaderCore(tabId, url) {
   await chrome.tabs.update(tabId, { active: true })
-  await new Promise((r) => setTimeout(r, 5000))
+  await chrome.scripting.executeScript({ target: { tabId }, func: waitForPageLoad }).catch(() => {})
+  await new Promise((r) => setTimeout(r, 4000))
+
+  const mergedImageUrls = new Set()
+  let preOff = 0
+  let prePrev = -1
+  for (;;) {
+    const [scrollRes] = await chrome.scripting
+      .executeScript({ target: { tabId }, func: scrollToPositionWeread, args: [preOff] })
+      .catch(() => [{}])
+    const info = scrollRes?.result
+    await new Promise((r) => setTimeout(r, WEREAD_IMAGE_PRELOAD_PAUSE_MS))
+    try {
+      const [snapRes] = await chrome.scripting.executeScript({ target: { tabId }, func: snapshotWereadImageUrls })
+      const arr = snapRes?.result
+      if (Array.isArray(arr)) {
+        for (const u of arr) {
+          if (u && typeof u === 'string') mergedImageUrls.add(u)
+        }
+      }
+    } catch (_) {}
+    if (!info || info.atBottom) break
+    if (info.scrollTop === prePrev) break
+    prePrev = info.scrollTop
+    preOff = info.scrollTop + Math.floor(info.clientHeight * 0.82)
+    if (preOff >= info.scrollHeight) break
+  }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, func: scrollToPositionWeread, args: [0] })
+    await new Promise((r) => setTimeout(r, 500))
+  } catch (_) {}
+
+  let bundle = { title: '微信读书', content: '', html: '', imageUrls: [] }
+  try {
+    const [bundleRes] = await chrome.scripting.executeScript({ target: { tabId }, func: extractWereadReaderBundle })
+    const r = bundleRes?.result
+    if (r && typeof r === 'object') {
+      bundle = {
+        title: ((r.title || '') + '').trim() || '微信读书',
+        content: r.content || '',
+        html: r.html || '',
+        imageUrls: Array.isArray(r.imageUrls) ? r.imageUrls : [],
+      }
+    }
+  } catch (_) {}
+  for (const u of bundle.imageUrls || []) {
+    if (u && typeof u === 'string') mergedImageUrls.add(u)
+  }
+  bundle.imageUrls = [...mergedImageUrls]
+
+  let inlineImageMap
+  if (bundle.imageUrls.length) {
+    try {
+      const { map } = await fetchImagesViaExtension(bundle.imageUrls, url)
+      if (map && Object.keys(map).length) inlineImageMap = map
+    } catch (_) {}
+  }
+
+  await new Promise((r) => setTimeout(r, 800))
+  return { bundle, inlineImageMap }
+}
+
+async function switchWereadTabBack(createdByUs, tabId) {
+  const all = await chrome.tabs.query({ currentWindow: true })
+  const wereadReader = all.find((t) => /\/weread-reader/.test(t.url || ''))
+  const webReader = all.find((t) => /\/web-reader/.test(t.url || ''))
+  const targetTab = wereadReader || webReader
+  if (createdByUs && tabId) {
+    if (targetTab?.id) await chrome.tabs.update(targetTab.id, { active: true }).catch(() => {})
+    await chrome.tabs.remove(tabId).catch(() => {})
+  } else if (tabId && targetTab?.id) {
+    await chrome.tabs.update(targetTab.id, { active: true }).catch(() => {})
+  }
+}
+
+/** 微信读书：仅 DOM + 拉图，不 captureVisibleTab、不依赖截图 */
+async function fetchWereadImagesOnly(url, createdByUs, tabId) {
+  const { bundle, inlineImageMap } = await fetchWereadReaderCore(tabId, url)
+  await switchWereadTabBack(createdByUs, tabId)
+
+  const hasDom =
+    (bundle.content || '').trim().length > 0 || (bundle.html || '').trim().length > 0 || (bundle.imageUrls || []).length > 0
+  const hasMap = inlineImageMap && Object.keys(inlineImageMap).length > 0
+  if (!hasDom && !hasMap) {
+    throw new Error('未能从页面读取正文或插图，请确认章节已打开且已登录')
+  }
+
+  const out = {
+    title: bundle.title,
+    content: bundle.content || '',
+    html: bundle.html || '',
+    fullPageHtml: '',
+    baseUrl: new URL(url).origin + '/',
+    stylesheets: [],
+    inlineStyles: [],
+    url,
+    screenshots: [],
+    imageUrls: Array.isArray(bundle.imageUrls) ? bundle.imageUrls : [],
+    pendingOcr: false,
+    wereadImagesOnly: true,
+  }
+  if (inlineImageMap && Object.keys(inlineImageMap).length) out.inlineImageMap = inlineImageMap
+  return out
+}
+
+/**
+ * 页内执行：全屏截图 → 裁视口水平居中条带（微信读书正文在中间，左右为大留白）。
+ * 固定按视口宽约 43% 居中裁切，避免误判到「整页宽的滚动容器」导致不裁切。
+ */
+function cropWereadVisibleTabScreenshot(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return Promise.resolve(dataUrl)
+  const vw = window.innerWidth || document.documentElement.clientWidth
+  const vh = window.innerHeight || document.documentElement.clientHeight
+  const dpr = window.devicePixelRatio || 1
+  const nw = Math.max(120, Math.floor(vw * 0.43))
+  const x = Math.max(0, Math.floor((vw - nw) / 2))
+  const y = 0
+  const w = Math.min(nw, vw - x)
+  const h = vh
+  if (w < 100 || h < 100) return Promise.resolve(dataUrl)
+
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const scale = dpr
+        const sx = Math.max(0, Math.min(x * scale, img.width - 1))
+        const sy = Math.max(0, Math.min(y * scale, img.height - 1))
+        const sw = Math.max(1, Math.min(w * scale, img.width - sx))
+        const sh = Math.max(1, Math.min(h * scale, img.height - sy))
+        const canvas = document.createElement('canvas')
+        canvas.width = sw
+        canvas.height = sh
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+        resolve(canvas.toDataURL('image/png'))
+      } catch (_) {
+        resolve(dataUrl)
+      }
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
+/** 微信读书：DOM 插图拉图 + 正文；长页分屏截图，DOM 字少则 OCR */
+async function fetchWereadScreenshot(url, createdByUs, tabId) {
+  const { bundle, inlineImageMap } = await fetchWereadReaderCore(tabId, url)
 
   const screenshots = []
   let offsetY = 0
   let prevScrollTop = -1
 
-  for (let i = 0; i < MAX_SCREENSHOTS; i++) {
+  for (;;) {
     const [scrollRes] = await chrome.scripting
       .executeScript({ target: { tabId }, func: scrollToPositionWeread, args: [offsetY] })
       .catch(() => [{}])
@@ -464,15 +983,35 @@ async function fetchWereadScreenshot(url, createdByUs, tabId) {
 
     await new Promise((r) => setTimeout(r, SCROLL_PAUSE_MS))
 
+    await chrome.tabs.update(tabId, { active: true }).catch(() => {})
+    await new Promise((r) => setTimeout(r, 120))
+
     let dataUrl
     try {
-      dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' })
+      const tab = await chrome.tabs.get(tabId)
+      const winId = tab?.windowId
+      dataUrl = await chrome.tabs.captureVisibleTab(winId != null ? winId : null, { format: 'png' })
     } catch (e) {
       if (screenshots.length === 0) {
         throw new Error('截图失败：' + (e?.message || '请确保标签页已完全加载，且未切换窗口'))
       }
       break
     }
+
+    try {
+      const [cRes] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: cropWereadVisibleTabScreenshot,
+        args: [dataUrl],
+      })
+      let cropped = cRes?.result
+      if (cropped != null && typeof cropped.then === 'function') {
+        cropped = await cropped
+      }
+      if (typeof cropped === 'string' && cropped.startsWith('data:image') && cropped.length > 500) {
+        dataUrl = cropped
+      }
+    } catch (_) {}
 
     screenshots.push(dataUrl)
 
@@ -484,33 +1023,35 @@ async function fetchWereadScreenshot(url, createdByUs, tabId) {
     if (offsetY >= info.scrollHeight) break
   }
 
-  const all = await chrome.tabs.query({ currentWindow: true })
-  const wereadReader = all.find((t) => /\/weread-reader/.test(t.url || ''))
-  const webReader = all.find((t) => /\/web-reader/.test(t.url || ''))
-  const targetTab = wereadReader || webReader
-  if (createdByUs && tabId) {
-    if (targetTab?.id) await chrome.tabs.update(targetTab.id, { active: true }).catch(() => {})
-    await chrome.tabs.remove(tabId).catch(() => {})
-  } else if (tabId && targetTab?.id) {
-    await chrome.tabs.update(targetTab.id, { active: true }).catch(() => {})
-  }
+  await switchWereadTabBack(createdByUs, tabId)
 
   if (screenshots.length === 0) {
-    throw new Error('未能截取到任何画面')
+    const hasDom =
+      (bundle.content || '').trim().length > 0 || (bundle.html || '').trim().length > 0 || (bundle.imageUrls || []).length > 0
+    if (!hasDom) {
+      throw new Error('未能截取到任何画面，且未能从页面读取正文')
+    }
   }
 
-  return {
-    title: '微信读书',
-    content: '',
-    html: '',
+  const domLen = (bundle.content || '').trim().length
+  const domEnough = domLen >= 80
+
+  const out = {
+    title: bundle.title,
+    content: bundle.content || '',
+    html: bundle.html || '',
     fullPageHtml: '',
     baseUrl: new URL(url).origin + '/',
     stylesheets: [],
     inlineStyles: [],
     url,
     screenshots,
-    pendingOcr: true,
+    /** 阅读器 DOM 内收集到的插图 URL（扩展已尽量拉图写入 inlineImageMap） */
+    imageUrls: Array.isArray(bundle.imageUrls) ? bundle.imageUrls : [],
+    pendingOcr: screenshots.length > 0 && !domEnough,
   }
+  if (inlineImageMap && Object.keys(inlineImageMap).length) out.inlineImageMap = inlineImageMap
+  return out
 }
 
 /** 等待标签页加载完成（status === 'complete'），超时 30s */
@@ -575,7 +1116,7 @@ async function runDomExtraction(tabId, url, createdByUs, needLoad, opts = {}) {
       })
       const urls = imgRes?.result || []
       if (urls.length) {
-        const map = await fetchImagesViaExtension(urls, url)
+        const { map } = await fetchImagesViaExtension(urls, url)
         if (map && Object.keys(map).length) data.inlineImageMap = map
       }
     } catch (_) {}
@@ -641,7 +1182,7 @@ async function runAmazonScreenshots(tabId) {
 
 /** 主流程：获取或创建 tab，执行提取 */
 async function doFetch(url, opts) {
-  const { postMessage, requestId, apiBase, inlineImages } = opts
+  const { postMessage, requestId, apiBase, inlineImages, wereadImagesOnly } = opts
   const isWeread = /weread\.qq\.com/.test(url)
   const isFeishu = /feishu\.cn|feishubase\.com/.test(url)
   let tabId = null
@@ -695,13 +1236,22 @@ async function doFetch(url, opts) {
     if (isWeread) {
       const navigated = needLoad
       if (navigated) await new Promise((r) => setTimeout(r, 3000))
-      data = await fetchWereadScreenshot(url, createdByUs, tabId)
+      data = wereadImagesOnly
+        ? await fetchWereadImagesOnly(url, createdByUs, tabId)
+        : await fetchWereadScreenshot(url, createdByUs, tabId)
     } else {
       const domOpts = isFeishu ? { useScrollExtract: true, inlineImages } : { inlineImages }
       data = await runDomExtraction(tabId, url, createdByUs, needLoad, domOpts)
     }
 
-    if (data && (data.content || data.title || data.html || data.screenshots?.length)) {
+    if (
+      data &&
+      (data.content ||
+        data.title ||
+        data.html ||
+        data.screenshots?.length ||
+        (data.inlineImageMap && Object.keys(data.inlineImageMap).length))
+    ) {
       respond({ success: true, data })
     } else {
       respond({ success: false, error: '未能提取到内容' })
@@ -820,7 +1370,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
     const apiBase = msg.apiBase || ''
     const inlineImages = !!msg.inlineImages
-    doFetch(url, { postMessage, requestId, apiBase, inlineImages }).catch(() => {
+    const wereadImagesOnly = !!msg.wereadImagesOnly
+    doFetch(url, { postMessage, requestId, apiBase, inlineImages, wereadImagesOnly }).catch(() => {
       postMessage({ type: 'HOU_CLI_FETCH_RESULT', requestId, success: false, error: '提取失败' })
     })
   })
@@ -865,7 +1416,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   const apiBase = msg.apiBase || ''
   const inlineImages = !!msg.inlineImages
-  doFetch(url, { postMessage, requestId, apiBase, inlineImages }).catch(() => {
+  const wereadImagesOnly = !!msg.wereadImagesOnly
+  doFetch(url, { postMessage, requestId, apiBase, inlineImages, wereadImagesOnly }).catch(() => {
     postMessage({ success: false, error: '提取失败' })
   })
 

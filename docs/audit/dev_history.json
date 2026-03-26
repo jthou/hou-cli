@@ -1,14 +1,14 @@
 {
-  "total_commits": 328,
+  "total_commits": 330,
   "authors": {
-    "侯金亭（Justin）": 290,
+    "侯金亭（Justin）": 292,
     "jthou": 43
   },
   "commits_by_week": {
-    "2026-W12": 4,
+    "2026-W12": 6,
     "2026-W11": 13,
     "2026-W10": 20,
-    "2026-W09": 15
+    "2026-W09": 13
   },
   "commits_by_day": {
     "2025-12-31": 4,
@@ -62,7 +62,8 @@
     "2026-03-20": 1,
     "2026-03-21": 3,
     "2026-03-22": 3,
-    "2026-03-23": 4
+    "2026-03-23": 4,
+    "2026-03-24": 2
   },
   "lines_by_day": {
     "2025-12-31": {
@@ -324,30 +325,35 @@
       "add": 647,
       "del": 147,
       "total": 794
+    },
+    "2026-03-24": {
+      "add": 1798,
+      "del": 209,
+      "total": 2007
     }
   },
   "files_changed": {
-    "backend/core/agent/orchestrator.py": 85,
+    "backend/core/agent/orchestrator.py": 86,
     "backend/api/routes.py": 38,
     "backend/infrastructure/execution/task_handlers.py": 32,
     "frontend/client/ipc_client.py": 30,
     "frontend/react-app/src/components/Sidebar.jsx": 28,
     "frontend/react-app/src/pages/TaskManagement.jsx": 28,
+    "docs/audit/AUDIT_REPORT.json": 27,
+    "docs/audit/code_stats.json": 27,
+    "docs/audit/dev_history.json": 27,
     "frontend/react-app/src/pages/ArticleWriting.jsx": 27,
     "backend/services/llm/llm_service.py": 27,
     "frontend/main.py": 27,
-    "docs/audit/AUDIT_REPORT.json": 26,
-    "docs/audit/code_stats.json": 26,
-    "docs/audit/dev_history.json": 26,
     "Makefile": 26,
+    "env.example": 25,
     "frontend/ui/command_handler.py": 25,
-    "env.example": 24,
     "frontend/ui/stream_handler.py": 22,
     "frontend/react-app/src/App.jsx": 22,
+    "backend/core/agent/system_prompt_templates.py": 20,
     "docs/design/02-weather-tool-design.md": 20,
-    "backend/core/agent/system_prompt_templates.py": 19,
+    "docs/audit/API_PATH_AUDIT.md": 19,
     "backend/api/task_queue_routes.py": 19,
-    "docs/audit/API_PATH_AUDIT.md": 18,
     "requirements.txt": 18,
     "backend/infrastructure/execution/tests/test_task_handlers.py": 17,
     "backend/main.py": 17,
@@ -359,6 +365,9 @@
     "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
     "pyproject.toml": 13,
     "frontend/ui/command_input.py": 13,
+    "backend/api/chat_routes.py": 12,
+    "extension/manifest.json": 12,
+    "frontend/react-app/src/pages/WebReader.jsx": 12,
     "frontend/react-app/src/components/MarkdownActionButtons.jsx": 12,
     "frontend/react-app/src/components/task/TaskParamsForm.jsx": 12,
     "backend/core/context/manager.py": 12,
@@ -368,15 +377,12 @@
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
     "backend/core/agent/tools/builtin/browser_tool.py": 11,
-    "backend/api/chat_routes.py": 11,
-    "frontend/react-app/src/pages/WebReader.jsx": 11,
     "frontend/react-app/src/utils/mdToHtml.js": 11,
     "backend/services/llm/tests/__init__.py": 11,
     "backend/infrastructure/execution/task_worker.py": 11,
     "frontend/react-app/src/components/task/TaskFormPage.jsx": 11,
     "backend/infrastructure/execution/tests/test_executor.py": 11,
-    "backend/infrastructure/execution/tests/test_secure_executor.py": 11,
-    "extension/manifest.json": 11
+    "backend/infrastructure/execution/tests/test_secure_executor.py": 11
   },
-  "generated_at": "2026-03-24T02:55:17.760723Z"
+  "generated_at": "2026-03-26T15:27:29.471400Z"
 }

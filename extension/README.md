@@ -29,6 +29,12 @@ Chrome 扩展，配合 Hou CLI 使用：
 - **方法**：在「网页阅读」抓取 **微信公众号文章 URL** 时，前端会请求扩展**附带拉取正文配图**（扩展内 `fetch` + 微信 Referer/Cookie）；图片以 data URL 回传后，由后端 `POST /api/web-reader/materialize-inline-images` 写入应用数据目录，Markdown 中替换为本站 ` /api/web-reader/inline-static/{uuid}.ext`。
 - **占位图**：正文里常见 `src="data:image/svg+xml,..."` 懒加载占位，真图在 `data-src`；扩展在 `extractContent` 内会把此类 `src` 改写成绝对 `https://mmbiz.qpic.cn/...`，预览与 Markdown 替换才能对齐。
 - **懒加载后**：浏览器常把 `src` 换成带 `tp=webp&wx_lazy=1` 等与 `data-src` 不同的 URL；拉图时用 **已加载的 `https` `src` 优先**，否则 `inlineImageMap` 键与 HTML 里 `src` 对不上。前端替换时同时匹配 `&` 与 `&amp;`（序列化差异）。
+
+#### 微信读书 `weread.qq.com`
+
+- **时间/背景**：与公众号类似，插图在 DOM 中且 CDN 可能校验 Referer。
+- **方法**：在阅读器容器内抽取 `html` + 图片 URL → Service Worker 带 `Referer: https://weread.qq.com/` 与 Cookie `fetch` → 返回 `inlineImageMap`；前端 `materialize-inline-images` 后 `htmlToMd`。同时仍做分屏截图；**DOM 正文 ≥ 80 字** 时不自动跑 OCR，可手动「识别文字」。
+- **插图 DOM**：常见 `img.wr_readerImage_opacity`，`src`/`data-src` 指向 `https://res.weread.qq.com/wrepub/...`；拉图时对 **每张图 URL** 使用 Referer `https://weread.qq.com/`（与页面 host 不同）。另对全书签内上述选择器再扫一遍，避免绝对定位图落在滚动根 `innerHTML` 外而漏 URL。
 - **要求**：须在浏览器中已登录可打开该文的微信网页；扩展需有对应站点权限（默认 manifest 已含 `mp.weixin.qq.com`）。
 
 ### 视频下载（YouTube/Bilibili 需登录时）

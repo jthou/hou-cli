@@ -4,7 +4,7 @@ import json
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Any, Dict, Iterator, TextIO
+from typing import Optional, Any, Dict, Iterator, TextIO, List
 from rich.console import Console
 from rich.panel import Panel
 from shared.config import Config
@@ -15,6 +15,34 @@ logger = logging.getLogger(__name__)
 
 # shared/ 的父目录即仓库根（用于 .cursor/debug.log，替代硬编码机器路径）
 _REPO_ROOT_FOR_CURSOR_LOG = Path(__file__).resolve().parent.parent
+
+
+def _preview_llm_message_content(content: Any, max_chars: int = 220) -> str:
+    """将单条 message 的 content 压成一行预览（供调试日志，与真实 API 结构一致）。"""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        s = content.replace("\n", " ").strip()
+        return (s[:max_chars] + "…") if len(s) > max_chars else s
+    if isinstance(content, list):
+        parts: List[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                t = part.get("type") or ""
+                if t == "text":
+                    txt = (part.get("text") or "").replace("\n", " ").strip()
+                    if txt:
+                        parts.append(txt[:120] + ("…" if len(txt) > 120 else ""))
+                elif t == "image_url":
+                    parts.append("[image_url]")
+                else:
+                    parts.append(f"[{t}]")
+            else:
+                parts.append(str(part)[:80])
+        joined = " | ".join(p for p in parts if p)
+        return (joined[:max_chars] + "…") if len(joined) > max_chars else joined
+    s = str(content).replace("\n", " ").strip()
+    return (s[:max_chars] + "…") if len(s) > max_chars else s
 
 
 @contextmanager
@@ -238,6 +266,19 @@ class DebugOutput:
         self.log(f"LLM Request: model={model}", level="debug")
         self.log(f"  System: {system_preview}", level="debug")
         self.log(f"  User: {user_preview}", level="debug")
+
+    def log_llm_request_from_messages(self, messages: List[Dict[str, Any]], model: str):
+        """输出与 API 一致的 messages 摘要（callers 仅传 messages 时勿再用空的 system/user 预览）。"""
+        if not self.enabled:
+            return
+        self.log(f"LLM Request: model={model}", level="debug")
+        for i, m in enumerate(messages or []):
+            if not isinstance(m, dict):
+                self.log(f"  [{i}] (non-dict)", level="debug")
+                continue
+            role = m.get("role", "?")
+            prev = _preview_llm_message_content(m.get("content"), 220)
+            self.log(f"  [{i}] {role}: {prev}", level="debug")
     
     def log_llm_response(self, response: str, model: str):
         """输出 LLM 响应信息"""

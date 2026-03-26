@@ -13,32 +13,11 @@ import { useExtensionReady } from '../hooks/useExtensionReady'
 import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 import { saveLastReadForContext, loadLastReadForContext } from '../utils/webReaderIndexedDB'
 import { fetchSummarize } from '../utils/summarizeApi'
+import { materializeInlineImagesFromMap } from '../utils/webReaderInlineImages'
 
 const REQUEST_ID_PREFIX = 'web-reader-'
 const STORAGE_KEY_LAST_LEGACY = 'hou-cli-web-reader-last' // 迁移用
 const SAVE_DEBOUNCE_MS = 600
-
-/** 微信等：innerHTML 属性里 & 常序列化为 &amp;，需与扩展传来的 URL 逐字替换都对上 */
-function applyInlineImageUrlReplacements(html, mappingEntries, origin) {
-  let out = html || ''
-  const sorted = [...mappingEntries].sort((a, b) => (b[0] || '').length - (a[0] || '').length)
-  for (const [orig, apiPath] of sorted) {
-    if (!orig || !apiPath) continue
-    const full = `${origin}${apiPath}`
-    const variants = []
-    const push = (s) => {
-      if (s && !variants.includes(s)) variants.push(s)
-    }
-    push(orig)
-    if (orig.includes('&') && !orig.includes('&amp;')) push(orig.replace(/&/g, '&amp;'))
-    if (orig.includes('&amp;')) push(orig.replace(/&amp;/g, '&'))
-    for (const v of variants) {
-      const esc = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      out = out.replace(new RegExp(esc, 'g'), full)
-    }
-  }
-  return out
-}
 
 export default function WebReader() {
   const navigate = useNavigate()
@@ -189,19 +168,8 @@ export default function WebReader() {
           let html = d?.html
           const map = d?.inlineImageMap
           if (html && map && typeof map === 'object' && Object.keys(map).length) {
-            try {
-              const res = await fetch(`${window.location.origin}/api/web-reader/materialize-inline-images`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  images: Object.entries(map).map(([original_url, data_url]) => ({ original_url, data_url })),
-                }),
-              })
-              const jd = await res.json()
-              if (jd.success && jd.mapping && Object.keys(jd.mapping).length) {
-                html = applyInlineImageUrlReplacements(html, Object.entries(jd.mapping), window.location.origin)
-              }
-            } catch (_) {}
+            const { html: nh } = await materializeInlineImagesFromMap(html, map, window.location.origin)
+            html = nh
           }
           const augmented = d
             ? { ...d, html: html || d.html || '', markdown: html ? htmlToMd(html) : (d.html ? htmlToMd(d.html) : (d.content || '')) }
