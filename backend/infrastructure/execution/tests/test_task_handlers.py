@@ -417,6 +417,30 @@ class TestValidateTaskCreation:
         assert ok is True
         assert err is None
 
+    def test_pdf_to_wiki_extract_mode_default_ok(self):
+        ok, err = validate_task_creation(
+            "pdf_to_wiki",
+            {"url": "https://example.com/a.pdf"},
+        )
+        assert ok is True
+        assert err is None
+
+    def test_pdf_to_wiki_extract_mode_vision_ok(self):
+        ok, err = validate_task_creation(
+            "pdf_to_wiki",
+            {"url": "https://example.com/a.pdf", "extract_mode": "vision"},
+        )
+        assert ok is True
+        assert err is None
+
+    def test_pdf_to_wiki_extract_mode_invalid(self):
+        ok, err = validate_task_creation(
+            "pdf_to_wiki",
+            {"url": "https://example.com/a.pdf", "extract_mode": "bogus"},
+        )
+        assert ok is False
+        assert err and "extract_mode" in err
+
     def test_validate_wechat_mp_draft_title_and_thumb_optional(self):
         """微信草稿：标题、封面可留空（同步到草稿箱，任务侧占位标题）"""
         ok, err = validate_task_creation(

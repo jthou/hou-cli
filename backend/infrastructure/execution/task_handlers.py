@@ -804,6 +804,16 @@ TASK_TYPES = {
                     {"value": "multi", "label": "多子页面（目录页+书名/第k部分）"},
                 ]
             },
+            "extract_mode": {
+                "type": "string",
+                "required": False,
+                "description": "抽取方式：文本层（快）或页图+视觉识别（慢，适合公式/扫描件；插图不单独成 Wiki 文件）",
+                "default": "text",
+                "enum": [
+                    {"value": "text", "label": "文本层（pdfminer/pdfplumber）"},
+                    {"value": "vision", "label": "页图识别（VL OCR，耗时长）"},
+                ]
+            },
         }
     },
     "wiki_directory_refresh": {
@@ -2056,6 +2066,10 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         source_label = url
 
     try:
+        extract_mode = (metadata.get("extract_mode") or "text").strip().lower()
+        if extract_mode not in ("text", "vision"):
+            return _err("INVALID_METADATA", "extract_mode 无效", "仅支持 text 或 vision")
+
         worker.update_task_progress(10, "正在解析 PDF...")
         import pdfplumber
 
@@ -2098,15 +2112,26 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
         failed_chunks: List[Dict[str, Any]] = []
         n = len(chunk_ranges)
         for i, (p_from, p_to) in enumerate(chunk_ranges):
+            if extract_mode == "vision":
+                phase = "页图识别..." if skip_translate else "页图识别与翻译..."
+            else:
+                phase = "转文字..." if skip_translate else "转文字与翻译..."
             worker.update_task_progress(
                 15 + int(60 * (i + 1) / n),
-                f"第 {i + 1}/{n} 块（第 {p_from}-{p_to} 页）" + ("转文字..." if skip_translate else "转文字与翻译..."),
+                f"第 {i + 1}/{n} 块（第 {p_from}-{p_to} 页）{phase}",
             )
             raw_text = ""
             try:
-                raw_text = await asyncio.to_thread(
-                    _extract_text_from_pdf_page_range, pdf_path, p_from, p_to
-                )
+                if extract_mode == "vision":
+                    from backend.utils.pdf_vision_extract import extract_pdf_page_range_vision_markdown
+
+                    raw_text = await extract_pdf_page_range_vision_markdown(
+                        pdf_path, p_from, p_to
+                    )
+                else:
+                    raw_text = await asyncio.to_thread(
+                        _extract_text_from_pdf_page_range, pdf_path, p_from, p_to
+                    )
             except Exception as e:
                 failed_chunks.append({"chunk_index": i, "page_from": p_from, "page_to": p_to, "reason": f"提取失败: {e}"})
                 translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n（本段提取失败）")
@@ -2115,7 +2140,10 @@ async def process_pdf_to_wiki_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
                 translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n（本段无提取文本）")
                 continue
             if skip_translate:
-                translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n{raw_text.strip()}")
+                if extract_mode == "vision":
+                    translated_parts.append(raw_text.strip())
+                else:
+                    translated_parts.append(f"\n\n第 {p_from}-{p_to} 页\n\n{raw_text.strip()}")
                 continue
             try:
                 if len(raw_text) > PDF_TO_WIKI_CHUNK_CHARS:
@@ -2728,6 +2756,9 @@ def validate_task_creation(task_type: str, metadata: Any) -> Tuple[bool, Optiona
             return False, "请填写 PDF 的 url 或 file_path（二选一）"
         if u and f:
             return False, "只能填写 url 或 file_path 其一"
+        em = (metadata.get("extract_mode") or "text").strip().lower()
+        if em not in ("text", "vision"):
+            return False, "extract_mode 仅支持 text 或 vision"
 
     if task_type in ("web_search", "web_search_compare"):
         q = (metadata.get("query") or "").strip()
