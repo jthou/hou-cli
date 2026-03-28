@@ -30,7 +30,7 @@ export function applyInlineImageUrlReplacements(html, mappingEntries, origin) {
  */
 export async function materializeInlineImagesFromMap(html, inlineImageMap, apiOrigin) {
   const h = html || ''
-  if (!h || !inlineImageMap || typeof inlineImageMap !== 'object') {
+  if (!inlineImageMap || typeof inlineImageMap !== 'object') {
     return { html: h, mapping: null }
   }
   const entries = Object.entries(inlineImageMap)
@@ -48,7 +48,7 @@ export async function materializeInlineImagesFromMap(html, inlineImageMap, apiOr
       return { html: h, mapping: null }
     }
     return {
-      html: applyInlineImageUrlReplacements(h, Object.entries(jd.mapping), apiOrigin),
+      html: h ? applyInlineImageUrlReplacements(h, Object.entries(jd.mapping), apiOrigin) : h,
       mapping: jd.mapping,
     }
   } catch (_) {

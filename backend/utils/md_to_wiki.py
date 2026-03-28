@@ -13,6 +13,9 @@ MATH_PLACEHOLDER_SUFFIX = "\x01"
 CODE_PLACEHOLDER_PREFIX = "\x01WIKICODE"
 CODE_PLACEHOLDER_SUFFIX = "\x01"
 
+# 与 frontend wikiMdConvert.js MW_FILE_DEFAULT_DISPLAY_PARAMS 一致
+MW_FILE_DEFAULT_DISPLAY_PARAMS = "500px|center|frame"
+
 
 def _md_extract_code_to_placeholders(md: str) -> Tuple[str, List[dict]]:
     """提取 ```lang\\ncode``` 代码块，避免后续 emphasis/links 等正则破坏。转为占位符。"""
@@ -40,6 +43,20 @@ def _md_restore_code_placeholders(text: str, code_list: List[dict]) -> str:
         key = f"{CODE_PLACEHOLDER_PREFIX}{i}{CODE_PLACEHOLDER_SUFFIX}"
         text = text.replace(key, tag)
     return text
+
+
+def _md_markdown_images_to_wiki(md: str) -> str:
+    """![alt](url) → [[File:url|500px|center|frame|alt]]，与前端 mdToWikiWithImages 一致"""
+
+    def repl(m: re.Match) -> str:
+        alt = (m.group(1) or "").strip()
+        url = (m.group(2) or "").strip()
+        p = MW_FILE_DEFAULT_DISPLAY_PARAMS
+        if alt:
+            return f"[[File:{url}|{p}|{alt}]]"
+        return f"[[File:{url}|{p}]]"
+
+    return re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", repl, md)
 
 
 def _md_extract_math_to_placeholders(md: str) -> Tuple[str, List[dict]]:
@@ -137,7 +154,9 @@ def _md_lists_to_wiki(md: str) -> str:
 def md_to_wiki(md: str) -> str:
     """
     Markdown → MediaWiki wikitext
-    覆盖：标题、粗/斜体、链接、列表、公式（$ / $$）、代码块（``` → <syntaxhighlight lang="xxx">）
+    覆盖：标题、粗/斜体、链接、列表、公式（$ / $$）、
+    插图（![alt](url) → [[File:url|500px|center|frame|alt]]）、
+    代码块（``` → <syntaxhighlight lang="xxx">）
     """
     if md is None or not isinstance(md, str):
         return ""
@@ -146,6 +165,7 @@ def md_to_wiki(md: str) -> str:
         return ""
     s, code_list = _md_extract_code_to_placeholders(s)
     s, math_list = _md_extract_math_to_placeholders(s)
+    s = _md_markdown_images_to_wiki(s)
     s = _md_headers_to_wiki(s)
     s = _md_links_to_wiki(s)
     s = _md_emphasis_to_wiki(s)

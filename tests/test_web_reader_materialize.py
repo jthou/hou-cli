@@ -3,6 +3,7 @@
 
 import base64
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -46,3 +47,66 @@ def test_materialize_inline_images_and_serve(web_reader_client: TestClient):
 
     r404 = web_reader_client.get("/web-reader/inline-static/../../../etc/passwd")
     assert r404.status_code == 404
+
+
+def test_fetch_weread_inline_image_rejects_non_weread_host(web_reader_client: TestClient):
+    r = web_reader_client.post(
+        "/web-reader/fetch-weread-inline-image",
+        json={
+            "original_url": "https://evil.example.com/x.jpg",
+            "page_url": "https://weread.qq.com/web/reader/xxx",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("success") is False
+
+
+def test_fetch_weread_inline_image_ok_with_mock_httpx(web_reader_client: TestClient, monkeypatch):
+    from backend.api import web_reader_routes
+
+    one_px_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+        b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    class _MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            req = httpx.Request("GET", url)
+            return httpx.Response(
+                200,
+                request=req,
+                content=one_px_png,
+                headers={"content-type": "image/png"},
+            )
+
+    monkeypatch.setattr(web_reader_routes.httpx, "AsyncClient", _MockAsyncClient)
+
+    r = web_reader_client.post(
+        "/web-reader/fetch-weread-inline-image",
+        json={
+            "original_url": "https://res.weread.qq.com/wrepub/epub_test",
+            "page_url": "https://weread.qq.com/web/reader/foo",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("success") is True
+    m = body.get("mapping") or {}
+    assert len(m) == 1
+    path = list(m.values())[0]
+    assert path.startswith("/api/web-reader/inline-static/")
+    fname = path.split("/")[-1]
+
+    r2 = web_reader_client.get(f"/web-reader/inline-static/{fname}")
+    assert r2.status_code == 200
+    assert r2.content[:8] == b"\x89PNG\r\n\x1a\n"

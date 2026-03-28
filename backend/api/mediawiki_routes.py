@@ -5,7 +5,7 @@ import re
 import random
 import tempfile
 from typing import Optional, Tuple
-from urllib.parse import urljoin, urlparse, unquote
+from urllib.parse import parse_qs, urljoin, urlparse, unquote
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -186,6 +186,49 @@ async def parse_mediawiki_wikitext(request: MediaWikiParseRequest):
         raise HTTPException(status_code=500, detail=f"Parse failed: {str(e)}")
 
 
+def _wiki_filename_from_special_filepath_url(url: str, wiki_base_raw: str) -> Optional[str]:
+    """
+    若 image_url 已是本站「图片展示」链接（Special:FilePath/文件名），则不应再用 httpx 去拉取：
+    本站 nginx/PHP 常对 FilePath 返回 502，且文件已在 Wiki 上，无需重复上传。
+    时间：2026-03-24
+    """
+    try:
+        u = urlparse((url or "").strip())
+        base = urlparse((wiki_base_raw or "").strip().rstrip("/"))
+        if not u.scheme or not base.scheme:
+            return None
+        if u.scheme.lower() != base.scheme.lower():
+            return None
+        if (u.netloc or "").lower() != (base.netloc or "").lower():
+            return None
+        base_path = (base.path or "").rstrip("/")
+        full_path = unquote(u.path or "")
+        if base_path and base_path != "/":
+            if not (full_path == base_path or full_path.startswith(base_path + "/")):
+                return None
+        marker = "/Special:FilePath/"
+        name: Optional[str] = None
+        if marker in full_path:
+            tail = full_path.split(marker, 1)[-1].strip("/")
+            tail = tail.split("?")[0].split("#")[0]
+            if tail and "/" not in tail and ".." not in tail:
+                name = tail
+        if name is None and u.query:
+            for raw_t in parse_qs(u.query).get("title", []):
+                t = unquote(raw_t or "")
+                if "Special:FilePath/" in t:
+                    part = t.split("Special:FilePath/", 1)[-1].strip()
+                    part = part.split("?")[0].split("#")[0]
+                    if part and "/" not in part and ".." not in part:
+                        name = part
+                        break
+        if not name:
+            return None
+        return name
+    except Exception:
+        return None
+
+
 def _try_read_web_reader_inline_static(url: str) -> Optional[Tuple[bytes, str]]:
     """
     网页阅读配图落在本机 data 目录；upload-image 若用 httpx 拉取自己的公网地址，经 nginx 常 502。
@@ -245,10 +288,17 @@ async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
     """
     从图片 URL 下载并上传到 MediaWiki，返回 [[File:xxx]] 格式。
     用于网页阅读：选中网页中的图片，上传后得到 MediaWiki 引用。
+    文件名与 upload-image-file 一致：按内容 SHA256 前 16 位命名 img_<hash>.<ext>，避免大量 image.png 撞车。
     """
     url = (request.image_url or "").strip()
     if not url or not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="image_url 必须为 http(s) URL")
+
+    wiki_base = _get_mediawiki_base_url()
+    fp_name = _wiki_filename_from_special_filepath_url(url, wiki_base)
+    if fp_name:
+        wikitext = f"[[File:{fp_name}]]"
+        return {"success": True, "filename": fp_name, "wikitext": wikitext}
 
     try:
         local = _try_read_web_reader_inline_static(url)
@@ -264,8 +314,12 @@ async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
         if not content or len(content) > 50 * 1024 * 1024:  # 50MB
             raise HTTPException(status_code=400, detail="图片为空或超过 50MB 限制")
 
-        filename = _filename_from_url(url, content_type)
-        ext = filename[filename.rfind("."):] if "." in filename else ".png"
+        url_hint = _filename_from_url(url, content_type)
+        ext = _ext_from_upload(url_hint, content_type)
+        basename = _hashed_upload_basename(content, ext)
+        filename = re.sub(r"[^\w.\-]", "_", basename)
+        if not filename.lower().endswith(tuple(_ALLOWED_IMG_EXT)):
+            filename = _hashed_upload_basename(content, ".png")
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
             f.write(content)
             tmp_path = f.name

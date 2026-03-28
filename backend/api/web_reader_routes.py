@@ -6,7 +6,9 @@ import re
 import uuid
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -28,6 +30,64 @@ _SAFE_INLINE_NAME = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|gif|webp)$",
     re.IGNORECASE,
 )
+
+# 与 extension/background.js fetchImagesViaExtension 对齐：服务端代拉微信读书配图（无 Cookie，部分 CDN 仍可用）
+_WEREAD_FETCH_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+
+
+def _weread_hotlink_image_url_allowed(url: str) -> bool:
+    """仅允许微信读书相关配图域名，避免任意 SSRF。"""
+    try:
+        parsed = urlparse((url or "").strip())
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = (parsed.hostname or "").lower()
+        low = url.lower()
+        if host in ("res.weread.qq.com", "weread.qq.com") or host.endswith(".weread.qq.com"):
+            return True
+        if host.endswith(".myqcloud.com") or host.endswith(".qpic.cn") or host.endswith(".gtimg.cn"):
+            return bool(re.search(r"weread|qqread|wrepub", low))
+        return False
+    except Exception:
+        return False
+
+
+def _referer_for_weread_image_fetch(page_url: str) -> str:
+    p = (page_url or "").strip()
+    if p.startswith("http://") or p.startswith("https://"):
+        try:
+            h = (urlparse(p).hostname or "").lower()
+            if h == "weread.qq.com" or h.endswith(".weread.qq.com"):
+                return p
+        except Exception:
+            pass
+    return "https://weread.qq.com/"
+
+
+def _guess_ext_from_image_response(body: bytes, content_type: str) -> Optional[str]:
+    ct = (content_type or "").split(";", 1)[0].strip().lower()
+    mime_map = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }
+    if ct in mime_map:
+        return mime_map[ct]
+    if len(body) >= 3 and body[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if len(body) >= 8 and body[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if len(body) >= 6 and body[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
 
 OCR_PROMPT = """请识别图片中的所有文字，按原文顺序逐行输出。如果是书籍或文章页面，请完整提取正文内容，保留段落结构。
 
@@ -97,6 +157,19 @@ class InlineImageItem(BaseModel):
 
 class MaterializeInlineImagesRequest(BaseModel):
     images: List[InlineImageItem]
+
+
+class FetchWereadInlineImageRequest(BaseModel):
+    """本机后端代拉微信读书原图（Referer + UA，无浏览器 Cookie）；失败时前端可回退扩展。"""
+
+    original_url: str
+    page_url: Optional[str] = None
+
+
+class FetchWereadInlineImageResponse(BaseModel):
+    success: bool
+    mapping: Optional[dict] = None
+    error: Optional[str] = None
 
 
 SUMMARY_PROMPT = """请对以下文本生成**结构化、分层摘要**，尽可能覆盖原文所有重要内容。
@@ -251,6 +324,62 @@ async def materialize_inline_images(req: MaterializeInlineImagesRequest):
         mapping[ou] = f"/api/web-reader/inline-static/{fname}"
 
     return {"success": True, "mapping": mapping}
+
+
+@router.post("/fetch-weread-inline-image", response_model=FetchWereadInlineImageResponse)
+async def fetch_weread_inline_image(req: FetchWereadInlineImageRequest):
+    """
+    用原图 URL + 章节页 Referer 在本机服务端 GET 图片并落盘，避免前端 CORS；
+    不需要扩展。若 CDN 仍要求登录 Cookie，前端会回退扩展 HOU_CLI_REFETCH_IMAGES。
+    """
+    ou = (req.original_url or "").strip()
+    if not ou.startswith(("http://", "https://")):
+        return FetchWereadInlineImageResponse(success=False, error="无效的原始 URL")
+    if not _weread_hotlink_image_url_allowed(ou):
+        return FetchWereadInlineImageResponse(
+            success=False, error="该域名不允许由服务端代拉（仅限微信读书配图）"
+        )
+    max_bytes = 40 * 1024 * 1024
+    referer = _referer_for_weread_image_fetch((req.page_url or "").strip())
+    headers = {
+        "Referer": referer,
+        "User-Agent": _WEREAD_FETCH_UA,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+            r = await client.get(ou, headers=headers)
+    except httpx.RequestError as e:
+        logger.warning("fetch-weread-inline-image network error: %s", e)
+        return FetchWereadInlineImageResponse(success=False, error=f"网络错误: {e}")
+    if not r.is_success:
+        return FetchWereadInlineImageResponse(
+            success=False, error=f"HTTP {r.status_code}"
+        )
+    try:
+        final_url = str(r.url)
+    except RuntimeError:
+        final_url = ou
+    if not _weread_hotlink_image_url_allowed(final_url):
+        return FetchWereadInlineImageResponse(success=False, error="重定向到不允许的地址")
+    body = r.content
+    if not body or len(body) > max_bytes:
+        return FetchWereadInlineImageResponse(
+            success=False, error="空响应或超过体积上限"
+        )
+    ext = _guess_ext_from_image_response(body, r.headers.get("content-type", ""))
+    if not ext:
+        return FetchWereadInlineImageResponse(success=False, error="响应不是已知图片格式")
+    fid = str(uuid.uuid4())
+    fname = f"{fid}{ext}"
+    path = _INLINE_IMG_DIR / fname
+    try:
+        path.write_bytes(body)
+    except OSError as e:
+        logger.warning("fetch-weread-inline-image write failed: %s", e)
+        return FetchWereadInlineImageResponse(success=False, error="写入本地失败")
+    mapping = {ou: f"/api/web-reader/inline-static/{fname}"}
+    return FetchWereadInlineImageResponse(success=True, mapping=mapping)
 
 
 @router.get("/inline-static/{filename}")

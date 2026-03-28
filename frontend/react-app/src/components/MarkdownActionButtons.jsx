@@ -13,6 +13,8 @@ import {
   uploadMediaWikiImageFile,
   batchUploadMarkdownImagesToMediaWiki,
   markdownHasUploadableImageUrls,
+  markdownHasRetryableMwUploadImages,
+  MW_BATCH_UPLOAD_FAIL_ALT_MARK,
 } from '../utils/mediawikiPasteImage'
 import { operationFromMwDialogMode } from '../utils/mediawikiWriteOperation'
 import { useToast } from './ToastModal'
@@ -57,10 +59,15 @@ export default function MarkdownActionButtons({
   const [bulkWikiImgBusy, setBulkWikiImgBusy] = useState(false)
   const [bulkWikiImgProgress, setBulkWikiImgProgress] = useState(null)
 
-  const handleBulkUploadPreviewImages = async () => {
+  const runBulkWikiUpload = async (onlyRetryMarked) => {
     if (!onContentReplace || bulkWikiImgBusy) return
     const md = content || ''
-    if (!markdownHasUploadableImageUrls(md)) {
+    if (onlyRetryMarked) {
+      if (!markdownHasRetryableMwUploadImages(md)) {
+        toast?.warning?.(`正文中没有带「${MW_BATCH_UPLOAD_FAIL_ALT_MARK}」的插图可重试`)
+        return
+      }
+    } else if (!markdownHasUploadableImageUrls(md)) {
       toast?.warning?.('正文中没有可上传的网络/本站图片链接（![](https://…）或 ![]( /api/…））')
       return
     }
@@ -69,13 +76,18 @@ export default function MarkdownActionButtons({
     try {
       const { markdown: next, ok, fail, total } = await batchUploadMarkdownImagesToMediaWiki(md, {
         onProgress: (cur, tot) => setBulkWikiImgProgress({ cur, tot }),
+        onlyRetryMarked,
       })
       onContentReplace(next)
       if (fail.length === 0) {
-        toast?.success?.(`已全部上传并替换为 Wiki 插图（共 ${ok} 张）`)
+        toast?.success?.(
+          onlyRetryMarked
+            ? `待重试插图已全部处理（共 ${ok} 张）`
+            : `已全部上传并替换为 Wiki 插图（共 ${ok} 张）`
+        )
       } else {
         toast?.warning?.(
-          `已上传 ${ok}/${total} 张；${fail.length} 张失败（可查看控制台）。失败 URL 仍保留为 Markdown 图片语法。`
+          `已上传 ${ok}/${total} 张；${fail.length} 张失败。失败项已在 alt 标为「${MW_BATCH_UPLOAD_FAIL_ALT_MARK}」，可搜索正文或点「仅重试待传插图」。详情见控制台。`
         )
         console.warn('[batchUploadMarkdownImagesToMediaWiki]', fail)
       }
@@ -86,6 +98,9 @@ export default function MarkdownActionButtons({
       setBulkWikiImgProgress(null)
     }
   }
+
+  const handleBulkUploadPreviewImages = () => runBulkWikiUpload(false)
+  const handleBulkRetryFailedWikiImages = () => runBulkWikiUpload(true)
 
   const handleMwPasteImage = async (e, mode) => {
     const file = getClipboardImageFile(e)
@@ -296,6 +311,19 @@ export default function MarkdownActionButtons({
               : bulkWikiImgBusy
                 ? '上传插图中…'
                 : '一键上传全部插图到 Wiki'}
+          </button>
+        )}
+        {showMediaWiki && onContentReplace && (
+          <button
+            type="button"
+            onClick={handleBulkRetryFailedWikiImages}
+            disabled={bulkWikiImgBusy || !markdownHasRetryableMwUploadImages(content)}
+            title={`只上传 alt 中含「${MW_BATCH_UPLOAD_FAIL_ALT_MARK}」的 Markdown 图（批量失败或网络恢复后使用）`}
+            className="px-4 py-2 rounded-lg border border-amber-500/50 text-amber-100/90 hover:bg-amber-500/15 text-sm disabled:opacity-40 disabled:pointer-events-none"
+          >
+            {bulkWikiImgBusy && bulkWikiImgProgress
+              ? `重试中 ${bulkWikiImgProgress.cur}/${bulkWikiImgProgress.tot}…`
+              : '仅重试待传插图'}
           </button>
         )}
         {onAddToReference && (

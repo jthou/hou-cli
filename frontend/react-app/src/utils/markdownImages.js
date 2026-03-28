@@ -114,6 +114,30 @@ export function resolveOriginalUrlForMaterializedUrl(localFullUrl, mapping, orig
 }
 
 /**
+ * 预览 HTML 中 &lt;img src&gt; 对应的原图 URL（materialize 映射或 src 即原链）。
+ * @param {string} srcAttr - img 的 src 属性值（可含 &amp;）
+ * @param {Record<string, string>} mapping - 原图 URL → 本站路径
+ * @param {string} [origin]
+ * @returns {string|null}
+ */
+export function findOriginalUrlForPreviewImgSrc(srcAttr, mapping, origin = '') {
+  if (!srcAttr || !mapping || typeof mapping !== 'object') return null
+  const u = normalizeMaterializedImgUrl(String(srcAttr).trim())
+  if (!u) return null
+  const base = String(origin || '').replace(/\/$/, '')
+  const toTry = [u]
+  if (base && !/^https?:\/\//i.test(u)) toTry.push(`${base}${u.startsWith('/') ? u : `/${u}`}`)
+  for (const c of toTry) {
+    const o = resolveOriginalUrlForMaterializedUrl(c, mapping, origin)
+    if (o) return o
+  }
+  for (const [orig] of Object.entries(mapping)) {
+    if (normalizeMaterializedImgUrl(orig) === u) return orig
+  }
+  return null
+}
+
+/**
  * 合并多次 materialize 的 mapping（后写入覆盖同 key）。
  * @param {...Record<string, string>|null|undefined} maps
  * @returns {Record<string, string>}

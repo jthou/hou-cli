@@ -3,6 +3,11 @@
  * 时间：2026-03-13；理由：与后端 /mediawiki/upload-image-file（内容哈希命名）配合；方法：clipboard image/FormData + 文本区间插入。
  */
 
+import { MW_FILE_DEFAULT_DISPLAY_PARAMS } from './wikiMdConvert'
+
+/** 批量上传失败时写入 alt，预览与编辑器可见；「仅重试待传插图」只处理带此标记的 ![](...) */
+export const MW_BATCH_UPLOAD_FAIL_ALT_MARK = '⚠待重传'
+
 /**
  * @param {ClipboardEvent} pasteEvent
  * @returns {File|null}
@@ -54,7 +59,8 @@ export function snippetForMdWiki(filename) {
  */
 export function snippetForWikitext(filename) {
   const f = (filename || '').trim()
-  return `[[File:${f}]]`
+  const p = MW_FILE_DEFAULT_DISPLAY_PARAMS
+  return `[[File:${f}|${p}]]`
 }
 
 /**
@@ -103,26 +109,68 @@ export function toAbsoluteImageUrlForMwUpload(url) {
   return null
 }
 
+/**
+ * 去掉批量失败标记，避免 [[File:…|⚠待重传·说明]] 进 Wiki。
+ * @param {string} alt
+ * @returns {string}
+ */
+export function stripMwBatchUploadFailAltMark(alt) {
+  const a = String(alt || '').trim()
+  if (!a.includes(MW_BATCH_UPLOAD_FAIL_ALT_MARK)) return a
+  let rest = a.split(MW_BATCH_UPLOAD_FAIL_ALT_MARK).join('').trim()
+  rest = rest.replace(/^·+/u, '').trim()
+  return rest
+}
+
 function wikitextForUploadedFile(filename, alt) {
   const f = (filename || '').trim()
   if (!f) return ''
-  const a = String(alt || '')
+  const p = MW_FILE_DEFAULT_DISPLAY_PARAMS
+  const a = String(stripMwBatchUploadFailAltMark(alt || ''))
     .trim()
     .replace(/\|/g, '·')
-  if (a) return `[[File:${f}|${a}]]`
-  return `[[File:${f}]]`
+  if (a) return `[[File:${f}|${p}|${a}]]`
+  return `[[File:${f}|${p}]]`
+}
+
+/**
+ * 上传失败：在对应 ![](url) 的 alt 写入 ⚠待重传（保留原 alt 在后），便于查找与「仅重试」。
+ * @param {string} out
+ * @param {Iterable<string>} rawUrls
+ * @returns {string}
+ */
+export function markBatchUploadFailInMarkdown(out, rawUrls) {
+  let md = out
+  for (const raw of rawUrls) {
+    const esc = escapeForMdImgRe(raw)
+    const imgRe = new RegExp(`!\\[([^\\]]*)\\]\\(${esc}\\)`, 'g')
+    md = md.replace(imgRe, (_, capAlt) => {
+      const a = String(capAlt || '').trim()
+      if (a.includes(MW_BATCH_UPLOAD_FAIL_ALT_MARK)) {
+        return '![' + a + '](' + raw + ')'
+      }
+      const nextAlt = a ? MW_BATCH_UPLOAD_FAIL_ALT_MARK + '·' + a : MW_BATCH_UPLOAD_FAIL_ALT_MARK
+      return '![' + nextAlt + '](' + raw + ')'
+    })
+  }
+  return md
 }
 
 /**
  * 扫描 Markdown 中 ![](url)，按绝对 URL 去重后用于批量上传。
+ * @param {string} markdown
+ * @param {{ onlyRetryMarked?: boolean }} [options] - onlyRetryMarked：仅 alt 中含 ⚠待重传 的图
  * @returns {Map<string, { rawUrls: Set<string> }>}
  */
-export function collectMdImagesByAbsoluteUrl(markdown) {
+export function collectMdImagesByAbsoluteUrl(markdown, options = {}) {
+  const { onlyRetryMarked = false } = options
   const md = markdown == null ? '' : String(markdown)
   const re = /!\[([^\]]*)\]\(([^)]+)\)/g
   const byAbs = new Map()
   let m
   while ((m = re.exec(md)) !== null) {
+    const alt = String(m[1] || '')
+    if (onlyRetryMarked && !alt.includes(MW_BATCH_UPLOAD_FAIL_ALT_MARK)) continue
     const raw = String(m[2] || '')
       .trim()
       .replace(/\s+$/, '')
@@ -139,16 +187,21 @@ export function markdownHasUploadableImageUrls(markdown) {
   return collectMdImagesByAbsoluteUrl(markdown).size > 0
 }
 
+/** 正文中是否存在「待重试」的 Markdown 插图 */
+export function markdownHasRetryableMwUploadImages(markdown) {
+  return collectMdImagesByAbsoluteUrl(markdown, { onlyRetryMarked: true }).size > 0
+}
+
 /**
  * 将正文中所有可上传的 ![](http...) / ![]( /api/...) 逐张 POST /api/mediawiki/upload-image，
  * 并替换为 [[File:…]]（与单张预览上传一致，便于再点「写入 MediaWiki」时走 wikitext）。
  * @param {string} markdown
- * @param {{ onProgress?: (index: number, total: number) => void }} [options]
+ * @param {{ onProgress?: (index: number, total: number) => void, onlyRetryMarked?: boolean }} [options]
  * @returns {Promise<{ markdown: string, ok: number, fail: { url: string, error: string }[], total: number }>}
  */
 export async function batchUploadMarkdownImagesToMediaWiki(markdown, options = {}) {
-  const { onProgress } = options
-  const byAbs = collectMdImagesByAbsoluteUrl(markdown)
+  const { onProgress, onlyRetryMarked = false } = options
+  const byAbs = collectMdImagesByAbsoluteUrl(markdown, { onlyRetryMarked })
   const list = [...byAbs.entries()]
   let out = markdown == null ? '' : String(markdown)
   let ok = 0
@@ -184,6 +237,7 @@ export async function batchUploadMarkdownImagesToMediaWiki(markdown, options = {
       ok += 1
     } catch (e) {
       fail.push({ url: absUrl, error: e?.message || '上传失败' })
+      out = markBatchUploadFailInMarkdown(out, rawUrls)
     }
   }
   return { markdown: out, ok, fail, total }

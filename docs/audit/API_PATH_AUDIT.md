@@ -1,6 +1,6 @@
 # API 路径审计
 
-- 后端路由数: 151
+- 后端路由数: 152
 - 前端 fetch 数: 140
 
 ## 后端路由
@@ -146,6 +146,7 @@ POST /api/task-queue/tasks/{task_id}/soft-delete
 POST /api/task-queue/upload-input-file
 POST /api/tasks/{task_id}/cancel
 POST /api/tests/run
+POST /api/web-reader/fetch-weread-inline-image
 POST /api/web-reader/materialize-inline-images
 POST /api/web-reader/ocr
 POST /api/web-reader/summarize
@@ -361,6 +362,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/tests/run
 - /api/tests/statistics
 - /api/tests/status
+- /api/web-reader/fetch-weread-inline-image
 - /api/web-reader/inline-static/{id}
 - /api/web-reader/materialize-inline-images
 - /api/web-reader/ocr

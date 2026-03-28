@@ -2,7 +2,7 @@
  * Markdown 编辑 + 预览 + 摘要 + 操作按钮（复制、发送到写作助手、写入 MediaWiki）
  * 默认可编辑时为左右分栏：左侧 Markdown、右侧实时预览；可选「摘要」全宽视图。
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
 import { flushSync } from 'react-dom'
 import { insertSnippetAtTextareaCursor } from '../utils/mediawikiPasteImage'
 import MarkdownPreview from './MarkdownPreview'
@@ -17,6 +17,7 @@ import {
   sourceLineFromPreviewViewport,
   scrollTextareaToSourceLine,
 } from '../utils/markdownScrollSync.js'
+import { applyInlineImageUrlReplacements } from '../utils/webReaderInlineImages'
 
 /**
  * @param {Object} props
@@ -40,6 +41,7 @@ import {
  * @param {Function} [props.onImgClick] - 点击预览区图片时回调，用于上传到 MediaWiki 等
  * @param {boolean} [props.previewWideFigures=false] - 预览内插图横向拉满预览区内边距（微信读书等示意图阅读）
  * @param {boolean} [props.previewInlineFigureZoom=false] - 预览内插图滚轮缩放、放大后拖拽（仍可点击图片打开 onImgClick 弹层）
+ * @param {Record<string, string>|null} [props.previewImageMaterializedMapping] - 原图 URL → 本站 inline-static 路径；仅预览中替换 ![](原链)，不修改编辑区文本
  * @param {React.MutableRefObject<{ insertMarkdownAtCursor: (snippet: string) => void } | null>} [props.editorInsertRef] - 父组件 ref，用于在编辑框光标处插入 Markdown
  */
 export default function MarkdownEditorPreview({
@@ -63,6 +65,7 @@ export default function MarkdownEditorPreview({
   onImgClick,
   previewWideFigures = false,
   previewInlineFigureZoom = false,
+  previewImageMaterializedMapping = null,
   editorInsertRef,
 }) {
   /** split：左编辑右预览；summary：全宽摘要 */
@@ -313,6 +316,17 @@ export default function MarkdownEditorPreview({
 
   const effectiveContent = editable ? editDraft : content
 
+  /** 编辑区保持原 ![](URL) 文案时，预览仍可用已落盘的 inline-static 映射显示插图 */
+  const markdownForPreview = useMemo(() => {
+    const md = editable ? editDraft || '' : content || ''
+    const m = previewImageMaterializedMapping
+    if (!m || typeof m !== 'object') return md
+    const entries = Object.entries(m).filter(([k, v]) => k && v)
+    if (!entries.length) return md
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return applyInlineImageUrlReplacements(md, entries, origin)
+  }, [editable, editDraft, content, previewImageMaterializedMapping])
+
   const insertMarkdownAtCursor = useCallback(
     (snippet) => {
       const text = String(snippet || '')
@@ -427,7 +441,7 @@ export default function MarkdownEditorPreview({
         ) : !editable ? (
           <div className="flex-1 min-h-0 overflow-y-auto p-4">
             <MarkdownPreview
-              markdown={content || ''}
+              markdown={markdownForPreview}
               className="min-h-full"
               theme={theme}
               onImgClick={onImgClick}
@@ -469,7 +483,7 @@ export default function MarkdownEditorPreview({
                 onScroll={handlePreviewScroll}
               >
                 <MarkdownPreview
-                  markdown={editDraft || ''}
+                  markdown={markdownForPreview}
                   className="min-h-full"
                   theme={theme}
                   onImgClick={onImgClick}

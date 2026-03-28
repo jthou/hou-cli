@@ -113,6 +113,89 @@ window.addEventListener('message', (event) => {
     }
     return
   }
+  if (event.data?.type === 'HOU_CLI_REFETCH_IMAGES') {
+    const { imageUrls, pageUrl } = event.data
+    const requestId = event.data.requestId || 'refetch-' + Date.now()
+    if (!Array.isArray(imageUrls) || !imageUrls.length || !(pageUrl || '').trim().startsWith('http')) return
+
+    const forward = (msg) => {
+      window.postMessage(
+        {
+          type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+          requestId: msg.requestId || requestId,
+          success: msg.success,
+          data: msg.data,
+          error: msg.error,
+        },
+        '*'
+      )
+    }
+
+    const p = ensurePort()
+    if (p) {
+      const onResult = (msg) => {
+        if (msg.type !== 'HOU_CLI_REFETCH_IMAGES_RESULT' || msg.requestId !== requestId) return
+        try {
+          p.onMessage.removeListener(onResult)
+          p.onDisconnect.removeListener(onDisconnect)
+        } catch (_) {}
+        forward(msg)
+      }
+      const onDisconnect = () => {
+        port = null
+        forward({ type: 'HOU_CLI_REFETCH_IMAGES_RESULT', requestId, success: false, error: '扩展连接已断开，请刷新页面后重试' })
+      }
+      p.onMessage.addListener(onResult)
+      p.onDisconnect.addListener(onDisconnect)
+      p.postMessage({ type: 'HOU_CLI_REFETCH_IMAGES', requestId, imageUrls, pageUrl: (pageUrl || '').trim() })
+    } else {
+      try {
+        chrome.runtime.sendMessage(
+          {
+            action: 'refetch_images',
+            requestId,
+            imageUrls,
+            pageUrl: (pageUrl || '').trim(),
+          },
+          (response) => {
+            try {
+              if (chrome.runtime?.lastError) {
+                forward({
+                  type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+                  requestId,
+                  success: false,
+                  error: '扩展无响应，请刷新页面后重试',
+                })
+              } else {
+                forward({
+                  type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+                  requestId,
+                  success: response?.success,
+                  data: response?.data,
+                  error: response?.error,
+                })
+              }
+            } catch (_) {
+              forward({
+                type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+                requestId,
+                success: false,
+                error: '扩展已重新加载，请刷新页面后重试',
+              })
+            }
+          }
+        )
+      } catch (_) {
+        forward({
+          type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+          requestId,
+          success: false,
+          error: '扩展已重新加载，请刷新页面后重试',
+        })
+      }
+    }
+    return
+  }
   if (event.data?.type !== 'HOU_CLI_FETCH' || !event.data?.url) return
   const { url, requestId, apiBase, inlineImages, wereadImagesOnly } = event.data
 

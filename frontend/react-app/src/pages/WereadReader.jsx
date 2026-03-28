@@ -26,6 +26,7 @@ import { materializeInlineImagesFromMap } from '../utils/webReaderInlineImages'
 import {
   extractMarkdownImages,
   extractMaterializedImagesFromHtml,
+  findOriginalUrlForPreviewImgSrc,
   materializedUrlsFromMapping,
   mergeImageEntries,
   resolveOriginalUrlForMaterializedUrl,
@@ -47,6 +48,26 @@ function wereadDomEnoughForSkipAutoOcr(markdown, content) {
   return false
 }
 
+/**
+ * DOM 插图条目：除 materialize 反查外，若 Markdown 里仍是微信 CDN 直链，也视为原图 URL（用于展示链接与重新下载）。
+ */
+function inferWereadDomOriginalUrl(imUrl, map, origin) {
+  const resolved = resolveOriginalUrlForMaterializedUrl(imUrl, map, origin)
+  if (resolved) return resolved
+  const u = (imUrl || '').trim().replace(/&amp;/g, '&')
+  if (!u.startsWith('http://') && !u.startsWith('https://')) return undefined
+  if (u.includes('/api/web-reader/inline-static/')) return undefined
+  if (
+    /weread\.qq\.com/i.test(u) ||
+    /res\.weread\.qq\.com/i.test(u) ||
+    /i\.weread\.qq\.com/i.test(u) ||
+    (/\.myqcloud\.com/i.test(u) && /weread|wrepub|qqread/i.test(u))
+  ) {
+    return u
+  }
+  return undefined
+}
+
 export default function WereadReader() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -56,6 +77,9 @@ export default function WereadReader() {
   const [loading, setLoading] = useState(false)
   /** 扩展「仅拉图」进行中（与整章读取 loading 独立） */
   const [imagesOnlyBusy, setImagesOnlyBusy] = useState(false)
+  /** DOM 缩略图「重新下载」：当前正在拉取的原图 URL（用于按钮文案与禁用） */
+  const [domRedownloadOriginalUrl, setDomRedownloadOriginalUrl] = useState(null)
+  const domRefetchBusyRef = useRef(false)
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [loadingOcr, setLoadingOcr] = useState(false)
@@ -122,7 +146,7 @@ export default function WereadReader() {
     const map = data?.inlineMaterializedByOriginal
     return merged.map((im) => ({
       ...im,
-      originalUrl: resolveOriginalUrlForMaterializedUrl(im.url, map, origin),
+      originalUrl: inferWereadDomOriginalUrl(im.url, map, origin),
     }))
   }, [data?.markdown, data?.content, data?.html, data?.materializedImageUrls, data?.inlineMaterializedByOriginal])
 
@@ -146,7 +170,10 @@ export default function WereadReader() {
     setOcrTouched(false)
     setSelectedShotIndices(new Set())
     ocrBaselineRef.current = ''
-    setData(null)
+    const keepEditor = ((dataRef.current?.markdown || dataRef.current?.content || '').trim().length > 0)
+    if (!keepEditor) {
+      setData(null)
+    }
     setLoadingOcr(false)
     setOcrProgress(null)
     ocrRequestedRef.current = null
@@ -678,12 +705,124 @@ export default function WereadReader() {
     const line = `![${label}](${url})`
     const api = markdownEditorInsertRef.current
     if (!api?.insertMarkdownAtCursor) {
-      toast?.warning?.('右侧编辑器尚未加载，请稍候再试')
+      toast?.warning?.('Markdown 编辑区尚未就绪，请先打开本章正文编辑区')
       return
     }
     api.insertMarkdownAtCursor(line)
-    toast?.info?.('已插入到左侧编辑区光标处（右侧预览同步）')
+    toast?.success?.('已插入到 Markdown 编辑框光标处')
   }, [toast])
+
+  const redownloadDomImageByOriginalUrl = useCallback(
+    async (originalUrl) => {
+      const ou = (originalUrl || '').trim()
+      if (!ou.startsWith('http://') && !ou.startsWith('https://')) {
+        toast?.warning?.('缺少可用的原图链接，请先「读取」或「仅拉图」')
+        return
+      }
+      const chapterUrl = (dataRef.current?.url || urlInput || '').trim()
+      if (!chapterUrl.startsWith('http')) {
+        toast?.warning?.('缺少章节页链接（请在上方输入框填写本章 weread 链接）')
+        return
+      }
+      if (domRefetchBusyRef.current) return
+      domRefetchBusyRef.current = true
+      setDomRedownloadOriginalUrl(ou)
+
+      const origin = window.location.origin
+      const mergeMaterializedMapping = (materializedMapping) => {
+        setData((prev) => {
+          if (!prev) return prev
+          const prevMap = prev.inlineMaterializedByOriginal || {}
+          const mergedMap = { ...prevMap, ...materializedMapping }
+          const materializedImageUrls = materializedUrlsFromMapping(mergedMap, origin)
+          return {
+            ...prev,
+            inlineMaterializedByOriginal: mergedMap,
+            materializedImageUrls,
+          }
+        })
+        toast?.success?.('已重新下载并更新本站插图')
+      }
+
+      try {
+        let backendErr = ''
+        try {
+          const br = await fetch(`${origin}/api/web-reader/fetch-weread-inline-image`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ original_url: ou, page_url: chapterUrl }),
+          })
+          const bj = await br.json().catch(() => ({}))
+          if (bj.success && bj.mapping && typeof bj.mapping === 'object' && Object.keys(bj.mapping).length) {
+            mergeMaterializedMapping(bj.mapping)
+            return
+          }
+          backendErr = (bj.error && String(bj.error)) || (br.ok ? '' : `HTTP ${br.status}`)
+        } catch (e) {
+          backendErr = e?.message || '后端请求失败'
+        }
+
+        if (!extensionReady) {
+          toast?.error?.(
+            backendErr
+              ? `重新下载失败：${backendErr}（可安装扩展后重试，以带上微信登录 Cookie）`
+              : '重新下载失败'
+          )
+          return
+        }
+
+        const requestId = `weread-refetch-${Date.now()}`
+        const res = await new Promise((resolve) => {
+          const handler = (e) => {
+            if (e.data?.type !== 'HOU_CLI_REFETCH_IMAGES_RESULT' || e.data.requestId !== requestId) return
+            window.removeEventListener('message', handler)
+            resolve(e.data)
+          }
+          window.addEventListener('message', handler)
+          window.postMessage(
+            {
+              type: 'HOU_CLI_REFETCH_IMAGES',
+              requestId,
+              imageUrls: [ou],
+              pageUrl: chapterUrl,
+            },
+            '*'
+          )
+          setTimeout(() => {
+            window.removeEventListener('message', handler)
+            resolve({ success: false, error: '扩展无响应，请重试或刷新页面' })
+          }, 90000)
+        })
+
+        if (!res.success) {
+          toast?.error?.(
+            [backendErr && `本机后端：${backendErr}`, res.error && `扩展：${res.error}`]
+              .filter(Boolean)
+              .join('；') || '重新下载失败'
+          )
+          return
+        }
+        const map = res.data?.inlineImageMap
+        if (!map || typeof map !== 'object' || !Object.keys(map).length) {
+          toast?.error?.(backendErr ? `未拉到图片数据（本机后端：${backendErr}）` : '未拉到图片数据')
+          return
+        }
+
+        const { mapping: materializedMapping } = await materializeInlineImagesFromMap('', map, origin)
+        if (!materializedMapping || !Object.keys(materializedMapping).length) {
+          toast?.error?.('落盘失败，请确认本机后端 /api/web-reader/materialize-inline-images 可用')
+          return
+        }
+        mergeMaterializedMapping(materializedMapping)
+      } catch (err) {
+        toast?.error?.(err?.message || '落盘失败')
+      } finally {
+        domRefetchBusyRef.current = false
+        setDomRedownloadOriginalUrl(null)
+      }
+    },
+    [extensionReady, toast, urlInput]
+  )
 
   const toggleShotSelected = useCallback((index) => {
     setSelectedShotIndices((prev) => {
@@ -861,14 +1000,15 @@ export default function WereadReader() {
         if (isImagesOnly) {
           ;(async () => {
             const origin = window.location.origin
-            let html = d?.html
+            const cur = dataRef.current
+            const hadEditorText = ((cur?.markdown || cur?.content || '').trim().length > 0)
             const map = d?.inlineImageMap
             let materializedMapping = null
-            if (html && map && typeof map === 'object' && Object.keys(map).length) {
-              const { html: nh, mapping } = await materializeInlineImagesFromMap(html, map, origin)
-              html = nh
+            if (map && typeof map === 'object' && Object.keys(map).length) {
+              const { mapping } = await materializeInlineImagesFromMap('', map, origin)
               materializedMapping = mapping
             }
+            const mapAttempt = map && typeof map === 'object' ? Object.keys(map).length : 0
             setData((prev) => {
               const shots = prev?.screenshots?.length ? prev.screenshots : []
               screenshotsRef.current = shots
@@ -878,19 +1018,28 @@ export default function WereadReader() {
                   ? { ...prevMap, ...materializedMapping }
                   : { ...prevMap }
               const materializedImageUrls = materializedUrlsFromMapping(mergedMap, origin)
-              let markdown = html ? htmlToMd(html) : ''
-              markdown = markdown || d?.content || ''
-              const contentOut = markdown || d?.content || ''
-              const domEnough = wereadDomEnoughForSkipAutoOcr(markdown, contentOut)
-              const pendingOcr = !!(shots.length && !domEnough)
               const base = prev || {}
+              const baseMd = (base.markdown || base.content || '').trim()
+              const domEnough = wereadDomEnoughForSkipAutoOcr(base.markdown, base.content)
+              const pendingOcr = !!(shots.length && !domEnough)
+              const hasExistingText = baseMd.length > 0
+              let markdown = base.markdown ?? ''
+              let contentOut = base.content ?? ''
+              let html = base.html ?? ''
+              if (!hasExistingText) {
+                const nh = d?.html || ''
+                markdown = nh ? htmlToMd(nh) : ''
+                markdown = markdown || d?.content || ''
+                contentOut = markdown || d?.content || ''
+                html = nh
+              }
               return {
                 ...base,
                 title:
                   d?.title && String(d.title).trim()
                     ? d.title
                     : base.title || '微信读书',
-                html: html || d?.html || base.html || '',
+                html,
                 markdown,
                 content: contentOut,
                 url: d?.url || base.url || '',
@@ -898,7 +1047,7 @@ export default function WereadReader() {
                 screenshots: shots,
                 materializedImageUrls,
                 inlineMaterializedByOriginal: mergedMap,
-                inlineImageMapAttemptCount: Object.keys(mergedMap).length,
+                inlineImageMapAttemptCount: mapAttempt > 0 ? mapAttempt : base.inlineImageMapAttemptCount ?? 0,
                 pendingOcr,
                 summary: base.summary ?? '',
                 baseUrl: d?.baseUrl || base.baseUrl,
@@ -907,7 +1056,11 @@ export default function WereadReader() {
                 inlineStyles: base.inlineStyles ?? [],
               }
             })
-            toast?.success?.('已单独拉图（正文与插图已更新，左侧截图未变）')
+            toast?.success?.(
+              hadEditorText
+                ? '已拉图：正文未改写，预览用站内地址显示插图（左侧截图未变）'
+                : '已拉图并写入正文（此前无正文时由 DOM 生成；左侧截图未变）'
+            )
           })()
           setError(null)
           return
@@ -915,37 +1068,76 @@ export default function WereadReader() {
 
         ;(async () => {
           const origin = window.location.origin
+          const prevSnap = dataRef.current
+          const hadEditorText = ((prevSnap?.markdown || prevSnap?.content || '').trim().length > 0)
           let html = d?.html
           const map = d?.inlineImageMap
           let materializedMapping = null
-          let inlineImageMapAttemptCount = 0
-          if (html && map && typeof map === 'object') {
-            inlineImageMapAttemptCount = Object.keys(map).length
-          }
-          if (html && map && typeof map === 'object' && Object.keys(map).length) {
+          const mapAttempt = map && typeof map === 'object' ? Object.keys(map).length : 0
+
+          if (hadEditorText) {
+            if (map && Object.keys(map).length) {
+              const { mapping } = await materializeInlineImagesFromMap('', map, origin)
+              materializedMapping = mapping
+            }
+          } else if (html && map && typeof map === 'object' && Object.keys(map).length) {
             const { html: nh, mapping } = await materializeInlineImagesFromMap(html, map, origin)
             html = nh
             materializedMapping = mapping
           }
-          const materializedImageUrls = materializedMapping
-            ? materializedUrlsFromMapping(materializedMapping, origin)
-            : []
-          let markdown = html ? htmlToMd(html) : ''
-          markdown = markdown || d?.content || ''
-          const textForDomEnough = markdown || d?.content || ''
-          const domEnough = wereadDomEnoughForSkipAutoOcr(markdown, textForDomEnough)
-          const contentOut = markdown || d?.content || ''
+
           const shots = d?.screenshots || []
           screenshotsRef.current = shots
-          setData({
-            ...(d || {}),
-            html: html || d?.html || '',
-            markdown,
-            content: contentOut,
-            pendingOcr: !!(shots.length && !domEnough),
-            materializedImageUrls,
-            inlineMaterializedByOriginal: materializedMapping ? { ...materializedMapping } : {},
-            inlineImageMapAttemptCount,
+
+          setData((prev) => {
+            const base = hadEditorText ? prev || prevSnap || {} : prev || {}
+            const prevMap = base.inlineMaterializedByOriginal || {}
+            const mergedMap =
+              materializedMapping && Object.keys(materializedMapping).length
+                ? hadEditorText
+                  ? { ...prevMap, ...materializedMapping }
+                  : { ...materializedMapping }
+                : hadEditorText
+                  ? { ...prevMap }
+                  : {}
+
+            const materializedImageUrls = Object.keys(mergedMap).length
+              ? materializedUrlsFromMapping(mergedMap, origin)
+              : []
+
+            let markdown
+            let contentOut
+            let htmlOut
+            let domEnough
+            if (hadEditorText) {
+              markdown = base.markdown ?? ''
+              contentOut = base.content ?? ''
+              htmlOut = base.html ?? ''
+              domEnough = wereadDomEnoughForSkipAutoOcr(markdown, contentOut)
+            } else {
+              htmlOut = html || d?.html || ''
+              markdown = htmlOut ? htmlToMd(htmlOut) : ''
+              markdown = markdown || d?.content || ''
+              contentOut = markdown || d?.content || ''
+              const textForDomEnough = markdown || d?.content || ''
+              domEnough = wereadDomEnoughForSkipAutoOcr(markdown, textForDomEnough)
+            }
+
+            const pendingOcr = !!(shots.length && !domEnough)
+            const inlineImageMapAttemptCount =
+              mapAttempt > 0 ? mapAttempt : hadEditorText ? base.inlineImageMapAttemptCount ?? 0 : 0
+
+            return {
+              ...(d || {}),
+              html: htmlOut,
+              markdown,
+              content: contentOut,
+              pendingOcr,
+              materializedImageUrls,
+              inlineMaterializedByOriginal: mergedMap,
+              inlineImageMapAttemptCount,
+              summary: hadEditorText ? base.summary ?? '' : base.summary ?? d?.summary ?? '',
+            }
           })
           setSelectedShotIndices(new Set())
           ocrStopRef.current = false
@@ -963,7 +1155,8 @@ export default function WereadReader() {
           return
         }
         setError(e.data.error || '抓取失败')
-        setData(null)
+        const stillHasEditor = ((dataRef.current?.markdown || dataRef.current?.content || '').trim().length > 0)
+        if (!stillHasEditor) setData(null)
       }
     }
     window.addEventListener('message', handler)
@@ -1020,8 +1213,8 @@ export default function WereadReader() {
                 tabIndex={0}
                 title={
                   im.originalUrl
-                    ? `原图地址：${im.originalUrl}\n点击放大预览`
-                    : '点击放大预览（与分屏截图相同）'
+                    ? `原图地址：${im.originalUrl}\n点击打开大图（内可重新下载）`
+                    : '点击打开大图预览'
                 }
                 onClick={() => setFigureLightbox({ kind: 'dom', index: domIdx })}
                 onKeyDown={(e) => e.key === 'Enter' && setFigureLightbox({ kind: 'dom', index: domIdx })}
@@ -1029,8 +1222,13 @@ export default function WereadReader() {
               />
               <button
                 type="button"
-                onClick={() => insertMarkdownImageAtCursor(im.url, im.alt)}
-                className="text-[10px] px-1 py-0.5 rounded bg-white/10 hover:bg-white/15 text-muted w-full"
+                title="在右侧 Markdown 编辑框光标处插入本站图片"
+                disabled={!data}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  insertMarkdownImageAtCursor(im.url, im.alt)
+                }}
+                className="text-[10px] px-1 py-0.5 rounded bg-accent/25 hover:bg-accent/35 text-fg/90 w-full disabled:opacity-40"
               >
                 插入图片
               </button>
@@ -1038,7 +1236,7 @@ export default function WereadReader() {
           ))}
         </div>
         <p className="text-xs text-fg/85 mt-1.5 px-0.5 leading-snug">
-          插图落盘后会在本地保存「原图 URL → 本站 inline-static」映射并写入 IndexedDB。若缺图可再点「仅拉图」或重新「读取」。
+          缩略图下可快速「插入图片」；点图打开大图可「重新下载」等。映射写入 IndexedDB；缺图请「仅拉图」或「读取」。
         </p>
       </div>
     ) : null
@@ -1094,7 +1292,11 @@ export default function WereadReader() {
                   type="submit"
                   disabled={loading || imagesOnlyBusy || !extensionReady}
                   className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium disabled:opacity-50 text-sm shrink-0"
-                  title={loadingOcr ? '将中止当前识别并重新抓取' : undefined}
+                  title={
+                    loadingOcr
+                      ? '将中止当前识别并重新抓取'
+                      : 'DOM、拉图与分屏截图；右侧已有正文时不改写 Markdown（预览仍可用站内映射显示插图）'
+                  }
                 >
                   {loading ? '抓取中…' : !extensionReady ? '等待扩展…' : '读取'}
                 </button>
@@ -1108,7 +1310,7 @@ export default function WereadReader() {
                     !WEREAD_URL_PATTERN.test((urlInput || data?.url || '').trim())
                   }
                   className="shrink-0 px-3 py-2 text-xs rounded-lg border border-border text-fg/90 hover:bg-white/10 disabled:opacity-50"
-                  title="扩展重新打开本章：仅滚动预扫并拉图，不重新分屏截图，也不会自动 OCR"
+                  title="扩展预扫并拉图落盘；不改右侧 Markdown 原文（预览仍会显示站内插图）、不重新分屏截图、不自动 OCR"
                 >
                   {imagesOnlyBusy ? '拉图中…' : '仅拉图'}
                 </button>
@@ -1363,6 +1565,7 @@ export default function WereadReader() {
                     theme="dark"
                     previewWideFigures
                     previewInlineFigureZoom
+                    previewImageMaterializedMapping={data.inlineMaterializedByOriginal}
                     showMediaWiki
                     sourceUrl={data.url || ''}
                     showSummary
@@ -1379,7 +1582,18 @@ export default function WereadReader() {
                         const m = md.match(new RegExp(`\\[\\[File:${escaped}(?:\\|[^\\]]*)?\\]\\]`))
                         wikitext = m ? m[0] : `[[File:${d.wikiFileName}]]`
                       }
-                      setImgUploadModal({ ...d, loading: false, result: wikitext ? { wikitext } : null })
+                      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+                      const map = data?.inlineMaterializedByOriginal
+                      const originalImageUrl =
+                        findOriginalUrlForPreviewImgSrc(d.srcRaw || '', map, origin) ||
+                        findOriginalUrlForPreviewImgSrc(d.src || '', map, origin) ||
+                        undefined
+                      setImgUploadModal({
+                        ...d,
+                        originalImageUrl,
+                        loading: false,
+                        result: wikitext ? { wikitext } : null,
+                      })
                     }}
                   />
                 </div>
@@ -1415,28 +1629,119 @@ export default function WereadReader() {
             </button>
           )}
           <div
-            className="mx-auto flex h-[min(100dvh-7rem,100%)] w-full max-w-[min(96rem,calc(100vw-1.5rem))] min-h-0 flex-col overflow-hidden rounded-2xl border border-white/20 bg-zinc-950/95 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_25px_50px_-12px_rgba(0,0,0,0.7)]"
+            className="mx-auto flex h-[min(100dvh-7rem,100%)] w-full max-w-[min(96rem,calc(100vw-1.5rem))] min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-500/60 bg-zinc-800 shadow-2xl shadow-black/40"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/15 bg-black/55 px-3 py-2.5 sm:px-4">
-              <span className="min-w-0 truncate text-sm font-medium text-white/90">
+            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-zinc-600/80 bg-zinc-700 px-3 py-2.5 sm:px-4">
+              <span className="min-w-0 flex-1 basis-[min(100%,10rem)] text-sm font-medium text-zinc-50">
                 {figureLightbox.kind === 'screenshot' ? '分屏截图' : 'DOM 插图'} ·{' '}
                 {figureLightbox.index + 1} /{' '}
                 {figureLightbox.kind === 'screenshot'
                   ? (data?.screenshots?.length ?? 0)
                   : downloadedArticleImages.length}
               </span>
-              <button
-                type="button"
-                onClick={() => setFigureLightbox(null)}
-                className="shrink-0 rounded-lg border border-white/25 bg-white px-3 py-1.5 text-sm font-medium text-zinc-900 shadow-sm hover:bg-white/95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-              >
-                关闭
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {figureLightbox.kind === 'dom' &&
+                  downloadedArticleImages[figureLightbox.index] &&
+                  (() => {
+                    const domLb = downloadedArticleImages[figureLightbox.index]
+                    const chapterRef = (data?.url || urlInput || '').trim()
+                    const canRedownload =
+                      !!domLb.originalUrl &&
+                      !domRedownloadOriginalUrl &&
+                      /^https?:\/\//i.test(chapterRef)
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          title={
+                            canRedownload
+                              ? extensionReady
+                                ? '优先本机后端代拉；失败则扩展带 Cookie 重试'
+                                : '本机后端代拉（无需扩展）；若失败请安装扩展后重试'
+                              : [
+                                  !domLb.originalUrl && '需要可用的原图链接',
+                                  !/^https?:\/\//i.test(chapterRef) && '需要在上方填写本章页面链接',
+                                  !!domRedownloadOriginalUrl && '正在下载中',
+                                ]
+                                  .filter(Boolean)
+                                  .join('；') || '暂不可重新下载'
+                          }
+                          disabled={!canRedownload}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            redownloadDomImageByOriginalUrl(domLb.originalUrl)
+                          }}
+                          className="rounded-lg border border-zinc-500 bg-zinc-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-500 sm:px-3 sm:text-sm disabled:opacity-45 disabled:cursor-not-allowed"
+                        >
+                          {domRedownloadOriginalUrl === domLb.originalUrl ? '下载中…' : '重新下载'}
+                        </button>
+                        <button
+                          type="button"
+                          title="插入到右侧 Markdown 编辑框光标处，并关闭本弹层"
+                          disabled={!data}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            insertMarkdownImageAtCursor(domLb.url, domLb.alt)
+                            setFigureLightbox(null)
+                          }}
+                          className="rounded-lg border border-sky-500 bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 sm:px-3 sm:text-sm disabled:opacity-45"
+                        >
+                          插入图片
+                        </button>
+                      </>
+                    )
+                  })()}
+                <button
+                  type="button"
+                  onClick={() => setFigureLightbox(null)}
+                  className="shrink-0 rounded-lg border border-zinc-500 bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 shadow-sm hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                >
+                  关闭
+                </button>
+              </div>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col px-4 py-3 sm:px-8 sm:py-4 md:px-12">
+            {figureLightbox.kind === 'dom' &&
+              downloadedArticleImages[figureLightbox.index] &&
+              (() => {
+                const domLb = downloadedArticleImages[figureLightbox.index]
+                return (
+                  <div className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-1 border-b border-zinc-600/70 bg-zinc-800/95 px-3 py-2.5 sm:gap-4 sm:px-4">
+                    <div className="min-w-0 border-r border-zinc-600/50 pr-2 sm:pr-3">
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 sm:text-[11px]">
+                        原图链接（新标签打开 · 扩展「重新下载」用此地址）
+                      </p>
+                      {domLb.originalUrl ? (
+                        <a
+                          href={domLb.originalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-xs leading-snug text-blue-400 hover:text-blue-300 hover:underline break-all sm:text-sm"
+                        >
+                          {domLb.originalUrl}
+                        </a>
+                      ) : (
+                        <p className="text-xs leading-snug text-amber-200/95 sm:text-sm">
+                          当前条目不包含可识别的微信读书原链。请先对本章点「仅拉图」或「读取」。
+                        </p>
+                      )}
+                    </div>
+                    <div className="min-w-0 pl-2 sm:pl-3">
+                      <p className="mb-1 text-[10px] font-medium text-zinc-400 sm:text-[11px]">
+                        当前预览 / 插入用的地址
+                      </p>
+                      <p className="break-all font-mono text-xs leading-snug text-zinc-200 sm:text-sm">{domLb.url}</p>
+                    </div>
+                  </div>
+                )
+              })()}
+            <div className="flex min-h-0 flex-1 flex-col bg-zinc-900/35 px-4 py-3 sm:px-8 sm:py-4 md:px-12">
               <ZoomPanFigure
-                key={`${figureLightbox.kind}-${figureLightbox.index}`}
+                key={
+                  figureLightbox.kind === 'screenshot'
+                    ? `${figureLightbox.kind}-${figureLightbox.index}`
+                    : `${figureLightbox.kind}-${figureLightbox.index}-${downloadedArticleImages[figureLightbox.index]?.url || ''}`
+                }
                 src={
                   figureLightbox.kind === 'screenshot'
                     ? data.screenshots[figureLightbox.index]
@@ -1493,7 +1798,7 @@ export default function WereadReader() {
             ×
           </button>
           <div
-            className="flex-1 min-h-0 min-w-0 flex flex-col p-4 pt-16"
+            className="flex-1 min-h-0 min-w-0 flex flex-col p-4 pt-16 gap-3"
             onClick={(e) => e.stopPropagation()}
           >
             <ZoomPanFigure
@@ -1502,6 +1807,19 @@ export default function WereadReader() {
               fitContainer
               imgClassName="max-h-[min(72vh,calc(100vh-12rem))] max-w-[min(92vw,900px)] rounded-lg border border-white/10"
             />
+            {imgUploadModal.originalImageUrl && (
+              <div className="shrink-0 rounded-lg border border-white/15 bg-black/50 px-3 py-2 max-w-[min(92vw,900px)] mx-auto w-full">
+                <p className="text-[10px] uppercase tracking-wide text-white/45 mb-1">原图链接</p>
+                <a
+                  href={imgUploadModal.originalImageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-sky-300 hover:text-sky-200 break-all leading-snug block"
+                >
+                  {imgUploadModal.originalImageUrl}
+                </a>
+              </div>
+            )}
           </div>
           <div
             className="shrink-0 border-t border-white/10 bg-black/70 px-4 py-3 space-y-2"

@@ -1,6 +1,6 @@
 {
-  "total_files": 1420,
-  "total_lines": 395822,
+  "total_files": 1423,
+  "total_lines": 396909,
   "by_language": {
     "other": {
       "files": 28,
@@ -8,11 +8,11 @@
     },
     "python": {
       "files": 646,
-      "lines": 109743
+      "lines": 110057
     },
     "markdown": {
-      "files": 521,
-      "lines": 164128
+      "files": 524,
+      "lines": 164278
     },
     "shell": {
       "files": 34,
@@ -20,11 +20,11 @@
     },
     "javascript": {
       "files": 64,
-      "lines": 8401
+      "lines": 8647
     },
     "json": {
       "files": 11,
-      "lines": 12150
+      "lines": 12164
     },
     "html": {
       "files": 2,
@@ -36,7 +36,7 @@
     },
     "jsx": {
       "files": 103,
-      "lines": 23524
+      "lines": 23887
     },
     "yaml": {
       "files": 7,
@@ -50,15 +50,15 @@
     },
     "extension": {
       "files": 6,
-      "lines": 1923
+      "lines": 2047
     },
     "frontend": {
       "files": 195,
-      "lines": 47576
+      "lines": 48061
     },
     "plans": {
-      "files": 126,
-      "lines": 63483
+      "files": 129,
+      "lines": 63631
     },
     "config": {
       "files": 3,
@@ -70,11 +70,11 @@
     },
     "tests": {
       "files": 66,
-      "lines": 8122
+      "lines": 8186
     },
     "backend": {
       "files": 540,
-      "lines": 148057
+      "lines": 148307
     },
     "shared": {
       "files": 11,
@@ -82,7 +82,7 @@
     },
     "docs": {
       "files": 343,
-      "lines": 103196
+      "lines": 103212
     },
     "comic": {
       "files": 1,
@@ -105,5 +105,5 @@
       "lines": 1341
     }
   },
-  "generated_at": "2026-03-26T15:27:28.889719Z"
+  "generated_at": "2026-03-27T09:27:53.725622Z"
 }

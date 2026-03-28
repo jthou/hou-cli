@@ -1343,6 +1343,64 @@ chrome.runtime.onConnect.addListener((port) => {
       }
       return
     }
+    /** 仅按 URL 拉图（原图 → data URL），供微信读书 DOM 缩略图「重新下载」；需 pageUrl 供 Referer/Cookie */
+    if (msg.type === 'HOU_CLI_REFETCH_IMAGES') {
+      const requestId = msg.requestId || 'refetch-' + Date.now()
+      const imageUrls = msg.imageUrls
+      const pageUrl = (msg.pageUrl || '').trim()
+      let resolved = false
+      const finish = (payload) => {
+        if (resolved) return
+        resolved = true
+        clearTimeout(timeout)
+        port.postMessage(payload)
+      }
+      const timeout = setTimeout(() => {
+        finish({
+          type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+          requestId,
+          success: false,
+          error: '拉图超时，请重试',
+        })
+      }, OVERALL_TIMEOUT_MS)
+      ;(async () => {
+        try {
+          if (!Array.isArray(imageUrls) || !imageUrls.length || !pageUrl.startsWith('http')) {
+            finish({
+              type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+              requestId,
+              success: false,
+              error: '参数无效',
+            })
+            return
+          }
+          const { map, errors } = await fetchImagesViaExtension(imageUrls, pageUrl)
+          if (!map || !Object.keys(map).length) {
+            finish({
+              type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+              requestId,
+              success: false,
+              error: errors?.length ? errors.join('；') : '未获取到图片数据',
+            })
+            return
+          }
+          finish({
+            type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+            requestId,
+            success: true,
+            data: { inlineImageMap: map },
+          })
+        } catch (e) {
+          finish({
+            type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+            requestId,
+            success: false,
+            error: e?.message || '拉图失败',
+          })
+        }
+      })()
+      return
+    }
     if (msg.type !== 'HOU_CLI_FETCH' || !msg.url) return
 
     const url = (msg.url || '').trim()
@@ -1391,6 +1449,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((e) => sendResponse?.({ success: false, error: e?.message || '下载失败' }))
     return true
   }
+  if (msg.action === 'refetch_images') {
+    const rid = msg.requestId || 'refetch-' + Date.now()
+    ;(async () => {
+      try {
+        const imageUrls = msg.imageUrls
+        const pageUrl = (msg.pageUrl || '').trim()
+        if (!Array.isArray(imageUrls) || !imageUrls.length || !pageUrl.startsWith('http')) {
+          sendResponse?.({ success: false, error: '参数无效' })
+          return
+        }
+        const { map, errors } = await fetchImagesViaExtension(imageUrls, pageUrl)
+        if (!map || !Object.keys(map).length) {
+          sendResponse?.({
+            success: false,
+            error: errors?.length ? errors.join('；') : '未获取到图片数据',
+          })
+          return
+        }
+        sendResponse?.({ success: true, data: { inlineImageMap: map } })
+      } catch (e) {
+        sendResponse?.({ success: false, error: e?.message || '拉图失败' })
+      }
+    })()
+    return true
+  }
+
   if (msg.action !== 'fetch' || !msg.url) {
     sendResponse?.({ success: false, error: 'Unknown action' })
     return false

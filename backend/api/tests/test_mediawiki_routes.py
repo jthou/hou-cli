@@ -1,4 +1,5 @@
 """MediaWiki 路由单元测试"""
+import hashlib
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime
@@ -266,4 +267,70 @@ class TestMediaWikiRoutes:
         mock_c.upload_file.assert_called_once()
         call_args = mock_c.upload_file.call_args[0]
         assert call_args[0] == data["filename"]
+
+    def test_upload_image_special_filepath_no_http_get(self, client):
+        """已是本站 Special:FilePath 时不再 httpx 拉取（避免 FilePath 502）。"""
+        with patch("backend.api.mediawiki_routes.get_mediawiki_client") as mock_get:
+            mock_c = MagicMock()
+            mock_get.return_value = mock_c
+            response = client.post(
+                "/api/mediawiki/upload-image",
+                json={
+                    "image_url": "http://www.jthou.com/mediawiki/index.php/Special:FilePath/my_photo.png",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["filename"] == "my_photo.png"
+        assert data["wikitext"] == "[[File:my_photo.png]]"
+        mock_c.upload_file.assert_not_called()
+
+    def test_wiki_filename_from_special_filepath_title_query(self):
+        from backend.api.mediawiki_routes import _wiki_filename_from_special_filepath_url
+
+        base = "http://www.jthou.com/mediawiki"
+        u = "http://www.jthou.com/mediawiki/index.php?title=Special:FilePath%2Fa%20b.png"
+        assert _wiki_filename_from_special_filepath_url(u, base) == "a b.png"
+
+    def test_upload_image_from_url_uses_content_hash_filename(self, client):
+        """URL 拉图上传：按字节哈希命名，不用 URL 里的 image.png。"""
+        body = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+        expected_name = f"img_{hashlib.sha256(body).hexdigest()[:16]}.png"
+
+        class FakeResp:
+            content = body
+            headers = {"content-type": "image/png"}
+
+            def raise_for_status(self):
+                return None
+
+        class FakeAsyncClient:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, url):
+                return FakeResp()
+
+        with patch("backend.api.mediawiki_routes.httpx.AsyncClient", FakeAsyncClient):
+            with patch("backend.api.mediawiki_routes.get_mediawiki_client") as mock_get:
+                mock_c = MagicMock()
+                mock_get.return_value = mock_c
+                response = client.post(
+                    "/api/mediawiki/upload-image",
+                    json={"image_url": "https://cdn.example.com/path/image.png"},
+                )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["filename"] == expected_name
+        assert data["wikitext"] == f"[[File:{expected_name}]]"
+        call_args = mock_c.upload_file.call_args[0]
+        assert call_args[0] == expected_name
 

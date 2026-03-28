@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-26T15:27:25.654043Z",
+  "generated_at": "2026-03-27T09:27:50.099391Z",
   "code_stats": {
-    "total_files": 1420,
-    "total_lines": 395822,
+    "total_files": 1423,
+    "total_lines": 396909,
     "by_language": {
       "other": {
         "files": 28,
@@ -10,11 +10,11 @@
       },
       "python": {
         "files": 646,
-        "lines": 109743
+        "lines": 110057
       },
       "markdown": {
-        "files": 521,
-        "lines": 164128
+        "files": 524,
+        "lines": 164278
       },
       "shell": {
         "files": 34,
@@ -22,11 +22,11 @@
       },
       "javascript": {
         "files": 64,
-        "lines": 8401
+        "lines": 8647
       },
       "json": {
         "files": 11,
-        "lines": 12150
+        "lines": 12164
       },
       "html": {
         "files": 2,
@@ -38,7 +38,7 @@
       },
       "jsx": {
         "files": 103,
-        "lines": 23524
+        "lines": 23887
       },
       "yaml": {
         "files": 7,
@@ -52,15 +52,15 @@
       },
       "extension": {
         "files": 6,
-        "lines": 1923
+        "lines": 2047
       },
       "frontend": {
         "files": 195,
-        "lines": 47576
+        "lines": 48061
       },
       "plans": {
-        "files": 126,
-        "lines": 63483
+        "files": 129,
+        "lines": 63631
       },
       "config": {
         "files": 3,
@@ -72,11 +72,11 @@
       },
       "tests": {
         "files": 66,
-        "lines": 8122
+        "lines": 8186
       },
       "backend": {
         "files": 540,
-        "lines": 148057
+        "lines": 148307
       },
       "shared": {
         "files": 11,
@@ -84,7 +84,7 @@
       },
       "docs": {
         "files": 343,
-        "lines": 103196
+        "lines": 103212
       },
       "comic": {
         "files": 1,
@@ -107,19 +107,19 @@
         "lines": 1341
       }
     },
-    "generated_at": "2026-03-26T15:27:28.889719Z"
+    "generated_at": "2026-03-27T09:27:53.725622Z"
   },
   "dev_history": {
-    "total_commits": 330,
+    "total_commits": 331,
     "authors": {
-      "侯金亭（Justin）": 292,
+      "侯金亭（Justin）": 293,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W12": 6,
+      "2026-W12": 7,
       "2026-W11": 13,
       "2026-W10": 20,
-      "2026-W09": 13
+      "2026-W09": 12
     },
     "commits_by_day": {
       "2025-12-31": 4,
@@ -174,7 +174,8 @@
       "2026-03-21": 3,
       "2026-03-22": 3,
       "2026-03-23": 4,
-      "2026-03-24": 2
+      "2026-03-24": 2,
+      "2026-03-26": 1
     },
     "lines_by_day": {
       "2025-12-31": {
@@ -441,6 +442,11 @@
         "add": 1798,
         "del": 209,
         "total": 2007
+      },
+      "2026-03-26": {
+        "add": 4541,
+        "del": 451,
+        "total": 4992
       }
     },
     "files_changed": {
@@ -448,16 +454,16 @@
       "backend/api/routes.py": 38,
       "backend/infrastructure/execution/task_handlers.py": 32,
       "frontend/client/ipc_client.py": 30,
+      "backend/services/llm/llm_service.py": 28,
+      "docs/audit/AUDIT_REPORT.json": 28,
+      "docs/audit/code_stats.json": 28,
+      "docs/audit/dev_history.json": 28,
       "frontend/react-app/src/components/Sidebar.jsx": 28,
       "frontend/react-app/src/pages/TaskManagement.jsx": 28,
-      "docs/audit/AUDIT_REPORT.json": 27,
-      "docs/audit/code_stats.json": 27,
-      "docs/audit/dev_history.json": 27,
       "frontend/react-app/src/pages/ArticleWriting.jsx": 27,
-      "backend/services/llm/llm_service.py": 27,
       "frontend/main.py": 27,
+      "env.example": 26,
       "Makefile": 26,
-      "env.example": 25,
       "frontend/ui/command_handler.py": 25,
       "frontend/ui/stream_handler.py": 22,
       "frontend/react-app/src/App.jsx": 22,
@@ -473,13 +479,14 @@
       "frontend/react-app/src/pages/MediaWikiReader.jsx": 15,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 15,
       "frontend/react-app/src/pages/WorkAssistant.jsx": 14,
+      "extension/manifest.json": 13,
+      "frontend/react-app/src/components/MarkdownActionButtons.jsx": 13,
+      "frontend/react-app/src/pages/WebReader.jsx": 13,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
       "pyproject.toml": 13,
       "frontend/ui/command_input.py": 13,
+      "frontend/react-app/src/utils/mdToHtml.js": 12,
       "backend/api/chat_routes.py": 12,
-      "extension/manifest.json": 12,
-      "frontend/react-app/src/pages/WebReader.jsx": 12,
-      "frontend/react-app/src/components/MarkdownActionButtons.jsx": 12,
       "frontend/react-app/src/components/task/TaskParamsForm.jsx": 12,
       "backend/core/context/manager.py": 12,
       "frontend/react-app/src/pages/PdfReader.jsx": 12,
@@ -487,15 +494,14 @@
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
+      "extension/background.js": 11,
       "backend/core/agent/tools/builtin/browser_tool.py": 11,
-      "frontend/react-app/src/utils/mdToHtml.js": 11,
       "backend/services/llm/tests/__init__.py": 11,
       "backend/infrastructure/execution/task_worker.py": 11,
       "frontend/react-app/src/components/task/TaskFormPage.jsx": 11,
-      "backend/infrastructure/execution/tests/test_executor.py": 11,
-      "backend/infrastructure/execution/tests/test_secure_executor.py": 11
+      "backend/infrastructure/execution/tests/test_executor.py": 11
     },
-    "generated_at": "2026-03-26T15:27:29.471400Z"
+    "generated_at": "2026-03-27T09:27:54.368085Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -639,6 +645,7 @@
       "POST /api/task-queue/upload-input-file",
       "POST /api/tasks/{task_id}/cancel",
       "POST /api/tests/run",
+      "POST /api/web-reader/fetch-weread-inline-image",
       "POST /api/web-reader/materialize-inline-images",
       "POST /api/web-reader/ocr",
       "POST /api/web-reader/summarize",
@@ -793,7 +800,7 @@
       "PUT /api/settings/writing-profile",
       "PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle"
     ],
-    "backend_path_count": 151,
+    "backend_path_count": 152,
     "frontend_fetch_count": 140,
     "unused_by_frontend": [
       "/api/audit/summary",
@@ -853,6 +860,7 @@
       "/api/tests/run",
       "/api/tests/statistics",
       "/api/tests/status",
+      "/api/web-reader/fetch-weread-inline-image",
       "/api/web-reader/inline-static/{id}",
       "/api/web-reader/materialize-inline-images",
       "/api/web-reader/ocr",

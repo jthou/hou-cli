@@ -32,6 +32,12 @@ plain text
     assert "plain text" in out
 
 
+def test_markdown_image_to_wiki_file_defaults():
+    out = md_to_wiki("![](Foo.png)\n![ cap ]( Bar.jpg )")
+    assert "[[File:Foo.png|500px|center|frame]]" in out
+    assert "[[File:Bar.jpg|500px|center|frame|cap]]" in out
+
+
 if __name__ == "__main__":
     test_code_block_to_syntaxhighlight()
     test_code_block_no_lang()

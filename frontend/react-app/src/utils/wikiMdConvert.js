@@ -8,6 +8,9 @@
 // 使用 \x01 避免被 _ 或 __ 的强调正则误匹配
 const MATH_PLACEHOLDER_PREFIX = '\x01WIKIMATH'
 const MATH_PLACEHOLDER_SUFFIX = '\x01'
+
+/** Markdown → [[File:…]] 时默认展示参数（宽度、居中、带框）；与 mediawikiPasteImage 等保持一致 */
+export const MW_FILE_DEFAULT_DISPLAY_PARAMS = '500px|center|frame'
 // 使用 \x01 避免 __ 被 emphasis 正则 __(.+?)__ 误匹配破坏占位符
 const CODE_PLACEHOLDER_PREFIX = '\x01WIKICODE'
 const CODE_PLACEHOLDER_SUFFIX = '\x01'
@@ -166,7 +169,7 @@ function wikiHrToMd(wiki) {
 
 /**
  * [[File:xxx]]、[[Image:xxx]] → ![](filename) 或 ![caption](filename)
- * 支持 [[File:name.png|thumb|200px|caption]]
+ * 支持 [[File:name.png|thumb|200px|caption]] 以及默认的 |500px|center|frame|…
  */
 function wikiImageToMd(wiki) {
   const re = /\[\[(?:File|Image):([^\]|]+)(?:\|([^\]]*))?\]\]/gi
@@ -719,11 +722,12 @@ export function mdToWikiWithImages(md) {
   if (!s) return { wikitext: '', images: [] }
   const images = []
   const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g
+  const p = MW_FILE_DEFAULT_DISPLAY_PARAMS
   s = s.replace(imgRe, (_, alt, url) => {
     const u = url.trim()
     const a = (alt || '').trim()
     images.push({ url: u, alt: a })
-    return a ? `[[File:${u}|${a}]]` : `[[File:${u}]]`
+    return a ? `[[File:${u}|${p}|${a}]]` : `[[File:${u}|${p}]]`
   })
   const wikitext = mdToWiki(s)
   return { wikitext, images }
