@@ -4,6 +4,8 @@
 **范围**：在现有 `pdf_to_wiki` 任务上增加可选抽取模式，与当前 **文本层提取**（pdfminer / pdfplumber）并存。  
 **不纳入首版**：从 PDF 嵌入式位图中抽取并上传 MediaWiki 文件（可另立文档）。
 
+**实现状态（2026-03-28）**：已落地。`pdf_to_wiki` 的 `metadata.extract_mode` 为 `text`（默认）或 `vision`；代码见 `backend/utils/pdf_page_render.py`、`pdf_vision_extract.py`、`pdf_vision_constants.py` 与 `task_handlers.process_pdf_to_wiki_task`。依赖 `pymupdf`。环境变量：`PDF_VISION_ZOOM`、`PDF_VISION_MODEL`（优先级见正文 §2.3）。前端任务表单在选用「页图识别」时展示简短提示。
+
 ---
 
 ## 0. 适用范围（部署假设）

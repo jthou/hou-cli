@@ -386,6 +386,11 @@ export default function TaskParamsForm({
       {(taskType === 'url_to_wiki' || taskType === 'pdf_to_wiki') && (
         <>
           <p className="text-xs text-amber-400/90">下方分类即写入 Wiki 的标签，可添加、可删除；日、周、月按执行日期自动追加。</p>
+          {taskType === 'pdf_to_wiki' && metadata?.extract_mode === 'vision' && (
+            <p className="text-xs text-amber-300/95 mt-1">
+              页图识别：按页调用视觉模型，耗时长、费用高；插图一般以文字描述为主，不会自动生成 Wiki 图片文件。
+            </p>
+          )}
           <WikiTitlePreviewHint taskType={taskType} metadata={metadata} />
         </>
       )}
