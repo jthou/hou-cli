@@ -1486,7 +1486,6 @@ export default function ArticleWriting() {
     <div className="flex flex-col h-full min-h-0">
       <PageHeader
         title="写作助手"
-        subtitle="左侧为写作助手会话列表，中间对话、右侧为文章预览；会遵循写作画像。接受修改后，在「同步到公众号草稿」中可预填正文标题、按需点击标题建议/摘要建议/封面流程。"
         actions={
           <Link
             to="/settings/writing-profile"

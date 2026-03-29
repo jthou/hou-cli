@@ -14,11 +14,8 @@ def render_pdf_page_to_png(
 ) -> bytes:
     """
     将 PDF 指定页渲染为 PNG 字节。
-    :param pdf_path: 本地 PDF 路径
-    :param page_index_0based: 0-based 页码
-    :param zoom: 缩放（2.0 约等于提高清晰度，过大易触发 VL 像素上限）
     :raises FileNotFoundError: 文件不存在
-    :raises ValueError: 非法页码或渲染失败
+    :raises ValueError: 非法页码、未安装 PyMuPDF 或渲染失败
     """
     try:
         import fitz  # PyMuPDF

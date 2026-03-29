@@ -118,6 +118,10 @@
   - `.env` 文件配置
   - API Key 管理、配置验证
 
+- **[03-refactoring-modules-principles-checklist.md](./03-refactoring-modules-principles-checklist.md)** - 公共模块与一致性：**原则与清单**
+  - 后端 domain/utils 归属、API 薄化；前端 components / feature / api 分层
+  - UI 与 CLI 契约单点、测试与重构节奏；PR 可勾选清单与反模式
+
 ### 04X - 用户指南
 
 - **[04-getting-started.md](./04-getting-started.md)** - 快速开始指南
@@ -144,6 +148,10 @@
 
 - **[video-downloader-tool-design.md](./video-downloader-tool-design.md)** - 视频下载工具设计
   - 多平台下载、工具选择与降级策略
+
+- **[ppt-assistant-design.md](./ppt-assistant-design.md)** - PPT 助手设计
+  - 编剧层 / 结构化 .pptx / 可选视觉理解；与 `pdf_to_wiki`、任务队列、Agent 工具对齐
+  - JSON slide spec、`python-pptx`、模板写回；分期 MVP～M3 与 §7 配置清单
 
 - **[work-assistant-agent-design.md](./work-assistant-agent-design.md)** - 工作助手 Agent 设计
   - 任务分解、做计划、会议纪要分析、项目笔记整理、公司知识库

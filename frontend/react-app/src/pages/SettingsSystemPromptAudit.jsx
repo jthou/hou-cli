@@ -30,7 +30,7 @@ export default function SettingsSystemPromptAudit() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="提示词审计" subtitle="按 agent 展示当前使用的系统提示，便于核对与审计。" />
+      <PageHeader title="提示词审计" />
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {loading && (

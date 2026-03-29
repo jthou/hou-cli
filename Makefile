@@ -14,7 +14,7 @@ help:
 	@echo "  make test             - 运行全部测试"
 	@echo "  make test-stream-ctx  - 仅跑写作 __CTX_META__ 相关单测（优先 .venv，其次 venv）"
 	@echo "  make pre-check        - 验证第三方依赖（ffmpeg、yt-dlp、you-get、whisper，Python 包见 requirements.txt）"
-	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install + npm install）"
+	@echo "  make install-deps     - 安装系统依赖（FFmpeg + pip install + npm install；pip 一步可能很慢见该目标注释）"
 	@echo "  make test-task-weather - 运行天气相关 live 测试"
 	@echo "  make test-mediawiki    - MediaWiki search-read 诊断（.env、连接、搜索）"
 	@echo "  make migrate          - 执行任务队列 DB 迁移（在 backend 下执行 alembic upgrade head，部署时手动跑）"
@@ -124,17 +124,29 @@ create-venv:
 	@rm -rf venv && python3.12 -m venv venv
 	@echo "venv 已创建（Python 3.12），请执行 make install-deps"
 
-# 安装系统级第三方依赖（FFmpeg + requirements.txt 中的 Python 包 + 前端 npm 包）
+# 安装系统级第三方依赖（FFmpeg + requirements.txt 中的 Python  + 前端 npm 包）
 # 若曾以 editable 安裝於 backend/externals/（目錄已刪），需先卸載再從 PyPI 重裝
+#
+# 「卡死」常见原因（非 bug）：
+#   1) pip install -r requirements.txt —— 含 mineru[all]、openai-whisper、langchain 等，下载+解压可达数十分钟；
+#      旧版用 -q 无进度易误判；现默认保留 pip 进度条。
+#   2) scripts/install_ffmpeg.sh —— 无 ffmpeg 时会 brew install / apt-get；Linux 上 apt 可能等待 sudo 密码。
+#   3) npm install —— 网络慢时久无输出。
 install-deps:
 	@test -f "$(VENV_ACTIVATE)" || (echo "错误: 未找到虚拟环境，请先执行 python3 -m venv venv"; exit 1)
 	@echo "安装系统依赖（FFmpeg + Python 包 + 前端 npm 包）..."
+	@echo "[install-deps 1/5] FFmpeg..."
 	@bash scripts/install_ffmpeg.sh
+	@echo "[install-deps 2/5] 清理曾指向 externals 的 pip 包（若有）..."
 	@for pkg in yt-dlp you-get openai-whisper; do \
 	  ($(PYTHON) -m pip show $$pkg 2>/dev/null | grep -q "externals") && $(PYTHON) -m pip uninstall -y $$pkg || true; \
 	done
-	@$(PYTHON) -m pip install -r requirements.txt -q
+	@echo "[install-deps 3/5] pip install -r requirements.txt（MinerU[all]/Whisper 等很大，请耐心等待几分钟到数十分钟）..."
+	@$(PYTHON) -m pip install -r requirements.txt
+	@echo "[install-deps 4/5] pymupdf + yt-dlp..."
+	@$(PYTHON) -m pip install -q "pymupdf>=1.24.0"
 	@$(PYTHON) -m pip install -U yt-dlp -q
+	@echo "[install-deps 5/5] frontend/react-app npm install..."
 	@test -d "frontend/react-app" && (cd frontend/react-app && npm install) || true
 	@echo "系统依赖安装完成"
 

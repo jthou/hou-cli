@@ -51,7 +51,7 @@ export default function SettingsDevAudit() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <PageHeader title="开发审计" subtitle="代码统计、开发历史、API 审计" />
+        <PageHeader title="开发审计" />
         <div className="flex-1 overflow-y-auto p-6 flex items-center justify-center">
           <p className="text-muted">加载中…</p>
         </div>

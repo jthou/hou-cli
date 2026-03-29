@@ -191,7 +191,7 @@ export default function SettingsLlmAudit() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="LLM 审计" subtitle="所有 LLM 调用的输入与输出，按时间倒序。" />
+      <PageHeader title="LLM 审计" />
 
       <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">

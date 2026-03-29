@@ -6,11 +6,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
 import ZoomPanFigure from '../components/ZoomPanFigure'
 import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
-import PasteButton from '../components/PasteButton'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/ToastModal'
 import { useExtensionReady } from '../hooks/useExtensionReady'
-import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import VisionModelSelector from '../components/VisionModelSelector'
 import {
@@ -474,11 +472,6 @@ export default function WereadReader() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [imgUploadModal])
-
-  const handlePasteFromClipboard = usePasteFromClipboard({
-    onPaste: (text) => setUrlInput(text),
-    toast,
-  })
 
   useEffect(() => {
     screenshotsRef.current = data?.screenshots || []
@@ -1287,7 +1280,6 @@ export default function WereadReader() {
                   placeholder="https://weread.qq.com/..."
                   className="flex-1 min-w-0 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none text-sm"
                 />
-                <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板获取 URL" />
                 <button
                   type="submit"
                   disabled={loading || imagesOnlyBusy || !extensionReady}

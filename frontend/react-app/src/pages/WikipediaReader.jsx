@@ -2,10 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import WikitextEditorPreview from '../components/WikitextEditorPreview'
-import PasteButton from '../components/PasteButton'
 import { fetchSummarize } from '../utils/summarizeApi'
 import { useToast } from '../components/ToastModal'
-import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 
 const STORAGE_KEY_LAST = 'wikipedia_reader_last'
 const STORAGE_KEY_SUMMARIES = 'wikipedia_reader_summaries'
@@ -29,11 +27,6 @@ export default function WikipediaReader() {
     } catch {
       return {}
     }
-  })
-
-  const handlePasteFromClipboard = usePasteFromClipboard({
-    onPaste: (text) => setTermsInput(text),
-    toast,
   })
 
   useEffect(() => {
@@ -195,10 +188,7 @@ export default function WikipediaReader() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="Wikipedia 阅读"
-        subtitle="按关键词从 Wikipedia 抓取页面，与 Wiki 阅读相同结构，支持中英文切换。"
-      />
+      <PageHeader title="Wikipedia 阅读" />
 
       <div className="flex-1 overflow-hidden flex min-h-0">
         <div className="flex-[0.382] min-w-0 flex flex-col border-r border-border bg-white/[0.02] min-h-0">
@@ -210,7 +200,6 @@ export default function WikipediaReader() {
                     关键词列表
                   </label>
                   <div className="flex items-center gap-1">
-                    <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板粘贴" />
                     <button
                       type="button"
                       onClick={handleRestoreLast}

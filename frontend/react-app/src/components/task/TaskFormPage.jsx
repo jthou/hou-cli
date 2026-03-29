@@ -71,6 +71,25 @@ export default function TaskFormPage({ taskType, title, description, submitLabel
             meta = { ...meta, wiki_title: titleFromQuery }
           }
         }
+        if (taskType === 'pdf_to_wiki') {
+          const search = new URLSearchParams(location.search)
+          const em = (search.get('extract_mode') || '').trim().toLowerCase()
+          if (em === 'text' || em === 'vision') {
+            meta = { ...meta, extract_mode: em }
+          }
+          const fp = (search.get('file_path') || '').trim()
+          if (fp) {
+            meta = { ...meta, file_path: fp, url: '' }
+          }
+          const urlFromQuery = (search.get('url') || search.get('source_url') || '').trim()
+          if (urlFromQuery && !fp) {
+            meta = { ...meta, url: urlFromQuery, file_path: '' }
+          }
+          const titleFromQuery = (search.get('wiki_title') || search.get('suggest_title') || '').trim()
+          if (titleFromQuery) {
+            meta = { ...meta, wiki_title: titleFromQuery }
+          }
+        }
         setMetadata(meta)
         setInputSource('manual')
         setDependsOnTaskId('')

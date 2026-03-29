@@ -27,7 +27,7 @@ const DEEP_THINKING_STORAGE_KEY = 'general_chat_deep_thinking'
 
 export default function GeneralChat({
   title = '通用对话',
-  subtitle = '可调用全部工具（搜索、浏览器、下载等），支持会话与参考信息',
+  subtitle,
   sessionType = DEFAULT_SESSION_TYPE,
   storageKey = DEFAULT_STORAGE_KEY,
   defaultPersona = '',

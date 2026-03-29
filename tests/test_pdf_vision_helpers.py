@@ -6,7 +6,6 @@ from backend.utils.pdf_vision_constants import pdf_vision_page_fail_text, pdf_vi
 
 
 def test_pdf_vision_page_marker_format():
-    assert "1" in pdf_vision_page_marker(1)
     assert "pdf-vision:page 1" in pdf_vision_page_marker(1)
 
 

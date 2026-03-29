@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 152
-- 前端 fetch 数: 140
+- 后端路由数: 154
+- 前端 fetch 数: 139
 
 ## 后端路由
 
@@ -33,7 +33,9 @@ GET /api/network/audit/env
 GET /api/network/audit/history
 GET /api/network/audit/targets
 GET /api/pdf/page-range-text
+GET /api/pdf/page-range-vision
 GET /api/pdf/page-text
+GET /api/pdf/page-vision
 GET /api/pdf/view
 GET /api/search/availability
 GET /api/search/files
@@ -196,7 +198,6 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/network/audit/run
 - GET /api/network/audit/targets
 - GET /api/pdf/page-range-text
-- GET /api/pdf/page-text
 - GET /api/pdf/resolve
 - GET /api/pdf/upload-from-extension
 - GET /api/sessions
@@ -317,6 +318,9 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/mediawiki/sync
 - /api/mediawiki/sync/status
 - /api/mediawiki/test-connection
+- /api/pdf/page-range-vision
+- /api/pdf/page-text
+- /api/pdf/page-vision
 - /api/pdf/view
 - /api/search/availability
 - /api/search/files

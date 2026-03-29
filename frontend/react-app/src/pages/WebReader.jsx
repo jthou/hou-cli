@@ -6,11 +6,9 @@ import { useNavigate } from 'react-router-dom'
 import { htmlToMd } from '../utils/mdToHtml'
 import MarkdownEditorPreview from '../components/MarkdownEditorPreview'
 import ExtensionNotReadyHint from '../components/ExtensionNotReadyHint'
-import PasteButton from '../components/PasteButton'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/ToastModal'
 import { useExtensionReady } from '../hooks/useExtensionReady'
-import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 import { saveLastReadForContext, loadLastReadForContext } from '../utils/webReaderIndexedDB'
 import { fetchSummarize } from '../utils/summarizeApi'
 import { materializeInlineImagesFromMap } from '../utils/webReaderInlineImages'
@@ -116,11 +114,6 @@ export default function WebReader() {
     `
     return html.replace(/<\/body\s*>/i, clickScript + '</body>')
   }
-
-  const handlePasteFromClipboard = usePasteFromClipboard({
-    onPaste: (text) => setUrlInput(text),
-    toast,
-  })
 
   const doRead = useCallback((url) => {
     const u = (url || '').trim()
@@ -264,10 +257,7 @@ export default function WebReader() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="网页阅读"
-        subtitle="通过浏览器扩展抓取网页正文（DOM）。微信公众号 mp.weixin.qq.com 会经扩展拉取配图并保存到本机数据目录，Markdown 中引用本站 /api/web-reader/inline-static/ 地址。微信读书请用「微信读书」页。"
-      />
+      <PageHeader title="网页阅读" />
 
       <div className="flex-1 overflow-hidden flex">
         <div className="flex flex-col flex-[0.382] min-w-0 border-r border-border min-h-0">
@@ -280,7 +270,6 @@ export default function WebReader() {
                 placeholder="https://example.com/article"
                 className="flex-1 min-w-0 px-3 py-2 bg-white/5 border border-border rounded-lg text-white placeholder-muted focus:border-accent focus:outline-none text-sm"
               />
-              <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板获取 URL" />
               <button
                 type="submit"
                 disabled={loading || !extensionReady}

@@ -636,7 +636,6 @@ export default function WorkAssistant() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="工作助手"
-        subtitle="通用对话入口，可指定具体模型；会遵循工作配置。"
         actions={
           <Link
             to="/settings/work-config"

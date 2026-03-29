@@ -119,7 +119,7 @@ export default function AddReference() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="添加到参考" subtitle="选择目标会话，将内容加入写作助手、工作助手或通用对话的参考上下文" />
+      <PageHeader title="添加到参考" />
       <div className="flex-1 overflow-y-auto p-6">
         <p className="text-sm text-muted mb-4 line-clamp-2 max-w-4xl">
           {content.slice(0, 120)}

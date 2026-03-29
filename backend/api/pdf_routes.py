@@ -1,5 +1,6 @@
 """PDF 阅读/解析相关路由"""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -175,6 +176,29 @@ async def get_pdf_page_text(
         raise HTTPException(status_code=500, detail=f"读取 PDF 失败: {e}")
 
 
+def _normalize_pdf_ocr_source(ocr_source: Optional[str]) -> Optional[str]:
+    """与 POST /api/web-reader/ocr 的 source=weread 对齐；其它值拒绝以防拼写污染。"""
+    s = (ocr_source or "").strip().lower()
+    if not s:
+        return None
+    if s == "weread":
+        return "weread"
+    raise HTTPException(
+        status_code=400,
+        detail="ocr_source 仅支持 weread，或省略使用通用 OCR（公式/表格规则仍生效）",
+    )
+
+
+def _pdf_reader_vision_max_pages() -> int:
+    """单次页图识别上限，避免 HTTP 长时间阻塞；整书请走 pdf_to_wiki 任务。"""
+    raw = (os.getenv("PDF_READER_VISION_MAX_PAGES") or "40").strip()
+    try:
+        n = int(raw)
+        return max(1, min(n, 200))
+    except ValueError:
+        return 40
+
+
 def _parse_pages_spec(spec: str, page_count: int) -> list[int]:
     """解析页码规格：支持 1-8、1,3,5、1-3,5,7-9 等格式。返回 0-based 页码列表。"""
     if not spec or not spec.strip():
@@ -278,6 +302,150 @@ async def get_pdf_page_range_text(
     except Exception as e:
         debug_log(f"get_pdf_page_range_text failed: {e}", level="error")
         raise HTTPException(status_code=500, detail=f"读取 PDF 失败: {e}")
+
+
+@router.get("/pdf/page-vision")
+async def get_pdf_page_vision(
+    file_path: str = Query(
+        ...,
+        description="服务器上的 PDF 绝对路径",
+    ),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    ocr_source: Optional[str] = Query(
+        None,
+        description="传 weread 时与 web-reader OCR 一致追加章节标题规则；省略则为通用（含公式/表格）",
+    ),
+):
+    """指定页渲染为图片后走 VL OCR，返回 Markdown（提示词模块与 web_reader 共用）。"""
+    try:
+        from backend.utils.pdf_vision_extract import extract_pdf_vision_pages_detail
+
+        pdf_path = _resolve_local_pdf(file_path)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {file_path}")
+        if pdf_path.suffix.lower() != ".pdf":
+            raise HTTPException(status_code=400, detail="文件不是 PDF 格式")
+
+        page_count = 0
+        try:
+            import pdfplumber  # type: ignore
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                page_count = len(pdf.pages)
+        except ImportError:
+            try:
+                from pdfminer.high_level import extract_pages
+                page_count = sum(1 for _ in extract_pages(str(pdf_path)))
+            except Exception:
+                pass
+        if page_count == 0:
+            raise HTTPException(status_code=500, detail="无法读取 PDF 页数")
+        if page < 1 or page > page_count:
+            raise HTTPException(status_code=400, detail=f"页码超出范围: 1–{page_count}")
+
+        src = _normalize_pdf_ocr_source(ocr_source)
+        rows = await extract_pdf_vision_pages_detail(
+            str(pdf_path), [page - 1], zoom=None, model=None, ocr_source=src
+        )
+        text = (rows[0].get("text") or "") if rows else ""
+
+        return {
+            "success": True,
+            "file_path": str(pdf_path),
+            "page": page,
+            "page_count": page_count,
+            "text": text,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"get_pdf_page_vision failed: {e}", level="error")
+        raise HTTPException(status_code=500, detail=f"页图识别失败: {e}")
+
+
+@router.get("/pdf/page-range-vision")
+async def get_pdf_page_range_vision(
+    file_path: str = Query(
+        ...,
+        description="服务器上的 PDF 绝对路径",
+    ),
+    page_from: int = Query(1, ge=1, description="起始页（含），pages 未传时使用"),
+    page_to: int = Query(1, ge=1, description="结束页（含），pages 未传时使用"),
+    pages: Optional[str] = Query(
+        None,
+        description="跳着识别：如 1,3,5 或 1-3,5,7-9。传此参数时忽略 page_from/page_to",
+    ),
+    ocr_source: Optional[str] = Query(
+        None,
+        description="传 weread 时追加章节标题规则，同 page-vision",
+    ),
+):
+    """多页页图识别，返回与 page-range-text 相同结构（pages 数组 + 合并 text）。"""
+    try:
+        from backend.utils.pdf_vision_extract import extract_pdf_vision_pages_detail
+
+        pdf_path = _resolve_local_pdf(file_path)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {file_path}")
+        if pdf_path.suffix.lower() != ".pdf":
+            raise HTTPException(status_code=400, detail="文件不是 PDF 格式")
+
+        page_count = 0
+        try:
+            import pdfplumber  # type: ignore
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                page_count = len(pdf.pages)
+        except ImportError:
+            try:
+                from pdfminer.high_level import extract_pages
+                page_count = sum(1 for _ in extract_pages(str(pdf_path)))
+            except Exception:
+                pass
+        if page_count == 0:
+            raise HTTPException(status_code=500, detail="无法读取 PDF 页数")
+
+        if pages and pages.strip():
+            page_numbers = _parse_pages_spec(pages, page_count)
+            if not page_numbers:
+                raise HTTPException(status_code=400, detail="pages 格式无效，示例：1-8 或 1,3,5 或 1-3,5,7-9")
+        else:
+            if page_from > page_to:
+                page_from, page_to = page_to, page_from
+            if page_to > page_count:
+                page_to = page_count
+            if page_from < 1:
+                page_from = 1
+            page_numbers = list(range(page_from - 1, page_to))
+
+        vmax = _pdf_reader_vision_max_pages()
+        if len(page_numbers) > vmax:
+            raise HTTPException(
+                status_code=400,
+                detail=f"页图识别单次最多 {vmax} 页（环境变量 PDF_READER_VISION_MAX_PAGES，上限 200）。超出部分请使用侧栏「PDF转Wiki」任务分批或整书处理。",
+            )
+
+        src = _normalize_pdf_ocr_source(ocr_source)
+        pages_detail = await extract_pdf_vision_pages_detail(
+            str(pdf_path), page_numbers, zoom=None, model=None, ocr_source=src
+        )
+        text = "\n\n".join((p.get("text") or "").strip() for p in pages_detail if (p.get("text") or "").strip())
+        pg_nums = [p["page"] for p in pages_detail]
+        resp_page_from = min(pg_nums) if pg_nums else page_from
+        resp_page_to = max(pg_nums) if pg_nums else page_to
+
+        return {
+            "success": True,
+            "file_path": str(pdf_path),
+            "page_from": resp_page_from,
+            "page_to": resp_page_to,
+            "page_count": page_count,
+            "text": text,
+            "pages": pages_detail,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug_log(f"get_pdf_page_range_vision failed: {e}", level="error")
+        raise HTTPException(status_code=500, detail=f"页图识别失败: {e}")
 
 
 @router.get("/pdf/view")

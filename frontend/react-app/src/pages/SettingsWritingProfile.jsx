@@ -16,7 +16,6 @@ export default function SettingsWritingProfile() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="写作画像"
-        subtitle="写作助手会根据你的喜好、表述习惯和范文，在生成文章时尽量贴合你的风格"
         actions={
           <button
             type="button"

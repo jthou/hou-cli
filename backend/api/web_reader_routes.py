@@ -15,6 +15,8 @@ from pydantic import BaseModel
 
 from shared.platform_utils import get_app_data_dir
 
+from backend.utils.vision_ocr_prompts import build_vision_ocr_prompt
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/web-reader", tags=["web-reader"])
@@ -87,40 +89,6 @@ def _guess_ext_from_image_response(body: bytes, content_type: str) -> Optional[s
     if len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP":
         return ".webp"
     return None
-
-
-OCR_PROMPT = """请识别图片中的所有文字，按原文顺序逐行输出。如果是书籍或文章页面，请完整提取正文内容，保留段落结构。
-
-**数学公式**：若图片中有数学公式（如 LaTeX、算式、符号等），请用以下格式包裹：
-- 行内公式：用单个美元符号包裹，如 $E=mc^2$
-- 独立成行的公式：用双美元符号包裹，如 $$\\int_0^1 x\\,dx = \\frac{1}{2}$$
-
-**矩阵与多行排版**：若出现矩阵、向量竖排或多行公式，请用 LaTeX 环境写出结构，不要用一行随意拼接：
-- 方括号矩阵优先用 `bmatrix`（圆括号可用 `pmatrix`），独立成行时用双美元包裹整块，例如：
-  $$\\begin{bmatrix} a_{11} & a_{12} \\\\ a_{21} & a_{22} \\end{bmatrix}$$
-- 矩阵内**每一行**之间必须用 `\\\\` 换行；列与列之间用 `&` 分隔。
-- 与原文一致的省略号请写成 `\\cdots`、`\\ldots` 等对应 LaTeX 命令，不要随意改成文字「…」混在公式里（若整段是公式环境内则保持命令形式）。
-
-**表格**：若图片中有表格（含三线表、有线框表），请输出为 **Markdown 表格**（管道符 `|`），不要用纯空格对齐冒充表格：
-- 第一行为表头，第二行为分隔行，仅含 `|---|` 这类短横线与竖线，列数与表头一致；自第三行起为数据行。
-- 示例：
-  | 列A | 列B |
-  | --- | --- |
-  | 单元格 | 单元格 |
-- 单元格内换行可写成 `<br>` 或合并为一行用顿号分隔（择一保持全表一致）；空单元格用单个空格或 `-` 占位。
-- 若存在跨行/跨列合并且难以用 Markdown 表达，在表前或表后用一行简短说明「某格合并」即可，其余仍按规整网格输出，不要省略整表。
-
-只输出识别到的文字，不要添加任何解释或评论。"""
-
-# 仅当请求带 source=weread 时追加：微信读书章节常为「4.1.4　标题」式编号，与通用网页 OCR 区分，避免误伤其它站点列表。
-OCR_WEREAD_HEADING_SUPPLEMENT = """
-
-**章节编号与 Markdown 标题（微信读书等电子书章节页）**：
-若某行在版式上是**章节/小节标题**（通常字号更大或单独成行），且行首为**层级小节编号**（非正文句子里的数字），编号由若干**十进制整数**用英文句点 `.` 连接，例如 `4`、`4.1`、`4.1.4`，编号与标题文字之间常见全角空格 `　` 或半角空格，请将该行输出为 **Markdown ATX 标题**：
-- `#` 的个数 = 编号中「`.` 分段」的个数：仅一段（如 `4`）用一级 `#`；两段（如 `4.1`）用 `##`；三段（如 `4.1.4`）用 `###`；依此类推，**最多六级** `######`。
-- 输出形式示例：`### 4.1.4 数据滤波`、`## 4.1 某某节`（编号与标题正文均保留，与屏幕一致即可）。
-- **不要**把明显的**有序列表**（如 `1.` 后接短词、多行并列列举）或正文中的「3.14」「2.3 节」这类**非标题行**改成标题；仅对视觉上明确是标题的行应用上述规则。
-"""
 
 
 class OcrRequest(BaseModel):
@@ -228,9 +196,7 @@ async def ocr_image(req: OcrRequest):
         model_name = (req.model or "").strip() or _get_vision_model()
         llm = LLMService(model=model_name)
 
-        prompt = OCR_PROMPT
-        if (req.source or "").strip().lower() == "weread":
-            prompt = OCR_PROMPT + OCR_WEREAD_HEADING_SUPPLEMENT
+        prompt = build_vision_ocr_prompt(source=req.source)
 
         messages = [
             {

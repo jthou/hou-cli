@@ -60,10 +60,7 @@ export default function SettingsKanban() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="Wiki看板"
-        subtitle="读取 MediaWiki 中的 KanbanBoard，看板 → 列 → 卡片，只读预览。"
-      />
+      <PageHeader title="Wiki看板" />
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         <div className="flex-1 flex min-h-0 overflow-hidden">

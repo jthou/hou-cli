@@ -145,10 +145,7 @@ export default function SettingsModelConfigAudit() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="模型审计"
-        subtitle="配置信息、Agent 映射、模型可用性探测（API Key 仅显示是否已设置，不暴露原文）"
-      />
+      <PageHeader title="模型审计" />
 
       <div className="flex-1 overflow-y-auto p-6 max-w-4xl min-w-0">
         {loading && <div className="text-muted">加载中…</div>}

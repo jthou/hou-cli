@@ -14,7 +14,6 @@ export default function SettingsWorkConfig() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="工作配置"
-        subtitle="工作助手会根据你的工作规则、上下文和术语表，在回答时遵循规则、了解工作内容、提示工作建议"
         actions={
           <button
             type="button"

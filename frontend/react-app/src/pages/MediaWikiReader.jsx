@@ -2,10 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import WikitextEditorPreview from '../components/WikitextEditorPreview'
-import PasteButton from '../components/PasteButton'
 import { fetchSummarize } from '../utils/summarizeApi'
 import { useToast } from '../components/ToastModal'
-import { usePasteFromClipboard } from '../hooks/usePasteFromClipboard'
 
 const STORAGE_KEY_LAST = 'mediawiki_reader_last'
 const STORAGE_KEY_SUMMARIES = 'mediawiki_reader_summaries'
@@ -31,11 +29,6 @@ export default function MediaWikiReader() {
     } catch {
       return {}
     }
-  })
-
-  const handlePasteFromClipboard = usePasteFromClipboard({
-    onPaste: (text) => setTermsInput(text),
-    toast,
   })
 
   useEffect(() => {
@@ -212,10 +205,7 @@ export default function MediaWikiReader() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="Wiki阅读"
-        subtitle="按关键词抓取现有页面做查阅；也可「新建页面」起稿，通过「写入 MediaWiki」在 Wiki 上创建。"
-      />
+      <PageHeader title="Wiki阅读" />
 
       <div className="flex-1 overflow-hidden flex min-h-0">
         <div className="flex-[0.382] min-w-0 flex flex-col border-r border-border bg-white/[0.02] min-h-0">
@@ -227,7 +217,6 @@ export default function MediaWikiReader() {
                     关键词列表
                   </label>
                   <div className="flex items-center gap-1">
-                    <PasteButton onClick={handlePasteFromClipboard} title="从剪贴板粘贴" />
                     <button
                       type="button"
                       onClick={handleRestoreLast}
