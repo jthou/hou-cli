@@ -158,8 +158,23 @@ class MediaWikiClientService:
                 if isinstance(e, MediaWikiClientError) and getattr(e, "no_retry", False):
                     raise
                 err_str = str(e).lower()
-                if "readapidenied" in err_str and (self.bot_name or self.username) and attempt < max_retries - 1:
-                    logger.warning("readapidenied，重连后重试…")
+                api_code = getattr(e, "code", None)
+                api_code_l = (str(api_code).lower() if api_code is not None else "")
+                # 会话/权限相关：重连（含重新登录）后再试
+                # - readapidenied: 私有 Wiki 未认证/会话过期
+                # - badtoken: CSRF token 失效（常见于登录态丢失/过期）
+                # - notloggedin: 会话过期或未登录
+                if (
+                    (
+                        "readapidenied" in err_str
+                        or "badtoken" in err_str
+                        or "notloggedin" in err_str
+                        or api_code_l in ("readapidenied", "badtoken", "notloggedin")
+                    )
+                    and (self.bot_name or self.username)
+                    and attempt < max_retries - 1
+                ):
+                    logger.warning("MediaWiki 会话/权限异常（readapidenied/badtoken/notloggedin），重连后重试…")
                     self._connected = False
                     self.site = None
                     self.connect()
