@@ -35,6 +35,13 @@ def load_env(project_root: Optional[Path] = None) -> None:
         if env_path.exists():
             load_dotenv(env_path, override=override)
 
+    try:
+        from shared.httpx_defaults import merge_hou_cli_no_proxy_hosts
+
+        merge_hou_cli_no_proxy_hosts()
+    except Exception:
+        pass
+
 
 def load_env_for_file(file_path: str) -> None:
     """

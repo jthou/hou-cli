@@ -57,6 +57,13 @@ Chrome 扩展，配合 Hou CLI 使用：
 3. 回到 Web Reader 页面，点击「抓取」或输入 URL 读取
 4. 控制台不应再出现未捕获的 "Extension context invalidated"；若出现，刷新页面即可
 
+### www.jthou.com MediaWiki：用 gvim 打开词条
+
+- 在 `https://www.jthou.com/mediawiki/...` 下阅读时，右下角会出现 **「用 gvim 打开」** 链接（`content.js` 注入）。
+- 链接指向 **`hou-gvim://mediawiki?title=<编码后的词条名>`**，由本机已注册的协议处理程序执行（与 [`gvim-protocol-handler/README.md`](../gvim-protocol-handler/README.md) 一致），内部仍用 **`GvimService.open_mediawiki_page`** 拉 Wiki 开 gvim；**不需要**本机启动 Hou CLI HTTP 后端。
+- **前提**：已按 `gvim-protocol-handler` 安装脚本或构建 `HouGvimURLHandler.app` 并注册协议；仓库根 `.env` 中 MediaWiki 已配置；已安装 `gvim`。
+- 服务端仍保留 `POST /api/gvim/open-mediawiki-page`，供其它客户端或自动化调用。
+
 ## 生产环境
 
 若 Hou CLI 部署在非 localhost 的域名，需修改 `manifest.json` 中 `content_scripts.matches`，添加你的域名，例如：

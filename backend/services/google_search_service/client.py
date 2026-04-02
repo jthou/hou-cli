@@ -5,6 +5,8 @@ import time
 import logging
 from typing import Optional, List
 import httpx
+
+from shared.httpx_defaults import httpx_default_network_kwargs
 from .models import GoogleSearchResult, GoogleSearchResponse
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ class GoogleSearchService:
                 "请在 .env 文件中配置 GOOGLE_SEARCH_ENGINE_ID"
             )
         
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, **httpx_default_network_kwargs())
     
     async def search(
         self,

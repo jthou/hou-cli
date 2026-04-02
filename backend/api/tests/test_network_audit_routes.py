@@ -107,6 +107,8 @@ class TestNetworkAuditRoutes:
         assert "proxy_settings" in data
         assert isinstance(data["local_ips"], list)
         assert isinstance(data["proxy_settings"], dict)
+        assert "httpx_uses_environment_proxy" in data
+        assert isinstance(data["httpx_uses_environment_proxy"], bool)
 
     def test_run_audit_includes_env(self, client: TestClient):
         """测试执行审计返回 env"""
@@ -128,3 +130,4 @@ class TestNetworkAuditRoutes:
             assert "local_ips" in data["env"]
             assert "proxy_settings" in data["env"]
             assert "summary" in data["env"]
+            assert "httpx_uses_environment_proxy" in data["env"]

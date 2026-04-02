@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 154
-- 前端 fetch 数: 139
+- 后端路由数: 158
+- 前端 fetch 数: 145
 
 ## 后端路由
 
@@ -117,6 +117,7 @@ POST /api/chat/rate-message
 POST /api/chat/stream
 POST /api/execution/approve
 POST /api/execution/reject
+POST /api/gvim/open-mediawiki-page
 POST /api/home-briefing/generate
 POST /api/mediawiki/pages/{title:path}
 POST /api/mediawiki/parse
@@ -127,6 +128,9 @@ POST /api/mediawiki/upload-image-file
 POST /api/network/audit/run
 POST /api/pdf/resolve
 POST /api/pdf/upload-from-extension
+POST /api/ppt-assistant/deck
+POST /api/ppt-assistant/extract
+POST /api/ppt-assistant/run
 POST /api/sessions
 POST /api/sessions/batch-delete
 POST /api/sessions/{session_id}/clear
@@ -200,6 +204,9 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/pdf/page-range-text
 - GET /api/pdf/resolve
 - GET /api/pdf/upload-from-extension
+- GET /api/ppt-assistant/deck
+- GET /api/ppt-assistant/extract
+- GET /api/ppt-assistant/run
 - GET /api/sessions
 - GET /api/sessions/
 - GET /api/sessions/batch-delete
@@ -278,6 +285,9 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/network/audit/run
 - POST /api/pdf/resolve
 - POST /api/pdf/upload-from-extension
+- POST /api/ppt-assistant/deck
+- POST /api/ppt-assistant/extract
+- POST /api/ppt-assistant/run
 - POST /api/sessions
 - POST /api/sessions/batch-delete
 - POST /api/settings/model-availability-audit/probe
@@ -311,6 +321,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/chat/article/merge
 - /api/execution/approve
 - /api/execution/reject
+- /api/gvim/open-mediawiki-page
 - /api/mediawiki/diagnostic
 - /api/mediawiki/pages/{id}
 - /api/mediawiki/parse

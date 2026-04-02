@@ -1,11 +1,12 @@
 """MediaWiki 相关路由"""
+import asyncio
 import hashlib
 import os
 import re
 import random
 import tempfile
 from typing import Optional, Tuple
-from urllib.parse import parse_qs, urljoin, urlparse, unquote
+from urllib.parse import parse_qs, urljoin, urlparse, unquote, urlunparse
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -16,6 +17,7 @@ from backend.services.mediawiki_client_service import (
     MediaWikiSyncService,
 )
 from shared.debug_utils import debug_log
+from shared.httpx_defaults import httpx_default_network_kwargs
 
 router = APIRouter()
 
@@ -35,7 +37,7 @@ def _parse_via_http(wikitext: str, title: Optional[str] = None) -> str:
     }
     if title:
         params["title"] = title
-    r = httpx.post(api_url, data=params, timeout=30.0)
+    r = httpx.post(api_url, data=params, timeout=30.0, **httpx_default_network_kwargs())
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -64,6 +66,99 @@ def _get_mediawiki_base_url() -> str:
     return (os.getenv("MEDIAWIKI_URL") or "http://www.jthou.com/mediawiki").rstrip("/")
 
 
+def _image_fetch_replace_host_set() -> Optional[set[str]]:
+    """
+    允许用 MEDIAWIKI_FETCH_REPLACE_ORIGIN 改写的图片 URL host（小写）。
+    若设置 MEDIAWIKI_FETCH_REPLACE_FOR_HOSTS（逗号分隔），仅匹配列表；
+    否则使用 MEDIAWIKI_URL 的 host 及其 www. / 裸域 变体（避免 jthou.com 与 www.jthou.com 不一致导致不重写）。
+    """
+    raw = (os.getenv("MEDIAWIKI_FETCH_REPLACE_FOR_HOSTS") or "").strip()
+    if raw:
+        return {h.strip().lower() for h in raw.split(",") if h.strip()}
+    wiki_h = (urlparse(_get_mediawiki_base_url()).hostname or "").lower()
+    if not wiki_h:
+        return None
+    s = {wiki_h}
+    if wiki_h.startswith("www."):
+        root = wiki_h[4:]
+        if root:
+            s.add(root)
+    else:
+        s.add("www." + wiki_h)
+    return s
+
+
+def _url_for_server_side_image_fetch(url: str) -> str:
+    """
+    服务端拉取「与 Wiki 同 host」的图片 URL（如 /images/...）时，走公网域名经反代易出现 502。
+    可选：在 .env 设置 MEDIAWIKI_FETCH_REPLACE_ORIGIN（如 http://127.0.0.1），当 image URL 的 host
+    属于 _image_fetch_replace_host_set() 时替换 scheme+host，保留 path/query。
+    """
+    replace = (os.getenv("MEDIAWIKI_FETCH_REPLACE_ORIGIN") or "").strip().rstrip("/")
+    if not replace:
+        return url
+    try:
+        u = urlparse(url)
+        img_h = (u.hostname or "").lower()
+        allowed = _image_fetch_replace_host_set()
+        if not allowed or img_h not in allowed:
+            return url
+        raw = replace if "://" in replace else f"http://{replace}"
+        ru = urlparse(raw)
+        if not ru.scheme or not ru.netloc:
+            return url
+        return urlunparse((ru.scheme, ru.netloc, u.path or "", u.params, u.query, u.fragment))
+    except Exception:
+        return url
+
+
+# 部分反代对 Python/httpx 默认 UA 返回异常；与浏览器行为对齐以提高兼容性
+_IMAGE_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    ),
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+
+async def _httpx_get_one_url(fetch_url: str) -> Tuple[bytes, str]:
+    """GET 单 URL；对 502/503/504 与连接错误最多重试 2 次。"""
+    transient_status = {502, 503, 504}
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=30.0, **httpx_default_network_kwargs()
+            ) as client:
+                resp = await client.get(fetch_url, headers=_IMAGE_FETCH_HEADERS)
+                resp.raise_for_status()
+                return (resp.content, resp.headers.get("content-type", ""))
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in transient_status and attempt < 2:
+                await asyncio.sleep(0.6 * (attempt + 1))
+                continue
+            raise
+        except httpx.RequestError:
+            if attempt < 2:
+                await asyncio.sleep(0.6 * (attempt + 1))
+                continue
+            raise
+    raise RuntimeError("_httpx_get_one_url: unreachable")
+
+
+async def _httpx_get_image_bytes(url: str) -> Tuple[bytes, str]:
+    """先按改写 URL（若有）拉取；若仍 502/503/504 则回退原始 URL（含浏览器 UA）。"""
+    fetch_url = _url_for_server_side_image_fetch(url)
+    transient = {502, 503, 504}
+    try:
+        return await _httpx_get_one_url(fetch_url)
+    except httpx.HTTPStatusError as e:
+        if fetch_url != url and e.response.status_code in transient:
+            return await _httpx_get_one_url(url)
+        raise
+
+
 def _search_via_http(query: str, limit: int = 20) -> list[dict]:
     """直接 HTTP 请求 MediaWiki search API，无需 mwclient。用于公开 Wiki 或 mwclient 失败时回退。"""
     base = (os.getenv("MEDIAWIKI_URL") or "").rstrip("/")
@@ -78,7 +173,7 @@ def _search_via_http(query: str, limit: int = 20) -> list[dict]:
         "srprop": "size|wordcount|snippet|timestamp",
         "format": "json",
     }
-    r = httpx.get(api_url, params=params, timeout=15.0)
+    r = httpx.get(api_url, params=params, timeout=15.0, **httpx_default_network_kwargs())
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -120,6 +215,8 @@ async def mediawiki_diagnostic():
     import os
     return {
         "url_set": bool((os.getenv("MEDIAWIKI_URL") or "").strip()),
+        "fetch_replace_origin_set": bool((os.getenv("MEDIAWIKI_FETCH_REPLACE_ORIGIN") or "").strip()),
+        "fetch_replace_for_hosts_custom": bool((os.getenv("MEDIAWIKI_FETCH_REPLACE_FOR_HOSTS") or "").strip()),
         "username_set": bool((os.getenv("MEDIAWIKI_USERNAME") or "").strip()),
         "bot_name_set": bool((os.getenv("MEDIAWIKI_BOT_NAME") or "").strip()),
         "password_set": bool((os.getenv("MEDIAWIKI_PASSWORD") or "").strip()),
@@ -305,11 +402,22 @@ async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
         if local:
             content, content_type = local
         else:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                content = resp.content
-                content_type = resp.headers.get("content-type", "")
+            try:
+                content, content_type = await _httpx_get_image_bytes(url)
+            except httpx.HTTPStatusError as e:
+                extra = ""
+                if e.response.status_code in (502, 503, 504):
+                    extra = (
+                        " 已尝试浏览器 User-Agent，并在配置了 REPLACE_ORIGIN 时对原始公网 URL 回退。"
+                        " 若 Hou CLI 运行在你的个人电脑而非 Wiki 服务器，请勿设置 MEDIAWIKI_FETCH_REPLACE_ORIGIN，"
+                        "否则 http://127.0.0.1/images/... 会打到本机而非站点。"
+                        " 同机部署时可设 REPLACE_ORIGIN 为 Nginx 实际监听地址；"
+                        " 亦可设 MEDIAWIKI_FETCH_REPLACE_FOR_HOSTS=www.jthou.com,jthou.com 显式限定重写范围。"
+                    )
+                raise HTTPException(
+                    status_code=502 if e.response.status_code == 502 else 500,
+                    detail=f"拉取图片失败: HTTP {e.response.status_code}{extra}",
+                ) from e
 
         if not content or len(content) > 50 * 1024 * 1024:  # 50MB
             raise HTTPException(status_code=400, detail="图片为空或超过 50MB 限制")
@@ -345,7 +453,14 @@ async def upload_image_to_mediawiki(request: MediaWikiUploadImageRequest):
         raise
     except Exception as e:
         debug_log(f"MediaWiki upload-image failed: {str(e)}", level="error")
-        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+        msg = str(e)
+        hint = ""
+        if "502" in msg or "503" in msg or "504" in msg:
+            hint = (
+                " 若图片在 Wiki 同域（如 /images/），可设置 MEDIAWIKI_FETCH_REPLACE_ORIGIN 走本机或内网拉取；"
+                "或稍后重试（反代瞬时故障）。"
+            )
+        raise HTTPException(status_code=500, detail=f"上传失败: {msg}{hint}")
 
 
 _ALLOWED_IMG_EXT = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp"})

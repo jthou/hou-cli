@@ -12,6 +12,7 @@ AGENT_MODEL_MAPPING = [
     ("chat", "通用对话", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("work_assistant", "工作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("article_writing", "写作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
+    ("ppt_assistant", "PPT 助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("orchestrator_selector", "智能编排选择器", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("skill_matching", "技能匹配", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),
     ("model_selector", "模型选择", ["REASONING_MODEL"], "固定使用推理模型"),
@@ -300,6 +301,7 @@ async def get_selectable_models():
         "vision_providers": vision_providers,
         "default_model": chat_model,
         "article_writing_default_model": "qwen3-max",  # 写作助手固定默认
+        "ppt_assistant_default_model": "qwen3-max",  # PPT 助手固定默认（与写作助手同策略）
         # 时间：2026-03-13；理由：通用对话「深度思考」禁选下拉时需展示实际 REASONING_MODEL；方法与 get_reasoning_model() 一致
         "reasoning_model": reasoning_model,
     }

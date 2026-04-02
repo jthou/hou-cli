@@ -17,6 +17,18 @@ export function getMediaWikiPageUrl(pageTitle) {
 }
 
 /**
+ * 与本机 gvim-protocol-handler / GvimService 约定一致：hou-gvim://mediawiki?title=...
+ * @param {string} pageTitle - 词条标题（原始文本，非 URL 形式）
+ * @returns {string}
+ */
+export function getHouGvimMediawikiUrl(pageTitle) {
+  if (!pageTitle || typeof pageTitle !== 'string') return ''
+  const t = pageTitle.trim()
+  if (!t) return ''
+  return `hou-gvim://mediawiki?title=${encodeURIComponent(t)}`
+}
+
+/**
  * 判断 URL 是否指向本站 MediaWiki 页面，并解析出页面标题。
  * 支持 /index.php/Page_title、/index.php?title=Page、/wiki/Page_title 等格式。
  * @param {string} href - 链接 href（可相对或绝对）

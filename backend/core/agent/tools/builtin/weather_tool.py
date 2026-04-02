@@ -3,6 +3,9 @@ import time
 import httpx
 import os
 from typing import Dict, Any, Optional
+
+from shared.httpx_defaults import httpx_default_network_kwargs
+
 from backend.core.agent.tools.base import Tool, ToolResult, ToolParameter
 from backend.core.agent.tools.auth.jwt_auth import JWTAuth, JWTAuthError
 
@@ -195,7 +198,13 @@ class WeatherTool:
             
             # 发送请求（连接/读取超时放宽；部分 httpx 版本需提供 default 或全部四参数）
             timeout = httpx.Timeout(35.0, connect=25.0, read=35.0)
-            response = httpx.get(full_url, params=params, headers=headers, timeout=timeout)
+            response = httpx.get(
+                full_url,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+                **httpx_default_network_kwargs(),
+            )
             response.raise_for_status()
             
             return response.json()

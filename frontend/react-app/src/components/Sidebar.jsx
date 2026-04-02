@@ -8,6 +8,7 @@ const navItems = [
   { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
   { path: '/code-assistant', icon: '💻', label: '代码助手', group: 'smart_tools' },
   { path: '/article-writing', icon: '✍️', label: '写作助手', group: 'smart_tools' },
+  { path: '/ppt-assistant', icon: '📊', label: 'PPT助手', group: 'smart_tools' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
   { path: '/web-reader', icon: '🌐', label: '网页阅读', group: 'read' },
   { path: '/mediawiki-reader', icon: '📖', label: 'Wiki阅读', group: 'read' },

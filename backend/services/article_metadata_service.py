@@ -133,7 +133,9 @@ async def upload_cover_to_wechat(image_data: str) -> Dict[str, Any]:
     try:
         import base64
         import httpx
+
         from backend.services.wechat_mp_service.client import WeChatMPClient, WeChatMPClientError
+        from shared.httpx_defaults import httpx_default_network_kwargs
 
         raw = (image_data or "").strip()
         img_bytes = None
@@ -145,7 +147,7 @@ async def upload_cover_to_wechat(image_data: str) -> Dict[str, Any]:
                 b64 = raw[idx + 1 :].strip()
                 img_bytes = base64.b64decode(b64)
         elif raw.startswith("http://") or raw.startswith("https://"):
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, **httpx_default_network_kwargs()) as client:
                 r = await client.get(raw)
                 r.raise_for_status()
                 img_bytes = r.content

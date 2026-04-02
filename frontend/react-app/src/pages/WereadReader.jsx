@@ -346,6 +346,46 @@ export default function WereadReader() {
     }
   }, [toast])
 
+  /** 清空当前页面内容（为下一次读取做准备）；不删除「恢复上次」的本机缓存 */
+  const handleResetCurrent = useCallback(() => {
+    // 中止扩展抓取/OCR
+    ocrStopRef.current = true
+    try {
+      fetchAbortRef.current?.()
+    } catch (_) {}
+    try {
+      imagesOnlyTimeoutRef.current && clearTimeout(imagesOnlyTimeoutRef.current)
+    } catch (_) {}
+    try {
+      timeoutRef.current && clearTimeout(timeoutRef.current)
+    } catch (_) {}
+    imagesOnlyTimeoutRef.current = null
+    timeoutRef.current = null
+
+    // 清理状态
+    setLoading(false)
+    setImagesOnlyBusy(false)
+    setLoadingOcr(false)
+    setOcrProgress(null)
+    setOcrPhase(null)
+    setOcrNextIndex(0)
+    setOcrTouched(false)
+    setOcrMultiBatchBusy(false)
+    setOcrMultiProgress(null)
+    setSelectedShotIndices(new Set())
+    setImgUploadModal(null)
+    setFigureLightbox(null)
+    setDomRedownloadOriginalUrl(null)
+    setError(null)
+    setData(null)
+    screenshotsRef.current = []
+    ocrBaselineRef.current = ''
+    ocrNextIndexRef.current = 0
+    ocrRequestedRef.current = null
+
+    toast?.info?.('已清空当前内容，可直接粘贴新链接继续')
+  }, [toast])
+
   /** 恢复上次阅读（正文或仅截图均可恢复） */
   useEffect(() => {
     if (data || loading || location.state?.prefillUrl || location.state?.fetchData) return
@@ -1271,6 +1311,15 @@ export default function WereadReader() {
                 title="从本机恢复上次会话：链接、正文、分屏截图、DOM 插图映射（IndexedDB）"
               >
                 恢复上次
+              </button>
+              <button
+                type="button"
+                onClick={handleResetCurrent}
+                disabled={loading || imagesOnlyBusy || (loadingOcr && ocrPhase === 'running') || ocrMultiBatchBusy}
+                className="shrink-0 px-2.5 py-2 text-xs rounded-lg border border-border text-fg/90 hover:bg-white/10 disabled:opacity-50"
+                title="清空当前页面内容（不删除本机缓存的“恢复上次”），为下一次读取做准备"
+              >
+                清空
               </button>
               <form onSubmit={handleRead} className="flex flex-1 min-w-0 gap-2 items-center">
                 <input

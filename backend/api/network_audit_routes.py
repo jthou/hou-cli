@@ -14,6 +14,7 @@ import requests
 from fastapi import APIRouter
 
 from backend.config.network_audit_targets import get_audit_targets
+from shared.httpx_defaults import httpx_uses_environment_proxy
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -334,6 +335,7 @@ def _build_env_info(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "outbound_ip": outbound_ip,
         "outbound_location": outbound_location,
         "proxy_settings": _get_proxy_settings(),
+        "httpx_uses_environment_proxy": httpx_uses_environment_proxy(),
         "summary": summary,
         "ok_count": ok_count,
         "reachable_count": reachable_count,
@@ -350,6 +352,7 @@ async def get_env():
             "success": True,
             "local_ips": _get_local_ips(),
             "proxy_settings": _get_proxy_settings(),
+            "httpx_uses_environment_proxy": httpx_uses_environment_proxy(),
         }
     except Exception as e:
         logger.exception("获取环境信息失败")

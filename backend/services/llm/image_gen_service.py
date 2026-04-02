@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from shared.httpx_defaults import httpx_default_network_kwargs
+
 from shared.platform_utils import get_default_output_dir, normalize_output_dir
 
 logger = logging.getLogger(__name__)
@@ -116,7 +118,7 @@ class ImageGenService:
         if actual_model == "wan2.6-image":
             body["parameters"]["enable_interleave"] = True
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, **httpx_default_network_kwargs()) as client:
             resp = await client.post(
                 api_url,
                 headers={
@@ -177,7 +179,7 @@ class ImageGenService:
                             raw = base64.b64decode(m.group(2))
                             fp.write_bytes(raw)
                     elif img_src.startswith(("http://", "https://")):
-                        async with httpx.AsyncClient(timeout=60.0) as client:
+                        async with httpx.AsyncClient(timeout=60.0, **httpx_default_network_kwargs()) as client:
                             r = await client.get(img_src)
                             r.raise_for_status()
                             fp.write_bytes(r.content)

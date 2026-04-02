@@ -1,32 +1,32 @@
 {
-  "generated_at": "2026-03-29T01:23:21.320807Z",
+  "generated_at": "2026-04-01T08:51:52.218481Z",
   "code_stats": {
-    "total_files": 1430,
-    "total_lines": 398148,
+    "total_files": 1475,
+    "total_lines": 409657,
     "by_language": {
       "other": {
-        "files": 28,
-        "lines": 72104
+        "files": 31,
+        "lines": 72242
       },
       "python": {
-        "files": 652,
-        "lines": 110575
+        "files": 673,
+        "lines": 112570
       },
       "markdown": {
-        "files": 527,
-        "lines": 164824
+        "files": 542,
+        "lines": 173125
       },
       "shell": {
-        "files": 34,
-        "lines": 2143
+        "files": 36,
+        "lines": 2197
       },
       "javascript": {
-        "files": 63,
-        "lines": 8632
+        "files": 64,
+        "lines": 8855
       },
       "json": {
-        "files": 11,
-        "lines": 12180
+        "files": 13,
+        "lines": 12498
       },
       "html": {
         "files": 2,
@@ -37,8 +37,8 @@
         "lines": 686
       },
       "jsx": {
-        "files": 102,
-        "lines": 24046
+        "files": 103,
+        "lines": 24526
       },
       "yaml": {
         "files": 7,
@@ -48,43 +48,51 @@
     "by_directory": {
       ".": {
         "files": 12,
-        "lines": 10303
+        "lines": 10304
       },
       "extension": {
         "files": 6,
-        "lines": 2047
+        "lines": 2220
       },
       "frontend": {
-        "files": 193,
-        "lines": 48205
+        "files": 195,
+        "lines": 48742
       },
       "plans": {
-        "files": 129,
-        "lines": 63631
+        "files": 141,
+        "lines": 71457
       },
       "config": {
         "files": 3,
-        "lines": 50
+        "lines": 47
       },
       "patches": {
         "files": 3,
         "lines": 295
       },
       "tests": {
-        "files": 68,
-        "lines": 8250
+        "files": 75,
+        "lines": 8785
+      },
+      "gvim-protocol-handler": {
+        "files": 6,
+        "lines": 282
       },
       "backend": {
-        "files": 544,
-        "lines": 148761
+        "files": 557,
+        "lines": 150112
       },
       "shared": {
-        "files": 11,
-        "lines": 1091
+        "files": 12,
+        "lines": 1181
       },
       "docs": {
-        "files": 346,
-        "lines": 103774
+        "files": 347,
+        "lines": 104132
+      },
+      "ppt_out_lm_11": {
+        "files": 3,
+        "lines": 359
       },
       "comic": {
         "files": 1,
@@ -107,22 +115,22 @@
         "lines": 1341
       }
     },
-    "generated_at": "2026-03-29T01:23:26.674621Z"
+    "generated_at": "2026-04-01T08:52:02.566006Z"
   },
   "dev_history": {
-    "total_commits": 334,
+    "total_commits": 336,
     "authors": {
-      "侯金亭（Justin）": 296,
+      "侯金亭（Justin）": 298,
       "jthou": 43
     },
     "commits_by_week": {
-      "2026-W12": 10,
+      "2026-W13": 1,
+      "2026-W12": 11,
       "2026-W11": 13,
       "2026-W10": 20,
-      "2026-W09": 9
+      "2026-W09": 7
     },
     "commits_by_day": {
-      "2025-12-31": 4,
       "2026-01-01": 9,
       "2026-01-02": 80,
       "2026-01-03": 40,
@@ -176,14 +184,11 @@
       "2026-03-23": 4,
       "2026-03-24": 2,
       "2026-03-26": 1,
-      "2026-03-28": 3
+      "2026-03-28": 3,
+      "2026-03-29": 1,
+      "2026-04-01": 1
     },
     "lines_by_day": {
-      "2025-12-31": {
-        "add": 12660,
-        "del": 346,
-        "total": 13006
-      },
       "2026-01-01": {
         "add": 15109,
         "del": 368,
@@ -453,61 +458,71 @@
         "add": 1642,
         "del": 157,
         "total": 1799
+      },
+      "2026-03-29": {
+        "add": 1196,
+        "del": 463,
+        "total": 1659
+      },
+      "2026-04-01": {
+        "add": 17,
+        "del": 2,
+        "total": 19
       }
     },
     "files_changed": {
       "backend/core/agent/orchestrator.py": 86,
       "backend/api/routes.py": 38,
       "backend/infrastructure/execution/task_handlers.py": 33,
+      "docs/audit/AUDIT_REPORT.json": 30,
+      "docs/audit/code_stats.json": 30,
+      "docs/audit/dev_history.json": 30,
       "frontend/client/ipc_client.py": 30,
-      "docs/audit/AUDIT_REPORT.json": 29,
-      "docs/audit/code_stats.json": 29,
-      "docs/audit/dev_history.json": 29,
+      "frontend/react-app/src/pages/ArticleWriting.jsx": 28,
       "backend/services/llm/llm_service.py": 28,
       "frontend/react-app/src/components/Sidebar.jsx": 28,
       "frontend/react-app/src/pages/TaskManagement.jsx": 28,
-      "frontend/react-app/src/pages/ArticleWriting.jsx": 27,
+      "Makefile": 27,
       "frontend/main.py": 27,
       "env.example": 26,
-      "Makefile": 26,
       "frontend/ui/command_handler.py": 25,
       "frontend/ui/stream_handler.py": 22,
       "frontend/react-app/src/App.jsx": 22,
-      "docs/audit/API_PATH_AUDIT.md": 20,
+      "docs/audit/API_PATH_AUDIT.md": 21,
       "backend/core/agent/system_prompt_templates.py": 20,
       "docs/design/02-weather-tool-design.md": 20,
+      "requirements.txt": 19,
       "backend/api/task_queue_routes.py": 19,
       "backend/infrastructure/execution/tests/test_task_handlers.py": 18,
-      "requirements.txt": 18,
       "backend/main.py": 17,
       "frontend/react-app/package.json": 17,
+      "frontend/react-app/src/pages/MediaWikiReader.jsx": 16,
       "frontend/react-app/package-lock.json": 16,
-      "frontend/react-app/src/pages/MediaWikiReader.jsx": 15,
+      "frontend/react-app/src/pages/WorkAssistant.jsx": 15,
       "frontend/react-app/src/pages/WechatDraftPage.jsx": 15,
+      "frontend/react-app/src/pages/WebReader.jsx": 14,
       "pyproject.toml": 14,
       "frontend/react-app/src/components/MarkdownActionButtons.jsx": 14,
-      "frontend/react-app/src/pages/WorkAssistant.jsx": 14,
+      "frontend/react-app/src/pages/PdfReader.jsx": 13,
       "frontend/react-app/src/components/task/TaskParamsForm.jsx": 13,
       "extension/manifest.json": 13,
-      "frontend/react-app/src/pages/WebReader.jsx": 13,
       "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
       "frontend/ui/command_input.py": 13,
+      "frontend/react-app/src/components/task/TaskFormPage.jsx": 12,
       "extension/background.js": 12,
       "frontend/react-app/src/utils/mdToHtml.js": 12,
       "backend/api/chat_routes.py": 12,
       "backend/core/context/manager.py": 12,
-      "frontend/react-app/src/pages/PdfReader.jsx": 12,
       "backend/core/agent/tools/builtin/video_downloader_tool.py": 12,
       "backend/api/tests/test_task_queue_routes.py": 12,
       "backend/core/agent/tools/builtin/__init__.py": 12,
       "docs/todo/README.md": 12,
+      "docs/design/README.md": 11,
       "backend/core/agent/tools/builtin/browser_tool.py": 11,
       "backend/services/llm/tests/__init__.py": 11,
-      "backend/infrastructure/execution/task_worker.py": 11,
-      "frontend/react-app/src/components/task/TaskFormPage.jsx": 11,
-      "backend/infrastructure/execution/tests/test_executor.py": 11
+      "backend/infrastructure/execution/task_worker.py": 11
     },
-    "generated_at": "2026-03-29T01:23:27.267568Z"
+    "generated_at": "2026-04-01T08:52:03.168452Z"
   },
   "api_audit": {
     "backend_routes": [
@@ -622,6 +637,7 @@
       "POST /api/chat/stream",
       "POST /api/execution/approve",
       "POST /api/execution/reject",
+      "POST /api/gvim/open-mediawiki-page",
       "POST /api/home-briefing/generate",
       "POST /api/mediawiki/pages/{title:path}",
       "POST /api/mediawiki/parse",
@@ -632,6 +648,9 @@
       "POST /api/network/audit/run",
       "POST /api/pdf/resolve",
       "POST /api/pdf/upload-from-extension",
+      "POST /api/ppt-assistant/deck",
+      "POST /api/ppt-assistant/extract",
+      "POST /api/ppt-assistant/run",
       "POST /api/sessions",
       "POST /api/sessions/batch-delete",
       "POST /api/sessions/{session_id}/clear",
@@ -703,6 +722,9 @@
       "GET /api/pdf/page-range-text",
       "GET /api/pdf/resolve",
       "GET /api/pdf/upload-from-extension",
+      "GET /api/ppt-assistant/deck",
+      "GET /api/ppt-assistant/extract",
+      "GET /api/ppt-assistant/run",
       "GET /api/sessions",
       "GET /api/sessions/",
       "GET /api/sessions/batch-delete",
@@ -781,6 +803,9 @@
       "POST /api/network/audit/run",
       "POST /api/pdf/resolve",
       "POST /api/pdf/upload-from-extension",
+      "POST /api/ppt-assistant/deck",
+      "POST /api/ppt-assistant/extract",
+      "POST /api/ppt-assistant/run",
       "POST /api/sessions",
       "POST /api/sessions/batch-delete",
       "POST /api/settings/model-availability-audit/probe",
@@ -807,14 +832,15 @@
       "PUT /api/settings/writing-profile",
       "PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle"
     ],
-    "backend_path_count": 154,
-    "frontend_fetch_count": 139,
+    "backend_path_count": 158,
+    "frontend_fetch_count": 145,
     "unused_by_frontend": [
       "/api/audit/summary",
       "/api/chat",
       "/api/chat/article/merge",
       "/api/execution/approve",
       "/api/execution/reject",
+      "/api/gvim/open-mediawiki-page",
       "/api/mediawiki/diagnostic",
       "/api/mediawiki/pages/{id}",
       "/api/mediawiki/parse",

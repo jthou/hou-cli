@@ -16,6 +16,7 @@ import WeatherQuery from './pages/WeatherQuery'
 import DiskScan from './pages/DiskScan'
 import WebSearch from './pages/WebSearch'
 import ArticleWriting from './pages/ArticleWriting'
+import PptAssistant from './pages/PptAssistant'
 import SettingsGeneral from './pages/SettingsGeneral'
 import SettingsWritingProfile from './pages/SettingsWritingProfile'
 import SettingsWorkConfig from './pages/SettingsWorkConfig'
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="/disk-scan" element={<DiskScan />} />
               <Route path="/web-search" element={<WebSearch />} />
               <Route path="/article-writing" element={<ArticleWriting />} />
+              <Route path="/ppt-assistant" element={<PptAssistant />} />
               <Route path="/add-reference" element={<AddReference />} />
               <Route path="/wechat-drafts" element={<WechatDraftPage />} />
               <Route path="/url-to-wiki" element={<UrlToWiki />} />

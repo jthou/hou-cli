@@ -66,29 +66,31 @@ def _md_extract_math_to_placeholders(md: str) -> Tuple[str, List[dict]]:
 
     def block_repl(match):
         body = match.group(1).strip()
+        raw = match.group(0)
         key = f"{MATH_PLACEHOLDER_PREFIX}{len(math_list)}{MATH_PLACEHOLDER_SUFFIX}"  # noqa: E501
-        math_list.append({"block": True, "body": body})
+        # 不做格式转换：仅保护公式，恢复时原样放回（含 $$ 与换行）
+        math_list.append({"raw": raw, "block": True, "body": body})
         return key
 
     def inline_repl(match):
         body = match.group(1).strip()
+        raw = match.group(0)
         key = f"{MATH_PLACEHOLDER_PREFIX}{len(math_list)}{MATH_PLACEHOLDER_SUFFIX}"  # noqa: E501
-        math_list.append({"block": False, "body": body})
+        math_list.append({"raw": raw, "block": False, "body": body})
         return key
 
+    # 先匹配「独占一行」的块级 $$...$$（最常见），避免被其它规则意外打断
+    out = re.sub(r"^\s*\$\$\s*\r?\n([\s\S]*?)\r?\n\s*\$\$\s*$", block_repl, out, flags=re.MULTILINE)
+    # 再匹配同一行内的 $$...$$
     out = re.sub(r"\$\$([\s\S]*?)\$\$", block_repl, out)
     out = re.sub(r"\$([^$\n]+)\$", inline_repl, out)
     return out, math_list
 
 
 def _md_restore_math_placeholders(text: str, math_list: List[dict]) -> str:
-    """恢复公式占位符为 $ / $$（MediaWiki 原生支持）"""
+    """恢复公式占位符为 $ / $$（MediaWiki 原生支持）。"""
     for i, m in enumerate(math_list):
-        body = m["body"]
-        if m["block"]:
-            tag = f"$${body}$$"
-        else:
-            tag = f"${body}$"
+        tag = m.get("raw") or ""
         key = f"{MATH_PLACEHOLDER_PREFIX}{i}{MATH_PLACEHOLDER_SUFFIX}"
         text = text.replace(key, tag)
     return text

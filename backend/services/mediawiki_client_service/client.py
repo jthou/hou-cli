@@ -3,6 +3,7 @@
 import os
 import logging
 import time
+import threading
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from urllib.parse import urlparse
@@ -54,6 +55,9 @@ class MediaWikiClientService:
         
         self.site: Optional[mwclient.Site] = None
         self._connected = False
+        # mwclient.Site 维护 cookie/token 缓存，非线程安全；FastAPI 并发请求可能导致 token 竞态。
+        # 用同一把锁串行化 connect/upload/edit 等写操作，降低 badtoken 概率。
+        self._site_lock = threading.RLock()
     
     def connect(self) -> bool:
         """连接到 MediaWiki
@@ -64,72 +68,54 @@ class MediaWikiClientService:
         Raises:
             MediaWikiClientError: 连接失败时抛出
         """
-        try:
-            # 解析 URL，提取协议、主机和路径
-            parsed = urlparse(self.url)
-            scheme = parsed.scheme or 'https'  # 默认使用 https
-            host = parsed.netloc or parsed.hostname
-            path = parsed.path.rstrip('/') or '/'
-            
-            # mwclient 的 path 参数应该是 MediaWiki 安装的基础路径
-            # 如果路径是 /mediawiki，API 端点应该是 /mediawiki/api.php
-            # 但 mwclient 会在路径后直接拼接 api.php，所以需要确保路径以 / 结尾
-            # 或者，如果路径不是根路径，需要确保正确拼接
-            if path != '/' and not path.endswith('/'):
-                # 对于非根路径，mwclient 会在后面拼接 api.php
-                # 所以 /mediawiki 会变成 /mediawikiapi.php（错误）
-                # 我们需要确保路径格式正确
-                # 实际上，根据 mwclient 源码，它会在路径后拼接 '/api.php'
-                # 所以如果 path='/mediawiki'，会变成 '/mediawiki/api.php'（正确）
-                # 但实际测试显示它变成了 '/mediawikiapi.php'（错误）
-                # 让我们尝试使用完整路径
-                pass
-            
-            # mwclient.Site() 需要 (host, path, scheme) 参数
-            # 如果路径是 /mediawiki，应该保持原样，mwclient 会自动添加 /api.php
-            logger.debug(f"Connecting to MediaWiki: scheme={scheme}, host={host}, path={path}")
-            
-            # 尝试直接使用完整 URL（如果 mwclient 支持）
-            # 根据文档，mwclient.Site() 也可以接受完整 URL
-            if path == '/' or path == '':
-                # 根路径，直接使用 host
-                self.site = mwclient.Site(host, scheme=scheme)
-            else:
-                # 非根路径，需要正确设置
-                # 根据测试，mwclient 在路径后直接拼接 api.php，没有加斜杠
-                # 所以我们需要确保路径格式为 /mediawiki/（带斜杠）
-                path_with_slash = path if path.endswith('/') else path + '/'
-                self.site = mwclient.Site(host, path=path_with_slash, scheme=scheme)
-            
-            # 优先使用 Bot 认证
-            if self.bot_name and self.bot_password:
-                try:
-                    self.site.login(self.bot_name, self.bot_password)
-                    logger.info(f"Connected to MediaWiki as bot: {self.bot_name}")
-                except LoginError as e:
-                    logger.warning(f"Bot login failed: {e}, trying regular login")
-                    if self.username and self.password:
-                        self.site.login(self.username, self.password)
-                        logger.info(f"Connected to MediaWiki as user: {self.username}")
-                    else:
-                        raise MediaWikiClientError(f"Authentication failed: {e}")
-            elif self.username and self.password:
-                self.site.login(self.username, self.password)
-                logger.info(f"Connected to MediaWiki as user: {self.username}")
-            else:
-                # 无认证连接（私有 Wiki 会触发 readapidenied）
-                logger.warning(
-                    "Connected to MediaWiki without authentication. "
-                    "Private wikis will fail with readapidenied. "
-                    "Set MEDIAWIKI_BOT_NAME/MEDIAWIKI_BOT_PASSWORD or MEDIAWIKI_USERNAME/MEDIAWIKI_PASSWORD."
+        with self._site_lock:
+            try:
+                # 解析 URL，提取协议、主机和路径
+                parsed = urlparse(self.url)
+                scheme = parsed.scheme or "https"  # 默认使用 https
+                host = parsed.netloc or parsed.hostname
+                path = parsed.path.rstrip("/") or "/"
+
+                # mwclient.Site() 需要 (host, path, scheme) 参数
+                # 如果路径是 /mediawiki，API 端点应为 /mediawiki/api.php；此处确保 path 以 / 结尾
+                logger.debug(
+                    f"Connecting to MediaWiki: scheme={scheme}, host={host}, path={path}"
                 )
-            
-            self._connected = True
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to MediaWiki: {e}")
-            raise MediaWikiClientError(f"Connection failed: {str(e)}")
+
+                if path == "/" or path == "":
+                    self.site = mwclient.Site(host, scheme=scheme)
+                else:
+                    path_with_slash = path if path.endswith("/") else path + "/"
+                    self.site = mwclient.Site(host, path=path_with_slash, scheme=scheme)
+
+                # 优先使用 Bot 认证
+                if self.bot_name and self.bot_password:
+                    try:
+                        self.site.login(self.bot_name, self.bot_password)
+                        logger.info(f"Connected to MediaWiki as bot: {self.bot_name}")
+                    except LoginError as e:
+                        logger.warning(f"Bot login failed: {e}, trying regular login")
+                        if self.username and self.password:
+                            self.site.login(self.username, self.password)
+                            logger.info(f"Connected to MediaWiki as user: {self.username}")
+                        else:
+                            raise MediaWikiClientError(f"Authentication failed: {e}")
+                elif self.username and self.password:
+                    self.site.login(self.username, self.password)
+                    logger.info(f"Connected to MediaWiki as user: {self.username}")
+                else:
+                    # 无认证连接（私有 Wiki 会触发 readapidenied；写操作/上传常见 badtoken/notloggedin）
+                    logger.warning(
+                        "Connected to MediaWiki without authentication. "
+                        "Private wikis will fail with readapidenied. "
+                        "Set MEDIAWIKI_BOT_NAME/MEDIAWIKI_BOT_PASSWORD or MEDIAWIKI_USERNAME/MEDIAWIKI_PASSWORD."
+                    )
+
+                self._connected = True
+                return True
+            except Exception as e:
+                logger.error(f"Failed to connect to MediaWiki: {e}")
+                raise MediaWikiClientError(f"Connection failed: {str(e)}")
     
     def verify_read_access(self) -> tuple[bool, str]:
         """验证是否有读权限（私有 Wiki 无认证会 readapidenied）。
@@ -153,7 +139,9 @@ class MediaWikiClientService:
         """错误重试装饰器。readapidenied 时强制重连（私有 Wiki 会话过期常见）"""
         for attempt in range(max_retries):
             try:
-                return func()
+                # 串行化 mwclient 调用，避免并发下 token/cookie 竞态导致 badtoken
+                with self._site_lock:
+                    return func()
             except (APIError, ConnectionError, TimeoutError, MediaWikiClientError) as e:
                 if isinstance(e, MediaWikiClientError) and getattr(e, "no_retry", False):
                     raise
@@ -175,9 +163,10 @@ class MediaWikiClientService:
                     and attempt < max_retries - 1
                 ):
                     logger.warning("MediaWiki 会话/权限异常（readapidenied/badtoken/notloggedin），重连后重试…")
-                    self._connected = False
-                    self.site = None
-                    self.connect()
+                    with self._site_lock:
+                        self._connected = False
+                        self.site = None
+                        self.connect()
                     time.sleep(delay * (attempt + 1))
                     continue
                 if attempt < max_retries - 1:

@@ -86,7 +86,10 @@ class ImageGenerationTool(Tool):
             if img_src.startswith(("http://", "https://")):
                 # 下载为 base64 供 Chat 展示
                 import httpx
-                async with httpx.AsyncClient(timeout=60.0) as client:
+
+                from shared.httpx_defaults import httpx_default_network_kwargs
+
+                async with httpx.AsyncClient(timeout=60.0, **httpx_default_network_kwargs()) as client:
                     r = await client.get(img_src)
                     r.raise_for_status()
                     import base64

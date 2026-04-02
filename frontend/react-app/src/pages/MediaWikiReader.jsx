@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader'
 import WikitextEditorPreview from '../components/WikitextEditorPreview'
 import { fetchSummarize } from '../utils/summarizeApi'
 import { useToast } from '../components/ToastModal'
+import { getHouGvimMediawikiUrl } from '../config/mediawiki'
 
 const STORAGE_KEY_LAST = 'mediawiki_reader_last'
 const STORAGE_KEY_SUMMARIES = 'mediawiki_reader_summaries'
@@ -194,6 +195,10 @@ export default function MediaWikiReader() {
   )
 
   const pageKey = selectedPage?.title || selectedPage?.url || ''
+  const gvimOpenHref =
+    selectedPage && !selectedPage.isNewDraft
+      ? getHouGvimMediawikiUrl(selectedPage.title || '')
+      : ''
   const currentSummary = pageKey ? (summaryPerPage[pageKey] ?? '') : ''
   const setCurrentSummary = useCallback(
     (v) => {
@@ -366,16 +371,27 @@ export default function MediaWikiReader() {
                 <h2 className="text-lg font-medium text-white truncate">
                   {selectedPage.title || selectedPage.url}
                 </h2>
-                {selectedPage.url && (
-                  <a
-                    href={selectedPage.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-muted hover:text-accent shrink-0"
-                  >
-                    {selectedPage.isNewDraft ? '打开 Wiki 站点' : '在新标签页打开'}
-                  </a>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {gvimOpenHref ? (
+                    <a
+                      href={gvimOpenHref}
+                      className="text-xs text-muted hover:text-accent"
+                      title="本机已注册 hou-gvim:// 时打开 gvim（gvim-protocol-handler）"
+                    >
+                      用 gvim 打开
+                    </a>
+                  ) : null}
+                  {selectedPage.url && (
+                    <a
+                      href={selectedPage.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-muted hover:text-accent"
+                    >
+                      {selectedPage.isNewDraft ? '打开 Wiki 站点' : '在新标签页打开'}
+                    </a>
+                  )}
+                </div>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white flex flex-col relative">
                 {linkNavigateLoading && (

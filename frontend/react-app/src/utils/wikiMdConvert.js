@@ -73,9 +73,16 @@ function wikiExtractMathToPlaceholders(wiki) {
   const list = []
   const re = /<math(\s[^>]*)?>([\s\S]*?)<\/math>/gi
   const out = wiki.replace(re, (_, attrs, body) => {
-    const isBlock = /display\s*=\s*["']?block["']?/i.test(attrs || '')
+    const b = String(body || '')
+    // 兼容：部分 Wiki 会输出 <math>（无 display=block）但实际是块级公式/多行公式；
+    // 这里用启发式把“明显是块级”的也恢复成 $$...$$，避免往返时降级成单个 $。
+    const isBlock =
+      /display\s*=\s*["']?block["']?/i.test(attrs || '') ||
+      /\n/.test(b) ||
+      /\\begin\{/.test(b) ||
+      /\\\\/.test(b)
     const key = `${MATH_PLACEHOLDER_PREFIX}${list.length}${MATH_PLACEHOLDER_SUFFIX}`
-    list.push(isBlock ? `$$${body.trim()}$$` : `$${body.trim()}$`)
+    list.push(isBlock ? `$$${b.trim()}$$` : `$${b.trim()}$`)
     return key
   })
   return { text: out, mathList: list }
@@ -84,7 +91,10 @@ function wikiExtractMathToPlaceholders(wiki) {
 function wikiRestoreMathPlaceholders(text, mathList) {
   let s = text
   for (let i = 0; i < mathList.length; i++) {
-    s = s.replace(`${MATH_PLACEHOLDER_PREFIX}${i}${MATH_PLACEHOLDER_SUFFIX}`, mathList[i])
+    const key = `${MATH_PLACEHOLDER_PREFIX}${i}${MATH_PLACEHOLDER_SUFFIX}`
+    const val = mathList[i]
+    // 注意：String.replace 的替换字符串中 $$ 会被解释为单个 $，需用函数返回避免 $$→$。
+    s = s.replace(key, () => val)
   }
   return s
 }
@@ -475,16 +485,25 @@ function mdRestoreCodePlaceholders(text, codeList) {
 function mdExtractMathToPlaceholders(md) {
   const list = []
   let out = md
-  const blockRe = /\$\$([\s\S]*?)\$\$/g
-  out = out.replace(blockRe, (_, body) => {
+  // 先匹配「独占一行」的块级 $$...$$（微信读书 OCR/人工输入最常见），避免被其它规则意外打断
+  const blockLinesRe = /^\s*\$\$\s*[\r\n]+([\s\S]*?)[\r\n]+\s*\$\$\s*$/gm
+  out = out.replace(blockLinesRe, (m0, body) => {
     const key = `${MATH_PLACEHOLDER_PREFIX}${list.length}${MATH_PLACEHOLDER_SUFFIX}`
-    list.push({ block: true, body: body.trim() })
+    // 不做格式转换：仅“保护”公式，恢复时原样放回（含 $$ 与换行）
+    list.push({ raw: m0, block: true, body: body.trim() })
+    return key
+  })
+  // 再匹配同一行内的 $$...$$
+  const blockInlineRe = /\$\$([\s\S]*?)\$\$/g
+  out = out.replace(blockInlineRe, (m0, body) => {
+    const key = `${MATH_PLACEHOLDER_PREFIX}${list.length}${MATH_PLACEHOLDER_SUFFIX}`
+    list.push({ raw: m0, block: true, body: body.trim() })
     return key
   })
   const inlineRe = /\$([^$\n]+)\$/g
-  out = out.replace(inlineRe, (_, body) => {
+  out = out.replace(inlineRe, (m0, body) => {
     const key = `${MATH_PLACEHOLDER_PREFIX}${list.length}${MATH_PLACEHOLDER_SUFFIX}`
-    list.push({ block: false, body: body.trim() })
+    list.push({ raw: m0, block: false, body: body.trim() })
     return key
   })
   return { text: out, mathList: list }
@@ -493,9 +512,10 @@ function mdExtractMathToPlaceholders(md) {
 function mdRestoreMathPlaceholders(text, mathList) {
   let s = text
   for (let i = 0; i < mathList.length; i++) {
-    const { block, body } = mathList[i]
-    const tag = block ? `$$${body}$$` : `$${body}$`
-    s = s.replace(`${MATH_PLACEHOLDER_PREFIX}${i}${MATH_PLACEHOLDER_SUFFIX}`, tag)
+    const key = `${MATH_PLACEHOLDER_PREFIX}${i}${MATH_PLACEHOLDER_SUFFIX}`
+    const raw = mathList[i]?.raw ?? ''
+    // 注意：String.replace 的替换字符串中 $$ 会被解释为单个 $，需用函数返回避免 $$→$。
+    s = s.replace(key, () => raw)
   }
   return s
 }

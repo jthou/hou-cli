@@ -4,6 +4,8 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, HTTPException
+
+from shared.httpx_defaults import httpx_default_network_kwargs
 from fastapi.responses import Response
 
 router = APIRouter()
@@ -24,7 +26,7 @@ async def render_latex(formula: str):
     encoded = quote(formula.strip(), safe="")
     url = f"{CODECOGS_PNG_URL}?{encoded}"
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, **httpx_default_network_kwargs()) as client:
             r = await client.get(url)
             r.raise_for_status()
             content = r.content

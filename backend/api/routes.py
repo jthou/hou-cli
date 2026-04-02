@@ -24,6 +24,8 @@ from backend.api.storage_routes import router as storage_router
 from backend.api.pdf_routes import router as pdf_router
 from backend.api.web_reader_routes import router as web_reader_router
 from backend.api.writing_suggestions_routes import router as writing_suggestions_router
+from backend.api.ppt_assistant_routes import router as ppt_assistant_router
+from backend.api.gvim_routes import router as gvim_router
 from backend.api.llm_audit_routes import router as llm_audit_router
 from backend.api.tavily_audit_routes import router as tavily_audit_router
 from backend.api.network_audit_routes import router as network_audit_router
@@ -75,6 +77,8 @@ router.include_router(work_config_router, tags=["work-config"])
 router.include_router(pdf_router, tags=["pdf"])
 router.include_router(web_reader_router)
 router.include_router(writing_suggestions_router)
+router.include_router(ppt_assistant_router)
+router.include_router(gvim_router)
 
 # 注册系统监控路由
 try:

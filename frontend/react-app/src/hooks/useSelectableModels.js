@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 
 /**
  * 获取可选模型列表，按供应商分组
- * @param {{ context?: 'article_writing' | 'work_assistant' }} [options] - context=article_writing 时使用写作助手默认模型
+ * @param {{ context?: 'article_writing' | 'ppt_assistant' | 'work_assistant' }} [options] - 场景默认模型（见 /api/models/selectable）
  * @returns {{
  *   models: Array<{value: string, label: string}>,
  *   providers: Array<{id: string, label: string, models: Array<{value: string, label: string}>}>,
@@ -29,9 +29,12 @@ export function useSelectableModels(options = {}) {
       .then((d) => {
         if (!cancelled && d.success) {
           if (Array.isArray(d.models)) setModels(d.models)
-          const def = context === 'article_writing' && d.article_writing_default_model
-            ? d.article_writing_default_model
-            : d.default_model
+          let def = d.default_model
+          if (context === 'article_writing' && d.article_writing_default_model) {
+            def = d.article_writing_default_model
+          } else if (context === 'ppt_assistant' && d.ppt_assistant_default_model) {
+            def = d.ppt_assistant_default_model
+          }
           if (def) setDefaultModel(def)
           if (Array.isArray(d.providers)) setProviders(d.providers)
           const vp = d.vision_providers
@@ -54,7 +57,7 @@ export function useSelectableModels(options = {}) {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [])
+  }, [context])
 
   return {
     models,

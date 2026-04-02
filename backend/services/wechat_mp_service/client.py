@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 import requests
 
+from shared.httpx_defaults import httpx_default_network_kwargs
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.weixin.qq.com"
@@ -54,7 +56,7 @@ class WeChatMPClient:
             "secret": self.app_secret,
             "force_refresh": force_refresh,
         }
-        r = httpx.post(url, json=payload, timeout=15.0)
+        r = httpx.post(url, json=payload, timeout=15.0, **httpx_default_network_kwargs())
         r.raise_for_status()
         data = r.json()
         errcode = data.get("errcode")
@@ -91,7 +93,7 @@ class WeChatMPClient:
         params = {"access_token": token}
         payload = body or {}
         try:
-            r = httpx.post(url, params=params, json=payload, timeout=30.0)
+            r = httpx.post(url, params=params, json=payload, timeout=30.0, **httpx_default_network_kwargs())
             r.raise_for_status()
             data = r.json()
         except httpx.HTTPStatusError as e:
@@ -321,7 +323,7 @@ class WeChatMPClient:
         if not payload["media_id"]:
             raise WeChatMPClientError("media_id 不能为空")
         try:
-            r = httpx.post(url, params=params, json=payload, timeout=30.0)
+            r = httpx.post(url, params=params, json=payload, timeout=30.0, **httpx_default_network_kwargs())
             r.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise WeChatMPClientError(f"请求失败: {e}") from e

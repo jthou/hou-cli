@@ -15,14 +15,49 @@ window.addEventListener('error', (e) => {
     return true
   }
 })
+window.addEventListener('unhandledrejection', (e) => {
+  const m = e.reason && (e.reason.message || String(e.reason))
+  if (m && String(m).includes('Extension context invalidated')) {
+    e.preventDefault()
+  }
+})
+
+function extensionContextAlive() {
+  try {
+    return !!(chrome.runtime && chrome.runtime.id)
+  } catch (_) {
+    return false
+  }
+}
+
+/** 将 runtime.lastError / 抛错英文信息换成对用户可读的中文（避免页面直接展示 Extension context invalidated） */
+function humanizeExtensionError(raw) {
+  const s = String(raw || '')
+  if (
+    s.includes('Extension context invalidated') ||
+    s.includes('message port closed') ||
+    /Receiving end does not exist/i.test(s)
+  ) {
+    return '扩展已重新加载或更新，请刷新本页后重试'
+  }
+  return s.trim() || '扩展通信失败，请刷新本页后重试'
+}
 
 function ensurePort() {
+  if (!extensionContextAlive()) {
+    try {
+      port = null
+    } catch (_) {}
+    return null
+  }
   if (port) return port
   for (let i = 0; i < 3; i++) {
     try {
       port = chrome.runtime.connect({ name: 'hou-cli-web-reader' })
       port.onDisconnect.addListener(() => {
-        try { port = null } catch (_) {}
+        try {
+          port = null
+        } catch (_) {}
       })
       return port
     } catch (_) {
@@ -61,21 +96,35 @@ window.addEventListener('message', (event) => {
         forward(msg)
       }
       p.onMessage.addListener(onResult)
-      p.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES', domain: domain || 'youtube.com', requestId: rid })
+      try {
+        p.postMessage({ type: 'HOU_CLI_EXPORT_COOKIES', domain: domain || 'youtube.com', requestId: rid })
+      } catch (e) {
+        try { p.onMessage.removeListener(onResult) } catch (_) {}
+        port = null
+        forward({ success: false, error: humanizeExtensionError(e?.message || e), content: undefined })
+      }
     } else {
       try {
         chrome.runtime.sendMessage(
           { action: 'export_cookies', domain: domain || 'youtube.com', requestId: rid },
           (r) => {
             try {
+              if (chrome.runtime?.lastError) {
+                forward({
+                  success: false,
+                  error: humanizeExtensionError(chrome.runtime.lastError.message),
+                  content: undefined,
+                })
+                return
+              }
               forward(r || { success: false, error: '扩展无响应' })
             } catch (_) {
-              forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+              forward({ success: false, error: humanizeExtensionError(''), content: undefined })
             }
           }
         )
       } catch (_) {
-        forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+        forward({ success: false, error: humanizeExtensionError(''), content: undefined })
       }
     }
     return
@@ -97,18 +146,32 @@ window.addEventListener('message', (event) => {
         forward(msg)
       }
       p.onMessage.addListener(onResult)
-      p.postMessage({ type: 'HOU_CLI_FETCH_PDF', url, requestId: rid })
+      try {
+        p.postMessage({ type: 'HOU_CLI_FETCH_PDF', url, requestId: rid })
+      } catch (e) {
+        try { p.onMessage.removeListener(onResult) } catch (_) {}
+        port = null
+        forward({ success: false, error: humanizeExtensionError(e?.message || e), base64: undefined })
+      }
     } else {
       try {
         chrome.runtime.sendMessage({ action: 'fetch_pdf', url }, (r) => {
           try {
+            if (chrome.runtime?.lastError) {
+              forward({
+                success: false,
+                error: humanizeExtensionError(chrome.runtime.lastError.message),
+                base64: undefined,
+              })
+              return
+            }
             forward(r || { success: false, error: '扩展无响应' })
           } catch (_) {
-            forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+            forward({ success: false, error: humanizeExtensionError(''), base64: undefined })
           }
         })
       } catch (_) {
-        forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+        forward({ success: false, error: humanizeExtensionError(''), base64: undefined })
       }
     }
     return
@@ -147,7 +210,21 @@ window.addEventListener('message', (event) => {
       }
       p.onMessage.addListener(onResult)
       p.onDisconnect.addListener(onDisconnect)
-      p.postMessage({ type: 'HOU_CLI_REFETCH_IMAGES', requestId, imageUrls, pageUrl: (pageUrl || '').trim() })
+      try {
+        p.postMessage({ type: 'HOU_CLI_REFETCH_IMAGES', requestId, imageUrls, pageUrl: (pageUrl || '').trim() })
+      } catch (e) {
+        try {
+          p.onMessage.removeListener(onResult)
+          p.onDisconnect.removeListener(onDisconnect)
+        } catch (_) {}
+        port = null
+        forward({
+          type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
+          requestId,
+          success: false,
+          error: humanizeExtensionError(e?.message || e),
+        })
+      }
     } else {
       try {
         chrome.runtime.sendMessage(
@@ -164,7 +241,7 @@ window.addEventListener('message', (event) => {
                   type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
                   requestId,
                   success: false,
-                  error: '扩展无响应，请刷新页面后重试',
+                  error: humanizeExtensionError(chrome.runtime.lastError.message),
                 })
               } else {
                 forward({
@@ -180,7 +257,7 @@ window.addEventListener('message', (event) => {
                 type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
                 requestId,
                 success: false,
-                error: '扩展已重新加载，请刷新页面后重试',
+                error: humanizeExtensionError(''),
               })
             }
           }
@@ -190,7 +267,7 @@ window.addEventListener('message', (event) => {
           type: 'HOU_CLI_REFETCH_IMAGES_RESULT',
           requestId,
           success: false,
-          error: '扩展已重新加载，请刷新页面后重试',
+          error: humanizeExtensionError(''),
         })
       }
     }
@@ -223,14 +300,23 @@ window.addEventListener('message', (event) => {
     }
     p.onMessage.addListener(onResult)
     p.onDisconnect.addListener(onDisconnect)
-    p.postMessage({
-      type: 'HOU_CLI_FETCH',
-      url,
-      requestId,
-      apiBase: apiBase || window.location.origin,
-      inlineImages: !!inlineImages,
-      wereadImagesOnly: !!wereadImagesOnly,
-    })
+    try {
+      p.postMessage({
+        type: 'HOU_CLI_FETCH',
+        url,
+        requestId,
+        apiBase: apiBase || window.location.origin,
+        inlineImages: !!inlineImages,
+        wereadImagesOnly: !!wereadImagesOnly,
+      })
+    } catch (e) {
+      try {
+        p.onMessage.removeListener(onResult)
+        p.onDisconnect.removeListener(onDisconnect)
+      } catch (_) {}
+      port = null
+      forward({ success: false, error: humanizeExtensionError(e?.message || e) })
+    }
   } else {
     // Port 失败时回退到 sendMessage：至少能触发跳转，长任务回调可能超时
     try {
@@ -246,17 +332,97 @@ window.addEventListener('message', (event) => {
         (response) => {
           try {
             if (chrome.runtime?.lastError) {
-              forward({ success: false, error: '扩展无响应，请刷新页面后重试' })
-            } else {
-              forward(response || { success: false, error: '扩展无响应' })
+              forward({
+                success: false,
+                error: humanizeExtensionError(chrome.runtime.lastError.message),
+              })
+              return
             }
+            forward(response || { success: false, error: '扩展无响应' })
           } catch (e) {
-            forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+            forward({ success: false, error: humanizeExtensionError(e?.message || e) })
           }
         }
       )
     } catch (e) {
-      forward({ success: false, error: '扩展已重新加载，请刷新页面后重试' })
+      forward({ success: false, error: humanizeExtensionError(e?.message || e) })
     }
   }
 })
+
+/** www.jthou.com/mediawiki：浮动链接 hou-gvim:// → 本机协议处理 / GvimService（见 gvim-protocol-handler） */
+;(function injectJthouMediaWikiGvimButton() {
+  const ATTR = 'data-hou-cli-gvim-btn'
+  function hostOk(hostname) {
+    const h = (hostname || '').toLowerCase()
+    return h === 'www.jthou.com' || h === 'jthou.com'
+  }
+  function houGvimMediawikiUrl(pageTitle) {
+    return 'hou-gvim://mediawiki?title=' + encodeURIComponent(pageTitle)
+  }
+  function mediaWikiTitleFromLocation(href) {
+    try {
+      const u = new URL(href)
+      if (!hostOk(u.hostname)) return null
+      if (!/\/mediawiki(\/|$)/i.test(u.pathname)) return null
+      const q = u.searchParams.get('title')
+      if (q) return q.replace(/\+/g, ' ').trim() || null
+      const lower = u.pathname
+      const idx = lower.toLowerCase().indexOf('index.php/')
+      if (idx !== -1) {
+        const rest = u.pathname.slice(idx + 'index.php/'.length)
+        if (rest) {
+          try {
+            return decodeURIComponent(rest.replace(/\+/g, '%20'))
+          } catch (_) {
+            return rest
+          }
+        }
+      }
+      const wm = u.pathname.match(/\/wiki\/(.+)$/i)
+      if (wm) {
+        try {
+          return decodeURIComponent(wm[1]).replace(/_/g, ' ')
+        } catch (_) {
+          return wm[1].replace(/_/g, ' ')
+        }
+      }
+      return null
+    } catch (_) {
+      return null
+    }
+  }
+  function mount() {
+    if (!document.body || document.documentElement.getAttribute(ATTR)) return
+    const title = mediaWikiTitleFromLocation(window.location.href)
+    if (!title) return
+    document.documentElement.setAttribute(ATTR, '1')
+    const a = document.createElement('a')
+    a.href = houGvimMediawikiUrl(title)
+    a.textContent = '用 gvim 打开'
+    a.setAttribute(
+      'title',
+      '本机已注册 hou-gvim:// 协议时打开 gvim（仓库 gvim-protocol-handler；与 GvimService 同源）。词条：' + title
+    )
+    Object.assign(a.style, {
+      position: 'fixed',
+      right: '14px',
+      bottom: '14px',
+      zIndex: '2147483646',
+      padding: '8px 14px',
+      fontSize: '13px',
+      fontFamily: 'system-ui, sans-serif',
+      cursor: 'pointer',
+      borderRadius: '8px',
+      border: '1px solid rgba(255,255,255,.2)',
+      background: 'rgba(22,22,40,.94)',
+      color: '#eee',
+      boxShadow: '0 2px 12px rgba(0,0,0,.35)',
+      textDecoration: 'none',
+      display: 'inline-block',
+    })
+    document.body.appendChild(a)
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount)
+  else mount()
+})()

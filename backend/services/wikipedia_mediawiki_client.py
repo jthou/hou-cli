@@ -8,6 +8,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from shared.httpx_defaults import httpx_default_network_kwargs
+
 logger = logging.getLogger(__name__)
 
 # Wikipedia API 要求必须设置 User-Agent，否则返回 403
@@ -50,7 +52,13 @@ def search_pages(
         "srprop": "size|wordcount|snippet|timestamp",
         "format": "json",
     }
-    r = httpx.get(api_url, params=params, timeout=15.0, headers={"User-Agent": WIKIPEDIA_USER_AGENT})
+    r = httpx.get(
+        api_url,
+        params=params,
+        timeout=15.0,
+        headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+        **httpx_default_network_kwargs(),
+    )
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -82,7 +90,13 @@ def get_page_content(title: str, lang: str = "zh") -> Optional[dict]:
         "rvprop": "content",
         "format": "json",
     }
-    r = httpx.get(api_url, params=params, timeout=15.0, headers={"User-Agent": WIKIPEDIA_USER_AGENT})
+    r = httpx.get(
+        api_url,
+        params=params,
+        timeout=15.0,
+        headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+        **httpx_default_network_kwargs(),
+    )
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -129,7 +143,13 @@ def parse_wikitext(wikitext: str, title: Optional[str] = None, lang: str = "zh")
     }
     if title:
         params["title"] = title
-    r = httpx.post(api_url, data=params, timeout=30.0, headers={"User-Agent": WIKIPEDIA_USER_AGENT})
+    r = httpx.post(
+        api_url,
+        data=params,
+        timeout=30.0,
+        headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+        **httpx_default_network_kwargs(),
+    )
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -152,7 +172,13 @@ def get_random_titles(limit: int = 5, lang: str = "zh") -> List[str]:
         "rnlimit": min(limit, 20),
         "format": "json",
     }
-    r = httpx.get(api_url, params=params, timeout=15.0, headers={"User-Agent": WIKIPEDIA_USER_AGENT})
+    r = httpx.get(
+        api_url,
+        params=params,
+        timeout=15.0,
+        headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+        **httpx_default_network_kwargs(),
+    )
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -172,7 +198,13 @@ def get_recently_changed_titles(limit: int = 10, lang: str = "zh") -> List[str]:
         "rcprop": "title",
         "format": "json",
     }
-    r = httpx.get(api_url, params=params, timeout=15.0, headers={"User-Agent": WIKIPEDIA_USER_AGENT})
+    r = httpx.get(
+        api_url,
+        params=params,
+        timeout=15.0,
+        headers={"User-Agent": WIKIPEDIA_USER_AGENT},
+        **httpx_default_network_kwargs(),
+    )
     r.raise_for_status()
     data = r.json()
     if "error" in data:

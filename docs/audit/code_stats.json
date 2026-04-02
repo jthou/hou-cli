@@ -1,30 +1,30 @@
 {
-  "total_files": 1430,
-  "total_lines": 398148,
+  "total_files": 1475,
+  "total_lines": 409657,
   "by_language": {
     "other": {
-      "files": 28,
-      "lines": 72104
+      "files": 31,
+      "lines": 72242
     },
     "python": {
-      "files": 652,
-      "lines": 110575
+      "files": 673,
+      "lines": 112570
     },
     "markdown": {
-      "files": 527,
-      "lines": 164824
+      "files": 542,
+      "lines": 173125
     },
     "shell": {
-      "files": 34,
-      "lines": 2143
+      "files": 36,
+      "lines": 2197
     },
     "javascript": {
-      "files": 63,
-      "lines": 8632
+      "files": 64,
+      "lines": 8855
     },
     "json": {
-      "files": 11,
-      "lines": 12180
+      "files": 13,
+      "lines": 12498
     },
     "html": {
       "files": 2,
@@ -35,8 +35,8 @@
       "lines": 686
     },
     "jsx": {
-      "files": 102,
-      "lines": 24046
+      "files": 103,
+      "lines": 24526
     },
     "yaml": {
       "files": 7,
@@ -46,43 +46,51 @@
   "by_directory": {
     ".": {
       "files": 12,
-      "lines": 10303
+      "lines": 10304
     },
     "extension": {
       "files": 6,
-      "lines": 2047
+      "lines": 2220
     },
     "frontend": {
-      "files": 193,
-      "lines": 48205
+      "files": 195,
+      "lines": 48742
     },
     "plans": {
-      "files": 129,
-      "lines": 63631
+      "files": 141,
+      "lines": 71457
     },
     "config": {
       "files": 3,
-      "lines": 50
+      "lines": 47
     },
     "patches": {
       "files": 3,
       "lines": 295
     },
     "tests": {
-      "files": 68,
-      "lines": 8250
+      "files": 75,
+      "lines": 8785
+    },
+    "gvim-protocol-handler": {
+      "files": 6,
+      "lines": 282
     },
     "backend": {
-      "files": 544,
-      "lines": 148761
+      "files": 557,
+      "lines": 150112
     },
     "shared": {
-      "files": 11,
-      "lines": 1091
+      "files": 12,
+      "lines": 1181
     },
     "docs": {
-      "files": 346,
-      "lines": 103774
+      "files": 347,
+      "lines": 104132
+    },
+    "ppt_out_lm_11": {
+      "files": 3,
+      "lines": 359
     },
     "comic": {
       "files": 1,
@@ -105,5 +113,5 @@
       "lines": 1341
     }
   },
-  "generated_at": "2026-03-29T01:23:26.674621Z"
+  "generated_at": "2026-04-01T08:52:02.566006Z"
 }

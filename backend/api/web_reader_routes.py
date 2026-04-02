@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from shared.httpx_defaults import httpx_default_network_kwargs
 from shared.platform_utils import get_app_data_dir
 
 from backend.utils.vision_ocr_prompts import build_vision_ocr_prompt
@@ -313,7 +314,9 @@ async def fetch_weread_inline_image(req: FetchWereadInlineImageRequest):
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
     }
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=60.0, **httpx_default_network_kwargs()
+        ) as client:
             r = await client.get(ou, headers=headers)
     except httpx.RequestError as e:
         logger.warning("fetch-weread-inline-image network error: %s", e)

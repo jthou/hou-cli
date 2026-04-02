@@ -293,6 +293,16 @@ class TestMediaWikiRoutes:
         u = "http://www.jthou.com/mediawiki/index.php?title=Special:FilePath%2Fa%20b.png"
         assert _wiki_filename_from_special_filepath_url(u, base) == "a b.png"
 
+    def test_url_fetch_replace_matches_www_when_mediawiki_is_bare_host(self, monkeypatch):
+        """MEDIAWIKI 配裸域时，www 图床 URL 也应触发 REPLACE_ORIGIN（避免 host 不一致不重写）。"""
+        monkeypatch.setenv("MEDIAWIKI_URL", "http://jthou.com/mediawiki")
+        monkeypatch.setenv("MEDIAWIKI_FETCH_REPLACE_ORIGIN", "http://127.0.0.1")
+        monkeypatch.delenv("MEDIAWIKI_FETCH_REPLACE_FOR_HOSTS", raising=False)
+        from backend.api.mediawiki_routes import _url_for_server_side_image_fetch
+
+        out = _url_for_server_side_image_fetch("http://www.jthou.com/images/vim/a.png")
+        assert out == "http://127.0.0.1/images/vim/a.png"
+
     def test_upload_image_from_url_uses_content_hash_filename(self, client):
         """URL 拉图上传：按字节哈希命名，不用 URL 里的 image.png。"""
         body = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
@@ -315,7 +325,7 @@ class TestMediaWikiRoutes:
             async def __aexit__(self, *a):
                 return False
 
-            async def get(self, url):
+            async def get(self, url, headers=None):
                 return FakeResp()
 
         with patch("backend.api.mediawiki_routes.httpx.AsyncClient", FakeAsyncClient):
