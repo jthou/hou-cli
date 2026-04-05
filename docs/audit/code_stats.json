@@ -1,18 +1,18 @@
 {
-  "total_files": 1475,
-  "total_lines": 409657,
+  "total_files": 1500,
+  "total_lines": 415037,
   "by_language": {
     "other": {
-      "files": 31,
-      "lines": 72242
+      "files": 32,
+      "lines": 72254
     },
     "python": {
-      "files": 673,
-      "lines": 112570
+      "files": 688,
+      "lines": 115940
     },
     "markdown": {
-      "files": 542,
-      "lines": 173125
+      "files": 549,
+      "lines": 173818
     },
     "shell": {
       "files": 36,
@@ -20,11 +20,11 @@
     },
     "javascript": {
       "files": 64,
-      "lines": 8855
+      "lines": 8881
     },
     "json": {
       "files": 13,
-      "lines": 12498
+      "lines": 12478
     },
     "html": {
       "files": 2,
@@ -32,11 +32,11 @@
     },
     "css": {
       "files": 4,
-      "lines": 686
+      "lines": 691
     },
     "jsx": {
-      "files": 103,
-      "lines": 24526
+      "files": 105,
+      "lines": 25820
     },
     "yaml": {
       "files": 7,
@@ -46,19 +46,19 @@
   "by_directory": {
     ".": {
       "files": 12,
-      "lines": 10304
+      "lines": 10313
     },
     "extension": {
       "files": 6,
       "lines": 2220
     },
     "frontend": {
-      "files": 195,
-      "lines": 48742
+      "files": 197,
+      "lines": 50067
     },
     "plans": {
-      "files": 141,
-      "lines": 71457
+      "files": 147,
+      "lines": 72121
     },
     "config": {
       "files": 3,
@@ -69,16 +69,16 @@
       "lines": 295
     },
     "tests": {
-      "files": 75,
-      "lines": 8785
+      "files": 81,
+      "lines": 9317
     },
     "gvim-protocol-handler": {
       "files": 6,
       "lines": 282
     },
     "backend": {
-      "files": 557,
-      "lines": 150112
+      "files": 566,
+      "lines": 152921
     },
     "shared": {
       "files": 12,
@@ -86,7 +86,7 @@
     },
     "docs": {
       "files": 347,
-      "lines": 104132
+      "lines": 104128
     },
     "ppt_out_lm_11": {
       "files": 3,
@@ -105,13 +105,13 @@
       "lines": 138
     },
     "scripts": {
-      "files": 87,
-      "lines": 10167
+      "files": 89,
+      "lines": 10212
     },
     "archived": {
       "files": 21,
       "lines": 1341
     }
   },
-  "generated_at": "2026-04-01T08:52:02.566006Z"
+  "generated_at": "2026-04-04T16:23:26.202861Z"
 }

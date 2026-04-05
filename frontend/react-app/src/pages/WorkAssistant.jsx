@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import ChatInput from '../components/ChatInput'
 import MarkdownPreview from '../components/MarkdownPreview'
+import StreamingReasoningPanel from '../components/StreamingReasoningPanel'
 import { useToast } from '../components/ToastModal'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
@@ -43,6 +44,8 @@ export default function WorkAssistant() {
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
+  /** 时间：2026-04-04；理由：__REASONING__ 流式思考；方法：shouldAppendStreamingPlainText.onReasoningDelta */
+  const [streamingReasoning, setStreamingReasoning] = useState('')
   const [contextSelectionMeta, setContextSelectionMeta] = useState(null)
   const [selectedModel, setSelectedModel] = useState('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -265,6 +268,7 @@ export default function WorkAssistant() {
     }
     setLoading(true)
     setStreamingContent('')
+    setStreamingReasoning('')
     setStreamingToolCalls([])
     // 时间：2026-03-13；理由：新一轮流式前清空上轮「选用上下文」；方法与 GeneralChat handleRegenerate 一致
     setContextSelectionMeta(null)
@@ -320,6 +324,7 @@ export default function WorkAssistant() {
                       }
                     },
                     onContextMeta: (m) => setContextSelectionMeta(m),
+                    onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                   })
                 ) {
                   fullContent += raw
@@ -342,12 +347,14 @@ export default function WorkAssistant() {
                   })
                   .catch(() => {})
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 streamingContentRef.current = ''
                 fullContent = ''
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -377,6 +384,7 @@ export default function WorkAssistant() {
                     }
                   },
                   onContextMeta: (m) => setContextSelectionMeta(m),
+                  onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                 })
               ) {
                 fullContent += raw
@@ -399,12 +407,14 @@ export default function WorkAssistant() {
                 })
                 .catch(() => {})
               setStreamingContent('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               streamingContentRef.current = ''
               fullContent = ''
             } else if (obj.status === 'error') {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
               setStreamingContent('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               setContextSelectionMeta(null)
               streamingContentRef.current = ''
@@ -431,6 +441,7 @@ export default function WorkAssistant() {
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
+    setStreamingReasoning('')
     setStreamingToolCalls([])
     // 时间：2026-03-13；理由：新提问清空上轮上下文选用展示；方法：与 GeneralChat handleSubmit 一致
     setContextSelectionMeta(null)
@@ -504,6 +515,7 @@ export default function WorkAssistant() {
                       }
                     },
                     onContextMeta: (m) => setContextSelectionMeta(m),
+                    onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                   })
                 ) {
                   fullContent += raw
@@ -518,6 +530,7 @@ export default function WorkAssistant() {
                 streamTerminalHandled = true
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -545,6 +558,7 @@ export default function WorkAssistant() {
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -575,6 +589,7 @@ export default function WorkAssistant() {
                     }
                   },
                   onContextMeta: (m) => setContextSelectionMeta(m),
+                  onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                 })
               ) {
                 fullContent += raw
@@ -588,6 +603,9 @@ export default function WorkAssistant() {
               }
               streamTerminalHandled = true
               const finalContent = fullContent.trim() || '（助手未返回内容）'
+              setStreamingContent('')
+              setStreamingReasoning('')
+              streamingContentRef.current = ''
               if (isFirstMessage && text) {
                 fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
                   method: 'PATCH',
@@ -613,12 +631,16 @@ export default function WorkAssistant() {
               fullContent = ''
             } else if (obj.status === 'error') {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
+              setStreamingContent('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               setContextSelectionMeta(null)
+              streamingContentRef.current = ''
               fullContent = ''
             }
           }
           setStreamingContent('')
+          setStreamingReasoning('')
           setContextSelectionMeta(null)
           streamingContentRef.current = ''
         } catch (_) {}
@@ -943,6 +965,13 @@ export default function WorkAssistant() {
           {contextSelectionMeta && (
             <div className="flex justify-start w-full">
               <ContextSelectionPanel meta={contextSelectionMeta} />
+            </div>
+          )}
+          {streamingReasoning.trim() !== '' && (
+            <div className="flex justify-start w-full">
+              <div className="max-w-[85%] w-full">
+                <StreamingReasoningPanel text={streamingReasoning} />
+              </div>
             </div>
           )}
           {streamingContent && (() => {

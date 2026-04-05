@@ -8,7 +8,11 @@ def test_prompt_prioritizes_modification_opinion_over_generic_opening():
     assert "修改意见与全文重写" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
     assert "基于以上修改意见重写" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
     assert "个人经历" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
-    assert "空话套话开篇" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD or "泛化引子" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
+    assert (
+        "空话套话开篇" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
+        or "泛化引子" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
+        or "泛化鸡汤" in ARTICLE_WRITING_SYSTEM_PROMPT_HEAD
+    )
 
 
 def test_prompt_allows_personal_opening_when_user_asks():

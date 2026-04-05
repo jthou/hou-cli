@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Any, AsyncIterator, Dict, List, Optional
 
+from backend.api.stream_sender import should_persist_stream_chunk_in_assistant_message
 from backend.core.context.models import MessageRole
 from backend.core.agent.tools.registry import ToolRegistry
 from backend.core.agent.agent_tools_registry import (
@@ -215,7 +216,8 @@ class CodeAssistantAgent(BaseContextAgent):
                     ):
                         yield chunk
                     else:
-                        full_response = (full_response or "") + chunk
+                        if should_persist_stream_chunk_in_assistant_message(chunk):
+                            full_response = (full_response or "") + chunk
                         yield chunk
             else:
                 audit_meta = {"session_id": session_id} if session_id else None
@@ -223,8 +225,10 @@ class CodeAssistantAgent(BaseContextAgent):
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     audit_meta=audit_meta,
+                    stream_reasoning_chunks=True,
                 ):
-                    full_response += chunk
+                    if should_persist_stream_chunk_in_assistant_message(chunk):
+                        full_response += chunk
                     yield chunk
 
             self.context_manager.add_message(session_id, MessageRole.USER, task)

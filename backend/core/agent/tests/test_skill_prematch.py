@@ -13,11 +13,16 @@ from backend.core.agent.skill_prematch import (
 def test_skill_registry_match_allowed_false_when_assistants_ctx_and_flag():
     import os
 
-    # 若环境未开 flag，article_writing 仍允许 match
-    assert skill_registry_match_allowed("article_writing", "x") is True
-
     old = os.environ.get("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS")
     try:
+        # 默认（未设置）：写作/工作助手不调用 match
+        os.environ.pop("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS", None)
+        assert skill_registry_match_allowed("article_writing", "x") is False
+        assert skill_registry_match_allowed("work_assistant", "x") is False
+
+        os.environ["DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS"] = "false"
+        assert skill_registry_match_allowed("article_writing", "x") is True
+
         os.environ["DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS"] = "true"
         assert skill_registry_match_allowed("article_writing", "x") is False
         assert skill_registry_match_allowed("work_assistant", "x") is False

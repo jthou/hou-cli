@@ -311,4 +311,6 @@ class TestChatRoutes:
         assert "reasoning_model" in data
         assert isinstance(data["reasoning_model"], str)
         assert len(data["reasoning_model"].strip()) > 0
+        # 时间：2026-04-04；理由：写作页默认模型由 API 下发；方法：与 model_config_routes.article_writing_default_model 一致
+        assert data.get("article_writing_default_model") == "qwen3.6-plus"
 

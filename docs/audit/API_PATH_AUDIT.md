@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 158
-- 前端 fetch 数: 145
+- 后端路由数: 164
+- 前端 fetch 数: 154
 
 ## 后端路由
 
@@ -37,6 +37,8 @@ GET /api/pdf/page-range-vision
 GET /api/pdf/page-text
 GET /api/pdf/page-vision
 GET /api/pdf/view
+GET /api/ppt-assistant/run-status
+GET /api/ppt-assistant/slide-images/file/{job_id}/{page_index}
 GET /api/search/availability
 GET /api/search/files
 GET /api/search/unified
@@ -129,8 +131,12 @@ POST /api/network/audit/run
 POST /api/pdf/resolve
 POST /api/pdf/upload-from-extension
 POST /api/ppt-assistant/deck
+POST /api/ppt-assistant/export-pptx
 POST /api/ppt-assistant/extract
+POST /api/ppt-assistant/refine
 POST /api/ppt-assistant/run
+POST /api/ppt-assistant/run-stream
+POST /api/ppt-assistant/slide-images/stream
 POST /api/sessions
 POST /api/sessions/batch-delete
 POST /api/sessions/{session_id}/clear
@@ -205,8 +211,13 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/pdf/resolve
 - GET /api/pdf/upload-from-extension
 - GET /api/ppt-assistant/deck
+- GET /api/ppt-assistant/export-pptx
 - GET /api/ppt-assistant/extract
+- GET /api/ppt-assistant/refine
 - GET /api/ppt-assistant/run
+- GET /api/ppt-assistant/run-status
+- GET /api/ppt-assistant/run-stream
+- GET /api/ppt-assistant/slide-images/stream
 - GET /api/sessions
 - GET /api/sessions/
 - GET /api/sessions/batch-delete
@@ -286,8 +297,12 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/pdf/resolve
 - POST /api/pdf/upload-from-extension
 - POST /api/ppt-assistant/deck
+- POST /api/ppt-assistant/export-pptx
 - POST /api/ppt-assistant/extract
+- POST /api/ppt-assistant/refine
 - POST /api/ppt-assistant/run
+- POST /api/ppt-assistant/run-stream
+- POST /api/ppt-assistant/slide-images/stream
 - POST /api/sessions
 - POST /api/sessions/batch-delete
 - POST /api/settings/model-availability-audit/probe
@@ -333,6 +348,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - /api/pdf/page-text
 - /api/pdf/page-vision
 - /api/pdf/view
+- /api/ppt-assistant/slide-images/file/{id}/{id}
 - /api/search/availability
 - /api/search/files
 - /api/search/unified

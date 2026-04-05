@@ -98,6 +98,8 @@ class ModelRegistry:
     BAILIAN_MODELS = {
         # 通义千问3 系列（文本生成）
         "qwen3-max",
+        # 更低成本更强思考，支持 Responses API
+        "qwen3.6-plus",
         "qwen-plus-2025-12-01",
         "qwen-flash",
         "qwen-max-2025-01-25",
@@ -571,6 +573,7 @@ class ModelRegistry:
         "qwen-max": "high",
         "qwen-max-2025-01-25": "high",
         "qwen3-max": "high",
+        "qwen3.6-plus": "medium",
         "qwen3-coder-flash": "low",
         "qwen3-coder-plus-2025-09-23": "medium",
         "qwen3-vl-flash-2025-10-15": "medium",
@@ -712,6 +715,12 @@ class ModelRegistry:
                 })
                 recommendations.append({
                     "provider": "bailian",
+                    "model": "qwen3.6-plus",
+                    "description": "Qwen3.6 Plus，深度思考支持编码/重写（更低成本更强思考，支持 Responses API）",
+                    "cost_level": cls.get_model_cost_level("bailian", "qwen3.6-plus")
+                })
+                recommendations.append({
+                    "provider": "bailian",
                     "model": "qwen3-coder-flash",
                     "description": "通义千问3 Coder Flash，优化仓库级别理解（低成本）",
                     "cost_level": cls.get_model_cost_level("bailian", "qwen3-coder-flash")
@@ -752,6 +761,12 @@ class ModelRegistry:
                     "model": "deepseek-v3.2",
                     "description": "DeepSeek V3.2，支持深度思考",
                     "cost_level": cls.get_model_cost_level("bailian", "deepseek-v3.2")
+                })
+                recommendations.append({
+                    "provider": "bailian",
+                    "model": "qwen3.6-plus",
+                    "description": "Qwen3.6 Plus，更低成本更强思考（支持 Responses API）",
+                    "cost_level": cls.get_model_cost_level("bailian", "qwen3.6-plus")
                 })
                 recommendations.append({
                     "provider": "bailian",

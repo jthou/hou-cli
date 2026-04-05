@@ -23,6 +23,30 @@ logger = logging.getLogger(__name__)
 # 延迟导入，避免循环依赖
 _model_registry = None
 
+
+def extract_chat_completion_delta_reasoning(delta: Any) -> Optional[str]:
+    """从 OpenAI 兼容流式 chunk 的 delta 中取思考文本片段。
+    时间：2026-04-04；理由：百炼等可能填 reasoning_content，仅 hasattr 可能漏字段；方法：多键 getattr + model_dump 兜底。"""
+    if delta is None:
+        return None
+    for key in ("reasoning_content", "reasoning", "thinking"):
+        val = getattr(delta, key, None)
+        if isinstance(val, str) and val:
+            return val
+    try:
+        dumped = delta.model_dump(mode="python")
+    except Exception:
+        try:
+            dumped = delta.model_dump()
+        except Exception:
+            dumped = None
+    if isinstance(dumped, dict):
+        for key in ("reasoning_content", "reasoning", "thinking"):
+            val = dumped.get(key)
+            if isinstance(val, str) and val:
+                return val
+    return None
+
 def get_model_registry():
     """获取模型注册表（延迟导入）"""
     global _model_registry
@@ -359,8 +383,21 @@ class LLMService:
         # 百炼平台的思考模型
         if self.provider == self.PROVIDER_BAILIAN:
             # 百炼平台的一些模型支持思考过程（根据实际模型调整）
+            if model_lower in ("qwen3.6-plus",):
+                return True
             return "reasoning" in model_lower or "think" in model_lower
         return False
+
+    def _bailian_enable_thinking_extra_body(self) -> Optional[Dict[str, Any]]:
+        """百炼 compatible-mode：混合思考类模型须在请求体中开启 enable_thinking，流式 delta 才会带 reasoning_content。
+        时间：2026-04-04；理由：未开启时仅正文流式、前端 __REASONING__ 永远为空；方法：官方文档 extra_body。
+        时间：2026-04-04；理由：与官网闲聊比首字更慢时用户可关思考换速度；方法：BAILIAN_ENABLE_THINKING=false 则不传 enable_thinking。"""
+        if self.provider != self.PROVIDER_BAILIAN or not self.supports_thinking:
+            return None
+        raw = (os.getenv("BAILIAN_ENABLE_THINKING") or "true").lower().strip()
+        if raw in ("0", "false", "no", "off"):
+            return None
+        return {"enable_thinking": True}
     
     async def chat(
         self,
@@ -426,6 +463,10 @@ class LLMService:
         if tools:
             request_params["tools"] = tools
             request_params["tool_choice"] = "auto"  # 让 LLM 决定是否调用工具
+
+        _think_ex = self._bailian_enable_thinking_extra_body()
+        if _think_ex:
+            request_params["extra_body"] = _think_ex
         
         # 错误处理：重试机制（指数退避）
         max_retries = 3
@@ -670,6 +711,8 @@ class LLMService:
         user_prompt: str = "",
         timeout: int = 60,
         audit_meta: Optional[Dict[str, Any]] = None,
+        *,
+        stream_reasoning_chunks: bool = False,
     ) -> AsyncIterator[str]:
         """
         流式聊天
@@ -679,6 +722,8 @@ class LLMService:
             user_prompt: 用户提示
             timeout: 超时时间（秒），默认 60 秒
             audit_meta: 可选，审计用元数据（如 session_id）
+            stream_reasoning_chunks: 为 True 且模型支持思考流时，将 ``reasoning_content`` 增量以
+                ``__REASONING__:`` 前缀 yield 给前端实时展示（时间：2026-04-04）；不入库由编排层过滤。
 
         Yields:
             流式数据块
@@ -711,7 +756,6 @@ class LLMService:
         thinking_chunks = []
         content_chunks = []
         last_usage = None
-        
         try:
             create_params = {
                 "model": self.model,
@@ -720,6 +764,9 @@ class LLMService:
                 "temperature": self.temperature,
                 "max_tokens": self._get_effective_max_tokens(),
             }
+            _think_ex = self._bailian_enable_thinking_extra_body()
+            if _think_ex:
+                create_params["extra_body"] = _think_ex
             try:
                 stream = await asyncio.wait_for(
                     self.client.chat.completions.create(**{**create_params, "stream_options": {"include_usage": True}}),
@@ -740,12 +787,13 @@ class LLMService:
                     if not hasattr(chunk, 'choices') or not chunk.choices:
                         continue
                     
-                    # 处理思考过程（DeepSeek R1 格式）
+                    # 处理思考过程（DeepSeek R1 / 百炼等 reasoning_content 流）
                     if self.supports_thinking:
-                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                            thinking_chunk = chunk.choices[0].delta.reasoning_content
-                            if thinking_chunk:
-                                thinking_chunks.append(thinking_chunk)
+                        thinking_chunk = extract_chat_completion_delta_reasoning(chunk.choices[0].delta)
+                        if thinking_chunk:
+                            thinking_chunks.append(thinking_chunk)
+                            if stream_reasoning_chunks:
+                                yield f"__REASONING__:{thinking_chunk}"
                     
                     # 处理内容
                     if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content:
@@ -951,6 +999,10 @@ class LLMService:
             request_params["tools"] = tools
             request_params["tool_choice"] = "auto"
 
+        _think_ex = self._bailian_enable_thinking_extra_body()
+        if _think_ex:
+            request_params["extra_body"] = _think_ex
+
         audit_id = None
         try:
             from backend.services.llm.llm_audit import append_audit, _messages_summary, create_audit_id
@@ -978,6 +1030,11 @@ class LLMService:
                     continue
                 delta = chunk.choices[0].delta
                 finish_reason = getattr(chunk.choices[0], "finish_reason", None)
+
+                if self.supports_thinking:
+                    rc = extract_chat_completion_delta_reasoning(delta)
+                    if rc:
+                        yield f"__REASONING__:{rc}"
 
                 if hasattr(delta, "content") and delta.content:
                     content_chunks.append(delta.content)

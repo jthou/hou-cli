@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import ChatInput from '../components/ChatInput'
 import MarkdownPreview from '../components/MarkdownPreview'
+import StreamingReasoningPanel from '../components/StreamingReasoningPanel'
 import { useToast } from '../components/ToastModal'
 import { useSelectableModels } from '../hooks/useSelectableModels'
 import ModelSelector from '../components/ModelSelector'
@@ -57,6 +58,8 @@ export default function GeneralChat({
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
+  /** 时间：2026-04-04；理由：后端 __REASONING__ 流式思考；方法：shouldAppendStreamingPlainText.onReasoningDelta */
+  const [streamingReasoning, setStreamingReasoning] = useState('')
   /** 时间：2026-03-13；理由：展示混合历史注入；方法：解析 __CTX_META__，与编排 hybrid_history 对齐 */
   const [contextSelectionMeta, setContextSelectionMeta] = useState(null)
   const [selectedModel, setSelectedModel] = useState('')
@@ -379,6 +382,7 @@ export default function GeneralChat({
     }
     setLoading(true)
     setStreamingContent('')
+    setStreamingReasoning('')
     setStreamingToolCalls([])
     setContextSelectionMeta(null)
     const ac = new AbortController()
@@ -434,6 +438,7 @@ export default function GeneralChat({
                       }
                     },
                     onContextMeta: (m) => setContextSelectionMeta(m),
+                    onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                   })
                 ) {
                   fullContent += raw
@@ -456,12 +461,14 @@ export default function GeneralChat({
                   })
                   .catch(() => {})
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 streamingContentRef.current = ''
                 fullContent = ''
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -491,6 +498,7 @@ export default function GeneralChat({
                     }
                   },
                   onContextMeta: (m) => setContextSelectionMeta(m),
+                  onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                 })
               ) {
                 fullContent += raw
@@ -513,6 +521,7 @@ export default function GeneralChat({
                 })
                 .catch(() => {})
               setStreamingContent('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               streamingContentRef.current = ''
               fullContent = ''
@@ -547,6 +556,7 @@ export default function GeneralChat({
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
+    setStreamingReasoning('')
     setStreamingToolCalls([])
     setContextSelectionMeta(null)
     setLoading(true) // 先设 loading，再创建会话，避免 useEffect 覆盖消息
@@ -622,6 +632,7 @@ export default function GeneralChat({
                       }
                     },
                     onContextMeta: (m) => setContextSelectionMeta(m),
+                    onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                   })
                 ) {
                   fullContent += raw
@@ -636,6 +647,7 @@ export default function GeneralChat({
                 streamTerminalHandled = true
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -671,6 +683,7 @@ export default function GeneralChat({
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -701,6 +714,7 @@ export default function GeneralChat({
                     }
                   },
                   onContextMeta: (m) => setContextSelectionMeta(m),
+                  onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                 })
               ) {
                 fullContent += raw
@@ -714,8 +728,11 @@ export default function GeneralChat({
               }
               streamTerminalHandled = true
               const finalContent = fullContent.trim() || '（助手未返回内容）'
+              setStreamingContent('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               setContextSelectionMeta(null)
+              streamingContentRef.current = ''
               setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
               if (isFirstMessage && text) {
                 fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
@@ -742,12 +759,16 @@ export default function GeneralChat({
               fullContent = ''
             } else if (obj.status === 'error') {
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
+              setStreamingContent('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               setContextSelectionMeta(null)
+              streamingContentRef.current = ''
               fullContent = ''
             }
           }
           setStreamingContent('')
+          setStreamingReasoning('')
           setContextSelectionMeta(null)
           streamingContentRef.current = ''
         } catch (_) {}
@@ -1061,6 +1082,13 @@ export default function GeneralChat({
           {contextSelectionMeta && (
             <div className="flex justify-start w-full">
               <ContextSelectionPanel meta={contextSelectionMeta} />
+            </div>
+          )}
+          {streamingReasoning.trim() !== '' && (
+            <div className="flex justify-start w-full">
+              <div className="max-w-[85%] w-full">
+                <StreamingReasoningPanel text={streamingReasoning} />
+              </div>
             </div>
           )}
           {streamingContent && (() => {

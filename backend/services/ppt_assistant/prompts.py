@@ -1,5 +1,8 @@
 """PPT 助手提示词（仅常量，便于单测替换）。"""
 
+import json
+from typing import Any, Dict, List
+
 EXTRACT_SYSTEM = """你是专业的演讲与信息架构助手。用户会给你一篇长文，你要抽取适合做成幻灯片的结构化材料。
 
 **默认场景**：用户要把粘贴内容压到 **一张幻灯片** 上展示关键信息。请优先抽取 **5～10 条可并列展示** 的核心信息（论点、公式结论、关键数字、术语），不要把全文拆成很多细页级小节；outline_sections 仍可分层，但 key_claims 总量宜 **克制**，避免几十条碎点。
@@ -86,10 +89,19 @@ DECK_SYSTEM_SINGLE = """你是演讲稿编排助手。输入为 ppt_elements JSO
 - deck_title: 本页总标题（概括主题，一句）
 - slides: **数组长度必须为 1**，仅一张 kind 为 content 的幻灯片
   - index 固定为 1
-  - title: 可与 deck_title 相同或稍短
-  - bullets: **4～10 项**数组；**每项必须是对象**，结构为：
-    - **text**：片上可见的一行短句（一条论点/要点，勿写长段）
-    - **speaker_elaboration**：讲者参考阐述，**约 180～220 汉字**，口语化、可口播；应充分利用 ppt_elements 里对应论点的内涵，可含例子、数字、因果；**禁止**与 text 简单重复；若无独立论点可合并时，仍需对每项给出完整阐述
+  - title: 可与 deck_title 相同或稍短（页顶大标题）
+  - **正文呈现方案（text_scheme，字符串，可选）**：默认不写则按 bullets 列表渲染。
+    - `bullets`：多条片上短句 + 讲者长阐述（默认）
+    - `title_only`：仅大标题，**bullets 可为 []**
+    - `title_lead`：**大标题 + 一段短说明**；填 **lead**（字符串，片上可见，约 40～120 字），**bullets 为 []**
+    - `title_subtitle_lead`：**大标题 + 小标题 + 短说明**；填 **subtitle**（小标题）、**lead**（短说明），**bullets 为 []**
+    - `long_prose`：**大标题 + 长说明正文**；填 **body_text**（可多段，用 \\n\\n 分段），**bullets 为 []**（或仅作备用）
+  - subtitle / lead / body_text / body_summary：按上述 scheme 选用；**body_summary** 与 lead 二选一即可（兼容别名）
+  - bullets: 当 text_scheme 为 bullets 或未写 scheme 时：**4～10 项**；**每项必须是对象**：
+    - **text**：片上可见的**标题行**（一条论点/要点，短句，勿写长段）
+    - **slide_hint**：**必填、每条都要有**。**只显示在幻灯片画面上**、紧挨在该条 text **下面的一行短提示**（约 **12～40 个汉字**，一句说完）；用于扫一眼理解，**禁止**写成段落、**禁止**与 speaker_elaboration 同长度或互相复制长文
+    - **speaker_elaboration**：**只进讲述区**（讲者口播参考），**约 180～220 汉字**，可充分展开；**不得**把这段长文缩进 slide_hint；听众看片只看 text + slide_hint，听讲解才用 speaker_elaboration
+    - 当使用 title_lead / title_subtitle_lead / long_prose / title_only 时，bullets 可为 **[]**
   - speaker_notes: 可选，本页开场或收束一句总提示（非替代各条 speaker_elaboration）
 
 禁止输出多张幻灯片、禁止 transition 页、禁止「下一节」式分页。
@@ -102,9 +114,13 @@ DECK_SYSTEM_SINGLE = """你是演讲稿编排助手。输入为 ppt_elements JSO
 DECK_SYSTEM_MULTI = """你是演讲稿编排助手。输入为 ppt_elements JSON，你要输出 slide_deck JSON（version=1）：
 - deck_title: 演示总标题
 - slides: 数组，每项含 index（从1递增）, kind（content|transition|title）, title, bullets, speaker_notes（字符串，可空）
-  - content 页：bullets 为 **对象数组**，每项 **{ "text": "片上短句", "speaker_elaboration": "约180～220汉字的讲者参考，可口播" }**，一般每页 2～6 条；transition/title 页 bullets 可为 []
+  - content 页可选 **text_scheme**（字符串）：`bullets`（默认）| `title_only` | `title_lead` | `title_subtitle_lead` | `long_prose`，含义与单页版相同。
+  - 若某 content 页需要用 **大标题+短说明**：设 `text_scheme` 为 `title_lead`，`lead` 为片上短段，**bullets: []**。
+  - 若需要 **大标题+小标题+短说明**：`text_scheme` 为 `title_subtitle_lead`，填 **subtitle** 与 **lead**，**bullets: []**。
+  - 若需要 **大标题+长说明一段**：`text_scheme` 为 `long_prose`，**body_text** 写完整可见正文（可多段 `\\n\\n`），**bullets: []**。
+  - 常规列表页：bullets 为 **对象数组**，每项必须含 **text**、**slide_hint**（片上短提示，12～40 字）、**speaker_elaboration**（仅讲述区，约 180～220 字）；一般每页 2～6 条；transition/title 页 bullets 可为 []
 
-原则：每页 **text** 保持短；**speaker_elaboration** 写满讲者可用的展开稿，避免干条；讲者备注口语化。
+原则：每页 **text** 保持短；**slide_hint** 与 text 成对出现在幻灯片；**speaker_elaboration** 只服务讲者、写满展开稿；三者分工：**text=标题行，slide_hint=片上短提示，speaker_elaboration=讲述长稿**。
 
 若用户消息含【用户意见与需求】，分页主线、各页标题与 bullets 必须 **严格服从** 该意见来组织（优先级高于默认分页习惯）；未提供时按 ppt_elements 自然展开。
 
@@ -131,5 +147,131 @@ def deck_user(
     elab = (
         "\n【讲者参考稿】须把 ppt_elements 里各 key_claim 的 speaker_elaboration "
         "落实为对应 bullet 的 speaker_elaboration（可删繁就简，但 **不得** 变成干条；每条仍约 200 字口径）。\n"
+        "\n【片上短提示 slide_hint】**每个 bullet 必须带 slide_hint**："
+        "幻灯片上显示在 text 下方的一行短句（约 12～40 字）；**禁止**把长阐述塞进 slide_hint。\n"
     )
     return f"【ppt_elements】\n{elements_json.strip()}{mode}{elab}{suffix}"
+
+
+REPAIR_JSON_SYSTEM = """你是 JSON 结构修复助手。用户会给你【文档类型】、【校验错误列表】和【当前 JSON 对象】。
+你必须只输出**一个**修复后的合法 JSON 对象：不要 markdown 代码块，不要解释文字，不要前后缀。
+你只能修改结构、类型与缺失字段以满足校验；**不要**编造与输入 JSON 明显无关的新事实或虚构数据。
+若某字段无法从上下文推断，用空字符串 "" 或空数组 [] 占位。"""
+
+
+def repair_user_json(kind: str, errors: List[str], data: Dict[str, Any]) -> str:
+    err_text = "\n".join(errors) if errors else "(无)"
+    blob = json.dumps(data, ensure_ascii=False, indent=2)
+    return f"【文档类型】{kind}\n【校验错误】\n{err_text}\n\n【当前 JSON】\n{blob}\n"
+
+
+REFINE_SLIDE_SYSTEM = """你是演讲幻灯片编辑。根据【当前页 JSON】与【用户修改要求】重写该页展示内容。
+只输出**一个** JSON 对象，不要 markdown 围栏，不要其它文字。
+字段：
+- index: 整数（须与【当前页】一致）
+- kind: 字符串（content|transition|title，须与【当前页】一致，除非用户明确要求改 kind）
+- title: 字符串
+- text_scheme: 可选，`bullets`|`title_only`|`title_lead`|`title_subtitle_lead`|`long_prose`
+- subtitle / lead / body_text / body_summary: 可选字符串，与 text_scheme 配套
+- bullets: 数组；每项为字符串，或对象 {{ "text", "slide_hint"（片上短提示）, "speaker_elaboration"（讲述长稿） }}；若使用 title_lead 等方案可为 []
+- speaker_notes: 字符串，可空
+
+保持信息忠于【ppt_elements 上下文】（若有）与用户要求；表述可改写、可合并要点。"""
+
+
+def refine_slide_user(
+    current_slide: Dict[str, Any],
+    instructions: str,
+    *,
+    ppt_elements_json: str = "",
+    user_requirements: str = "",
+) -> str:
+    slide_blob = json.dumps(current_slide, ensure_ascii=False, indent=2)
+    parts = [f"【当前页】\n{slide_blob}\n", f"【用户修改要求】\n{(instructions or '').strip()}\n"]
+    pe = (ppt_elements_json or "").strip()
+    if pe:
+        parts.append(f"【ppt_elements 上下文】\n{pe}\n")
+    ur = (user_requirements or "").strip()
+    if ur:
+        parts.append(f"【用户意见与需求】（最高优先级）\n{ur}\n")
+    return "".join(parts)
+
+
+PLAN_SYSTEM = """你是演讲稿编排助手。输入为 ppt_elements JSON。你要把它拆成并行可生成的“页级骨架”。
+
+输出 deck_plan JSON（version=1）：
+- deck_title: 演示总标题（一句话）
+- slides: 数组；每项为对象
+  - index: 整数（从 1 递增）
+  - kind: 固定为 "content"
+  - title: 页标题（短句）
+  - bullets: 字符串数组（片上可见短句）；长度建议 2～6；不要写 speaker_elaboration
+
+只输出 JSON，不要其它文字、不要 markdown 围栏。
+若用户消息含【用户意见与需求】，为最高优先级：页数与标题/要点取舍要严格遵守，不得仅作轻微点缀。
+"""
+
+
+def plan_user(
+    elements_json: str,
+    constraints: str,
+    *,
+    user_requirements: str = "",
+    max_slides_hint: str = "",
+) -> str:
+    c = (constraints or "").strip()
+    suffix = f"\n\n【生成约束】\n{c}\n" if c else ""
+    ur = (user_requirements or "").strip()
+    if ur:
+        suffix += (
+            "\n【用户意见与需求】（以下内容为最高优先级）\n"
+            f"{ur}\n"
+        )
+    mh = (max_slides_hint or "").strip()
+    if mh:
+        suffix += f"\n【页数提示】{mh}\n"
+    return f"【ppt_elements】\n{(elements_json or '').strip()}\n{suffix}".strip()
+
+
+PAGE_DRAFT_SYSTEM = """你是演讲幻灯片编辑。你将收到【ppt_elements】和【单页骨架 deck_plan-slide】。
+
+只输出一个 JSON slide 对象：
+- index: 与输入骨架一致
+- kind: "content"
+- title: 页标题
+- bullets: 数组；每项为对象，含 text、slide_hint、speaker_elaboration：
+  - text：片上标题行，**必须与骨架 bullets 的字符串逐条完全一致**（不允许换词）
+  - slide_hint：片上短提示，约 12～40 字，显示在标题行正下方
+  - speaker_elaboration：仅讲述区，约 180～220 字讲者参考
+- speaker_notes: 字符串，可空（可用一句开场/收束）
+- sources: 可选数组（字符串）；若【页级输入】提供了 sources，则必须原样输出且仅包含这些 sources
+
+slide_hint 必须短；speaker_elaboration 必须长且口语化，二者不可混用长度。
+遵守【生成约束】与【用户意见与需求】（若存在）。
+
+只输出 JSON，不要其它文字或 markdown 围栏。
+"""
+
+
+def page_draft_user(
+    elements_json: str,
+    slide_plan: Dict[str, Any],
+    constraints: str,
+    *,
+    user_requirements: str = "",
+    page_input: Dict[str, Any] = None,
+) -> str:
+    c = (constraints or "").strip()
+    suffix = f"\n\n【生成约束】\n{c}\n" if c else ""
+    ur = (user_requirements or "").strip()
+    if ur:
+        suffix += (
+            "\n【用户意见与需求】（以下内容为最高优先级）\n"
+            f"{ur}\n"
+        )
+    return (
+        f"【ppt_elements】\n{(elements_json or '').strip()}\n\n"
+        f"【单页骨架】\n{json.dumps(slide_plan, ensure_ascii=False, indent=2)}\n"
+        f"{f'\\n【页级输入】\\n{json.dumps(page_input, ensure_ascii=False, indent=2)}\\n' if page_input else ''}"
+        f"{suffix}"
+    ).strip()

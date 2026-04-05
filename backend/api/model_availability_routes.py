@@ -36,6 +36,7 @@ BAILIAN_CATEGORIES = [
     (r"^baichuan", "百川系列"),
     (r"^chatglm", "ChatGLM 系列"),
     (r"^llama", "LLaMA 系列"),
+    (r"^qwen3\.6-plus$", "通义千问3 深度思考"),
     (r"^qwen3-max$", "通义千问3 文本生成"),
     (r"^qwen-plus-2025", "通义千问3 文本生成"),
     (r"^qwen-flash$", "通义千问3 文本生成"),

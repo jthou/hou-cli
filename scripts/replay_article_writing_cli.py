@@ -13,15 +13,22 @@
 context_type=article_writing，可选打印与 orchestrator 一致的 system/user 构造。
 
 环境变量：
-- ARTICLE_WRITING_REPLAY_MODEL：模型名，默认 qwen3-max（与 model_config 写作默认一致时可改）
+- ARTICLE_WRITING_REPLAY_MODEL：模型名，默认 qwen3.6-plus（与 /api/models/selectable 写作默认一致时可改）
 - DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS：未设置时本脚本 setdefault true，避免写作技能抢答导致路径不一致；
   若需复现「技能命中」路径，可先 export DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS=false 再运行。
+
+无会话时草稿：`--article-file` 通过 `context["replay_current_article"]` 交给 Orchestrator 注入【改稿范围】（与线上 session 草稿一致），**不会**把草稿拼进 `task`，避免长文/字数检出误匹配改稿前缀里的示例用语。
 
 示例（与 UI 一致：无 -r 时仅发用户句；有 -r 时拼参考前缀 + 【用户本次提问】）：
   echo "新写全文：三级记忆…" | python scripts/replay_article_writing_cli.py
   python scripts/replay_article_writing_cli.py --dump-prompt -q "写一段引言"
   python scripts/replay_article_writing_cli.py -r @ref.txt -q "按上文润色"
   python scripts/replay_article_writing_cli.py --raw < full_user_message.txt
+
+局部改稿复现（fixture，先看不调 LLM）：
+  python scripts/replay_article_writing_cli.py --dump-prompt \\
+    --article-file scripts/fixtures/writing_replay/draft_local_edit.md \\
+    -q "$(cat scripts/fixtures/writing_replay/question_local_edit.txt)"
 """
 from __future__ import annotations
 
@@ -71,10 +78,12 @@ def compute_article_writing_prompts(
     task: str,
     *,
     current_article: str | None = None,
+    session_workflow: str | None = None,
 ) -> tuple[str, str, bool]:
     """
     复现 orchestrator 在 article_writing、无历史/无打分注入时对 system / user 的构造。
     current_article 非空时前置 build_article_draft_scope_prefix，顺序与 stream_process 一致：草稿 → 画像 → task → 字数/分节注入。
+    session_workflow 与 session.metadata.workflow 一致（如 doc_coauthoring 时追加 DOC_COAUTHORING_WORKFLOW）。
     返回 (system_prompt, user_prompt, use_doc_coauthoring)。
     """
     from backend.core.agent.system_prompt_templates import (
@@ -86,10 +95,11 @@ def compute_article_writing_prompts(
         build_article_draft_scope_prefix,
         build_article_sectioning_hint_injection,
         build_article_word_count_constraint_injection,
-        task_triggers_doc_coauthoring,
+        build_bracketed_revision_opinion_injection,
     )
+    from backend.core.agent.article_writing_workflow import task_triggers_doc_coauthoring
 
-    use_doc = task_triggers_doc_coauthoring(task)
+    use_doc = task_triggers_doc_coauthoring(task, session_workflow=session_workflow)
     planning = DOC_COAUTHORING_WORKFLOW if use_doc else ""
     system_prompt = get_article_writing_system_prompt(
         planning_context=planning,
@@ -108,6 +118,10 @@ def compute_article_writing_prompts(
     _sec = build_article_sectioning_hint_injection(task or "")
     if _sec:
         user_prompt = f"{user_prompt}\n\n{_sec}"
+    # 时间：2026-04-04；理由：与 orchestrator.stream_process 写作分支一致；方法：同 build_bracketed_revision_opinion_injection
+    _br = build_bracketed_revision_opinion_injection(task or "")
+    if _br:
+        user_prompt = f"{user_prompt}\n\n{_br}"
     return system_prompt, user_prompt, use_doc
 
 
@@ -131,12 +145,15 @@ async def run_stream(
     *,
     model: str,
     quiet_meta: bool,
+    extra_context: dict | None = None,
 ) -> str:
     from backend.core.agent.orchestrator import Orchestrator
 
     o = Orchestrator()
     parts: list[str] = []
-    context = {"context_type": "article_writing", "model": model}
+    context: dict = {"context_type": "article_writing", "model": model}
+    if extra_context:
+        context.update(extra_context)
     async for chunk in o.stream_process(task, context=context):
         if quiet_meta and _is_meta_chunk(chunk):
             continue
@@ -179,13 +196,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         metavar="PATH",
         help=(
-            "右侧文章草稿 Markdown 路径；用于 --dump-prompt/--show-prompt 时与线上一致注入【改稿范围】+【当前文章】。"
-            "无 session 时直接流式调用 LLM 仍不会带草稿（仅提示拼装可用）。"
+            "右侧文章草稿 Markdown 路径；与线上一致注入【改稿范围】+【当前文章】。"
+            "无会话时会在发往 Orchestrator 的 task 前部拼接该前缀，使流式调用与 --dump-prompt 一致。"
         ),
     )
     p.add_argument(
         "--model",
-        default=os.getenv("ARTICLE_WRITING_REPLAY_MODEL", "qwen3-max"),
+        default=os.getenv("ARTICLE_WRITING_REPLAY_MODEL", "qwen3.6-plus"),
         help="模型名，写入 context['model']",
     )
     p.add_argument(
@@ -250,20 +267,24 @@ async def async_main(argv: list[str] | None) -> int:
 
     blocks = reference_args_to_blocks(args.reference)
     if raw_body is not None:
-        task = raw_body.strip()
+        base_task = raw_body.strip()
     else:
-        task = build_message_for_model(blocks, user_q)
+        base_task = build_message_for_model(blocks, user_q)
 
     article_body: str | None = None
     if args.article_file:
         article_body = _read_text_file(args.article_file).strip() or None
 
     system_prompt, user_prompt, use_doc = compute_article_writing_prompts(
-        task, current_article=article_body
+        base_task, current_article=article_body
     )
 
+    stream_ctx: dict | None = None
+    if article_body:
+        stream_ctx = {"replay_current_article": article_body}
+
     if args.dump_prompt:
-        print("=== doc_coauthoring 关键词触发 ===")
+        print("=== doc_coauthoring（仅 session workflow 可开启）===")
         print(use_doc)
         print(f"\n=== system_prompt ({len(system_prompt)} chars) ===")
         print(system_prompt)
@@ -276,9 +297,17 @@ async def async_main(argv: list[str] | None) -> int:
         print(f"\n=== user_prompt ({len(user_prompt)} chars) ===\n{user_prompt}")
         print("\n=== assistant stream ===\n")
 
-    print(f"[replay] model={args.model} task_len={len(task)} doc_coauthoring={use_doc}", file=sys.stderr)
+    print(
+        f"[replay] model={args.model} task_len={len(base_task)} doc_coauthoring={use_doc}",
+        file=sys.stderr,
+    )
 
-    out = await run_stream(task, model=args.model, quiet_meta=quiet_meta)
+    out = await run_stream(
+        base_task,
+        model=args.model,
+        quiet_meta=quiet_meta,
+        extra_context=stream_ctx,
+    )
     sys.stdout.write(out)
     if out and not out.endswith("\n"):
         sys.stdout.write("\n")

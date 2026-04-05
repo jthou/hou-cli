@@ -162,6 +162,7 @@ CHAT_MODELS_BY_PROVIDER = {
         ("deepseek-reasoner", "DeepSeek Reasoner"),
     ],
     "bailian": [
+        ("qwen3.6-plus", "Qwen3.6 Plus）"),
         ("qwen3-max", "Qwen3 Max"),
         ("qwen-plus-2025-12-01", "Qwen Plus"),
         ("qwen-flash", "Qwen Flash"),
@@ -300,7 +301,8 @@ async def get_selectable_models():
         "providers": providers,
         "vision_providers": vision_providers,
         "default_model": chat_model,
-        "article_writing_default_model": "qwen3-max",  # 写作助手固定默认
+        # 时间：2026-04-04；理由：写作助手优先深度思考与改稿精度；方法：默认 qwen3.6-plus（与百炼模型 id 一致）
+        "article_writing_default_model": "qwen3.6-plus",
         "ppt_assistant_default_model": "qwen3-max",  # PPT 助手固定默认（与写作助手同策略）
         # 时间：2026-03-13；理由：通用对话「深度思考」禁选下拉时需展示实际 REASONING_MODEL；方法与 get_reasoning_model() 一致
         "reasoning_model": reasoning_model,

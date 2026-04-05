@@ -3,6 +3,7 @@
 """
 from typing import Any, AsyncIterator, Dict, Optional
 
+from backend.api.stream_sender import should_persist_stream_chunk_in_assistant_message
 from backend.core.context.models import MessageRole
 from backend.core.agent.system_prompt_templates import CHAT_SYSTEM_PROMPT
 from backend.core.agent.agent_tools_registry import (
@@ -115,23 +116,19 @@ class GeneralChatAgent(BaseContextAgent):
                     session_id=session_id,
                     context=context,
                 ):
-                    if (
-                        chunk.startswith("__DEBUG__:")
-                        or chunk.startswith("__TOOL__:")
-                        or chunk.startswith("__STATUS__:")
-                    ):
-                        yield chunk
-                    else:
+                    if should_persist_stream_chunk_in_assistant_message(chunk):
                         full_response = (full_response or "") + chunk
-                        yield chunk
+                    yield chunk
             else:
                 audit_meta = {"session_id": session_id} if session_id else None
                 async for chunk in self.llm_service.stream_chat(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     audit_meta=audit_meta,
+                    stream_reasoning_chunks=True,
                 ):
-                    full_response += chunk
+                    if should_persist_stream_chunk_in_assistant_message(chunk):
+                        full_response += chunk
                     yield chunk
 
             self.context_manager.add_message(session_id, MessageRole.USER, task)

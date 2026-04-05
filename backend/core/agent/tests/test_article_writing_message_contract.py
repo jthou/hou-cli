@@ -10,11 +10,11 @@ from backend.core.agent.article_writing_message_contract import (
     build_article_draft_scope_prefix,
     build_article_sectioning_hint_injection,
     build_article_word_count_constraint_injection,
+    build_bracketed_revision_opinion_injection,
     build_message_for_model,
     format_reference_context,
     is_no_reference_placeholder,
     normalize_reference_blocks,
-    task_triggers_doc_coauthoring,
 )
 
 
@@ -35,12 +35,6 @@ def test_build_message_concat_equals_ui_pattern():
     ref = format_reference_context(blocks)
     full = build_message_for_model(blocks, "Q")
     assert full == f"{ref}{USER_QUESTION_MARKER}\nQ"
-
-
-def test_task_triggers_doc_coauthoring():
-    assert task_triggers_doc_coauthoring("随便") is False
-    assert task_triggers_doc_coauthoring("写PRD大纲") is True
-    assert task_triggers_doc_coauthoring("", session_workflow="doc_coauthoring") is True
 
 
 def test_is_no_reference_placeholder():
@@ -81,7 +75,7 @@ def test_sectioning_hint_suppressed_when_no_subtitles():
 def test_sectioning_hint_no_conclusion_when_user_forbids():
     s = "写一篇长文章，不要结论"
     inj = build_article_sectioning_hint_injection(s)
-    assert "不要添加 `## 结论`" in inj
+    assert "添加 `## 结论`" in inj and "自然收束" in inj
 
 
 def test_draft_scope_prefix_empty_when_no_article():
@@ -97,3 +91,39 @@ def test_draft_scope_prefix_contains_marker_and_rules():
     assert "## 标题\n正文" in p
     assert "局部" in p or "patch" in p
     assert "\n---\n\n" in p
+
+
+def test_bracketed_revision_injection_when_marker_present():
+    s = "第一段\n（修改意见：补背景）\n第二段"
+    inj = build_bracketed_revision_opinion_injection(s)
+    assert "系统检出·修改意见落实" in inj
+    assert "逐条" in inj
+
+
+def test_revision_injection_without_brackets_when_xiugai_yijian():
+    inj = build_bracketed_revision_opinion_injection("按下面修改意见只改开篇，其它不动")
+    assert "系统检出·修改意见落实" in inj
+    assert "逐条" in inj
+
+
+def test_bracketed_revision_injection_empty_without_marker():
+    assert build_bracketed_revision_opinion_injection("随便改改") == ""
+    assert build_bracketed_revision_opinion_injection("") == ""
+
+
+def test_bracketed_revision_injection_halfwidth_paren():
+    assert "系统检出·修改意见落实" in build_bracketed_revision_opinion_injection("(修改意见：xxx)")
+
+
+def test_bracketed_revision_injection_quotes_opinion_after_title():
+    """标题后紧接（修改意见：…）时须摘录正文注入，防模型漏读。"""
+    s = (
+        "# AI-Coding一周年：工具变了，人不能不变 "
+        "（修改意见：重点是，一年前，作为一个有着25年编程经验的程序员，我决定拥抱AI编程。"
+        "以这个为背景，重写第一段）一年前，AI编程工具还只是"
+    )
+    inj = build_bracketed_revision_opinion_injection(s)
+    assert "系统摘录·括号内修改意见正文" in inj
+    assert "25年编程经验" in inj or "25 年" in inj
+    assert "拥抱AI编程" in inj or "拥抱 AI" in inj
+    assert "不得以「在标题旁」为由忽略" in inj

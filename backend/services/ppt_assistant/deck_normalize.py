@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from backend.services.ppt_assistant.bullets import bullet_parts, bullet_to_dict
+from backend.services.ppt_assistant.bullets import (
+    bullet_parts,
+    bullet_slide_hint,
+    bullet_to_dict,
+)
 
 
 def enforce_single_slide_deck(deck: Dict[str, Any]) -> Dict[str, Any]:
     """
     将模型返回的多页 deck 规范为 **恰好一张 content 页**（index=1）。
     标题取 deck_title 或首个非空页标题；要点合并去重，上限 14 条；备注拼接截断。
-    bullets 统一为 { text, speaker_elaboration }。
+    bullets 统一为 { text, speaker_elaboration }，并保留 slide_hint（若有）。
     """
     slides = deck.get("slides")
     if not isinstance(slides, list):
@@ -51,13 +55,20 @@ def enforce_single_slide_deck(deck: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             if t not in seen_text:
                 seen_text.add(t)
-                ordered.append({"text": t, "speaker_elaboration": e})
-            elif e:
+                h0 = bullet_slide_hint(b)
+                row: Dict[str, str] = {"text": t, "speaker_elaboration": e}
+                if h0:
+                    row["slide_hint"] = h0
+                ordered.append(row)
+            elif e or bullet_slide_hint(b):
                 for item in ordered:
                     if item["text"] == t:
                         old = item.get("speaker_elaboration") or ""
                         merged = (old + "\n\n" + e).strip() if old else e
                         item["speaker_elaboration"] = merged[:1200]
+                        nh = bullet_slide_hint(b)
+                        if nh and not (item.get("slide_hint") or "").strip():
+                            item["slide_hint"] = nh
                         break
 
     ordered = ordered[:14]

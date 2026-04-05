@@ -39,7 +39,13 @@ from backend.core.agent.planning.execution_planner import ExecutionPlanner
 from backend.core.agent.planning.model_switcher import ModelSwitcher
 from backend.core.agent.planning.adaptive_strategy import AdaptiveStrategy, ExecutionMetrics
 from backend.core.agent.planning.autonomous_executor import AutonomousExecutor
-from backend.api.stream_sender import SSEFormatter, LongTaskMonitor, StreamMessageBuilder, resolve_orchestration_trace_verbosity
+from backend.api.stream_sender import (
+    SSEFormatter,
+    LongTaskMonitor,
+    StreamMessageBuilder,
+    resolve_orchestration_trace_verbosity,
+    should_persist_stream_chunk_in_assistant_message,
+)
 from backend.core.agent.task_manager import task_manager
 from backend.core.agent.system_prompt_templates import (
     CHAT_SYSTEM_PROMPT,
@@ -58,8 +64,9 @@ from backend.core.agent.article_writing_message_contract import (
     build_article_draft_scope_prefix,
     build_article_sectioning_hint_injection,
     build_article_word_count_constraint_injection,
-    task_triggers_doc_coauthoring,
+    build_bracketed_revision_opinion_injection,
 )
+from backend.core.agent.article_writing_workflow import task_triggers_doc_coauthoring
 from backend.core.agent.work_config import get_config_block_for_prompt
 from backend.core.agent.stream_agent_preamble import (
     iter_stream_preamble_text,
@@ -461,11 +468,9 @@ class UnifiedOrchestrator:
                     session_id=session_id,
                     context=context,
                 ):
-                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:") or chunk.startswith("__STATUS__:"):
-                        yield chunk
-                    else:
+                    if should_persist_stream_chunk_in_assistant_message(chunk):
                         full_response = (full_response or "") + chunk
-                        yield chunk
+                    yield chunk
             else:
                 audit_meta = {"session_id": session_id} if session_id else None
                 full_response = ""
@@ -473,8 +478,10 @@ class UnifiedOrchestrator:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     audit_meta=audit_meta,
+                    stream_reasoning_chunks=True,
                 ):
-                    full_response += chunk
+                    if should_persist_stream_chunk_in_assistant_message(chunk):
+                        full_response += chunk
                     yield chunk
             self.context_manager.add_message(session_id, MessageRole.USER, task)
             self.context_manager.add_message(session_id, MessageRole.ASSISTANT, full_response or "")
@@ -1735,10 +1742,11 @@ class UnifiedOrchestrator:
                 self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
         else:
             # 写文章场景：写作画像 + 前端参考块 + 用户提问，不参考历史、不调用工具
-            # 检测是否启用文档协作写作流程（时间：2025-03-15；理由：落地 Anthropic doc-coauthoring；方法：session metadata 或用户关键词触发）
+            # 检测是否启用文档协作写作流程（时间：2025-03-15；理由：Anthropic doc-coauthoring；方法：session.metadata.workflow）
+            # 时间：2026-04-04；理由：写作助手收窄；方法：关键词触发已关闭，仅显式 doc_coauthoring 会话
             session_obj = self.context_manager.get_session(session_id) if session_id else None
             session_meta = (session_obj.metadata or {}) if session_obj else {}
-            # 时间：2026-03-21；理由：触发词单一来源；方法：article_writing_message_contract.task_triggers_doc_coauthoring
+            # 时间：2026-03-21；理由：触发逻辑单一来源；方法：article_writing_workflow.task_triggers_doc_coauthoring
             use_doc_coauthoring = task_triggers_doc_coauthoring(
                 task or "",
                 session_workflow=session_meta.get("workflow"),
@@ -1764,13 +1772,22 @@ class UnifiedOrchestrator:
             # 参考信息仅来自前端参考块（task 中已含参考块 + 用户提问）
             user_prompt = task
             # 时间：2026-03-13；理由：此前未把右侧草稿并入流式 user，局部改稿意见缺锚点；方法：与 article_writing_message_contract.build_article_draft_scope_prefix 对齐
+            # 时间：2026-04-04；理由：replay_article_writing_cli 无 session；方法：context.replay_current_article 与 session 草稿二选一，且 task 保持「仅用户侧」以便字数/长文检出不误匹配草稿前缀里的示例句
+            _article_for_draft = (
+                (self.context_manager.get_current_article(session_id) or "").strip()
+                if session_id
+                else ""
+            )
+            if not _article_for_draft and context:
+                _article_for_draft = (context.get("replay_current_article") or "").strip()
             _draft_prefix = build_article_draft_scope_prefix(
-                self.context_manager.get_current_article(session_id) if session_id else None
+                _article_for_draft if _article_for_draft else None
             )
             if _draft_prefix:
                 user_prompt = _draft_prefix + user_prompt
-                _ca_for_log = (self.context_manager.get_current_article(session_id) or "").strip()
-                self.debug.log_orchestrator_step("注入当前文章草稿", {"article_chars": len(_ca_for_log)})
+                self.debug.log_orchestrator_step(
+                    "注入当前文章草稿", {"article_chars": len(_article_for_draft)}
+                )
             profile_block = get_profile_block_for_prompt()
             if profile_block:
                 user_prompt = profile_block + "\n\n" + user_prompt
@@ -1785,6 +1802,13 @@ class UnifiedOrchestrator:
             if _section_hint:
                 user_prompt = user_prompt + "\n\n" + _section_hint
                 self.debug.log_orchestrator_step("注入长文分节版式提醒", {"length": len(_section_hint)})
+            # 时间：2026-04-04；理由：修改意见（含无括号仅「修改意见」三字）易被忽略；方法：契约层检出后追加 user 硬提醒
+            _bracket_revision = build_bracketed_revision_opinion_injection(task or "")
+            if _bracket_revision:
+                user_prompt = user_prompt + "\n\n" + _bracket_revision
+                self.debug.log_orchestrator_step(
+                    "注入修改意见落实提醒", {"length": len(_bracket_revision)}
+                )
             self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
             # 时间：2026-03-13；理由：P2 写作页「本次上下文」需可解释素材清单（非 chat 历史）；方法：ENABLE_ARTICLE_WRITING_CTX_META + yield __CTX_META__
             if os.getenv("ENABLE_ARTICLE_WRITING_CTX_META", "true").lower() == "true":
@@ -1807,6 +1831,8 @@ class UnifiedOrchestrator:
                         if session_id
                         else ""
                     )
+                    if not _aw_article and context:
+                        _aw_article = (context.get("replay_current_article") or "").strip()
                     _aw_profile = profile_block if profile_block else ""
                     _aw_meta = build_article_writing_stream_ctx_meta(
                         session_chat_turn_count=_aw_schat,
@@ -2538,13 +2564,9 @@ class UnifiedOrchestrator:
                     session_id=session_id,
                     context=context
                 ):
-                    # 检查是否是调试信息、工具调用信息或状态更新
-                    if chunk.startswith("__DEBUG__:") or chunk.startswith("__TOOL__:") or chunk.startswith("__STATUS__:"):
-                        yield chunk
-                    else:
-                        # 内容块
+                    if should_persist_stream_chunk_in_assistant_message(chunk):
                         full_response += chunk
-                        yield chunk
+                    yield chunk
                 
                 # 确保 full_response 是字符串
                 if full_response is None:
@@ -2627,8 +2649,10 @@ class UnifiedOrchestrator:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 audit_meta=audit_meta,
+                stream_reasoning_chunks=True,
             ):
-                full_response += chunk
+                if should_persist_stream_chunk_in_assistant_message(chunk):
+                    full_response += chunk
                 yield chunk
             
             self.debug.log_llm_response(full_response, selected_model)

@@ -30,6 +30,30 @@ def resolve_orchestration_trace_verbosity(context: Optional[Dict[str, Any]]) -> 
     return "off"
 
 
+# 时间：2026-04-04；理由：思考链 __REASONING__ 等帧需透传前端但不得写入会话 assistant 正文；方法与前端 shouldAppendStreamingPlainText 对齐
+_STREAM_ASSISTANT_PERSIST_EXCLUDE_PREFIXES: tuple[str, ...] = (
+    "__DEBUG__:",
+    "__TOOL__:",
+    "__STATUS__:",
+    "__REASONING__:",
+    "__CTX_META__:",
+    "__EVALUATION__:",
+    "__ORCH_TRACE__:",
+    "__PROGRESS__:",
+    "__CONFIRM__:",
+)
+
+
+def should_persist_stream_chunk_in_assistant_message(chunk: str) -> bool:
+    """流式块是否应拼入持久化的助手消息正文（False = 仍 yield 给前端）。"""
+    if chunk is None:
+        return False
+    s = str(chunk)
+    if not s:
+        return False
+    return not any(s.startswith(p) for p in _STREAM_ASSISTANT_PERSIST_EXCLUDE_PREFIXES)
+
+
 class StreamMessageBuilder:
     """流式消息构建器（同步版本，用于异步生成器）"""
     

@@ -6,6 +6,8 @@ PPT 助手同步 CLI：与 /api/ppt-assistant/* 共用 services.ppt_assistant。
   python -m backend.cli.ppt_assistant_cli extract -i article.txt -o elements.json
   python -m backend.cli.ppt_assistant_cli deck -i elements.json -o deck.json
   python -m backend.cli.ppt_assistant_cli run -i article.txt -o-dir ./out
+  python -m backend.cli.ppt_assistant_cli refine -d slide_deck.json -t 1 -I "更口语化" -o out.json
+  python -m backend.cli.ppt_assistant_cli export-pptx -i deck.json -o deck.pptx
 """
 
 from __future__ import annotations
@@ -60,6 +62,7 @@ async def _extract_async(
     out: str,
     user_requirements: str,
     model: Optional[str],
+    max_repair: int,
 ):
     from backend.services.ppt_assistant import extract_ppt_elements
 
@@ -69,7 +72,12 @@ async def _extract_async(
         m["user_requirements"] = ur
     llm = _llm_service(temperature=0.35, model=model)
     data = await extract_ppt_elements(
-        article, meta=m or None, llm=llm, chunk_chars=chunk, overlap=overlap
+        article,
+        meta=m or None,
+        llm=llm,
+        chunk_chars=chunk,
+        overlap=overlap,
+        max_repair_attempts=max_repair,
     )
     _write_json(out, {"ppt_elements": data})
 
@@ -82,6 +90,9 @@ async def _deck_async(
     single_slide: bool,
     user_requirements: str,
     model: Optional[str],
+    max_repair: int,
+    generation_mode: str,
+    parallelism: int,
 ):
     from backend.services.ppt_assistant import generate_slide_deck, slide_deck_to_markdown
 
@@ -92,6 +103,9 @@ async def _deck_async(
         llm=llm,
         single_slide=single_slide,
         user_requirements=user_requirements.strip() or None,
+        max_repair_attempts=max_repair,
+        generation_mode=generation_mode,
+        parallelism=parallelism,
     )
     md = slide_deck_to_markdown(deck)
     _write_json(out, {"slide_deck": deck, "slide_deck_markdown": md})
@@ -109,6 +123,9 @@ async def _run_async(
     single_slide: bool,
     user_requirements: str,
     model: Optional[str],
+    max_repair: int,
+    generation_mode: str,
+    parallelism: int,
 ):
     from backend.services.ppt_assistant import run_ppt_pipeline, slide_deck_to_markdown
 
@@ -126,6 +143,9 @@ async def _run_async(
         overlap=overlap,
         elements_only=elements_only,
         single_slide=single_slide,
+        max_repair_attempts=max_repair,
+        generation_mode=generation_mode,
+        parallelism=parallelism,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "ppt_elements.json").write_text(
@@ -141,6 +161,48 @@ async def _run_async(
         (out_dir / "slide_deck.md").write_text(
             slide_deck_to_markdown(deck), encoding="utf-8"
         )
+
+
+async def _refine_async(
+    deck: Dict[str, Any],
+    targets: str,
+    instructions: str,
+    out: str,
+    *,
+    elements: Optional[Dict[str, Any]],
+    locks_json: Optional[str],
+    user_requirements: str,
+    model: Optional[str],
+    max_repair: int,
+):
+    import json as _json
+
+    from backend.services.ppt_assistant import refine_slide_deck, slide_deck_to_markdown
+
+    idxs = [int(x.strip()) for x in targets.split(",") if x.strip()]
+    if not idxs:
+        raise click.UsageError("请用 --targets 指定页 index，逗号分隔，如 1 或 1,2")
+    locks_map: Optional[Dict[int, list]] = None
+    if locks_json:
+        raw = _json.loads(locks_json)
+        if not isinstance(raw, dict):
+            raise click.UsageError("locks-json 必须是 JSON 对象")
+        locks_map = {}
+        for k, v in raw.items():
+            locks_map[int(k)] = list(v or [])
+    llm = _llm_service(temperature=0.45, model=model)
+    new_deck = await refine_slide_deck(
+        deck,
+        target_slide_indexes=idxs,
+        instructions=instructions,
+        llm=llm,
+        ppt_elements=elements,
+        locks=locks_map,
+        user_requirements=user_requirements.strip() or None,
+        max_repair_attempts=max_repair,
+    )
+    md = slide_deck_to_markdown(new_deck)
+    _write_json(out, {"slide_deck": new_deck, "slide_deck_markdown": md})
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -175,6 +237,13 @@ def main():
     default=None,
     help="模型 id（与 UI 可选列表一致）；省略则用环境默认",
 )
+@click.option(
+    "--max-repair",
+    type=int,
+    default=2,
+    show_default=True,
+    help="JSON 校验失败时 repair 轮数；0 表示不 repair",
+)
 def extract_cmd(
     input_path: Optional[str],
     out_path: str,
@@ -182,11 +251,19 @@ def extract_cmd(
     overlap: int,
     user_requirements: str,
     model: Optional[str],
+    max_repair: int,
 ):
     article = _read_text(input_path, stdin_if_none=True)
     asyncio.run(
         _extract_async(
-            article, {}, chunk_chars, overlap, out_path, user_requirements, model
+            article,
+            {},
+            chunk_chars,
+            overlap,
+            out_path,
+            user_requirements,
+            model,
+            max_repair,
         )
     )
 
@@ -214,6 +291,21 @@ def extract_cmd(
     default=None,
     help="模型 id；省略则用环境默认",
 )
+@click.option("--max-repair", type=int, default=2, show_default=True)
+@click.option(
+    "--generation-mode",
+    type=click.Choice(["sequential", "parallel"], case_sensitive=False),
+    default="sequential",
+    show_default=True,
+    help="多页生成模式（parallel：页级并行 draft；需配合 --multi-slide）",
+)
+@click.option(
+    "--parallelism",
+    type=int,
+    default=4,
+    show_default=True,
+    help="parallel 模式并发上限（页级）",
+)
 def deck_cmd(
     input_path: str,
     out_path: str,
@@ -221,6 +313,9 @@ def deck_cmd(
     multi_slide: bool,
     user_requirements: str,
     model: Optional[str],
+    max_repair: int,
+    generation_mode: str,
+    parallelism: int,
 ):
     blob = json.loads(Path(input_path).read_text(encoding="utf-8"))
     if "ppt_elements" in blob:
@@ -235,6 +330,9 @@ def deck_cmd(
             single_slide=not multi_slide,
             user_requirements=user_requirements,
             model=model,
+            max_repair=max_repair,
+            generation_mode=generation_mode,
+            parallelism=parallelism,
         )
     )
 
@@ -271,6 +369,21 @@ def deck_cmd(
     default=None,
     help="模型 id；全流程使用同一模型；省略则用环境默认",
 )
+@click.option("--max-repair", type=int, default=2, show_default=True)
+@click.option(
+    "--generation-mode",
+    type=click.Choice(["sequential", "parallel"], case_sensitive=False),
+    default="sequential",
+    show_default=True,
+    help="多页生成模式（parallel：页级并行 draft；需配合 --multi-slide）",
+)
+@click.option(
+    "--parallelism",
+    type=int,
+    default=4,
+    show_default=True,
+    help="parallel 模式并发上限（页级）",
+)
 def run_cmd(
     input_path: Optional[str],
     out_dir: Path,
@@ -281,6 +394,9 @@ def run_cmd(
     multi_slide: bool,
     user_requirements: str,
     model: Optional[str],
+    max_repair: int,
+    generation_mode: str,
+    parallelism: int,
 ):
     article = _read_text(input_path, stdin_if_none=True)
     asyncio.run(
@@ -295,6 +411,108 @@ def run_cmd(
             single_slide=not multi_slide,
             user_requirements=user_requirements,
             model=model,
+            max_repair=max_repair,
+            generation_mode=generation_mode,
+            parallelism=parallelism,
+        )
+    )
+
+
+@main.command("export-pptx")
+@click.option(
+    "--input",
+    "-i",
+    "input_path",
+    type=str,
+    required=True,
+    help="slide_deck JSON 文件（可含 slide_deck 键）",
+)
+@click.option(
+    "--output",
+    "-o",
+    "out_path",
+    type=str,
+    required=True,
+    help="输出 .pptx 路径",
+)
+def export_pptx_cmd(input_path: str, out_path: str):
+    blob = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    deck = blob["slide_deck"] if "slide_deck" in blob else blob
+    from backend.services.ppt_assistant.pptx_export import slide_deck_to_pptx_bytes
+
+    data = slide_deck_to_pptx_bytes(deck)
+    Path(out_path).write_bytes(data)
+    click.echo(f"已写入 {out_path}（{len(data)} 字节）")
+
+
+@main.command("refine")
+@click.option(
+    "--deck",
+    "-d",
+    "deck_path",
+    type=str,
+    required=True,
+    help="slide_deck JSON 文件（可含 slide_deck 键）",
+)
+@click.option(
+    "--targets",
+    "-t",
+    type=str,
+    required=True,
+    help="要重写的页 index，逗号分隔，如 1 或 1,2",
+)
+@click.option(
+    "--instructions",
+    "-I",
+    type=str,
+    required=True,
+    help="修改要求（自然语言）",
+)
+@click.option("--output", "-o", "out_path", type=str, default="-")
+@click.option(
+    "--elements",
+    "-e",
+    type=str,
+    default=None,
+    help="可选 ppt_elements JSON 文件，供 refine 作上下文",
+)
+@click.option(
+    "--locks-json",
+    type=str,
+    default=None,
+    help='可选：JSON 对象，键为页 index 字符串，如 {"1":["title","bullets"]}',
+)
+@click.option("--user-requirements", "-U", type=str, default="")
+@click.option("--model", "-M", type=str, default=None)
+@click.option("--max-repair", type=int, default=2, show_default=True)
+def refine_cmd(
+    deck_path: str,
+    targets: str,
+    instructions: str,
+    out_path: str,
+    elements: Optional[str],
+    locks_json: Optional[str],
+    user_requirements: str,
+    model: Optional[str],
+    max_repair: int,
+):
+    blob = json.loads(Path(deck_path).read_text(encoding="utf-8"))
+    deck = blob["slide_deck"] if "slide_deck" in blob else blob
+    el: Optional[Dict[str, Any]] = None
+    if elements:
+        eb = json.loads(Path(elements).read_text(encoding="utf-8"))
+        el = eb.get("ppt_elements", eb)
+    asyncio.run(
+        _refine_async(
+            deck,
+            targets,
+            instructions,
+            out_path,
+            elements=el,
+            locks_json=locks_json,
+            user_requirements=user_requirements,
+            model=model,
+            max_repair=max_repair,
         )
     )
 

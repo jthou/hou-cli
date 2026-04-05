@@ -17,6 +17,36 @@ logger = logging.getLogger(__name__)
 # 百炼图像生成 API 路径（与 chat 的 base_url 不同）
 BAILIAN_IMAGE_API_PATH = "/api/v1/services/aigc/multimodal-generation/generation"
 
+# 已知可在 messages 中附带参考图做风格迁移的模型（纯 t2i 勿混用 image 块，避免 400）
+_STYLE_REF_IMAGE_MODEL_MARKERS = ("wan2.6-image", "wan2.5-image", "wan2.2-image", "qwen-image")
+
+
+def _normalize_reference_image_urls(raw: Optional[List[str]], *, max_n: int = 3) -> List[str]:
+    out: List[str] = []
+    for x in raw or []:
+        s = (x or "").strip()
+        if not s or s in out:
+            continue
+        if s.startswith("data:image/") and ";base64," in s:
+            out.append(s)
+        elif s.startswith("https://") or s.startswith("http://"):
+            out.append(s)
+        else:
+            logger.warning("跳过无效参考图地址（仅支持 http(s) 或 data:image;base64）: %s", s[:80])
+        if len(out) >= max_n:
+            break
+    return out
+
+
+def _model_supports_reference_images(api_model: str) -> bool:
+    m = (api_model or "").lower().strip()
+    if "t2i" in m and "image" not in m.replace("t2i", ""):
+        return False
+    for marker in _STYLE_REF_IMAGE_MODEL_MARKERS:
+        if marker in m:
+            return True
+    return "image" in m and "t2i" not in m
+
 
 class ImageGenService:
     """封装百炼/网关图像生成 API"""
@@ -70,6 +100,7 @@ class ImageGenService:
         size: str = "1024*1024",
         n: int = 1,
         output_dir: Optional[str] = None,
+        reference_image_urls: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         调用百炼图像生成 API，返回图片信息。
@@ -80,6 +111,8 @@ class ImageGenService:
             size: 尺寸，如 1024*1024
             n: 生成数量，首期固定 1
             output_dir: 保存目录，若指定则下载并保存到本地
+            reference_image_urls: 风格参考图 URL（https）或 data:image/*;base64,…；
+                在支持多模态输入的模型（如 wan2.6-image）下插入 content；否则仅将链接写入文生图 prompt。
 
         Returns:
             {
@@ -95,15 +128,38 @@ class ImageGenService:
         api_key = config["api_key"]
         actual_model = config["model"]
 
-        # 百炼 multimodal-generation：文生图
-        # wan2.6-t2i / wan2.6-image 均支持，content 仅含 text
+        refs = _normalize_reference_image_urls(reference_image_urls)
+        use_refs = bool(refs) and _model_supports_reference_images(actual_model)
+        prompt_stripped = (prompt or "").strip() or "一只可爱的猫"
+
+        if use_refs:
+            style_prefix = (
+                "【风格迁移】请严格参考上方参考图的整体配色、质感、留白与版式气质，"
+                "生成一张**新的**宽屏幻灯片画面；不要复制参考图上的文字，仅学习视觉风格。"
+                "具体画面内容与结构要求：\n"
+            )
+            user_text = style_prefix + prompt_stripped
+            content: List[Dict[str, Any]] = []
+            for r in refs:
+                content.append({"type": "image", "image": r})
+            content.append({"type": "text", "text": user_text})
+        else:
+            prefix = ""
+            if refs:
+                prefix = (
+                    "【风格说明】（当前模型为纯文生图，无法读图；以下为参考图链接供你联想相近风格）"
+                    + " ".join(refs[:2])
+                    + "\n\n"
+                )
+            content = [{"type": "text", "text": prefix + prompt_stripped}]
+
         body = {
             "model": actual_model,
             "input": {
                 "messages": [
                     {
                         "role": "user",
-                        "content": [{"type": "text", "text": (prompt or "").strip() or "一只可爱的猫"}],
+                        "content": content,
                     }
                 ],
             },
@@ -114,8 +170,7 @@ class ImageGenService:
                 "stream": True,  # 时间：2025-03；理由：百炼 API 报 stream=False is not supported；方法：显式传 stream=True
             },
         }
-        # wan2.6-image 图文混排模式可做文生图
-        if actual_model == "wan2.6-image":
+        if use_refs or actual_model == "wan2.6-image":
             body["parameters"]["enable_interleave"] = True
 
         async with httpx.AsyncClient(timeout=120.0, **httpx_default_network_kwargs()) as client:

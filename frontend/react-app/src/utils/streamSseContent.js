@@ -9,7 +9,7 @@ import { parseContextMetaChunk } from './streamContextMeta'
 
 /**
  * @param {string} raw
- * @param {{ onToolCall?: (toolData: object) => void, onContextMeta?: (meta: object) => void }} handlers
+ * @param {{ onToolCall?: (toolData: object) => void, onContextMeta?: (meta: object) => void, onStatusLine?: (msg: string) => void, onReasoningDelta?: (text: string) => void }} handlers
  * @returns {boolean} true = 应将 raw 追加到 fullContent / streaming 正文
  */
 export function shouldAppendStreamingPlainText(raw, handlers = {}) {
@@ -26,6 +26,17 @@ export function shouldAppendStreamingPlainText(raw, handlers = {}) {
   const ctxMeta = parseContextMetaChunk(r)
   if (ctxMeta) {
     handlers.onContextMeta?.(ctxMeta)
+    return false
+  }
+  const statusPrefix = '__STATUS__:'
+  if (r.startsWith(statusPrefix)) {
+    const msg = r.slice(statusPrefix.length).trimEnd()
+    handlers.onStatusLine?.(msg)
+    return false
+  }
+  const reasoningPrefix = '__REASONING__:'
+  if (r.startsWith(reasoningPrefix)) {
+    handlers.onReasoningDelta?.(r.slice(reasoningPrefix.length))
     return false
   }
   if (isOrchestratorControlChunk(r)) return false

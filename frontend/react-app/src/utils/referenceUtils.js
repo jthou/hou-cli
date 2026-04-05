@@ -10,7 +10,7 @@ export const ARTICLE_WRITING_USER_QUESTION_MARKER = '【用户本次提问】'
 
 /** 与 Python article_writing_message_contract.REFERENCE_INTRO 同步 */
 export const ARTICLE_WRITING_REFERENCE_INTRO =
-  '以下是用户提供的参考资料，请在回答时充分利用，并根据用户的最新指令进行综合判断：\n\n'
+  '以下是用户提供的参考资料（可能含待改范文、素材或链接稿）。请结合用户本次提问使用。若用户给出修改意见（含提问或资料中的「（修改意见：…）」「(修改意见：…)」等），须**先严格按修改意见逐条落实**，再在**原文事实与论点边界内**做必要梳理（层次、衔接、删冗、统一人称术语）；**禁止**脱离范文与意见编造内容、虚构案例，或擅自扩写用户未要求的段落与章节；括号内修订说明与显式「修改意见」清单同等效力。若括号紧跟在文章标题（如 `# 标题`）之后，仍须完整阅读并落实，不得以「在标题旁」为由跳过。\n\n'
 
 /** 从用户消息中提取「用户本次提问」部分用于展示，避免参考块长文导致排版混乱 */
 export function extractUserQuestionForDisplay(content) {

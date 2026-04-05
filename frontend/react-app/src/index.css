@@ -29,6 +29,11 @@ html:not(.dark) .text-white {
   color: var(--color-fg);
 }
 
+/* 例外：PPT 预览画框为故意压暗的「幻灯片」，其内仍需白字（否则标题与深底糊成一团） */
+html:not(.dark) .ppt-slide-canvas .text-white {
+  color: #ffffff;
+}
+
 @layer base {
   * {
     @apply m-0 p-0 box-border;

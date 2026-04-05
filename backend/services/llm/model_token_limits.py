@@ -47,6 +47,8 @@ MODEL_TOKEN_LIMITS: dict[str, Tuple[int, int]] = {
     "qwen-plus": (32_000, 8_000),
     "qwen-max": (32_000, 8_000),
     "qwen3-max": (32_000, 8_000),
+    # 更低成本更强思考（支持 Responses API）
+    "qwen3.6-plus": (32_000, 8_000),
     "qwen-flash": (32_000, 8_000),
     "qwen3-coder-plus": (32_000, 8_000),
     "qwen3-coder-plus-2025-09-23": (32_000, 8_000),

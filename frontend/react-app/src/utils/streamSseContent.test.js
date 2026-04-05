@@ -35,6 +35,20 @@ describe('shouldAppendStreamingPlainText', () => {
   it('appends plain text', () => {
     expect(shouldAppendStreamingPlainText('你好', {})).toBe(true)
   })
+
+  it('parses __STATUS__ via onStatusLine and does not append', () => {
+    const onStatusLine = vi.fn()
+    const raw = '__STATUS__:模型正在深度推理…'
+    expect(shouldAppendStreamingPlainText(raw, { onStatusLine })).toBe(false)
+    expect(onStatusLine).toHaveBeenCalledWith('模型正在深度推理…')
+  })
+
+  it('parses __REASONING__ via onReasoningDelta and does not append', () => {
+    const onReasoningDelta = vi.fn()
+    const raw = '__REASONING__:step1'
+    expect(shouldAppendStreamingPlainText(raw, { onReasoningDelta })).toBe(false)
+    expect(onReasoningDelta).toHaveBeenCalledWith('step1')
+  })
 })
 
 describe('parseContextMetaChunk', () => {

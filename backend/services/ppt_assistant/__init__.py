@@ -3,13 +3,17 @@
 from backend.services.ppt_assistant.service import (
     extract_ppt_elements,
     generate_slide_deck,
+    refine_slide_deck,
     run_ppt_pipeline,
 )
 from backend.services.ppt_assistant.markdown import slide_deck_to_markdown
+from backend.services.ppt_assistant.pptx_export import slide_deck_to_pptx_bytes
 
 __all__ = [
     "extract_ppt_elements",
     "generate_slide_deck",
+    "refine_slide_deck",
     "run_ppt_pipeline",
     "slide_deck_to_markdown",
+    "slide_deck_to_pptx_bytes",
 ]

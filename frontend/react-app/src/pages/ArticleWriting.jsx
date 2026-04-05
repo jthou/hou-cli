@@ -67,6 +67,7 @@ import { buildArticleWritingMessageForModel, extractUserQuestionForDisplay } fro
 import ContextSelectionPanel from '../components/ContextSelectionPanel'
 import { shouldAppendStreamingPlainText } from '../utils/streamSseContent'
 import { stripAgentStatusPrefix } from '../utils/streamUi'
+import StreamingReasoningPanel from '../components/StreamingReasoningPanel'
 import { useReferenceBlocks } from '../hooks/useReferenceBlocks'
 import ReferenceBlocksPanel from '../components/ReferenceBlocksPanel'
 import { useWritingSuggestions } from '../hooks/useWritingSuggestions'
@@ -133,6 +134,10 @@ export default function ArticleWriting() {
   const [previewTab, setPreviewTab] = useState('content')
   /** 流式输出时当前已接收的助手回复内容（未结束时累积显示） */
   const [streamingContent, setStreamingContent] = useState('')
+  /** 时间：2026-04-04；理由：思考模型先流 reasoning 再流 content，后端 __STATUS__ 说明阶段；方法：shouldAppendStreamingPlainText.onStatusLine */
+  const [streamingStatusLine, setStreamingStatusLine] = useState('')
+  /** 时间：2026-04-04；理由：后端 __REASONING__ 流式下发思考链；方法：shouldAppendStreamingPlainText.onReasoningDelta */
+  const [streamingReasoning, setStreamingReasoning] = useState('')
   /** 流式过程中收到的工具调用（调用了什么、结果如何） */
   const [streamingToolCalls, setStreamingToolCalls] = useState([])
   /** 时间：2026-03-13；理由：与 GeneralChat 一致，有 __CTX_META__ 时展示「本次上下文」；方法：shouldAppendStreamingPlainText 侧写 */
@@ -461,6 +466,8 @@ export default function ArticleWriting() {
     }
     setLoading(true)
     setStreamingContent('')
+    setStreamingStatusLine('')
+    setStreamingReasoning('')
     setStreamingToolCalls([])
     setContextSelectionMeta(null)
     const ac = new AbortController()
@@ -516,11 +523,14 @@ export default function ArticleWriting() {
                       }
                     },
                     onContextMeta: (m) => setContextSelectionMeta(m),
+                    onStatusLine: (msg) => setStreamingStatusLine(msg),
+                    onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                   })
                 ) {
                   fullContent += raw
                   streamingContentRef.current = fullContent
                   setStreamingContent(fullContent)
+                  setStreamingStatusLine('')
                 }
               } else if (obj.status === 'done') {
                 if (streamTerminalHandled) {
@@ -531,6 +541,8 @@ export default function ArticleWriting() {
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
+                setStreamingStatusLine('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -552,6 +564,8 @@ export default function ArticleWriting() {
               } else if (obj.status === 'error') {
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${obj.error || '请求失败'}` }])
                 setStreamingContent('')
+                setStreamingStatusLine('')
+                setStreamingReasoning('')
                 setContextSelectionMeta(null)
                 fullContent = ''
               }
@@ -580,11 +594,14 @@ export default function ArticleWriting() {
                     }
                   },
                   onContextMeta: (m) => setContextSelectionMeta(m),
+                  onStatusLine: (msg) => setStreamingStatusLine(msg),
+                  onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                 })
               ) {
                 fullContent += raw
                 streamingContentRef.current = fullContent
                 setStreamingContent(fullContent)
+                setStreamingStatusLine('')
               }
             } else if (obj.status === 'done') {
               if (!streamTerminalHandled) {
@@ -592,6 +609,8 @@ export default function ArticleWriting() {
                 const finalContent = fullContent.trim() || '（助手未返回内容）'
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
+                setStreamingStatusLine('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -615,6 +634,8 @@ export default function ArticleWriting() {
           }
         } catch (_) {}
         setStreamingContent('')
+        setStreamingStatusLine('')
+        setStreamingReasoning('')
         setContextSelectionMeta(null)
         streamingContentRef.current = ''
       }
@@ -638,6 +659,8 @@ export default function ArticleWriting() {
     if (!overrideMessage) setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setStreamingContent('')
+    setStreamingStatusLine('')
+    setStreamingReasoning('')
     setStreamingToolCalls([])
     setContextSelectionMeta(null)
     setLoading(true)
@@ -660,6 +683,8 @@ export default function ArticleWriting() {
       if (!res.ok) {
         const err = res.statusText || `服务器返回 ${res.status}`
         setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
+        setStreamingStatusLine('')
+        setStreamingReasoning('')
         return
       }
       const reader = res.body.getReader()
@@ -728,11 +753,14 @@ export default function ArticleWriting() {
                       }
                     },
                     onContextMeta: (m) => setContextSelectionMeta(m),
+                    onStatusLine: (msg) => setStreamingStatusLine(msg),
+                    onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                   })
                 ) {
                   fullContent += raw
                   streamingContentRef.current = fullContent
                   setStreamingContent(fullContent)
+                  setStreamingStatusLine('')
                 }
               } else if (obj.status === 'done') {
                 if (streamTerminalHandled) {
@@ -743,6 +771,8 @@ export default function ArticleWriting() {
                 const finalContent = fullContent.trim() || '（助手未返回内容，可能仍在处理或匹配技能，请稍后重试或换一种说法。）'
                 setMessages((prev) => [...prev, { role: 'assistant', content: finalContent }])
                 setStreamingContent('')
+                setStreamingStatusLine('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -754,6 +784,8 @@ export default function ArticleWriting() {
                 toast?.error?.(err)
                 setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
                 setStreamingContent('')
+                setStreamingStatusLine('')
+                setStreamingReasoning('')
                 setStreamingToolCalls([])
                 setContextSelectionMeta(null)
                 streamingContentRef.current = ''
@@ -784,11 +816,14 @@ export default function ArticleWriting() {
                     }
                   },
                   onContextMeta: (m) => setContextSelectionMeta(m),
+                  onStatusLine: (msg) => setStreamingStatusLine(msg),
+                  onReasoningDelta: (d) => setStreamingReasoning((prev) => prev + d),
                 })
               ) {
                 fullContent += raw
                 streamingContentRef.current = fullContent
                 setStreamingContent(fullContent)
+                setStreamingStatusLine('')
               }
             }
           }
@@ -803,6 +838,8 @@ export default function ArticleWriting() {
                 refreshMessagesAfterTurn()
               }
               setStreamingContent('')
+              setStreamingStatusLine('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               setContextSelectionMeta(null)
               streamingContentRef.current = ''
@@ -812,6 +849,8 @@ export default function ArticleWriting() {
               toast?.error?.(err)
               setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${err}` }])
               setStreamingContent('')
+              setStreamingStatusLine('')
+              setStreamingReasoning('')
               setStreamingToolCalls([])
               setContextSelectionMeta(null)
               streamingContentRef.current = ''
@@ -819,6 +858,8 @@ export default function ArticleWriting() {
           }
         } catch (_) {}
         setStreamingContent('')
+        setStreamingStatusLine('')
+        setStreamingReasoning('')
         setContextSelectionMeta(null)
       }
       if (!streamTerminalHandled && fullContent.trim()) {
@@ -834,6 +875,8 @@ export default function ArticleWriting() {
         const stoppedContent = streamingContentRef.current
         setMessages((prev) => [...prev, { role: 'assistant', content: stoppedContent ? `[已停止]\n\n${stoppedContent}` : '[已停止]' }])
         setStreamingContent('')
+        setStreamingStatusLine('')
+        setStreamingReasoning('')
         setStreamingToolCalls([])
         setContextSelectionMeta(null)
         streamingContentRef.current = ''
@@ -846,6 +889,8 @@ export default function ArticleWriting() {
       toast?.error?.(msg) || console.error(err)
       setMessages((prev) => [...prev, { role: 'assistant', content: `错误：${msg}` }])
       setStreamingContent('')
+      setStreamingStatusLine('')
+      setStreamingReasoning('')
       setContextSelectionMeta(null)
     } finally {
       setLoading(false)
@@ -1888,9 +1933,14 @@ export default function ArticleWriting() {
                           <ContextSelectionPanel meta={contextSelectionMeta} />
                         </div>
                       )}
-                      {streamStatus && (
-                        <div className="mb-1 text-xs text-muted">
-                          {streamStatus}
+                      {streamingReasoning.trim() !== '' && (
+                        <div className="mb-2 w-full max-w-[85%]">
+                          <StreamingReasoningPanel text={streamingReasoning} />
+                        </div>
+                      )}
+                      {(streamStatus || streamingStatusLine) && (
+                        <div className="mb-1 text-xs text-muted whitespace-pre-wrap">
+                          {[streamStatus, streamingStatusLine].filter(Boolean).join('\n')}
                         </div>
                       )}
                       <div
@@ -1905,7 +1955,12 @@ export default function ArticleWriting() {
                             theme="dark"
                           />
                         ) : (
-                          'thinking…'
+                          typeof selectedModel === 'string' &&
+                          (selectedModel.includes('qwen3.6') ||
+                            selectedModel.includes('thinking') ||
+                            selectedModel.toLowerCase().includes('qwq'))
+                            ? '等待正文…（深度思考会先推理再出字；本页合并长草稿/参考/画像，首字通常比官网单轮慢）'
+                            : '等待正文流式输出…'
                         )}
                       </div>
                       <div className="mt-1.5 flex items-center gap-2 flex-wrap">

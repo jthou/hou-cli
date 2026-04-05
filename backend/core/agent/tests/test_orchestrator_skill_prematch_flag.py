@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from backend.core.agent.orchestrator import Orchestrator
+from backend.core.agent.skill_prematch import disable_skill_prematch_for_assistants
 
 
 def _content_chunks(chunks):
@@ -18,12 +19,14 @@ class TestDisableSkillPrematchFlag:
 
     def test_helper_only_true_when_env_and_ctx(self, orchestrator):
         with patch.dict(os.environ, {"DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS": "true"}, clear=False):
-            assert orchestrator._disable_skill_prematch_for_assistants("article_writing") is True
-            assert orchestrator._disable_skill_prematch_for_assistants("work_assistant") is True
-            assert orchestrator._disable_skill_prematch_for_assistants("general_chat") is False
-            assert orchestrator._disable_skill_prematch_for_assistants(None) is False
+            assert disable_skill_prematch_for_assistants("article_writing") is True
+            assert disable_skill_prematch_for_assistants("work_assistant") is True
+            assert disable_skill_prematch_for_assistants("general_chat") is False
+            assert disable_skill_prematch_for_assistants(None) is False
         with patch.dict(os.environ, {"DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS": "false"}, clear=False):
-            assert orchestrator._disable_skill_prematch_for_assistants("article_writing") is False
+            assert disable_skill_prematch_for_assistants("article_writing") is False
+        with patch.dict(os.environ, {"DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS": ""}, clear=False):
+            assert disable_skill_prematch_for_assistants("article_writing") is True
 
     @pytest.mark.asyncio
     async def test_stream_work_assistant_skips_skill_registry_match_when_flag(self, orchestrator):
