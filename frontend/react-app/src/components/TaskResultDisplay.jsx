@@ -8,6 +8,7 @@ import DiskResultDisplay from './DiskResultDisplay'
 import UrlToWikiInline from './task/UrlToWikiInline'
 import WebSearchResultItem from './task/WebSearchResultItem'
 import MarkdownDraftActions from './task/MarkdownDraftActions'
+import MarkdownPreview from './MarkdownPreview'
 import SubtitlePreviewActions from './task/SubtitlePreviewActions'
 import { getMediaWikiPageUrl } from '../config/mediawiki'
 
@@ -571,6 +572,39 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
         urlToWikiConfig={urlToWikiConfig}
         setUrlToWikiConfig={setUrlToWikiConfig}
       />
+    )
+  }
+
+  // 时间：2026-04-10；理由：今日 AI 热点任务结果以 Markdown 展示；方法：与首页简报一致使用 MarkdownPreview
+  if (taskType === 'ai_hot_news_digest' && result.result?.digest?.markdown) {
+    const d = result.result.digest
+    return (
+      <div className="space-y-3 text-sm">
+        {result.summary && <p className="text-green-400">{result.summary}</p>}
+        {d.meta?.title && (
+          <p className="text-muted text-xs">
+            {d.meta.title}
+            {d.meta.generated_at && <span className="ml-2">· {d.meta.generated_at}</span>}
+            {d.meta.used_count != null && (
+              <span className="ml-2">· 依据 {d.meta.used_count} 条来源</span>
+            )}
+          </p>
+        )}
+        <MarkdownPreview markdown={d.markdown} theme="dark" />
+        {Array.isArray(d.search_log) && d.search_log.length > 0 && (
+          <details className="text-xs text-muted">
+            <summary>检索日志（{d.search_log.length} 轮）</summary>
+            <ul className="mt-2 list-disc pl-4 space-y-1">
+              {d.search_log.map((row, i) => (
+                <li key={i}>
+                  {(row.query || '').slice(0, 100)}
+                  {row.error ? ` — 失败：${row.error}` : ` — ${row.count ?? 0} 条`}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
     )
   }
 

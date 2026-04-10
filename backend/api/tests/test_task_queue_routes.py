@@ -269,6 +269,17 @@ class TestTaskQueueRoutes:
         assert vea.get("name") == "音频提取"
         assert vea.get("metadata_schema", {}).get("input_file", {}).get("required") is True
 
+    def test_task_types_include_ai_hot_news_digest(self, client):
+        """GET task-types 含 ai_hot_news_digest 及 num_results 默认"""
+        response = client.get("/api/task-queue/task-types")
+        assert response.status_code == 200
+        types_list = response.json().get("task_types") or []
+        hot = next((t for t in types_list if t.get("type") == "ai_hot_news_digest"), None)
+        assert hot is not None
+        assert hot.get("name") == "今日 AI 热点摘要"
+        schema = hot.get("metadata_schema") or {}
+        assert schema.get("num_results", {}).get("default") == 12
+
     def test_linkable_upstreams_speech_to_text(self, client):
         """GET task-types/speech_to_text/linkable-upstreams 返回可链接类型与推荐绑定"""
         response = client.get("/api/task-queue/task-types/speech_to_text/linkable-upstreams")
@@ -340,6 +351,17 @@ class TestTaskQueueRoutes:
         call_metadata = mock_task_queue_db.create_task.call_args[1]["metadata"]
         assert call_metadata.get("location") == "上海"
         assert call_metadata.get("query_type") == "forecast"
+
+    def test_create_task_ai_hot_news_digest_empty_metadata_passes(self, client, mock_task_queue_db):
+        """ai_hot_news_digest 无必填项，空 metadata 可创建"""
+        mock_task_queue_db.create_task.return_value = "hot-news-1"
+        with patch("backend.api.task_queue_routes.get_task_queue_db", return_value=mock_task_queue_db):
+            response = client.post(
+                "/api/task-queue/tasks",
+                json={"task_type": "ai_hot_news_digest", "metadata": {}},
+            )
+        assert response.status_code == 200
+        assert response.json()["task_id"] == "hot-news-1"
 
     def test_weather_query_create_via_api_and_verify_result(self, client, mock_task_queue_db):
         """用 API 创建天气预报查询任务，再通过 API 获取任务并验证结果结构（设计 doc §4）"""

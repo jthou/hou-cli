@@ -18,6 +18,7 @@ const navItems = [
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'task_tools' },
   { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'task_tools' },
   { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'task_tools' },
+  { path: '/ai-hot-news', icon: '🔥', label: '今日 AI 热点', group: 'task_tools' },
   { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'task_tools' },
   { path: '/image-generation', icon: '🖼️', label: '图片生成', group: 'task_tools' },
   { path: '/video-extract-audio', icon: '🎧', label: '音频提取', group: 'task_tools' },

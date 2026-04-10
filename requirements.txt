@@ -49,8 +49,8 @@ markdown>=3.5.0
 # PDF 处理
 pypdf>=3.17.0
 pdfplumber>=0.10.0
-# pdf_to_wiki extract_mode=vision：按页光栅化（PyMuPDF）；与 make install-deps 中显式安装一致
-pymupdf>=1.24.0
+# pdf_to_wiki extract_mode=vision：按页光栅化（PyMuPDF / import fitz）
+# 不在此列出：避免 pip -r 时访问 PyPI 装 pymupdf 因 SSL 整段失败；由 make install-deps 调用 scripts/ensure_pymupdf.py（先检测已安装，再 pip，再提示 apt）
 # PPT 助手：slide_deck → .pptx
 python-pptx>=0.6.21
 # pdf2txt 同引擎，文本提取效果通常优于 pdfplumber（尤其复杂版式/编码）

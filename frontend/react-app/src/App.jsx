@@ -15,6 +15,7 @@ import SpeechToText from './pages/SpeechToText'
 import WeatherQuery from './pages/WeatherQuery'
 import DiskScan from './pages/DiskScan'
 import WebSearch from './pages/WebSearch'
+import AiHotNews from './pages/AiHotNews'
 import ArticleWriting from './pages/ArticleWriting'
 import PptAssistant from './pages/PptAssistant'
 import SettingsGeneral from './pages/SettingsGeneral'
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="/weather-query" element={<WeatherQuery />} />
               <Route path="/disk-scan" element={<DiskScan />} />
               <Route path="/web-search" element={<WebSearch />} />
+              <Route path="/ai-hot-news" element={<AiHotNews />} />
               <Route path="/article-writing" element={<ArticleWriting />} />
               <Route path="/ppt-assistant" element={<PptAssistant />} />
               <Route path="/add-reference" element={<AddReference />} />

@@ -383,6 +383,37 @@ TASK_TYPES = {
             },
         },
     },
+    # 时间：2026-04-10；理由：UI 单独页「今日 AI 热点」；方法：Worker 内 5 轮 web_search + LLM，对齐 Skill ai-hot-news-summary
+    "ai_hot_news_digest": {
+        "name": "今日 AI 热点摘要",
+        "description": "自动执行多轮网页搜索（有 TAVILY_API_KEY 用 Tavily，否则 DuckDuckGo），再由 LLM 生成中文深度摘要。无需手动输入关键词。",
+        "output_spec": {
+            "content": "Markdown 摘要 + 检索日志 + 来源索引",
+            "format": "JSON：result.digest 含 schema_version/meta/markdown/source_refs/search_log",
+            "naming_rule": "无本地文件",
+            "default_path": "无",
+        },
+        "metadata_schema": {
+            "num_results": {
+                "type": "number",
+                "required": False,
+                "description": "每一轮检索返回条数（5～20，默认 12）",
+                "default": 12,
+            },
+            "language": {
+                "type": "string",
+                "required": False,
+                "description": "传给搜索接口的语言代码（可选）",
+                "placeholder": "zh-CN, en",
+            },
+            "model": {
+                "type": "string",
+                "required": False,
+                "description": "覆盖默认对话模型（可选，与 LLMService 模型名一致）",
+                "placeholder": "留空使用环境默认模型",
+            },
+        },
+    },
     "speech_to_text": {
         "name": "字幕提取",
         "description": "使用 Whisper 将音频文件转成文字或字幕（支持 json/text/srt）",
@@ -1335,6 +1366,102 @@ async def process_home_briefing_report_task(task_info: Dict[str, Any]) -> Dict[s
         "result": {
             "briefing": briefing,
         },
+    }
+
+
+async def process_ai_hot_news_digest_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
+    """今日 AI 热点：固定多查询 web_search → 去重事实 → LLM 生成 Markdown（见 Skill ai-hot-news-summary）。"""
+    metadata = task_info.get("metadata") or {}
+    worker = get_task_worker()
+
+    from datetime import datetime, timezone
+
+    from backend.services.ai_hot_news_digest.queries import default_ai_hot_news_queries
+    from backend.services.ai_hot_news_digest.report_generate import generate_ai_hot_news_markdown
+    from backend.services.google_search_service.unified_search import web_search
+
+    num_results = metadata.get("num_results", 12)
+    try:
+        num_results = int(num_results)
+    except (TypeError, ValueError):
+        num_results = 12
+    num_results = max(5, min(20, num_results))
+
+    language = (metadata.get("language") or "").strip() or None
+    model_override = (metadata.get("model") or "").strip() or None
+
+    now = datetime.now(timezone.utc)
+    queries = default_ai_hot_news_queries(now)
+    retrieval_date = now.date().isoformat()
+
+    query_logs: List[Dict[str, Any]] = []
+    raw_rows: List[Dict[str, Any]] = []
+    nq = len(queries)
+    for i, q in enumerate(queries):
+        pct = 5 + int(75 * i / max(nq, 1))
+        worker.update_task_progress(pct, f"检索 {i + 1}/{nq}…")
+        try:
+            resp = web_search(query=q, num_results=num_results, language=language)
+            results = [
+                {"title": r.title, "link": r.link, "snippet": r.snippet}
+                for r in (resp.results or [])
+            ]
+            query_logs.append({"query": q, "count": len(results), "error": None})
+            for r in results:
+                raw_rows.append({**r, "_query": q})
+        except Exception as e:
+            query_logs.append({"query": q, "count": 0, "error": str(e)})
+
+    seen: set = set()
+    deduped: List[Dict[str, Any]] = []
+    for r in raw_rows:
+        link = (r.get("link") or "").strip()
+        if not link or link in seen:
+            continue
+        seen.add(link)
+        deduped.append(r)
+
+    max_items = 55
+    max_snippet = 800
+    items: List[Dict[str, Any]] = []
+    for idx, r in enumerate(deduped[:max_items], start=1):
+        title = (r.get("title") or "无标题")[:200]
+        snippet = (r.get("snippet") or "")[:max_snippet]
+        link = (r.get("link") or "")[:2000]
+        q_src = (r.get("_query") or "")[:120]
+        items.append(
+            {
+                "id": f"F{idx}",
+                "title": (f"搜索「{q_src[:40]}」· {title}" if q_src else title),
+                "summary": snippet,
+                "url": link,
+            }
+        )
+
+    bundle = {
+        "retrieval_date": retrieval_date,
+        "timezone_note": "检索词日期按服务器 UTC 注入；与用户本地「今日」可能相差一天。",
+        "queries_run": query_logs,
+        "items": items,
+    }
+
+    worker.update_task_progress(88, "正在生成深度摘要…")
+    markdown, meta, source_refs = await generate_ai_hot_news_markdown(bundle, model=model_override)
+
+    digest = {
+        "schema_version": "1",
+        "meta": meta,
+        "markdown": markdown,
+        "source_refs": source_refs,
+        "search_log": query_logs,
+    }
+    summary = meta.get("title") or "今日 AI 热点已生成"
+
+    worker.update_task_progress(100, "今日 AI 热点任务完成")
+    return {
+        "status": "success",
+        "summary": summary[:500],
+        "result": {"digest": digest},
     }
 
 
@@ -2596,6 +2723,7 @@ def register_default_handlers():
     worker.register_handler("web_search", process_web_search_task)
     worker.register_handler("web_search_compare", process_web_search_compare_task)
     worker.register_handler("home_briefing_report", process_home_briefing_report_task)
+    worker.register_handler("ai_hot_news_digest", process_ai_hot_news_digest_task)
     worker.register_handler("speech_to_text", process_speech_to_text_task)
     worker.register_handler("video_extract_audio", process_video_extract_audio_task)
     worker.register_handler("mediawiki_write", process_mediawiki_write_task)
