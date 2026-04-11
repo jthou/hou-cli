@@ -8,12 +8,15 @@ from backend.services.ai_hot_news_digest.queries import default_ai_hot_news_quer
 from backend.services.ai_hot_news_digest.report_generate import generate_ai_hot_news_markdown
 
 
-def test_default_queries_five_and_zh_month():
+def test_default_queries_nine_openclaw_and_zh_month():
     dt = datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc)
     qs = default_ai_hot_news_queries(dt)
-    assert len(qs) == 5
+    assert len(qs) == 9
     assert "April 10, 2026" in qs[0]
+    assert "agent" in qs[1].lower()
+    assert any("openclaw" in q.lower() and "xxxclaw" in q.lower() for q in qs)
     assert "2026年4月" in qs[-1]
+    assert "智能体" in qs[-1]
 
 
 def test_generate_markdown_empty_items_skips_llm():

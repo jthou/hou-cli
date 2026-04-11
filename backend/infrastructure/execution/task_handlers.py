@@ -383,7 +383,7 @@ TASK_TYPES = {
             },
         },
     },
-    # 时间：2026-04-10；理由：UI 单独页「今日 AI 热点」；方法：Worker 内 5 轮 web_search + LLM，对齐 Skill ai-hot-news-summary
+    # 时间：2026-04-10；理由：UI 单独页「今日 AI 热点」；方法：Worker 内多轮 web_search + LLM，对齐 Skill ai-hot-news-summary（默认 9 轮检索词，含 OpenClaw/xxxclaw）
     "ai_hot_news_digest": {
         "name": "今日 AI 热点摘要",
         "description": "自动执行多轮网页搜索（有 TAVILY_API_KEY 用 Tavily，否则 DuckDuckGo），再由 LLM 生成中文深度摘要。无需手动输入关键词。",
@@ -1371,98 +1371,14 @@ async def process_home_briefing_report_task(task_info: Dict[str, Any]) -> Dict[s
 
 async def process_ai_hot_news_digest_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     """今日 AI 热点：固定多查询 web_search → 去重事实 → LLM 生成 Markdown（见 Skill ai-hot-news-summary）。"""
+    from backend.services.ai_hot_news_digest.run_digest import run_ai_hot_news_digest
+
     metadata = task_info.get("metadata") or {}
     worker = get_task_worker()
-
-    from datetime import datetime, timezone
-
-    from backend.services.ai_hot_news_digest.queries import default_ai_hot_news_queries
-    from backend.services.ai_hot_news_digest.report_generate import generate_ai_hot_news_markdown
-    from backend.services.google_search_service.unified_search import web_search
-
-    num_results = metadata.get("num_results", 12)
-    try:
-        num_results = int(num_results)
-    except (TypeError, ValueError):
-        num_results = 12
-    num_results = max(5, min(20, num_results))
-
-    language = (metadata.get("language") or "").strip() or None
-    model_override = (metadata.get("model") or "").strip() or None
-
-    now = datetime.now(timezone.utc)
-    queries = default_ai_hot_news_queries(now)
-    retrieval_date = now.date().isoformat()
-
-    query_logs: List[Dict[str, Any]] = []
-    raw_rows: List[Dict[str, Any]] = []
-    nq = len(queries)
-    for i, q in enumerate(queries):
-        pct = 5 + int(75 * i / max(nq, 1))
-        worker.update_task_progress(pct, f"检索 {i + 1}/{nq}…")
-        try:
-            resp = web_search(query=q, num_results=num_results, language=language)
-            results = [
-                {"title": r.title, "link": r.link, "snippet": r.snippet}
-                for r in (resp.results or [])
-            ]
-            query_logs.append({"query": q, "count": len(results), "error": None})
-            for r in results:
-                raw_rows.append({**r, "_query": q})
-        except Exception as e:
-            query_logs.append({"query": q, "count": 0, "error": str(e)})
-
-    seen: set = set()
-    deduped: List[Dict[str, Any]] = []
-    for r in raw_rows:
-        link = (r.get("link") or "").strip()
-        if not link or link in seen:
-            continue
-        seen.add(link)
-        deduped.append(r)
-
-    max_items = 55
-    max_snippet = 800
-    items: List[Dict[str, Any]] = []
-    for idx, r in enumerate(deduped[:max_items], start=1):
-        title = (r.get("title") or "无标题")[:200]
-        snippet = (r.get("snippet") or "")[:max_snippet]
-        link = (r.get("link") or "")[:2000]
-        q_src = (r.get("_query") or "")[:120]
-        items.append(
-            {
-                "id": f"F{idx}",
-                "title": (f"搜索「{q_src[:40]}」· {title}" if q_src else title),
-                "summary": snippet,
-                "url": link,
-            }
-        )
-
-    bundle = {
-        "retrieval_date": retrieval_date,
-        "timezone_note": "检索词日期按服务器 UTC 注入；与用户本地「今日」可能相差一天。",
-        "queries_run": query_logs,
-        "items": items,
-    }
-
-    worker.update_task_progress(88, "正在生成深度摘要…")
-    markdown, meta, source_refs = await generate_ai_hot_news_markdown(bundle, model=model_override)
-
-    digest = {
-        "schema_version": "1",
-        "meta": meta,
-        "markdown": markdown,
-        "source_refs": source_refs,
-        "search_log": query_logs,
-    }
-    summary = meta.get("title") or "今日 AI 热点已生成"
-
-    worker.update_task_progress(100, "今日 AI 热点任务完成")
-    return {
-        "status": "success",
-        "summary": summary[:500],
-        "result": {"digest": digest},
-    }
+    return await run_ai_hot_news_digest(
+        metadata,
+        on_progress=lambda p, m=None: worker.update_task_progress(p, m),
+    )
 
 
 async def process_video_download_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -1823,6 +1739,13 @@ async def process_mediawiki_write_task(task_info: Dict[str, Any]) -> Dict[str, A
     return {"status": "success", "summary": summary_text, "data": data}
 
 
+def _wechat_thumb_invalid_media_id_retryable(exc: BaseException) -> bool:
+    # 时间：2026-04-11；理由：会话/表单里 thumb_media_id 可能过期、非永久图或跨号，微信 errcode=40007；方法：识别后去掉封面重试一次草稿
+    s = str(exc)
+    low = s.lower()
+    return "40007" in s or "invalid media_id" in low
+
+
 async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, Any]:
     """处理公众号草稿任务（新增或更新）。失败时返回统一错误结构。"""
     metadata = task_info.get("metadata", {})
@@ -1854,19 +1777,44 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
 
     def _run_draft():
         from backend.services.wechat_mp_service import WeChatMPClient, WeChatMPClientError
+
         client = WeChatMPClient()
+        msg_ok = "草稿已保存，可在公众号助手发布"
+        msg_ok_update = "草稿已更新，可在公众号助手发布"
+        msg_retry = "草稿已保存（封面素材无效已自动省略，可在微信后台补封面）"
+        msg_retry_update = "草稿已更新（封面素材无效已自动省略，可在微信后台补封面）"
+
         if operation == "add":
-            result = client.add_draft(
-                title=api_title,
-                content=content,
-                author=author,
-                digest=digest,
-                thumb_media_id=thumb_media_id,
-                content_source_url=content_source_url,
-            )
+            try:
+                result = client.add_draft(
+                    title=api_title,
+                    content=content,
+                    author=author,
+                    digest=digest,
+                    thumb_media_id=thumb_media_id,
+                    content_source_url=content_source_url,
+                )
+            except WeChatMPClientError as e:
+                if thumb_media_id and _wechat_thumb_invalid_media_id_retryable(e):
+                    result = client.add_draft(
+                        title=api_title,
+                        content=content,
+                        author=author,
+                        digest=digest,
+                        thumb_media_id=None,
+                        content_source_url=content_source_url,
+                    )
+                    mid = result.get("media_id") or ""
+                    return {
+                        "media_id": mid,
+                        "operation": "add",
+                        "message": msg_retry,
+                        "thumb_omitted_invalid": True,
+                    }
+                raise
             mid = result.get("media_id") or ""
-            return {"media_id": mid, "operation": "add", "message": "草稿已保存，可在公众号助手发布"}
-        else:
+            return {"media_id": mid, "operation": "add", "message": msg_ok}
+        try:
             client.update_draft(
                 media_id=media_id,
                 index=0,
@@ -1877,7 +1825,26 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
                 thumb_media_id=thumb_media_id,
                 content_source_url=content_source_url,
             )
-            return {"media_id": media_id, "operation": "update", "message": "草稿已更新，可在公众号助手发布"}
+        except WeChatMPClientError as e:
+            if thumb_media_id and _wechat_thumb_invalid_media_id_retryable(e):
+                client.update_draft(
+                    media_id=media_id,
+                    index=0,
+                    title=api_title,
+                    content=content,
+                    author=author,
+                    digest=digest,
+                    thumb_media_id=None,
+                    content_source_url=content_source_url,
+                )
+                return {
+                    "media_id": media_id,
+                    "operation": "update",
+                    "message": msg_retry_update,
+                    "thumb_omitted_invalid": True,
+                }
+            raise
+        return {"media_id": media_id, "operation": "update", "message": msg_ok_update}
 
     try:
         data = await asyncio.to_thread(_run_draft)
@@ -1889,6 +1856,8 @@ async def process_wechat_mp_draft_task(task_info: Dict[str, Any]) -> Dict[str, A
 
     worker.update_task_progress(100, "草稿已保存")
     summary = f"已{'新增' if operation == 'add' else '更新'}草稿：{api_title[:20]}{'…' if len(api_title) > 20 else ''}"
+    if data.get("thumb_omitted_invalid"):
+        summary += "；封面 media_id 无效已自动省略，请在微信后台补封面"
     return {"status": "success", "summary": summary, "data": data}
 
 

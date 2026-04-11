@@ -1,23 +1,18 @@
 {
-  "total_commits": 337,
+  "total_commits": 339,
   "authors": {
-    "侯金亭（Justin）": 299,
-    "jthou": 43
+    "侯金亭（Justin）": 300,
+    "jthou": 44
   },
   "commits_by_week": {
-    "2026-W13": 2,
+    "2026-W14": 1,
+    "2026-W13": 3,
     "2026-W12": 11,
     "2026-W11": 13,
     "2026-W10": 20,
-    "2026-W09": 6
+    "2026-W09": 4
   },
   "commits_by_day": {
-    "2026-01-05": 9,
-    "2026-01-06": 6,
-    "2026-01-07": 2,
-    "2026-01-08": 9,
-    "2026-01-09": 3,
-    "2026-01-11": 2,
     "2026-01-12": 9,
     "2026-01-13": 8,
     "2026-01-14": 25,
@@ -64,39 +59,11 @@
     "2026-03-28": 3,
     "2026-03-29": 1,
     "2026-04-01": 1,
-    "2026-04-02": 1
+    "2026-04-02": 1,
+    "2026-04-05": 1,
+    "2026-04-10": 1
   },
   "lines_by_day": {
-    "2026-01-05": {
-      "add": 10020,
-      "del": 134,
-      "total": 10154
-    },
-    "2026-01-06": {
-      "add": 4822,
-      "del": 467,
-      "total": 5289
-    },
-    "2026-01-07": {
-      "add": 4984,
-      "del": 224,
-      "total": 5208
-    },
-    "2026-01-08": {
-      "add": 9930,
-      "del": 1872,
-      "total": 11802
-    },
-    "2026-01-09": {
-      "add": 5747,
-      "del": 237,
-      "total": 5984
-    },
-    "2026-01-11": {
-      "add": 2117,
-      "del": 1,
-      "total": 2118
-    },
     "2026-01-12": {
       "add": 5333,
       "del": 5842,
@@ -331,59 +298,69 @@
       "add": 4076,
       "del": 407,
       "total": 4483
+    },
+    "2026-04-05": {
+      "add": 5096,
+      "del": 380,
+      "total": 5476
+    },
+    "2026-04-10": {
+      "add": 876,
+      "del": 10,
+      "total": 886
     }
   },
   "files_changed": {
-    "backend/core/agent/orchestrator.py": 86,
+    "backend/core/agent/orchestrator.py": 87,
     "backend/api/routes.py": 39,
-    "backend/infrastructure/execution/task_handlers.py": 33,
-    "docs/audit/AUDIT_REPORT.json": 31,
-    "docs/audit/code_stats.json": 31,
-    "docs/audit/dev_history.json": 31,
+    "backend/infrastructure/execution/task_handlers.py": 34,
+    "docs/audit/AUDIT_REPORT.json": 32,
+    "docs/audit/code_stats.json": 32,
+    "docs/audit/dev_history.json": 32,
+    "frontend/react-app/src/components/Sidebar.jsx": 30,
     "frontend/client/ipc_client.py": 30,
-    "frontend/react-app/src/components/Sidebar.jsx": 29,
-    "frontend/react-app/src/pages/ArticleWriting.jsx": 28,
-    "backend/services/llm/llm_service.py": 28,
+    "backend/services/llm/llm_service.py": 29,
+    "frontend/react-app/src/pages/ArticleWriting.jsx": 29,
+    "Makefile": 28,
     "frontend/react-app/src/pages/TaskManagement.jsx": 28,
-    "Makefile": 27,
+    "env.example": 27,
     "frontend/main.py": 27,
-    "env.example": 26,
     "frontend/ui/command_handler.py": 25,
-    "frontend/react-app/src/App.jsx": 23,
-    "docs/audit/API_PATH_AUDIT.md": 22,
+    "frontend/react-app/src/App.jsx": 24,
+    "docs/audit/API_PATH_AUDIT.md": 23,
     "frontend/ui/stream_handler.py": 22,
-    "backend/core/agent/system_prompt_templates.py": 20,
+    "requirements.txt": 21,
+    "backend/core/agent/system_prompt_templates.py": 21,
     "docs/design/02-weather-tool-design.md": 20,
-    "requirements.txt": 19,
     "backend/api/task_queue_routes.py": 19,
     "backend/infrastructure/execution/tests/test_task_handlers.py": 18,
     "frontend/react-app/src/pages/MediaWikiReader.jsx": 17,
     "backend/main.py": 17,
     "frontend/react-app/package.json": 17,
+    "frontend/react-app/src/pages/WorkAssistant.jsx": 16,
     "frontend/react-app/package-lock.json": 16,
-    "frontend/react-app/src/pages/WorkAssistant.jsx": 15,
+    "pyproject.toml": 15,
     "frontend/react-app/src/pages/WechatDraftPage.jsx": 15,
+    "frontend/react-app/src/components/TaskResultDisplay.jsx": 14,
     "extension/manifest.json": 14,
     "frontend/react-app/src/pages/WebReader.jsx": 14,
-    "pyproject.toml": 14,
     "frontend/react-app/src/components/MarkdownActionButtons.jsx": 14,
+    "backend/api/tests/test_task_queue_routes.py": 13,
     "frontend/react-app/src/pages/PdfReader.jsx": 13,
     "frontend/react-app/src/components/task/TaskParamsForm.jsx": 13,
-    "frontend/react-app/src/components/TaskResultDisplay.jsx": 13,
     "frontend/ui/command_input.py": 13,
+    "backend/api/model_config_routes.py": 12,
     "frontend/react-app/src/components/task/TaskFormPage.jsx": 12,
     "extension/background.js": 12,
     "frontend/react-app/src/utils/mdToHtml.js": 12,
     "backend/api/chat_routes.py": 12,
     "backend/core/context/manager.py": 12,
     "backend/core/agent/tools/builtin/video_downloader_tool.py": 12,
-    "backend/api/tests/test_task_queue_routes.py": 12,
     "backend/core/agent/tools/builtin/__init__.py": 12,
     "docs/todo/README.md": 12,
-    "backend/api/model_config_routes.py": 11,
+    "frontend/react-app/src/pages/GeneralChat.jsx": 11,
     "docs/design/README.md": 11,
-    "backend/core/agent/tools/builtin/browser_tool.py": 11,
-    "backend/services/llm/tests/__init__.py": 11
+    "backend/core/agent/tools/builtin/browser_tool.py": 11
   },
-  "generated_at": "2026-04-04T16:23:26.768411Z"
+  "generated_at": "2026-04-11T11:37:38.718217Z"
 }

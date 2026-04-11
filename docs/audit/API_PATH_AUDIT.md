@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 164
-- 前端 fetch 数: 154
+- 后端路由数: 165
+- 前端 fetch 数: 156
 
 ## 后端路由
 
@@ -106,6 +106,7 @@ PATCH /api/sessions/{session_id}
 PATCH /api/task-queue/scheduled-tasks/{schedule_id}
 PATCH /api/task-queue/tasks/{task_id}
 PATCH /api/task-queue/tasks/{task_id}/patch-result-output-file
+POST /api/ai-hot-news/run
 POST /api/chat
 POST /api/chat/article/apply-patch
 POST /api/chat/article/generate-cover-images
@@ -176,6 +177,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 
 - DELETE /api/task-queue/scheduled-tasks/${task.schedule_id}
 - DELETE /api/task-queue/tasks/${taskId}
+- GET /api/ai-hot-news/run
 - GET /api/audit/report
 - GET /api/chat/article
 - GET /api/chat/article/apply-patch
@@ -281,6 +283,7 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - PATCH /api/task-queue/scheduled-tasks/${task.schedule_id}
 - PATCH /api/task-queue/tasks/${task.task_id}/patch-result-output-file
 - PATCH /api/task-queue/tasks/${taskId}
+- POST /api/ai-hot-news/run
 - POST /api/chat/article/apply-patch
 - POST /api/chat/article/generate-cover-images
 - POST /api/chat/article/generate-cover-prompt

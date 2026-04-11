@@ -26,6 +26,9 @@ alembic>=1.13.0
 # OpenAI 兼容 API（用于 DeepSeek）
 openai>=1.0.0
 
+# Model Context Protocol（Cursor MCP：scripts/mcp_bailian_article_writing_server.py）
+mcp>=1.8.0
+
 # LangChain 生态（使用更高版本以支持 browser-use）
 langchain>=0.3.25
 langchain-community>=0.0.20

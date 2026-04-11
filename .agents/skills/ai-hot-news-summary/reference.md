@@ -7,6 +7,11 @@
 | **Cursor** | 仓库内 `.cursor/skills/ai-hot-news-summary/`（若存在；可能被 .gitignore）与本目录内容应对齐；以**本仓库已跟踪**的 `.agents/skills/ai-hot-news-summary/SKILL.md` 为准。 |
 | **hou-cli Web / 任务队列** | 任务类型 **`ai_hot_news_digest`**：Worker 内多轮 `web_search` + LLM，与 SKILL 结构一致。 |
 
+## 「今天」用哪一天的日历
+
+- **Cursor Agent**：见 `SKILL.md`「今天日期」节——检索前在终端执行 `date +%Y-%m-%d` 或 `TZ=Asia/Shanghai date +%Y-%m-%d`，**勿**只信对话里过期的 `Today's date`。
+- **Worker**：以服务器 `datetime.now(UTC)` 为准，见任务结果 `digest.meta.retrieval_date`。
+
 ## 网页搜索调用链（对话 Agent / web_search 任务）
 
 `GoogleSearchTool.execute` → `unified_search.web_search()` →
@@ -17,7 +22,7 @@
 ## 今日 AI 热点任务（`ai_hot_news_digest`）
 
 - **Handler**：`backend/infrastructure/execution/task_handlers.py` → `process_ai_hot_news_digest_task`
-- **固定多查询**：`backend/services/ai_hot_news_digest/queries.py` → `default_ai_hot_news_queries()`（5 轮，日期按服务器 UTC 注入）
+- **固定多查询**：`backend/services/ai_hot_news_digest/queries.py` → `default_ai_hot_news_queries()`（默认 **9** 轮，含 OpenClaw/可进化智能体/xxxclaw 命名生态；另覆盖智能体/落地/自动化/技术栈等；日期按服务器 UTC 注入）
 - **LLM 成文**：`backend/services/ai_hot_news_digest/report_generate.py` → `generate_ai_hot_news_markdown()`
 - **前端**：`/ai-hot-news` → `frontend/react-app/src/pages/AiHotNews.jsx`
 - **任务注册**：`TASK_TYPES["ai_hot_news_digest"]`，`register_default_handlers`

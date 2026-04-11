@@ -1,18 +1,18 @@
 {
-  "total_files": 1500,
-  "total_lines": 415037,
+  "total_files": 1528,
+  "total_lines": 417961,
   "by_language": {
     "other": {
       "files": 32,
-      "lines": 72254
+      "lines": 72283
     },
     "python": {
-      "files": 688,
-      "lines": 115940
+      "files": 700,
+      "lines": 116967
     },
     "markdown": {
-      "files": 549,
-      "lines": 173818
+      "files": 564,
+      "lines": 175436
     },
     "shell": {
       "files": 36,
@@ -24,7 +24,7 @@
     },
     "json": {
       "files": 13,
-      "lines": 12478
+      "lines": 12435
     },
     "html": {
       "files": 2,
@@ -35,8 +35,8 @@
       "lines": 691
     },
     "jsx": {
-      "files": 105,
-      "lines": 25820
+      "files": 106,
+      "lines": 26113
     },
     "yaml": {
       "files": 7,
@@ -46,19 +46,19 @@
   "by_directory": {
     ".": {
       "files": 12,
-      "lines": 10313
+      "lines": 10342
     },
     "extension": {
       "files": 6,
       "lines": 2220
     },
     "frontend": {
-      "files": 197,
-      "lines": 50067
+      "files": 198,
+      "lines": 50360
     },
     "plans": {
-      "files": 147,
-      "lines": 72121
+      "files": 162,
+      "lines": 73736
     },
     "config": {
       "files": 3,
@@ -77,8 +77,8 @@
       "lines": 282
     },
     "backend": {
-      "files": 566,
-      "lines": 152921
+      "files": 573,
+      "lines": 153477
     },
     "shared": {
       "files": 12,
@@ -86,7 +86,7 @@
     },
     "docs": {
       "files": 347,
-      "lines": 104128
+      "lines": 104088
     },
     "ppt_out_lm_11": {
       "files": 3,
@@ -105,13 +105,13 @@
       "lines": 138
     },
     "scripts": {
-      "files": 89,
-      "lines": 10212
+      "files": 94,
+      "lines": 10683
     },
     "archived": {
       "files": 21,
       "lines": 1341
     }
   },
-  "generated_at": "2026-04-04T16:23:26.202861Z"
+  "generated_at": "2026-04-11T11:37:38.164333Z"
 }

@@ -34,6 +34,7 @@ from backend.api.model_availability_routes import router as model_availability_r
 from backend.api.task_routes import router as task_router
 from backend.api.audit_routes import router as audit_router
 from backend.api.home_briefing_routes import router as home_briefing_router
+from backend.api.ai_hot_news_routes import router as ai_hot_news_router
 
 # 导入任务队列路由（添加错误处理）
 try:
@@ -71,6 +72,7 @@ router.include_router(model_availability_router, tags=["model-availability-audit
 router.include_router(task_router, tags=["tasks"])
 router.include_router(audit_router, tags=["audit"])
 router.include_router(home_briefing_router, tags=["home-briefing"])
+router.include_router(ai_hot_news_router, tags=["ai-hot-news"])
 router.include_router(kanban_router, tags=["kanban"])
 router.include_router(writing_profile_router, tags=["writing-profile"])
 router.include_router(work_config_router, tags=["work-config"])

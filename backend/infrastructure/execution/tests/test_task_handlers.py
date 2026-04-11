@@ -494,6 +494,49 @@ class TestWechatMpDraftHandler:
                     assert kw["title"] == "未命名草稿"
                     assert kw.get("thumb_media_id") is None
 
+    @pytest.mark.asyncio
+    async def test_process_wechat_mp_draft_invalid_thumb_retries_without_thumb(self):
+        """40007 invalid media_id 时去掉封面重试，草稿仍可成功。"""
+        from backend.services.wechat_mp_service import WeChatMPClientError
+
+        with patch("backend.infrastructure.execution.task_handlers.get_task_worker") as m_worker:
+            m_worker.return_value.update_task_progress = MagicMock()
+
+            async def fake_to_thread(fn, *a, **k):
+                return fn()
+
+            with patch(
+                "backend.infrastructure.execution.task_handlers.asyncio.to_thread",
+                side_effect=fake_to_thread,
+            ):
+                with patch(
+                    "backend.services.wechat_mp_service.WeChatMPClient"
+                ) as MC:
+                    inst = MagicMock()
+                    inst.add_draft = MagicMock(
+                        side_effect=[
+                            WeChatMPClientError("接口错误: errcode=40007, errmsg=invalid media_id hint: [x]"),
+                            {"media_id": "mid-after-retry"},
+                        ]
+                    )
+                    MC.return_value = inst
+                    out = await process_wechat_mp_draft_task(
+                        {
+                            "task_id": "t-wechat-2",
+                            "metadata": {
+                                "operation": "add",
+                                "title": "有标题",
+                                "content": "<p>正文</p>",
+                                "thumb_media_id": "deadbeef",
+                            },
+                        }
+                    )
+                    assert out["status"] == "success"
+                    assert out["data"].get("thumb_omitted_invalid") is True
+                    assert inst.add_draft.call_count == 2
+                    assert inst.add_draft.call_args_list[0][1]["thumb_media_id"] == "deadbeef"
+                    assert inst.add_draft.call_args_list[1][1]["thumb_media_id"] is None
+
 
 class TestImageGenerationHandler:
     """图片生成任务处理器"""

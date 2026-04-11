@@ -18,6 +18,17 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 用**真实联网结果**回答「今天 AI 圈发生了什么」，输出**足够厚、可核对**的摘要：**不是标题堆砌**，而是带**背景、要点展开、数字/主体、交叉观察**与**完整引用**；禁止凭训练记忆编造「今日」事实。
 
+## 「今天」日期：如何获得（必读，防错）
+
+对话里注入的 **`Today's date` 等字段可能过期、与真实日历不同步**，**禁止**仅凭其构造「今日」检索词或写摘要标题日期。
+
+| 场景 | 做法 |
+|------|------|
+| **Cursor / 本机 Agent** | 在联网检索与写文**之前**，用终端执行 **`date`**（或等价）读取**当前机器日历**。示例：`date +%Y-%m-%d`；需要中国常用日历：`TZ=Asia/Shanghai date +%Y-%m-%d`；需要 UTC：`date -u +%Y-%m-%d`。将输出写入摘要文首「检索基准日期」，检索 query 里的「today / 今日」须与该日期一致。 |
+| **hou-cli Worker** `ai_hot_news_digest` | `queries.py` 使用**服务器进程**的 `datetime.now(timezone.utc)`；与用户本地「今天」可能差 ±1 日，以任务结果 `meta.retrieval_date` / `timezone_note` 为准。 |
+
+**此前误用会话静态日期属错误**；执行本 Skill 时**必须先 `date`（或 Worker 侧已定义的时间源）再搜**。
+
 ## 与本项目工具的关系
 
 | 能力 | 位置 |
@@ -29,15 +40,20 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 ## 检索策略（多轮、多角）
 
-1. **确认日期**：摘要开头写清**检索所依据的日期/时区**；用户说「今天」则以用户语境日期为准。
-2. **多查询**：至少 **3～5 次** `google_search`（或等价工具），覆盖不同切面，例如：
+1. **确认日期**：摘要开头写清**检索所依据的日期/时区**；须与上一节 **`date`（或任务 meta）** 一致。用户明确说「按我本地」时可再用用户给出的日期覆盖，否则**以机器 `date` 为准**。
+2. **多查询**：至少 **6～9 次** `google_search`（或等价工具），**避免只搜大厂公关与监管**；须覆盖：
    - 泛搜：`AI news today`、`人工智能 最新 动态` + 当日/当月日期
-   - 投融资：`AI startup funding`、`大模型 融资`
-   - 产品/模型：`LLM release`、`OpenAI Google Anthropic` + `announcement`
-   - 政策/标准：`AI regulation`、`NIST AI`、`欧盟 AI 法案`（按语境）
-   - 安全：`AI security`、`LLM abuse`、`prompt injection`（按当周热点）
+   - **智能体 / Agent**：`AI agent`、`multi-agent`、`autonomous agent workflow`
+   - **可进化智能体 / OpenClaw 系**（社区常称「龙虾」；生态内多 **xxxclaw** 命名变种）：`OpenClaw`、`evolvable agent`、`xxxclaw` 等与框架/开源动态相关的检索（服务端默认已单列一轮，见 `queries.py`）
+   - **行业落地**：`enterprise AI adoption`、`vertical AI`、`制造/医疗/金融` + AI（按语境）
+   - **具身 / 自动化**：`robotics AI`、`embodied AI`、`industrial automation`（与当周素材相关时）
+   - **技术趋势与工程化**：`RAG`、`inference`、`MCP`、`open source LLM`、`context engineering`
+   - 投融资：`AI startup funding`（保留但勿独占篇幅）
+   - 产品/模型：新模型、开源权重、评测（**不必**把每条都写成 OpenAI/Google 头条）
+   - 政策/安全：`AI regulation`、安全与滥用（**控制篇幅**，勿盖过应用与工程）
 3. **参数**：`num_results` 建议 **10～20**（Tavily 单次上限 20）；重要主题可对同一主题换关键词**二次检索**补洞。
 4. **去重合并**：同一事件多来源时，**合并为一条叙述**，正文可写「另据 ×× 报道…」并**多链接**。
+5. **篇幅平衡**：正文勿以大厂动态 + 政策为主；智能体、垂直落地、技术栈与生态（含 **OpenClaw / xxxclaw** 等可进化智能体动向）应占**足够展开**（服务端 `ai_hot_news_digest` 默认检索词已按此配比，见 `backend/services/ai_hot_news_digest/queries.py`）。
 
 ## 输出结构与深度要求
 
@@ -49,13 +65,13 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 ### 2. 分主题正文（必读，要有厚度）
 
-按素材**自拟小标题**（不必全有，但有内容的主题要展开），例如：
+按素材**自拟小标题**（不必全有，但有内容的主题要展开），**优先**写清智能体、行业落地、技术趋势，再写大厂与政策，例如：
 
-- **投融资与公司动向**：每条 **2～4 句**；**尽量保留**金额、轮次、估值、投资方、合作方等**检索结果中出现的具体信息**；说明「谁、做了什么、对谁有影响」。
-- **模型、产品与发布**：新模型/新 API/新 Agent 产品；**能力变化、开放范围、定价或限制**若检索中有则写入。
-- **企业与落地**：行业采用、云厂商、芯片/算力相关若与 AI 强相关则单独成段。
-- **政策、标准与地缘**：法规、标准倡议、政府/军方采购与使用边界等。
-- **安全、滥用与治理**：攻击面、滥用案例、厂商回应、缓解措施。
+- **智能体与工具链**：Agent 框架、多智能体、工作流、开发者工具与平台；**谁、解决什么场景、与单纯 Chat 的差异**。若素材涉及 **OpenClaw** 及社区 **xxxclaw** 命名系可进化智能体，须单独成段说明生态与变种，勿与「大模型头条」混写。
+- **行业应用与垂直场景**：制造、医疗、金融、零售等落地；**案例级信息**（主体、场景、效果或规模）若检索中有则写入。
+- **模型、算力与工程化**：开源模型、推理/RAG/上下文工程、评测与基准；新 API/定价若检索中有则写入。
+- **投融资与公司动向**：每条 **2～4 句**；金额、轮次、投资方等以检索为准。
+- **政策、标准与安全**：法规与治理**控制篇幅**，勿挤压应用与工程类主题。
 
 **单条「热点」最低标准**（不满足则并入他条或省略）：
 
@@ -80,6 +96,7 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 - **总篇幅**：中文建议 **约 1200～3500 字**（或用户要求更长时再扩）；英文则 **约 800～2500 词**量级。用户明确要「短讯」时可降级，但**默认按深度摘要**执行。
 - **语言**：与用户一致；中英混排时保持术语一致。
+- **中文术语（必读）**：**时间**：2026-04-11；**理由**：中文读者与媒体普遍用「智能体」指 AI Agent；**方法**：中文正文里泛指 **agents / autonomous agents** 时写 **「智能体」**，避免孤立使用英文 **Agent**；产品/项目官方英文名（如「Microsoft Agent Framework」）保留原名，首次出现可括注「（智能体…）」。检索 query 仍可用英文关键词。
 
 ## 禁止
 
@@ -100,13 +117,16 @@ description: Searches the web for today's AI trending news and returns a rich, m
 ## 执行摘要
 （3～6 句总览）
 
-## 投融资与公司动向
-### 事件一：…
-（2～4 句展开，含具体信息）
-> 「…摘录 ≤180 字…」
-— [来源 A](URL) · [来源 B](URL)
+## 智能体与开发者生态
+…
 
-## 模型与产品
+## 行业应用与垂直场景
+…
+
+## 模型、算力与工程化趋势
+…
+
+## 投融资与公司动向
 …
 
 ## 政策、标准与安全

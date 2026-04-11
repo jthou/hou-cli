@@ -133,6 +133,7 @@ _META_PREFIXES = (
     "__EVALUATION__",
     "__ORCH_TRACE__",
     "__CONFIRM__",
+    "__CTX_META__",  # 时间：2026-04-11；理由：与 MCP quiet_meta 一致；方法：过滤编排器 JSON 元块
 )
 
 

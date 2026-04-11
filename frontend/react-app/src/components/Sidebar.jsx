@@ -15,10 +15,11 @@ const navItems = [
   { path: '/wikipedia-reader', icon: '📚', label: 'Wikipedia', group: 'read' },
   { path: '/weread-reader', icon: '📱', label: '微信读书', group: 'read' },
   { path: '/pdf-reader', icon: '📘', label: 'PDF阅读', group: 'read' },
+  // 时间：2026-04-04；理由：热点摘要为聚合阅读素材，与阅读工具同组；方法：group 由 task_tools 改为 read
+  { path: '/ai-hot-news', icon: '🔥', label: '今日 AI 热点', group: 'read' },
   { path: '/pipeline', icon: '🔀', label: '管道编排', group: 'task_tools' },
   { path: '/url-to-wiki', icon: '📰', label: '网文抓取', group: 'task_tools' },
   { path: '/web-search', icon: '🔍', label: '网页搜索', group: 'task_tools' },
-  { path: '/ai-hot-news', icon: '🔥', label: '今日 AI 热点', group: 'task_tools' },
   { path: '/video-download', icon: '⬇️', label: '视频下载', group: 'task_tools' },
   { path: '/image-generation', icon: '🖼️', label: '图片生成', group: 'task_tools' },
   { path: '/video-extract-audio', icon: '🎧', label: '音频提取', group: 'task_tools' },

@@ -155,7 +155,7 @@ export default function ArticleWriting() {
   const [wechatOutputSubmitting, setWechatOutputSubmitting] = useState(false)
   const [wechatGeneratingField, setWechatGeneratingField] = useState(null) // 'title'|'digest'|'author'|'cover'
   const [wechatCoverPrompt, setWechatCoverPrompt] = useState('')
-  /** 封面三步流程：1 生成提示词，2 生成图片，3 上传选中图。时间：2025-03-17；理由：用户可编辑提示词、多选一、再上传 */
+  /** 封面：1 提示词+配图（一次点击链式执行），2 选图上传。时间：2025-03-17；理由：多选一上传；2026-04-04：提示词生成后立即出图并修复弹窗 effect 误清空提示词 */
   const [wechatCoverStep, setWechatCoverStep] = useState(1)
   const [wechatCoverImages, setWechatCoverImages] = useState([]) // 第二步生成的图片 data URL 或 base64
   const [wechatCoverUploading, setWechatCoverUploading] = useState(false)
@@ -1117,7 +1117,7 @@ export default function ArticleWriting() {
   const handleGenerateWechatField = async (field) => {
     if (!selectedSessionId || wechatGeneratingField) return
     if (field === 'cover') {
-      toast?.info?.('请使用封面三步流程：生成提示词 → 生成图片 → 上传')
+      toast?.info?.('请在本弹窗封面区使用「生成提示词并生成配图」，再选图上传')
       return
     }
     if (field === 'author') return
@@ -1162,33 +1162,46 @@ export default function ArticleWriting() {
     }
   }
 
-  /** 封面第一步：生成提示词。时间：2025-03-17；理由：三步流程；方法：调用 generate-cover-prompt */
-  const handleCoverStep1Prompt = async () => {
+  /** 封面：生成提示词后立即用该提示词调文生图（同一按钮；第二步用接口返回的 prompt 字符串避免 setState 未刷新的竞态） */
+  const handleCoverPromptThenImages = async () => {
     if (!selectedSessionId || wechatGeneratingField) return
     setWechatGeneratingField('cover')
     try {
-      const res = await fetch('/api/chat/article/generate-cover-prompt', {
+      const res1 = await fetch('/api/chat/article/generate-cover-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: selectedSessionId }),
       })
-      const d = await res.json().catch(() => ({}))
-      if (d.status === 'success' && d.prompt) {
-        setWechatCoverPrompt(d.prompt)
-        setWechatCoverStep(2)
-        toast?.info?.('提示词已生成，可编辑后点击「生成图片」')
+      const d1 = await res1.json().catch(() => ({}))
+      const promptText = typeof d1?.prompt === 'string' ? d1.prompt.trim() : ''
+      if (d1.status !== 'success' || !promptText) {
+        toast?.error?.(d1?.error || '生成提示词失败')
+        return
+      }
+      setWechatCoverPrompt(promptText)
+      setWechatCoverStep(2)
+      const res2 = await fetch('/api/chat/article/generate-cover-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: promptText, n: 4 }),
+      })
+      const d2 = await res2.json().catch(() => ({}))
+      if (d2.status === 'success' && Array.isArray(d2.images) && d2.images.length) {
+        setWechatCoverImages(d2.images)
+        setWechatCoverStep(3)
+        toast?.info?.('提示词与配图已生成，选择一张后上传至公众号')
       } else {
-        toast?.error?.(d?.error || '生成提示词失败')
+        toast?.error?.(d2?.error || '生成图片失败（提示词已填入上方，可修改后点「仅重新生成配图」）')
       }
     } catch (e) {
-      toast?.error?.(e?.message || '生成提示词失败')
+      toast?.error?.(e?.message || '封面生成失败')
     } finally {
       setWechatGeneratingField(null)
     }
   }
 
-  /** 封面第二步：根据提示词生成多张图。时间：2025-03-17；理由：三步流程；方法：调用 generate-cover-images */
-  const handleCoverStep2Images = async () => {
+  /** 已有提示词时仅重新出图（可编辑上方文案后再点） */
+  const handleCoverRegenerateImagesOnly = async () => {
     if (!wechatCoverPrompt?.trim() || wechatGeneratingField) return
     setWechatGeneratingField('cover')
     try {
@@ -1376,10 +1389,17 @@ export default function ArticleWriting() {
     }
   }, [selectedSessionId, summaryPerVersion])
 
+  /** 仅在进入公众号草稿弹窗时重置封面子流程（勿在 previewContent/sessions 变化时清空提示词，否则刚生成的提示词被抹掉） */
+  useEffect(() => {
+    if (outputDialog !== 'wechat') return
+    setWechatCoverStep(1)
+    setWechatCoverImages([])
+    setWechatCoverPrompt('')
+  }, [outputDialog])
+
   /** 打开「同步到公众号草稿」时拉取 schema、当前文章、以及已生成的元数据（标题、摘要、作者、封面）预填 */
   useEffect(() => {
     if (outputDialog !== 'wechat' || !previewContent) return
-    setWechatCoverPrompt('')
     const loadSchema = fetch('/api/task-queue/task-types').then((r) => r.json())
     const loadMeta = selectedSessionId
       ? fetch(`/api/chat/article/metadata?session_id=${encodeURIComponent(selectedSessionId)}`).then((r) => r.json())
@@ -2533,48 +2553,45 @@ export default function ArticleWriting() {
                   fieldsToHide={['author']}
                   coverBeforeContent={(
                     <div className="rounded-lg border border-border p-3 space-y-2 bg-white/3 mb-3">
-                      <div className="flex items-center gap-2 text-xs text-muted">
-                        <span className={wechatCoverStep >= 1 ? 'text-accent' : ''}>① 提示词</span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                        <span className={wechatCoverStep >= 2 ? 'text-accent' : ''}>① 提示词 + 配图</span>
                         <span>→</span>
-                        <span className={wechatCoverStep >= 2 ? 'text-accent' : ''}>② 生成图</span>
-                        <span>→</span>
-                        <span className={wechatCoverStep >= 3 ? 'text-accent' : ''}>③ 上传</span>
+                        <span className={wechatCoverStep >= 3 ? 'text-accent' : ''}>② 上传</span>
                       </div>
-                      {wechatCoverStep === 1 && (
-                        <button
-                          type="button"
-                          disabled={!!wechatGeneratingField}
-                          onClick={handleCoverStep1Prompt}
-                          className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
-                        >
-                          {wechatGeneratingField === 'cover' ? '生成中…' : '① 生成提示词'}
-                        </button>
-                      )}
-                      {wechatCoverStep >= 2 && (
-                        <div className="space-y-2">
-                          <div className="text-xs text-muted">提示词（可编辑）：</div>
-                          <textarea
-                            value={wechatCoverPrompt}
-                            onChange={(e) => setWechatCoverPrompt(e.target.value)}
-                            placeholder="封面图描述…"
-                            rows={2}
-                            className="w-full rounded bg-white/5 border border-border px-2 py-1.5 text-xs text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent resize-y"
-                          />
-                          {wechatCoverStep === 2 && (
-                            <button
-                              type="button"
-                              disabled={!!wechatGeneratingField || !wechatCoverPrompt?.trim()}
-                              onClick={handleCoverStep2Images}
-                              className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
-                            >
-                              {wechatGeneratingField === 'cover' ? '生成中…' : '② 生成图片'}
-                            </button>
-                          )}
-                        </div>
-                      )}
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted">封面图提示词（生成后填入，可改后再出图）：</div>
+                        <textarea
+                          value={wechatCoverPrompt}
+                          onChange={(e) => setWechatCoverPrompt(e.target.value)}
+                          placeholder="点击下方按钮将根据正文生成提示词并立即生成 4 张备选图…"
+                          rows={3}
+                          readOnly={wechatGeneratingField === 'cover' && wechatCoverStep < 3}
+                          className="w-full rounded bg-white/5 border border-border px-2 py-1.5 text-xs text-white placeholder-[#64748b] focus:outline-none focus:ring-1 focus:ring-accent resize-y read-only:opacity-80"
+                        />
+                        {wechatCoverStep < 3 && (
+                          <button
+                            type="button"
+                            disabled={!!wechatGeneratingField}
+                            onClick={handleCoverPromptThenImages}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                          >
+                            {wechatGeneratingField === 'cover' ? '正在生成提示词与配图…' : '① 生成提示词并生成配图'}
+                          </button>
+                        )}
+                        {wechatCoverStep >= 2 && wechatCoverPrompt?.trim() && (
+                          <button
+                            type="button"
+                            disabled={!!wechatGeneratingField}
+                            onClick={handleCoverRegenerateImagesOnly}
+                            className="px-2.5 py-1 text-xs rounded border border-border text-muted hover:bg-white/5 hover:text-fg disabled:opacity-50"
+                          >
+                            {wechatGeneratingField === 'cover' ? '生成中…' : '仅按当前提示词重新出图'}
+                          </button>
+                        )}
+                      </div>
                       {wechatCoverStep >= 3 && wechatCoverImages?.length > 0 && (
                         <div className="space-y-2">
-                          <div className="text-xs text-muted">选择一张上传：</div>
+                          <div className="text-xs text-muted">选择一张上传到公众号素材：</div>
                           <div className="grid grid-cols-4 gap-2">
                             {wechatCoverImages.map((src, i) => (
                               <button
@@ -2600,7 +2617,7 @@ export default function ArticleWriting() {
                             onClick={() => { setWechatCoverStep(2); setWechatCoverImages([]) }}
                             className="text-xs text-muted hover:text-fg"
                           >
-                            重新生成图片
+                            清除配图、保留提示词后重新出图
                           </button>
                         </div>
                       )}

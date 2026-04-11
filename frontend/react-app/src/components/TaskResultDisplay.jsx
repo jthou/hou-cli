@@ -3,6 +3,7 @@
  * 按 task_type 统一渲染，供任务详情弹窗、任务卡片、执行记录等复用，保持展示一致。
  */
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import WeatherResultDisplay from './WeatherResultDisplay'
 import DiskResultDisplay from './DiskResultDisplay'
 import UrlToWikiInline from './task/UrlToWikiInline'
@@ -264,7 +265,11 @@ function isPlayableMedia(path) {
   return VIDEO_AUDIO_EXTS.has(ext)
 }
 
+const BTN_SECONDARY =
+  'px-2.5 py-1 rounded border border-border text-[11px] text-muted hover:text-fg hover:bg-white/5'
+
 export default function TaskResultDisplay({ taskType, result, taskId }) {
+  const navigate = useNavigate()
   const [urlToWikiConfig, setUrlToWikiConfig] = useState(null)
   const isSuccess = result?.status === 'success'
   const isError = result?.status === 'error'
@@ -591,6 +596,32 @@ export default function TaskResultDisplay({ taskType, result, taskId }) {
           </p>
         )}
         <MarkdownPreview markdown={d.markdown} theme="dark" />
+        <div className="flex flex-wrap gap-2 mt-2">
+          <button
+            type="button"
+            className={BTN_SECONDARY}
+            onClick={() =>
+              navigate('/add-reference', {
+                state: {
+                  addToReference: d.markdown,
+                  autoCreateArticleWriting: true,
+                },
+              })
+            }
+          >
+            去写作助手（热点摘要→参考）
+          </button>
+        </div>
+        <p className="text-[11px] text-muted/90 mt-1">
+          推荐：摘要进左侧「参考」后在输入框写公众号要求（与 MCP <code className="text-cyan-300/80">hou_article_writing</code> 的{' '}
+          <code className="text-cyan-300/80">hot_news_digest_markdown</code> 一致）。展开下方可「作为右侧草稿发送」等（与 url_to_wiki 任务相同）。
+        </p>
+        <MarkdownDraftActions
+          markdown={d.markdown}
+          sourceType="ai_hot_news_digest"
+          suggestTitle={(d.meta?.title || '今日AI热点摘要').slice(0, 50)}
+          summaryText="更多操作：复制、作为右侧草稿、写入 Wiki…"
+        />
         {Array.isArray(d.search_log) && d.search_log.length > 0 && (
           <details className="text-xs text-muted">
             <summary>检索日志（{d.search_log.length} 轮）</summary>

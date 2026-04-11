@@ -1,8 +1,10 @@
 /**
  * 统一添加参考：将内容加入写作助手、工作助手或通用对话的会话上下文
  * 从 Wiki、网页阅读、字幕、草稿等页面跳转，选择目标会话后添加并跳转
+ *
+ * 时间：2026-04-11；理由：今日 AI 热点摘要→公众号写作需摘要进「参考」而非右侧成稿；方法：state.autoCreateArticleWriting 时自动新建 article_writing 会话并跳转写作页
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import SessionSelectSection from '../components/SessionSelectSection'
@@ -23,20 +25,79 @@ const TYPE_CONFIG = {
   [GENERAL_TYPE]: { label: '通用对话', path: '/general-chat', storageKey: GENERAL_STORAGE_KEY },
 }
 
+const HOT_NEWS_DIGEST_REF_TITLE = '【参考·今日 AI 热点深度摘要】'
+
 export default function AddReference() {
   const location = useLocation()
   const navigate = useNavigate()
   const toast = useToast()
   const content = (location.state?.addToReference || '').trim()
+  const autoArticleWriting = Boolean(location.state?.autoCreateArticleWriting)
 
   const [articleSessions, setArticleSessions] = useState([])
   const [workSessions, setWorkSessions] = useState([])
   const [generalSessions, setGeneralSessions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [autoSeeding, setAutoSeeding] = useState(autoArticleWriting && Boolean(content.trim()))
+  const autoArticleStartedRef = useRef(false)
+
+  /** 今日 AI 热点等：一键新建写作会话，摘要写入参考块，跳转写作助手（对齐 MCP hot_news_digest → 参考 + 公众号约束由用户提问补充） */
+  useEffect(() => {
+    if (!content || !autoArticleWriting || autoArticleStartedRef.current) return
+    autoArticleStartedRef.current = true
+    let cancelled = false
+    ;(async () => {
+      setAutoSeeding(true)
+      try {
+        const newBlock = {
+          id: generateReferenceBlockId(),
+          title: HOT_NEWS_DIGEST_REF_TITLE,
+          content,
+        }
+        const res = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ metadata: { type: ARTICLE_TYPE } }),
+        }).then((r) => r.json())
+        if (cancelled) return
+        if (!res.success || !res.session_id) {
+          toast?.error?.(res.error || '创建写作会话失败')
+          setAutoSeeding(false)
+          autoArticleStartedRef.current = false
+          return
+        }
+        const sessionId = res.session_id
+        await saveReferenceBlocks(sessionId, [newBlock], ARTICLE_TYPE)
+        try {
+          sessionStorage.setItem(ARTICLE_STORAGE_KEY, sessionId)
+        } catch (_) {}
+        toast?.info?.(
+          '已创建写作会话并将热点摘要写入「参考」。请在写作页选择 Qwen3 Max，输入篇幅与角度；泛指请用「智能体」。'
+        )
+        navigate('/article-writing', {
+          replace: true,
+          state: { focusSessionId: sessionId },
+        })
+      } catch (e) {
+        if (!cancelled) {
+          toast?.error?.(e?.message || '创建失败')
+          setAutoSeeding(false)
+          autoArticleStartedRef.current = false
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [content, autoArticleWriting, navigate, toast])
 
   useEffect(() => {
     if (!content) {
       navigate('/', { replace: true })
+      return
+    }
+    if (autoArticleWriting) {
+      setLoading(false)
       return
     }
     Promise.all([
@@ -51,7 +112,15 @@ export default function AddReference() {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [content, navigate])
+  }, [content, navigate, autoArticleWriting])
+
+  if (autoSeeding) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center p-8 text-muted text-sm">
+        正在创建写作会话并写入热点参考…
+      </div>
+    )
+  }
 
   const handleSelect = async (sessionType, sessionId) => {
     if (!content) return
