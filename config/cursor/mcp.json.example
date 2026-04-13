@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "hou-bailian-chat": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/TO/hou-cli/scripts/mcp_bailian_chat_server.py"],
+      "cwd": "/ABSOLUTE/PATH/TO/hou-cli"
+    },
+    "hou-bailian-article": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/TO/hou-cli/scripts/mcp_bailian_article_writing_server.py"],
+      "cwd": "/ABSOLUTE/PATH/TO/hou-cli"
+    },
+    "hou-mediawiki": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/TO/hou-cli/scripts/mcp_mediawiki_server.py"],
+      "cwd": "/ABSOLUTE/PATH/TO/hou-cli"
+    },
+    "hou-wechat-mp-draft": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/TO/hou-cli/scripts/mcp_wechat_mp_draft_server.py"],
+      "cwd": "/ABSOLUTE/PATH/TO/hou-cli"
+    },
+    "hou-wikipedia": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/TO/hou-cli/scripts/mcp_wikipedia_server.py"],
+      "cwd": "/ABSOLUTE/PATH/TO/hou-cli"
+    }
+  }
+}

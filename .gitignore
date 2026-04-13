@@ -61,7 +61,10 @@ frontend-react-app/
 # Project specific
 .backend.pid
 *.pid
-.cursor/
+# Cursor IDE：本机 mcp 与日志不提交；可提交 .cursor/rules、.cursor/README.md（见 config/cursor/ 模板）
+.cursor/mcp.json
+.cursor/*.log
+.cursor/debug*.log
 data/
 
 # 外部依赖目录（已不再以 submodule 跟踪，本地可保留用于运行，但不提交）

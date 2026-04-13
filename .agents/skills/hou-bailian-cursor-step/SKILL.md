@@ -7,7 +7,7 @@ description: 约定 Cursor Agent 何时通过 MCP 调用百炼单步（文本/VL
 
 ## 能力边界
 
-- **本 Skill 只描述流程与约定**，不内置 API、不替代你在 `~/.cursor/mcp.json` 里配置的 MCP 服务器。
+- **本 Skill 只描述流程与约定**，不内置 API、不替代你在 `~/.cursor/mcp.json`（或项目 `.cursor/mcp.json`）里配置的 MCP 服务器；**合并模板**以仓库 `config/cursor/mcp.json.example` 为准。
 - **实际推理**由已配置的 **`hou-bailian-chat`** MCP 工具完成（仓库脚本 `scripts/mcp_bailian_chat_server.py`）。
 - **公众号 / 写作助手编排长文**仍用 **`hou-bailian-article`** 的 `hou_article_writing`，不要用本 MCP 硬撑整篇编排。
 
