@@ -1,7 +1,7 @@
 # API 路径审计
 
-- 后端路由数: 165
-- 前端 fetch 数: 156
+- 后端路由数: 163
+- 前端 fetch 数: 154
 
 ## 后端路由
 
@@ -57,7 +57,6 @@ GET /api/settings/model-stats
 GET /api/settings/system-prompt-audit/prompts
 GET /api/settings/tavily-audit/path
 GET /api/settings/tavily-audit/stats
-GET /api/settings/work-config
 GET /api/settings/writing-profile
 GET /api/settings/writing-profile/acceptance-records
 GET /api/settings/writing-profile/acceptance-records/{record_id}/sections
@@ -168,7 +167,6 @@ POST /api/wechat-mp/upload-cover
 POST /api/wikipedia/parse
 PUT /api/chat/article
 PUT /api/chat/mw-sources
-PUT /api/settings/work-config
 PUT /api/settings/writing-profile
 PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 ```
@@ -234,7 +232,6 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - GET /api/settings/model-config-audit
 - GET /api/settings/model-stats
 - GET /api/settings/system-prompt-audit/prompts
-- GET /api/settings/work-config
 - GET /api/settings/writing-profile
 - GET /api/settings/writing-profile/acceptance-records
 - GET /api/settings/writing-profile/acceptance-records/${selectedRecordId}/sections
@@ -328,7 +325,6 @@ PUT /api/task-queue/scheduled-tasks/{schedule_id}/toggle
 - POST /api/writing-suggestions
 - PUT /api/chat/article
 - PUT /api/chat/mw-sources
-- PUT /api/settings/work-config
 - PUT /api/settings/writing-profile
 - PUT /api/task-queue/scheduled-tasks/${task.schedule_id}/toggle
 

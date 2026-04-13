@@ -186,32 +186,82 @@ class MediaWikiTool(Tool):
         """
         try:
             operation = kwargs.get("operation")
-            
+
             if not operation:
                 return ToolResult(
                     success=False,
                     error="operation 参数是必需的"
                 )
 
-            client = self._get_client()
-            
-            if operation == "search":
-                return self._handle_search(client, kwargs)
-            elif operation == "read":
-                return self._handle_read(client, kwargs)
-            elif operation == "edit":
-                return self._handle_edit(client, kwargs)
-            elif operation == "create":
-                return self._handle_create(client, kwargs)
-            elif operation == "info":
-                return self._handle_info(client, kwargs)
-            elif operation == "search_read":
-                return self._handle_search_read(client, kwargs)
-            else:
+            # 时间：2026-04-11；理由：凭据错误时若先 connect，会掩盖「无效 operation / 缺 query」等单测与调用方期望；方法：与各 _handle_* 相同文案，在 _get_client 之前做校验
+            _valid = frozenset(
+                ("search", "read", "edit", "create", "info", "search_read")
+            )
+            if operation not in _valid:
                 return ToolResult(
                     success=False,
-                    error=f"未知操作类型: {operation}"
+                    error=f"未知操作类型: {operation}",
                 )
+            if operation == "search" and not kwargs.get("query"):
+                return ToolResult(
+                    success=False,
+                    error="search 操作需要 query 参数",
+                )
+            if operation == "read" and not kwargs.get("title"):
+                return ToolResult(
+                    success=False,
+                    error="read 操作需要 title 参数",
+                )
+            if operation == "edit":
+                if not kwargs.get("title"):
+                    return ToolResult(
+                        success=False,
+                        error="edit 操作需要 title 参数",
+                    )
+                if not kwargs.get("content"):
+                    return ToolResult(
+                        success=False,
+                        error="edit 操作需要 content 参数",
+                    )
+            if operation == "create":
+                if not kwargs.get("title"):
+                    return ToolResult(
+                        success=False,
+                        error="create 操作需要 title 参数",
+                    )
+                if not kwargs.get("content"):
+                    return ToolResult(
+                        success=False,
+                        error="create 操作需要 content 参数",
+                    )
+            if operation == "info" and not kwargs.get("title"):
+                return ToolResult(
+                    success=False,
+                    error="info 操作需要 title 参数",
+                )
+            if operation == "search_read":
+                if not (kwargs.get("terms") or kwargs.get("query")):
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            "search_read 操作需要 terms 或 query 参数"
+                            "（以逗号或空格分隔的关键词列表）"
+                        ),
+                    )
+
+            client = self._get_client()
+
+            if operation == "search":
+                return self._handle_search(client, kwargs)
+            if operation == "read":
+                return self._handle_read(client, kwargs)
+            if operation == "edit":
+                return self._handle_edit(client, kwargs)
+            if operation == "create":
+                return self._handle_create(client, kwargs)
+            if operation == "info":
+                return self._handle_info(client, kwargs)
+            return self._handle_search_read(client, kwargs)
                 
         except RuntimeError as e:
             return ToolResult(

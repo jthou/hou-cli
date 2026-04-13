@@ -15,7 +15,7 @@ def test_resolve_default_off(monkeypatch):
 
 
 def test_iter_off_empty():
-    assert list(iter_stream_preamble_text("off", branch="llm_plain", ctx_type="article_writing", is_work_assistant=False, is_general_chat=False, matched_skill_name=None, selected_model="m", skill_prematch_skipped=False, tools_count=0)) == []
+    assert list(iter_stream_preamble_text("off", branch="llm_plain", ctx_type="article_writing", is_general_chat=False, matched_skill_name=None, selected_model="m", skill_prematch_skipped=False, tools_count=0)) == []
 
 
 def test_iter_identity_writing():
@@ -24,7 +24,6 @@ def test_iter_identity_writing():
             "identity",
             branch="llm_plain",
             ctx_type="article_writing",
-            is_work_assistant=False,
             is_general_chat=False,
             matched_skill_name=None,
             selected_model="qwen3-max",
@@ -42,7 +41,6 @@ def test_iter_full_includes_orchestrator_line():
             "full",
             branch="llm_plain",
             ctx_type="article_writing",
-            is_work_assistant=False,
             is_general_chat=False,
             matched_skill_name=None,
             selected_model="qwen3-max",
@@ -61,7 +59,6 @@ def test_skill_branch():
             "full",
             branch="skill",
             ctx_type="general_chat",
-            is_work_assistant=False,
             is_general_chat=True,
             matched_skill_name="video_downloader",
             selected_model="m",

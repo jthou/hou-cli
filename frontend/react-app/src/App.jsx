@@ -3,9 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/ToastModal'
 import Sidebar from './components/Sidebar'
 import Home from './pages/Home'
-import WorkAssistant from './pages/WorkAssistant'
 import GeneralChat from './pages/GeneralChat'
-import CodeAssistant from './pages/CodeAssistant'
 import TaskManagement from './pages/TaskManagement'
 import PipelineOrchestration from './pages/PipelineOrchestration'
 import VideoDownload from './pages/VideoDownload'
@@ -20,7 +18,6 @@ import ArticleWriting from './pages/ArticleWriting'
 import PptAssistant from './pages/PptAssistant'
 import SettingsGeneral from './pages/SettingsGeneral'
 import SettingsWritingProfile from './pages/SettingsWritingProfile'
-import SettingsWorkConfig from './pages/SettingsWorkConfig'
 import SettingsStorage from './pages/SettingsStorage'
 import SettingsTests from './pages/SettingsTests'
 import SettingsBackend from './pages/SettingsBackend'
@@ -54,9 +51,10 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/home" element={<Home />} />
-              <Route path="/work-assistant" element={<WorkAssistant />} />
+              {/* 时间：2026-04-05；理由：工作/代码助手入口下线；方法：旧书签重定向到通用对话 */}
+              <Route path="/work-assistant" element={<Navigate to="/general-chat" replace />} />
               <Route path="/general-chat" element={<GeneralChat />} />
-              <Route path="/code-assistant" element={<CodeAssistant />} />
+              <Route path="/code-assistant" element={<Navigate to="/general-chat" replace />} />
               <Route path="/tasks" element={<TaskManagement />} />
               <Route path="/pipeline" element={<PipelineOrchestration />} />
               <Route path="/video-download" element={<VideoDownload />} />
@@ -81,7 +79,7 @@ export default function App() {
               <Route path="/wiki-directory" element={<WikiDirectory />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/writing-profile" element={<SettingsWritingProfile />} />
-              <Route path="/settings/work-config" element={<SettingsWorkConfig />} />
+              <Route path="/settings/work-config" element={<Navigate to="/settings/general" replace />} />
               <Route path="/settings/storage" element={<SettingsStorage />} />
               <Route path="/settings/llm-audit" element={<SettingsLlmAudit />} />
               <Route path="/settings/network-audit" element={<SettingsNetworkAudit />} />

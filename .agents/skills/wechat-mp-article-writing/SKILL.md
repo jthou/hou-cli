@@ -1,6 +1,6 @@
 ---
 name: wechat-mp-article-writing
-description: Produces reader-facing WeChat Official Account long-form articles (微信公众号成稿)，not writing tutorials—supports both restrained professional tone and user-requested 传播增强（完读/利益钩子），always factual anchors—aligned with hou-cli article_writing contracts. **Writing LLM must be `qwen3-max`** (see「模型指定」). Use when the user asks for 公众号文章、微信推文、订阅号长文、与写作助手同场景的成稿/改稿，或要在 hou-cli 写作页/任务队列中落地。
+description: 微信公众号长文成稿/改稿：言之有物、结论必有素材或信源支撑、禁臆断妄断；可专业克制或用户明示的传播增强。对齐 hou-cli article_writing。**成稿须 `qwen3-max`**。用于公众号推文、写作助手同场景、hou-cli 写作页/任务队列。
 ---
 
 # 微信公众号长文写作（对齐 hou-cli 写作助手）
@@ -12,6 +12,7 @@ description: Produces reader-facing WeChat Official Account long-form articles (
 | **线上 Agent** | `context_type=article_writing`；系统提示来自 `backend/core/agent/system_prompt_templates.py` → `get_article_writing_system_prompt`（**只做**：公众号长文 **新写**、**长文改稿**）。 |
 | **用户消息契约** | `backend/core/agent/article_writing_message_contract.py`（参考块、`【用户本次提问】`、改稿范围注入）；前端拼接须与 `frontend/react-app/src/utils/referenceUtils.js` **同步**，改一侧必改另一侧。 |
 | **同步到微信草稿箱** | 任务类型 **`wechat_mp_draft`**（`backend/infrastructure/execution/task_handlers.py`），个人号可写草稿，**正式发布在手机「公众号助手」**。 |
+| **MCP 直写草稿** | `scripts/mcp_wechat_mp_draft_server.py`（stdio，工具名 **`hou_wechat_mp_draft_publish`**）：`operation` add/update，正文 **`article_markdown` 或 `article_html`**，与任务处理器同源；需本机已配置公众号 AppId/Secret。 |
 
 Cursor 内按本 Skill 写作时，**行为上应对齐上述契约**，勿当成「任意体裁代笔」。
 
@@ -37,6 +38,18 @@ Cursor 内按本 Skill 写作时，**行为上应对齐上述契约**，勿当�
 ## 去 AI 味儿专项规范（硬约束）
 
 以下规范用于消除模型常见的「摘要体」「报告体」与「模板化」痕迹，**违者视为严重质量事故**。
+
+### 禁止产业通稿腔与「正确的废话」
+
+- **定义**：句子**语法正确、方向正确**，但读者**无法多知道任何一件可转述的具体事**（谁、做了什么、何时、数字、哪条规则）；读完只有「嗯，要重视」却**举不出一条要向同事复述的素材**——一律视为失败，整段重写或删除。
+- **典型反面**（禁止仿写）：「产业情绪已回归理性」「业界已跨越概念炒作，转向系统化落地」「云服务商与安全架构师强调授权与检索管道的一体化」「GraphRAG 与 Agentic RAG 缓解了语境丢失，但研究指出缺乏评测则难称生产可用」——**除非同段紧接可核对主体与出处**（公司/产品/论文或报道名 + 链接或可追溯检索词），否则不得出现。
+- **正面标准**：每段至少让读者**多带得走一条**「主体 + 动作 + 可核对锚点」；抽象判断只许作**事实之间的短桥**，不许当段落主角。
+
+### 言之有物 · 有据 · 不臆断（与上节并列硬约束）
+
+- **言之有物**：段落以**事实与可核对信息**为主；忌空洞泛论（「生态」「范式」「深水区」等**脱离本条素材**即失去意义的词，除非紧接具体主体与行为）。
+- **避免无根据的结论**：凡价值判断、趋势判断、因果句，须能在**用户给定参考或已嵌入信源**中找到支撑；**无素材则不下该结论**，可改为追问补材或写清「素材未提供，不作推断」。
+- **避免臆想与妄下结论**：不编造对话、内部会、未公开数据；不写「显然」「毫无疑问」「真正的原因是」等**无出处的动机分析**；若做合理推断，须用报道语言标明**边界**（如「尚不清楚是否…」「一种可能的解释是…」，且篇幅极短、不替代事实段）。
 
 ### 禁止的元叙事与声明
 
@@ -211,6 +224,8 @@ Cursor 内按本 Skill 写作时，**行为上应对齐上述契约**，勿当�
 - [ ] 是否有读者锚定句 + 可带走的清单/结论，且未为代入感编造事实？
 - [ ] 是否已删除所有「本文基于...」「面向...读者」「尝试...」等元声明？
 - [ ] 是否已删除「本摘要不采信」「交叉验证」「情绪浓度」等检索/摘要术语？
+- [ ] 是否已清除「产业情绪」「体系化落地」等无主体通稿腔，且每段有可转述的具体锚点？
+- [ ] 结论与因果是否均有素材/信源支撑？是否已删除无出处的「显然」「毫无疑问」及妄断动机？
 - [ ] 是否已删除「需要注意的是」「这些动态提醒我们」「把镜头拉近」「余韵」「回到开篇」等模板短语？
 - [ ] 开篇是否从具体事实/冲突切入，且 3 句内落地到可核对信息？
 - [ ] 是否避免了「X 月上旬...三条线并行」类套路开篇？
@@ -229,5 +244,6 @@ Cursor 内按本 Skill 写作时，**行为上应对齐上述契约**，勿当�
 - 消息与参考契约：`backend/core/agent/article_writing_message_contract.py`
 - 文档协作注入：`DOC_COAUTHORING_WORKFLOW`（同文件，规划上下文）
 - 草稿任务：`TASK_TYPES["wechat_mp_draft"]` 与 `process_wechat_mp_draft_task`
+- 今日 AI 事实包 → 选题（`qwen3.6-plus`）→ 成稿（`qwen3-max`）主编管道：[../wechat-mp-ai-news-pipeline/SKILL.md](../wechat-mp-ai-news-pipeline/SKILL.md)
 
 更多与微信 API 字段、错误码见 [reference.md](reference.md)。

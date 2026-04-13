@@ -26,14 +26,23 @@ def load_env(project_root: Optional[Path] = None) -> None:
     if project_root is None:
         project_root = Path(__file__).resolve().parent.parent
 
+    # 时间：2026-04-11；理由：cwd 与项目根相同时会二次加载同一 .env，把 ~/.config/hou-cli/.env 里已合并的凭据覆盖掉（MCP/后端表现为「明明配了却登录失败」）；方法：按路径去重后再 load，后者仍 override 前者
     env_paths = [
-        (project_root / ".env", True),
-        (_CONFIG_DIR / ".env", True),
-        (Path.cwd() / ".env", True),
+        project_root / ".env",
+        _CONFIG_DIR / ".env",
+        Path.cwd() / ".env",
     ]
-    for env_path, override in env_paths:
+    seen: set[Path] = set()
+    for env_path in env_paths:
+        try:
+            key = env_path.resolve()
+        except OSError:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
         if env_path.exists():
-            load_dotenv(env_path, override=override)
+            load_dotenv(env_path, override=True)
 
     try:
         from shared.httpx_defaults import merge_hou_cli_no_proxy_hosts

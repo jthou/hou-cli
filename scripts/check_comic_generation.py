@@ -62,9 +62,7 @@ def check_comic_generation_status():
     print("\n1. 技术架构分析:")
     print("   - ✓ LiteLLM代理配置正确")
     print("   - ✓ API密钥配置正确")
-    print("   - ✓ baoyu-comic技能已安装")
-    print("   - ✓ baoyu-image-gen技能已安装")
-    print("   - ✓ 符号链接设置正确")
+    print("   - （原 .agents/skills/baoyu-comic、baoyu-image-gen 已自仓库移除；图生请走 hou-cli 内建 API/服务）")
 
     print("\n2. 实际生成结果:")
     print("   - ❌ 生成的PDF是文本而非真正的PDF")

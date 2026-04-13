@@ -2,6 +2,8 @@
 
 import unittest
 import os
+
+from backend.core.agent.tools.base import ToolResult
 from backend.core.agent.tools.builtin.mediawiki_tool import MediaWikiTool
 
 
@@ -33,7 +35,14 @@ class TestMediaWikiTool(unittest.TestCase):
             limit=5
         )
         
-        self.assertIsInstance(result, type(self.tool.execute.__annotations__['return']))
+        # 原写法 type(__annotations__["return"]) 在 Python 3.9+ 常为 str，恒为误断言
+        self.assertIsInstance(result, ToolResult)
+        if not result.success and (
+            "密码" in (result.error or "")
+            or "Connection failed" in (result.error or "")
+            or "初始化失败" in (result.error or "")
+        ):
+            self.skipTest(f"MediaWiki 未登录或凭据无效: {result.error}")
         if result.success:
             self.assertIn("results", result.data)
             self.assertIn("count", result.data)

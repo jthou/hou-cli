@@ -5,8 +5,6 @@ import BackendStatus from './BackendStatus'
 // 时间：2026-03-13；理由：任务中心需紧邻首页便于进入；方法：/tasks 单独插在首页下，不从 navItems 渲染。
 const navItems = [
   { path: '/general-chat', icon: '💬', label: '通用对话', group: 'smart_tools' },
-  { path: '/work-assistant', icon: '🤖', label: '工作助手', group: 'smart_tools' },
-  { path: '/code-assistant', icon: '💻', label: '代码助手', group: 'smart_tools' },
   { path: '/article-writing', icon: '✍️', label: '写作助手', group: 'smart_tools' },
   { path: '/ppt-assistant', icon: '📊', label: 'PPT助手', group: 'smart_tools' },
   { path: '/wechat-drafts', icon: '✏️', label: '公众号草稿', group: 'wiki' },
@@ -31,7 +29,6 @@ const navItems = [
   { path: '/disk-scan', icon: '💾', label: '磁盘扫描', group: 'task_tools' },
   { path: '/settings/general', icon: '🎨', label: '常规设置', group: 'settings' },
   { path: '/settings/writing-profile', icon: '✍️', label: '写作画像', group: 'settings' },
-  { path: '/settings/work-config', icon: '📋', label: '工作配置', group: 'settings' },
   { path: '/settings/storage', icon: '💾', label: '存储审计', group: 'settings' },
   { path: '/settings/llm-audit', icon: '📜', label: 'LLM审计', group: 'settings' },
   { path: '/settings/network-audit', icon: '🌐', label: '网络审计', group: 'settings' },

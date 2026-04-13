@@ -50,8 +50,9 @@ async def run_case(name: str, task: str, context: dict, expect_tool: bool = Fals
 
 async def main():
     cases = [
-        ("code_assistant_执行", "写 print(1) 执行看看", {"context_type": "code_assistant"}, True),
-        ("work_assistant_无工具", "帮我整理待办", {"context_type": "work_assistant"}, False),
+        # legacy metadata.type：编排侧归一为 general_chat，可与通用对话一样走工具
+        ("legacy_code_assistant_ctx_期望可执行", "写 print(1) 执行看看", {"context_type": "code_assistant"}, True),
+        ("legacy_work_assistant_ctx_整理待办无工具", "帮我整理待办", {"context_type": "work_assistant"}, False),
         ("general_chat_可选工具", "你好", {"context_type": "general_chat"}, False),
     ]
 

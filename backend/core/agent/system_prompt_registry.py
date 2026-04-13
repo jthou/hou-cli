@@ -7,7 +7,6 @@ from typing import List, Dict, Any
 
 from backend.core.agent.system_prompt_templates import (
     CHAT_SYSTEM_PROMPT,
-    WORK_ASSISTANT_SYSTEM_PROMPT,
     ARTICLE_WRITING_SYSTEM_PROMPT,
     ARTICLE_WRITING_NOTE,
     ORCHESTRATOR_SELECTOR_AUDIT_PROMPT,
@@ -22,8 +21,6 @@ def get_all_system_prompts() -> List[Dict[str, Any]]:
     """返回按 agent 划分的系统提示与工具列表，每项为 { "id", "name", "prompt", "tools", "category" }。"""
     return [
         # Agent：面向用户的对话/执行 agent
-        {"id": "work_assistant", "name": "工作助手", "prompt": WORK_ASSISTANT_SYSTEM_PROMPT,
-         "tools": get_tool_names_for_agent("work_assistant"), "category": "agent"},
         {"id": "chat", "name": "通用对话", "prompt": CHAT_SYSTEM_PROMPT,
          "tools": get_tool_names_for_agent("chat"), "category": "agent"},
         {"id": "general_chat", "name": "通用对话（会话+参考）", "prompt": CHAT_SYSTEM_PROMPT,

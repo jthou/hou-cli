@@ -49,7 +49,6 @@ from backend.api.stream_sender import (
 from backend.core.agent.task_manager import task_manager
 from backend.core.agent.system_prompt_templates import (
     CHAT_SYSTEM_PROMPT,
-    WORK_ASSISTANT_SYSTEM_PROMPT,
     DOC_COAUTHORING_WORKFLOW,
     get_article_writing_system_prompt,
     format_feedback_history_for_prompt,
@@ -67,7 +66,6 @@ from backend.core.agent.article_writing_message_contract import (
     build_bracketed_revision_opinion_injection,
 )
 from backend.core.agent.article_writing_workflow import task_triggers_doc_coauthoring
-from backend.core.agent.work_config import get_config_block_for_prompt
 from backend.core.agent.stream_agent_preamble import (
     iter_stream_preamble_text,
     resolve_stream_agent_preamble_mode,
@@ -82,6 +80,24 @@ from backend.core.agent.skill_prematch import (
     general_chat_allows_skill_prematch,
     resolve_skill_params_for_execution,
 )
+
+_DEPRECATED_ASSISTANT_CTX = frozenset({"work_assistant", "code_assistant"})
+
+
+def resolve_and_normalize_stream_context_type(
+    context: Optional[Dict[str, Any]],
+    session_id: Optional[str],
+    context_manager: FullContextManager,
+) -> Optional[str]:
+    """时间：2026-04-05；理由：产品下线工作助手/代码助手；方法：编排侧将旧 metadata 统一视为 general_chat。"""
+    ct = (context or {}).get("context_type")
+    if not ct and session_id:
+        session_obj = context_manager.get_session(session_id)
+        if session_obj and session_obj.metadata:
+            ct = session_obj.metadata.get("type")
+    if ct in _DEPRECATED_ASSISTANT_CTX:
+        return "general_chat"
+    return ct
 
 
 def _select_chat_history_for_llm_stream(
@@ -370,55 +386,6 @@ class UnifiedOrchestrator:
         
         return response
     
-    # 时间：2026-03-13；理由：原唯一调用方「旧版 stream_process」已移除（与现行第二个 stream_process 重复定义）；方法：保留本函数供后续若要将 work_assistant 从 _stream_intelligent_orchestration 拆出时复用；当前生产流式路径为第二个 stream_process → _stream_intelligent_orchestration 内 is_work_assistant 分支（不经过本函数）。
-    async def _stream_work_assistant(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
-        """工作助手专用：WORK_ASSISTANT_SYSTEM_PROMPT（软件架构师身份、管理学规范）"""
-        regenerate_msg_id = (context or {}).get("regenerate_from_message_id")
-        session_id = context.get("session_id") if context else None
-
-        if regenerate_msg_id and session_id:
-            msg = self.context_manager.get_message_by_id(session_id, regenerate_msg_id)
-            if not msg or msg.role != MessageRole.USER:
-                yield "错误：无法重新回答，未找到对应用户消息。"
-                return
-            task = msg.content or ""
-            ok = self.context_manager.truncate_after_message(session_id, regenerate_msg_id)
-            if not ok:
-                yield "错误：截断对话失败。"
-                return
-            # 不再次添加用户消息，仅生成并保存助手回复
-
-        if not session_id:
-            session_id = self.context_manager.create_session()
-        selected_model = await self._select_model(task, context=context)
-        if selected_model != self.llm_service.model:
-            self.llm_service.set_model(selected_model)
-        history = self.context_manager.get_messages_for_llm(session_id, max_messages=None, max_tokens=None)
-        filtered_history = [msg for msg in history if msg["role"] in ["user", "assistant"]]
-        if filtered_history:
-            history_text = "\n".join([
-                f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
-                for msg in filtered_history
-            ])
-            user_prompt = f"【历史对话】\n{history_text}\n\n【当前用户问题】\n{task}"
-        else:
-            user_prompt = task
-        config_block = get_config_block_for_prompt()
-        if config_block:
-            user_prompt = config_block + "\n\n" + user_prompt
-        audit_meta = {"session_id": session_id} if session_id else None
-        response = await self.llm_service.chat(
-            system_prompt=WORK_ASSISTANT_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            audit_meta=audit_meta,
-        )
-        if not regenerate_msg_id:
-            self.context_manager.add_message(session_id, MessageRole.USER, task)
-        self.context_manager.add_message(session_id, MessageRole.ASSISTANT, response or "")
-        self.llm_service.reset_model()
-        for char in (response or ""):
-            yield char
-
     async def _stream_general_chat_fallback(self, task: str, context: Optional[Dict] = None) -> AsyncIterator[str]:
         """通用对话专用：使用 CHAT_SYSTEM_PROMPT，避免编排选择器误选工具（如 get_weather）"""
         session_id = context.get("session_id") if context else None
@@ -1065,7 +1032,7 @@ class UnifiedOrchestrator:
 
             Args:
                 task: User task description
-                context_type: article_writing/work_assistant/general_chat，用于按 agent 过滤技能
+                context_type: article_writing/general_chat 等，用于按 agent 过滤技能
 
             Returns:
                 Matched skill or None
@@ -1182,13 +1149,17 @@ class UnifiedOrchestrator:
         """
         self.debug.log_orchestrator_step("开始处理任务", {"task": task[:50] + "..." if len(task) > 50 else task})
         
-        # 时间：2026-03-13；理由：与流式路径一致，写作/工作助手在 flag 下跳过抢答；方法：先解析 context_type 再决定是否调用 skill_registry.match。
+        # 时间：2026-03-13；理由：与流式路径一致，写作助手在 flag 下跳过抢答；方法：先解析 context_type 再决定是否调用 skill_registry.match。
         ctx_type_for_prematch = (context or {}).get("context_type")
         session_id_for_ctx = (context or {}).get("session_id")
         if not ctx_type_for_prematch and session_id_for_ctx:
             session_obj = self.context_manager.get_session(session_id_for_ctx)
             if session_obj and session_obj.metadata:
                 ctx_type_for_prematch = session_obj.metadata.get("type")
+        _prem_ctx = {**(context or {}), "context_type": ctx_type_for_prematch}
+        ctx_type_for_prematch = resolve_and_normalize_stream_context_type(
+            _prem_ctx, session_id_for_ctx, self.context_manager
+        )
         # 优先检查是否有匹配的技能（与 stream_process 分支一致，公共逻辑见 skill_prematch）
         matched_skill = None
         if self.skill_registry is None:
@@ -1268,37 +1239,29 @@ class UnifiedOrchestrator:
         )
         self.debug.log_context_operation("获取历史消息", session_id, {"count": len(history), "has_history": len(history) > 0})
         
-        # 构建消息列表（工作助手用 WORK_ASSISTANT_SYSTEM_PROMPT，其他用 CHAT_SYSTEM_PROMPT）
-        ctx_type = (context or {}).get("context_type")
-        if not ctx_type and session_id:
-            session_obj = self.context_manager.get_session(session_id)
-            if session_obj and session_obj.metadata:
-                ctx_type = session_obj.metadata.get("type")
-        system_prompt = WORK_ASSISTANT_SYSTEM_PROMPT if ctx_type == "work_assistant" else CHAT_SYSTEM_PROMPT
+        # 构建消息列表（非流式 process；work_assistant/code_assistant 已归一为 general_chat）
+        ctx_type = resolve_and_normalize_stream_context_type(context or {}, session_id, self.context_manager)
+        system_prompt = CHAT_SYSTEM_PROMPT
 
-        # 构建 user_prompt（工作助手不注入文章相关上下文）
         filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
-        if ctx_type == "work_assistant":
-            task_with_article = task
-        else:
-            mw_reference = self._get_mw_reference_content(session_id)
-            if mw_reference:
-                self.debug.log_orchestrator_step("注入参考 MediaWiki 页面", {"length": len(mw_reference)})
-            current_article = self.context_manager.get_current_article(session_id) or ""
-            if current_article.strip():
-                self.debug.log_orchestrator_step("注入当前文章草稿", {"length": len(current_article)})
-            _patch_instruction = (
-                "【重要】当用户要求对文章做局部修改（如插入一段、改某节）时，请只输出一个 unified diff（patch），"
-                "表示从当前文章到修改后文章的差异。将 diff 放在 ```patch 与 ``` 的代码块之间，不要输出修改后的整篇文章。"
-                "diff 的上下文行必须与当前文章完全一致。若用户只是讨论或询问，可正常回复。\n\n"
-            )
-            task_with_article = (
-                (_patch_instruction + f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}")
-                if current_article.strip()
-                else task
-            )
-            if mw_reference:
-                task_with_article = mw_reference + task_with_article
+        mw_reference = self._get_mw_reference_content(session_id)
+        if mw_reference:
+            self.debug.log_orchestrator_step("注入参考 MediaWiki 页面", {"length": len(mw_reference)})
+        current_article = self.context_manager.get_current_article(session_id) or ""
+        if current_article.strip():
+            self.debug.log_orchestrator_step("注入当前文章草稿", {"length": len(current_article)})
+        _patch_instruction = (
+            "【重要】当用户要求对文章做局部修改（如插入一段、改某节）时，请只输出一个 unified diff（patch），"
+            "表示从当前文章到修改后文章的差异。将 diff 放在 ```patch 与 ``` 的代码块之间，不要输出修改后的整篇文章。"
+            "diff 的上下文行必须与当前文章完全一致。若用户只是讨论或询问，可正常回复。\n\n"
+        )
+        task_with_article = (
+            (_patch_instruction + f"【当前文章（右侧草稿，请在此基础上修改或续写）】\n{current_article}\n\n【用户本次输入】\n{task}")
+            if current_article.strip()
+            else task
+        )
+        if mw_reference:
+            task_with_article = mw_reference + task_with_article
         if filtered_history:
             # 将历史消息格式化为对话形式，明确标注历史对话
             history_text = "\n".join([
@@ -1568,9 +1531,9 @@ class UnifiedOrchestrator:
                 is_complex = False
             
             if is_complex:
-                # 写作助手、工作助手不调用工具，禁止走自主执行（避免误用 file_parser 等）
-                ctx_type = (context or {}).get("context_type")
-                skip_autonomous = ctx_type in ("article_writing", "work_assistant")
+                # 写作助手不调用工具，禁止走自主执行（避免误用 file_parser 等）
+                _eff = resolve_and_normalize_stream_context_type(context or {}, session_id, self.context_manager)
+                skip_autonomous = _eff == "article_writing"
 
                 # 检查是否使用自主执行模式
                 autonomous_execution_enabled = (
@@ -1640,13 +1603,7 @@ class UnifiedOrchestrator:
                     yield StreamMessageBuilder.build_debug(debug_info)
         
         # 4. 构建 system_prompt 与 user_prompt（按 context_type 分支）
-        ctx_type = (context or {}).get("context_type")
-        # 兜底：若 context 未传 context_type，从 session metadata 读取（避免 WebSocket 等入口未传导致误用 SHORT_CHAT）
-        if not ctx_type and session_id:
-            session_obj = self.context_manager.get_session(session_id)
-            if session_obj and session_obj.metadata:
-                ctx_type = session_obj.metadata.get("type")
-        is_work_assistant = ctx_type == "work_assistant"
+        ctx_type = resolve_and_normalize_stream_context_type(context or {}, session_id, self.context_manager)
         is_general_chat = ctx_type == "general_chat"
         planning_context = ""  # 任务分解时可能追加，需预先定义
 
@@ -1654,7 +1611,7 @@ class UnifiedOrchestrator:
         if orch_verbosity != "off":
             _orch_payload = {
                 "context_type": ctx_type,
-                "is_work_assistant": is_work_assistant,
+                "is_work_assistant": False,  # 时间：2026-04-05；理由：工作助手已下线；方法：trace 字段保留兼容旧客户端
                 "is_general_chat": is_general_chat,
                 "verbosity": orch_verbosity,
             }
@@ -1671,30 +1628,7 @@ class UnifiedOrchestrator:
                 }
             )
 
-        if is_work_assistant:
-            # 工作助手：专用提示词 + 工作配置，无文章注入，不调用工具
-            system_prompt = WORK_ASSISTANT_SYSTEM_PROMPT
-            filtered_history = [msg for msg in history if msg['role'] in ['user', 'assistant']]
-            filtered_history, _ctx_meta_hist = _select_chat_history_for_llm_stream(
-                self.context_manager, session_id, task, filtered_history
-            )
-            if _ctx_meta_hist:
-                yield StreamMessageBuilder.build_ctx_meta(_ctx_meta_hist)
-            if filtered_history:
-                history_text = "\n".join([
-                    f"{'用户' if msg['role'] == 'user' else '助手'}: {msg['content']}"
-                    for msg in filtered_history
-                ])
-                user_prompt = f"【历史对话】\n{history_text}\n\n【当前用户问题】\n{task}"
-                self.debug.log_orchestrator_step("构建用户提示", {"has_history": True, "history_count": len(filtered_history)})
-            else:
-                user_prompt = task
-                self.debug.log_orchestrator_step("构建用户提示", {"has_history": False})
-            config_block = get_config_block_for_prompt()
-            if config_block:
-                user_prompt = config_block + "\n\n" + user_prompt
-                self.debug.log_orchestrator_step("注入工作配置", {"length": len(config_block)})
-        elif is_general_chat:
+        if is_general_chat:
             # 通用对话：CHAT 提示词，可调用全部工具，支持历史+参考块
             # 支持 session metadata 中的 persona（限定身份）与 enabled_tools（工具选择）
             system_prompt = CHAT_SYSTEM_PROMPT
@@ -1925,9 +1859,9 @@ class UnifiedOrchestrator:
                     yield StreamMessageBuilder.build_debug(debug_info)
         
         # 5. 检查是否启用自主执行（优先于技能匹配）
-        # 写作助手、工作助手不调用工具，禁止走自主执行
-        ctx_type_for_auto = (context or {}).get("context_type")
-        skip_autonomous_for_ctx = ctx_type_for_auto in ("article_writing", "work_assistant")
+        # 写作助手不调用工具，禁止走自主执行
+        _auto_ctx = resolve_and_normalize_stream_context_type(context or {}, session_id, self.context_manager)
+        skip_autonomous_for_ctx = _auto_ctx == "article_writing"
         autonomous_execution_enabled = (
             not skip_autonomous_for_ctx
             and os.getenv("ENABLE_AUTONOMOUS_EXECUTION", "false").lower() == "true"
@@ -2292,7 +2226,6 @@ class UnifiedOrchestrator:
                         preamble_mode,
                         branch="skill",
                         ctx_type=ctx_type,
-                        is_work_assistant=is_work_assistant,
                         is_general_chat=is_general_chat,
                         matched_skill_name=matched_skill.name,
                         selected_model=selected_model,
@@ -2486,18 +2419,14 @@ class UnifiedOrchestrator:
                     "payload": {
                         "path": "llm_stream_or_tools",
                         "agent_for_tools": (
-                            "work_assistant"
-                            if is_work_assistant
-                            else ("general_chat" if is_general_chat else "article_writing")
+                            "general_chat" if is_general_chat else "article_writing"
                         ),
                     },
                 }
             )
         
-        # 获取工具定义（工作助手/写文章不调用工具，通用对话用 chat 工具）
-        if is_work_assistant:
-            agent_for_tools = "work_assistant"
-        elif is_general_chat:
+        # 获取工具定义（写文章不调用工具，通用对话用 chat 工具）
+        if is_general_chat:
             agent_for_tools = "general_chat"
         else:
             agent_for_tools = "article_writing"
@@ -2546,7 +2475,6 @@ class UnifiedOrchestrator:
                     preamble_mode,
                     branch="llm_tools",
                     ctx_type=ctx_type,
-                    is_work_assistant=is_work_assistant,
                     is_general_chat=is_general_chat,
                     matched_skill_name=None,
                     selected_model=selected_model,
@@ -2636,7 +2564,6 @@ class UnifiedOrchestrator:
                 preamble_mode,
                 branch="llm_plain",
                 ctx_type=ctx_type,
-                is_work_assistant=is_work_assistant,
                 is_general_chat=is_general_chat,
                 matched_skill_name=None,
                 selected_model=selected_model,

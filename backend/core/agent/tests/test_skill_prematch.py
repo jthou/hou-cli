@@ -15,17 +15,18 @@ def test_skill_registry_match_allowed_false_when_assistants_ctx_and_flag():
 
     old = os.environ.get("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS")
     try:
-        # 默认（未设置）：写作/工作助手不调用 match
+        # 默认（未设置）：写作助手不调用 match
         os.environ.pop("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS", None)
         assert skill_registry_match_allowed("article_writing", "x") is False
-        assert skill_registry_match_allowed("work_assistant", "x") is False
+        # work_assistant 已归一为 general_chat 逻辑；此处直接测 legacy id：不禁用预匹配，且非 general_chat 门控
+        assert skill_registry_match_allowed("work_assistant", "x") is True
 
         os.environ["DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS"] = "false"
         assert skill_registry_match_allowed("article_writing", "x") is True
 
         os.environ["DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS"] = "true"
         assert skill_registry_match_allowed("article_writing", "x") is False
-        assert skill_registry_match_allowed("work_assistant", "x") is False
+        assert skill_registry_match_allowed("work_assistant", "x") is True
         assert skill_registry_match_allowed("general_chat", "你好") is False
     finally:
         if old is None:

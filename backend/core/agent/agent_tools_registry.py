@@ -37,7 +37,6 @@ CHAT_TOOLS = [
 AGENT_TOOLS: Dict[str, List[str]] = {
     "chat": CHAT_TOOLS,
     "article_writing": [],  # 写文章仅依据参考信息+用户提问，不调用工具
-    "work_assistant": [],   # 工作助手不调用工具，仅基于知识作答
     "general_chat": CHAT_TOOLS,  # 通用对话：可调用全部工具，支持会话+参考块
     # 以下 agent 在审计页有系统提示但无 LLM 工具调用，tools 为空
     "orchestrator_selector": [],
@@ -66,7 +65,6 @@ AGENT_SKILLS: Dict[str, List[str]] = {
         "article_style_apply",
         "writing_profile_summary",
     ],
-    "work_assistant": [],  # 工作助手不匹配技能
     # general_chat 未配置，使用全部技能（video_*, blog_writing 等）
 }
 
@@ -89,7 +87,7 @@ def get_tools_for_llm_by_agent(
     """
     从 LLM 格式的工具定义列表中筛出该 agent 配备的工具。
     tools_for_llm: ToolRegistry.get_tools_for_llm() 的返回值。
-    若 agent 配置为空（如 work_assistant、article_writing），返回空列表。
+    若 agent 配置为空（如 article_writing），返回空列表。
     """
     names = get_tool_names_for_agent(agent_id)
     if not names:

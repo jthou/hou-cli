@@ -1,4 +1,4 @@
-"""DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS：写作/工作助手跳过技能预匹配（编排阶段 1）"""
+"""DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS：写作助手跳过技能预匹配（编排阶段 1）"""
 import os
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -20,7 +20,7 @@ class TestDisableSkillPrematchFlag:
     def test_helper_only_true_when_env_and_ctx(self, orchestrator):
         with patch.dict(os.environ, {"DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS": "true"}, clear=False):
             assert disable_skill_prematch_for_assistants("article_writing") is True
-            assert disable_skill_prematch_for_assistants("work_assistant") is True
+            assert disable_skill_prematch_for_assistants("work_assistant") is False
             assert disable_skill_prematch_for_assistants("general_chat") is False
             assert disable_skill_prematch_for_assistants(None) is False
         with patch.dict(os.environ, {"DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS": "false"}, clear=False):

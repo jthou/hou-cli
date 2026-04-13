@@ -23,11 +23,17 @@ class TestContextTypeRouting:
         return Orchestrator()
 
     @pytest.mark.asyncio
-    async def test_work_assistant_uses_work_assistant_system_prompt(self, orchestrator):
-        async def fake_stream(*args, **kwargs):
+    async def test_legacy_work_assistant_context_uses_general_chat_tools_path(self, orchestrator):
+        """metadata/context 仍为 work_assistant 时归一为 general_chat，走带工具的 CHAT 提示（非旧工作助手专模）。"""
+
+        def _tools_stream_impl(*args, **kwargs):
             sp = kwargs.get("system_prompt") or ""
-            assert "软件架构师的工作助手" in sp
-            yield "ok"
+            assert "你是一个智能助手" in sp
+
+            async def _gen():
+                yield "ok"
+
+            return _gen()
 
         with patch.object(
             orchestrator.skill_registry,
@@ -36,9 +42,9 @@ class TestContextTypeRouting:
             return_value=None,
         ):
             with patch.object(
-                orchestrator.llm_service,
-                "stream_chat",
-                side_effect=fake_stream,
+                orchestrator,
+                "_chat_with_tools_stream",
+                side_effect=_tools_stream_impl,
             ):
                 chunks = []
                 async for c in orchestrator.stream_process(
@@ -80,13 +86,17 @@ class TestContextTypeRouting:
                 assert "ok" in _content_text(chunks)
 
     @pytest.mark.asyncio
-    async def test_code_assistant_falls_into_article_writing_branch(self, orchestrator):
-        """Orchestrator 无 code_assistant 专用分支：未识别的 context_type 走写文章提示词分支（与实现一致）。"""
+    async def test_legacy_code_assistant_context_uses_general_chat_tools_path(self, orchestrator):
+        """code_assistant 与 work 相同：归一为 general_chat。"""
 
-        async def fake_stream(*args, **kwargs):
+        def _tools_stream_impl(*args, **kwargs):
             sp = kwargs.get("system_prompt") or ""
-            assert "写作助手" in sp
-            yield "ok"
+            assert "你是一个智能助手" in sp
+
+            async def _gen():
+                yield "ok"
+
+            return _gen()
 
         with patch.object(
             orchestrator.skill_registry,
@@ -95,9 +105,9 @@ class TestContextTypeRouting:
             return_value=None,
         ):
             with patch.object(
-                orchestrator.llm_service,
-                "stream_chat",
-                side_effect=fake_stream,
+                orchestrator,
+                "_chat_with_tools_stream",
+                side_effect=_tools_stream_impl,
             ):
                 chunks = []
                 async for c in orchestrator.stream_process(

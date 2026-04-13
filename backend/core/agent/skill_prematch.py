@@ -19,10 +19,10 @@ __all__ = [
 
 def disable_skill_prematch_for_assistants(ctx_type: Optional[str]) -> bool:
     """
-    写作/工作助手是否跳过 skill_registry.match（返回 True = 不调 match）。
-    时间：2026-04-04；理由：registry.match 把整段 user_input 塞进另一次阻塞式 chat，长草稿场景下首字前可卡数–十分钟，易被误判为「模型慢」；方法：article_writing / work_assistant 默认跳过，仅 DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS=false 时恢复预匹配。
+    写作助手是否跳过 skill_registry.match（返回 True = 不调 match）。
+    时间：2026-04-04；理由：registry.match 把整段 user_input 塞进另一次阻塞式 chat，长草稿场景下首字前可卡数–十分钟，易被误判为「模型慢」；方法：article_writing 默认跳过；2026-04-05 work_assistant 已归一为 general_chat，不再单独分支。
     """
-    if ctx_type not in ("article_writing", "work_assistant"):
+    if ctx_type != "article_writing":
         return False
     raw = (os.getenv("DISABLE_SKILL_PREMATCH_FOR_ASSISTANTS") or "true").lower().strip()
     if raw in ("false", "0", "no", "off"):

@@ -216,6 +216,10 @@ Orchestrator (工具注册)
 AI Agent (使用工具)
 ```
 
+## Cursor MCP（stdio）
+
+仓库提供 `scripts/mcp_mediawiki_server.py`：在 Cursor `mcpServers` 中配置 `command` + `cwd` 指向项目根，即可使用工具 **`hou_mediawiki_search`**、**`hou_mediawiki_get_page`**、**`hou_mediawiki_save_page`**、**`hou_mediawiki_parse_preview`**、**`hou_mediawiki_ping`**（与 `MediaWikiClientService` 同源，依赖同上 `.env`）。
+
 ## 相关文档
 
 - [MediaWiki API 文档](https://www.mediawiki.org/wiki/API:Main_page)

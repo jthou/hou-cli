@@ -5,8 +5,7 @@
 验证项：
 1. get_skill_names_for_agent 按 context_type 正确过滤
 2. 写作助手仅匹配 4 个写作技能
-3. 工作助手不匹配任何技能
-4. 通用对话使用全部技能
+3. 通用对话使用全部技能
 """
 import pytest
 from backend.core.agent.agent_tools_registry import (
@@ -30,11 +29,9 @@ class TestSkillFilterByAgent:
         }
         assert len(allowed) == 4
 
-    def test_work_assistant_empty(self):
-        """工作助手不匹配任何技能"""
-        allowed = get_skill_names_for_agent("work_assistant")
-        assert allowed is not None
-        assert allowed == []
+    def test_removed_agent_id_falls_back_to_all_skills(self):
+        """已下线的 agent id 未在 AGENT_SKILLS 中配置时，与 unknown 相同返回 None（全量技能）。"""
+        assert get_skill_names_for_agent("work_assistant") is None
 
     def test_general_chat_uses_all(self):
         """通用对话未配置，使用全部技能（返回 None）"""

@@ -32,17 +32,12 @@ def resolve_stream_agent_preamble_mode(context: Optional[Dict]) -> StreamPreambl
 
 def _role_label(
     ctx_type: Optional[str],
-    is_work_assistant: bool,
     is_general_chat: bool,
 ) -> str:
-    if is_work_assistant:
-        return "工作助手Agent"
     if is_general_chat:
         return "通用对话Agent"
     if ctx_type == "article_writing":
         return "写作助手Agent"
-    if ctx_type == "code_assistant":
-        return "代码助手Agent"
     return "写作助手Agent"
 
 
@@ -51,7 +46,6 @@ def iter_stream_preamble_text(
     *,
     branch: Literal["skill", "llm_tools", "llm_plain"],
     ctx_type: Optional[str],
-    is_work_assistant: bool,
     is_general_chat: bool,
     matched_skill_name: Optional[str],
     selected_model: Optional[str],
@@ -70,7 +64,7 @@ def iter_stream_preamble_text(
             )
         return
 
-    role = _role_label(ctx_type, is_work_assistant, is_general_chat)
+    role = _role_label(ctx_type, is_general_chat)
     yield f"【我是{role}】\n\n"
 
     if mode != "full":
@@ -82,7 +76,7 @@ def iter_stream_preamble_text(
         f"选用模型={model_s}",
     ]
     if skill_prematch_skipped:
-        parts.append("技能预匹配=按配置跳过（写作/工作助手关抢答）")
+        parts.append("技能预匹配=按配置跳过（写作助手关抢答）")
     else:
         parts.append("技能预匹配=未命中，进入主对话/工具路径")
     if branch == "llm_tools":

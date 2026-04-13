@@ -1,18 +1,18 @@
 {
-  "total_files": 1528,
-  "total_lines": 417961,
+  "total_files": 1536,
+  "total_lines": 417995,
   "by_language": {
     "other": {
       "files": 32,
-      "lines": 72283
+      "lines": 72304
     },
     "python": {
-      "files": 700,
-      "lines": 116967
+      "files": 706,
+      "lines": 117939
     },
     "markdown": {
-      "files": 564,
-      "lines": 175436
+      "files": 570,
+      "lines": 175816
     },
     "shell": {
       "files": 36,
@@ -24,7 +24,7 @@
     },
     "json": {
       "files": 13,
-      "lines": 12435
+      "lines": 12447
     },
     "html": {
       "files": 2,
@@ -35,8 +35,8 @@
       "lines": 691
     },
     "jsx": {
-      "files": 106,
-      "lines": 26113
+      "files": 102,
+      "lines": 24762
     },
     "yaml": {
       "files": 7,
@@ -46,19 +46,19 @@
   "by_directory": {
     ".": {
       "files": 12,
-      "lines": 10342
+      "lines": 10363
     },
     "extension": {
       "files": 6,
       "lines": 2220
     },
     "frontend": {
-      "files": 198,
-      "lines": 50360
+      "files": 194,
+      "lines": 49009
     },
     "plans": {
-      "files": 162,
-      "lines": 73736
+      "files": 168,
+      "lines": 74112
     },
     "config": {
       "files": 3,
@@ -69,8 +69,8 @@
       "lines": 295
     },
     "tests": {
-      "files": 81,
-      "lines": 9317
+      "files": 83,
+      "lines": 9409
     },
     "gvim-protocol-handler": {
       "files": 6,
@@ -78,15 +78,15 @@
     },
     "backend": {
       "files": 573,
-      "lines": 153477
+      "lines": 153307
     },
     "shared": {
       "files": 12,
-      "lines": 1181
+      "lines": 1190
     },
     "docs": {
       "files": 347,
-      "lines": 104088
+      "lines": 104100
     },
     "ppt_out_lm_11": {
       "files": 3,
@@ -105,13 +105,13 @@
       "lines": 138
     },
     "scripts": {
-      "files": 94,
-      "lines": 10683
+      "files": 98,
+      "lines": 11728
     },
     "archived": {
       "files": 21,
       "lines": 1341
     }
   },
-  "generated_at": "2026-04-11T11:37:38.164333Z"
+  "generated_at": "2026-04-12T09:02:36.043783Z"
 }

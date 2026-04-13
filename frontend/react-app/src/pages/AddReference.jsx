@@ -1,5 +1,5 @@
 /**
- * 统一添加参考：将内容加入写作助手、工作助手或通用对话的会话上下文
+ * 统一添加参考：将内容加入写作助手或通用对话的会话上下文
  * 从 Wiki、网页阅读、字幕、草稿等页面跳转，选择目标会话后添加并跳转
  *
  * 时间：2026-04-11；理由：今日 AI 热点摘要→公众号写作需摘要进「参考」而非右侧成稿；方法：state.autoCreateArticleWriting 时自动新建 article_writing 会话并跳转写作页
@@ -13,15 +13,12 @@ import { saveReferenceBlocks, loadReferenceBlocks } from '../utils/articleWritin
 import { deriveRefTitle, generateReferenceBlockId } from '../utils/referenceUtils'
 
 const ARTICLE_TYPE = 'article_writing'
-const WORK_TYPE = 'work_assistant'
 const GENERAL_TYPE = 'general_chat'
 const ARTICLE_STORAGE_KEY = 'article_writing_selected_session_id'
-const WORK_STORAGE_KEY = 'work_assistant_selected_session'
 const GENERAL_STORAGE_KEY = 'general_chat_selected_session'
 
 const TYPE_CONFIG = {
   [ARTICLE_TYPE]: { label: '写作助手', path: '/article-writing', storageKey: ARTICLE_STORAGE_KEY },
-  [WORK_TYPE]: { label: '工作助手', path: '/work-assistant', storageKey: WORK_STORAGE_KEY },
   [GENERAL_TYPE]: { label: '通用对话', path: '/general-chat', storageKey: GENERAL_STORAGE_KEY },
 }
 
@@ -35,7 +32,6 @@ export default function AddReference() {
   const autoArticleWriting = Boolean(location.state?.autoCreateArticleWriting)
 
   const [articleSessions, setArticleSessions] = useState([])
-  const [workSessions, setWorkSessions] = useState([])
   const [generalSessions, setGeneralSessions] = useState([])
   const [loading, setLoading] = useState(true)
   const [autoSeeding, setAutoSeeding] = useState(autoArticleWriting && Boolean(content.trim()))
@@ -102,12 +98,10 @@ export default function AddReference() {
     }
     Promise.all([
       fetch(`/api/sessions/list?type=${ARTICLE_TYPE}&limit=50`).then((r) => r.json()),
-      fetch(`/api/sessions/list?type=${WORK_TYPE}&limit=50`).then((r) => r.json()),
       fetch(`/api/sessions/list?type=${GENERAL_TYPE}&limit=50`).then((r) => r.json()),
     ])
-      .then(([a, w, g]) => {
+      .then(([a, g]) => {
         setArticleSessions(a.sessions || [])
-        setWorkSessions(w.sessions || [])
         setGeneralSessions(g.sessions || [])
       })
       .catch(() => {})
@@ -197,7 +191,7 @@ export default function AddReference() {
         {loading ? (
           <p className="text-muted text-sm">加载会话列表…</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
             <SessionSelectSection
               title="写作助手"
               typeBadge="写作助手"
@@ -205,14 +199,6 @@ export default function AddReference() {
               onSelect={(id) => handleSelect(ARTICLE_TYPE, id)}
               onNewAndAdd={() => handleNewAndAdd(ARTICLE_TYPE)}
               emptyMessage="暂无写作助手会话"
-            />
-            <SessionSelectSection
-              title="工作助手"
-              typeBadge="工作助手"
-              sessions={workSessions}
-              onSelect={(id) => handleSelect(WORK_TYPE, id)}
-              onNewAndAdd={() => handleNewAndAdd(WORK_TYPE)}
-              emptyMessage="暂无工作助手会话"
             />
             <SessionSelectSection
               title="通用对话"

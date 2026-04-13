@@ -10,7 +10,6 @@ router = APIRouter()
 # 每项: (agent_id, name, model_keys_or_expr, description)
 AGENT_MODEL_MAPPING = [
     ("chat", "通用对话", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
-    ("work_assistant", "工作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("article_writing", "写作助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("ppt_assistant", "PPT 助手", ["CHAT_MODEL", "CODE_MODEL", "REASONING_MODEL"], "用户可选具体模型"),
     ("orchestrator_selector", "智能编排选择器", ["DEEPSEEK_MODEL", "BAILIAN_MODEL", "TURBOGATEWAY_MODEL"], "LLM_PROVIDER 决定"),

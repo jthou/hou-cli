@@ -47,11 +47,17 @@ class MediaWikiClientService:
             bot_name: Bot 用户名（优先使用）
             bot_password: Bot 密码（优先使用）
         """
-        self.url = url or os.getenv("MEDIAWIKI_URL", "http://www.jthou.com/mediawiki")
-        self.username = username or os.getenv("MEDIAWIKI_USERNAME")
-        self.password = password or os.getenv("MEDIAWIKI_PASSWORD")
-        self.bot_name = bot_name or os.getenv("MEDIAWIKI_BOT_NAME")
-        self.bot_password = bot_password or os.getenv("MEDIAWIKI_BOT_PASSWORD")
+        def _cred(v: Optional[str]) -> Optional[str]:
+            if v is None:
+                return None
+            s = str(v).strip()
+            return s if s else None
+
+        self.url = (url or os.getenv("MEDIAWIKI_URL", "http://www.jthou.com/mediawiki") or "").strip()
+        self.username = _cred(username or os.getenv("MEDIAWIKI_USERNAME"))
+        self.password = _cred(password or os.getenv("MEDIAWIKI_PASSWORD"))
+        self.bot_name = _cred(bot_name or os.getenv("MEDIAWIKI_BOT_NAME"))
+        self.bot_password = _cred(bot_password or os.getenv("MEDIAWIKI_BOT_PASSWORD"))
         
         self.site: Optional[mwclient.Site] = None
         self._connected = False
@@ -82,34 +88,80 @@ class MediaWikiClientService:
                     f"Connecting to MediaWiki: scheme={scheme}, host={host}, path={path}"
                 )
 
-                if path == "/" or path == "":
-                    self.site = mwclient.Site(host, scheme=scheme)
-                else:
-                    path_with_slash = path if path.endswith("/") else path + "/"
-                    self.site = mwclient.Site(host, path=path_with_slash, scheme=scheme)
+                def _new_site() -> None:
+                    if path == "/" or path == "":
+                        self.site = mwclient.Site(host, scheme=scheme)
+                    else:
+                        path_with_slash = path if path.endswith("/") else path + "/"
+                        self.site = mwclient.Site(host, path=path_with_slash, scheme=scheme)
 
-                # 优先使用 Bot 认证
-                if self.bot_name and self.bot_password:
-                    try:
-                        self.site.login(self.bot_name, self.bot_password)
-                        logger.info(f"Connected to MediaWiki as bot: {self.bot_name}")
-                    except LoginError as e:
-                        logger.warning(f"Bot login failed: {e}, trying regular login")
-                        if self.username and self.password:
-                            self.site.login(self.username, self.password)
-                            logger.info(f"Connected to MediaWiki as user: {self.username}")
-                        else:
-                            raise MediaWikiClientError(f"Authentication failed: {e}")
-                elif self.username and self.password:
-                    self.site.login(self.username, self.password)
-                    logger.info(f"Connected to MediaWiki as user: {self.username}")
-                else:
-                    # 无认证连接（私有 Wiki 会触发 readapidenied；写操作/上传常见 badtoken/notloggedin）
+                # MEDIAWIKI_USE_BOT_PASSWORD=false：完全不尝试机器人密码
+                _use_bot_pw = (os.getenv("MEDIAWIKI_USE_BOT_PASSWORD") or "true").strip().lower() not in (
+                    "0",
+                    "false",
+                    "no",
+                    "off",
+                )
+                # 时间：2026-04-11；理由：MCP/脚本常遇「Bot 在 Wiki 侧须重置」导致整段失败，而主账号仍可用；方法：MEDIAWIKI_LOGIN_ORDER=user_first 时先主账号再 Bot；后端未设时默认 bot_first 保持兼容
+                _order = (os.getenv("MEDIAWIKI_LOGIN_ORDER") or "bot_first").strip().lower()
+                _user_first = _order in ("user_first", "user", "account_first")
+                _has_user = bool(self.username and self.password)
+                _has_bot = bool(_use_bot_pw and self.bot_name and self.bot_password)
+
+                if not _has_user and not _has_bot:
+                    _new_site()
                     logger.warning(
                         "Connected to MediaWiki without authentication. "
                         "Private wikis will fail with readapidenied. "
                         "Set MEDIAWIKI_BOT_NAME/MEDIAWIKI_BOT_PASSWORD or MEDIAWIKI_USERNAME/MEDIAWIKI_PASSWORD."
                     )
+                elif _user_first:
+                    if _has_user:
+                        _new_site()
+                        try:
+                            self.site.login(self.username, self.password)
+                            logger.info(f"Connected to MediaWiki as user: {self.username}")
+                        except LoginError as e_user:
+                            logger.warning(f"User login failed: {e_user}, trying bot if configured")
+                            if _has_bot:
+                                _new_site()
+                                self.site.login(self.bot_name, self.bot_password)
+                                logger.info(f"Connected to MediaWiki as bot: {self.bot_name}")
+                            else:
+                                raise MediaWikiClientError(f"Authentication failed: {e_user}") from e_user
+                    elif _has_bot:
+                        _new_site()
+                        self.site.login(self.bot_name, self.bot_password)
+                        logger.info(f"Connected to MediaWiki as bot: {self.bot_name}")
+                    else:
+                        _new_site()
+                        logger.warning(
+                            "Connected to MediaWiki without authentication (no valid credentials)."
+                        )
+                else:
+                    # bot_first：与历史行为一致，Bot 失败后新建 Site 再试主账号
+                    if _has_bot:
+                        _new_site()
+                        try:
+                            self.site.login(self.bot_name, self.bot_password)
+                            logger.info(f"Connected to MediaWiki as bot: {self.bot_name}")
+                        except LoginError as e:
+                            logger.warning(f"Bot login failed: {e}, trying regular login")
+                            if _has_user:
+                                _new_site()
+                                self.site.login(self.username, self.password)
+                                logger.info(f"Connected to MediaWiki as user: {self.username}")
+                            else:
+                                raise MediaWikiClientError(f"Authentication failed: {e}") from e
+                    elif _has_user:
+                        _new_site()
+                        self.site.login(self.username, self.password)
+                        logger.info(f"Connected to MediaWiki as user: {self.username}")
+                    else:
+                        _new_site()
+                        logger.warning(
+                            "Connected to MediaWiki without authentication (no valid credentials)."
+                        )
 
                 self._connected = True
                 return True

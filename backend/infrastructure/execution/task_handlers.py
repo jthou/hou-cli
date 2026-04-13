@@ -653,7 +653,7 @@ TASK_TYPES = {
     },
     "comic": {
         "name": "漫画生成",
-        "description": "将文章或故事转化为知识漫画（基于 baoyu-comic）。支持 TheTurbo.ai、万相图生。需 ANTHROPIC_API_KEY 或 TURBOGATEWAY_API_KEY，及 .baoyu-skills/.env 中图生 API（DASHSCOPE 万相等）。",
+        "description": "将文章或故事转化为知识漫画。支持 TheTurbo.ai、万相图生。需 ANTHROPIC_API_KEY 或 TURBOGATEWAY_API_KEY，及 .baoyu-skills/.env 中图生 API（DASHSCOPE 万相等）。",
         "pipeline_outputs": [
             {
                 "path": "result.data.output_dir",

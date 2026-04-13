@@ -1,6 +1,6 @@
 ---
 name: ai-hot-news-summary
-description: Searches the web for today's AI trending news and returns a rich, multi-section cited digest using hou-cli's google_search stack (Tavily when TAVILY_API_KEY is set, else DuckDuckGo). Applies to Cursor IDE agents and hou-cli runtime agents. Use when the user asks for 今日 AI 热点、AI 资讯摘要、latest AI news with depth—or use task type ai_hot_news_digest in the Web UI / task queue for the same pipeline server-side.
+description: 联网检索今日 AI 热点，多板块 + 摘录 + 完整引用；要求言之有物、结论必有检索依据、禁臆断妄断；禁通稿腔与无锚点学术空话。工具：hou-cli google_search（Tavily / DuckDuckGo）。Cursor 或任务 ai_hot_news_digest。
 ---
 
 # 今日 AI 热点：联网检索与**深度**摘要
@@ -16,7 +16,19 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 ## 目标
 
-用**真实联网结果**回答「今天 AI 圈发生了什么」，输出**足够厚、可核对**的摘要：**不是标题堆砌**，而是带**背景、要点展开、数字/主体、交叉观察**与**完整引用**；禁止凭训练记忆编造「今日」事实。
+用**真实联网结果**回答「今天 AI 圈发生了什么」，输出**足够厚、可核对**的摘要：**不是标题堆砌**，而是带**背景、要点展开、数字/主体**与**完整引用**；禁止凭训练记忆编造「今日」事实。
+
+### 读者收获优先（与「深度」同等重要）
+
+- **执行摘要里每一句**都要让读者**多知道一件可转述的事**（谁、动作、时间或数量级、出处方向）；**禁止**整段只有「产业情绪」「回归理性」「转向落地」等**无主体、无日期、无链接**的判断句。
+- **分主题正文**：禁止用**学术名词或大词**代替事实（如单写「GraphRAG / Agentic RAG 缓解多跳」却不交代**哪篇材料、哪款产品、哪项指标**）；若检索未给出具体出处，**宁可不写该句**，不写「研究普遍指出」类空话。
+- **人类读完的收获**：能向同事复述**至少几条带标题/公司/链接的「今天新发生的事」**；不是读完只记得「要重视安全与评测」却**举不出任何一条今日素材**。
+
+### 言之有物 · 有据 · 不臆断
+
+- **言之有物**：少写「行业进入新阶段」类**放到任何一周都能说**的句子；多写**今日检索里出现的**具体事件（谁、做了什么、数字或时间点、来源）。
+- **避免无根据的结论**：所有「将」「必然」「本质是」「标志着」须能**指回某条检索结果**（正文或参考资料中有链接/摘录）；指不回则删或改成**「检索未显示」**。
+- **避免臆想与妄下结论**：不补写素材里没有的**融资额、人事、政策条文、产品路线图**；不猜测「真实意图」「幕后博弈」；因果链条**一步一出处**，否则不写或明确标注**推测且待核**。
 
 ## 「今天」日期：如何获得（必读，防错）
 
@@ -61,7 +73,7 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 ### 1. 执行摘要（必读）
 
-- **3～6 句**连贯中文（或用户语言），概括**当日/当周最重要 2～4 件事**、**为何重要**（对产业/用户/监管的影响各用一两笔点到即可）。
+- **3～6 句**连贯中文（或用户语言），概括**当日/当周最重要 2～4 件事**；**每句至少含一个可核对锚点**（公司/产品/政策机构/数据/日期之一 + 与正文引用对应）；「为何重要」**用一笔具体机制或影响**写清，**禁止**单独堆「系统化」「一体化」「理性回归」而无主体。
 
 ### 2. 分主题正文（必读，要有厚度）
 
@@ -81,7 +93,8 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 ### 3. 交叉观察（选填，有则写）
 
-- **1 段（4～8 句）**：不同主题之间的联系（例如「融资收紧 + 推理成本下降 → 中小模型策略」）；**仅基于检索内容归纳**，勿纯臆测；可写「检索未覆盖长期趋势，以下为当日信息粗浅串联」。
+- **1 段（4～8 句）**：只写**当日素材里已出现的具体事实之间**的可解释关系（仍须**点得出是哪几条新闻**、读者能跟着你的逻辑复述）；**禁止**写成另一篇「产业哲学」或「正确的废话」（无事件主语、无数据、无链接的泛论整段删掉）。
+- **仅基于检索内容归纳**，勿纯臆测；素材不足时可写一句「当日检索未形成可支撑的跨主题链条，本节从略」——**禁止**为填段硬编宏观叙事。
 
 ### 4. 检索说明（必读，简短）
 
@@ -103,6 +116,8 @@ description: Searches the web for today's AI trending news and returns a rich, m
 - 无工具调用却声称已做「今日」联网检索。
 - 只有标题+链接、无展开与摘录。
 - 编造检索中未出现的金额、日期、发言人或文件名称。
+- **产业通稿腔**：通篇「业界」「生态」「体系化」「一体化」却无**具体公司/产品/政策条款/时间**；**学术名词当结论**而无论文名、产品名或评测名支撑。
+- **无检索支撑的断定**、**填补素材空白**的叙事、把**推测**写成**已证实**。
 
 ## 在仓库内验证（可选）
 
@@ -147,3 +162,4 @@ description: Searches the web for today's AI trending news and returns a rich, m
 
 - 引用与多源格式：`backend/core/agent/system_prompt_templates.py` → `CHAT_SYSTEM_PROMPT`。
 - 实现路径：[reference.md](reference.md)。
+- 热点摘要 → 选题 → 公众号成稿编排（主编管道）：[../wechat-mp-ai-news-pipeline/SKILL.md](../wechat-mp-ai-news-pipeline/SKILL.md)。

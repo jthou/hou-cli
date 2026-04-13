@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 
 /**
  * 获取可选模型列表，按供应商分组
- * @param {{ context?: 'article_writing' | 'ppt_assistant' | 'work_assistant' }} [options] - 场景默认模型（见 /api/models/selectable）
+ * @param {{ context?: 'article_writing' | 'ppt_assistant' }} [options] - 场景默认模型（见 /api/models/selectable）
  * @returns {{
  *   models: Array<{value: string, label: string}>,
  *   providers: Array<{id: string, label: string, models: Array<{value: string, label: string}>}>,

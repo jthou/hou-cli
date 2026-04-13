@@ -45,30 +45,12 @@ async def quick_test():
         print("❌ LiteLLM代理未在端口4000运行")
     sock.close()
 
-    # 检查技能是否安装
-    comic_skill_path = ROOT / ".agents" / "skills" / "baoyu-comic"
-    image_skill_path = ROOT / ".agents" / "skills" / "baoyu-image-gen"
-
-    print(f"✓ baoyu-comic 技能: {'存在' if comic_skill_path.exists() else '缺失'}")
-    print(f"✓ baoyu-image-gen 技能: {'存在' if image_skill_path.exists() else '缺失'}")
-
-    # 检查符号链接
-    claude_comic = ROOT / ".claude" / "skills" / "baoyu-comic"
-    claude_image = ROOT / ".claude" / "skills" / "baoyu-image-gen"
-
-    print(f"✓ .claude/skills/baoyu-comic 链接: {'存在' if claude_comic.exists() else '缺失'}")
-    print(f"✓ .claude/skills/baoyu-image-gen 链接: {'存在' if claude_image.exists() else '缺失'}")
-
     print("\n=== 配置状态总结 ===")
     all_good = all([
         dashscope_key,
         baoyu_env_path.exists(),
         'DASHSCOPE_API_KEY' in baoyu_env_path.read_text() if baoyu_env_path.exists() else False,
         result == 0,  # LiteLLM running
-        comic_skill_path.exists(),
-        image_skill_path.exists(),
-        claude_comic.exists(),
-        claude_image.exists()
     ])
 
     if all_good:
